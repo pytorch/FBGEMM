@@ -1946,15 +1946,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
-        if self.cache_assoc in [32, 64]:
-            # 64 for AMD
-            self.prefetch_32way(indices, offsets)
-        elif self.cache_assoc == 1:
-            self.prefetch_1way(indices, offsets)
-        else:
-            raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
-
-    def prefetch_32way(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
         # pyre-fixme[29]:
@@ -1977,10 +1968,18 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.record_cache_metrics.record_cache_miss_counter
             or self.record_cache_metrics.record_tablewise_cache_miss
         ):
-            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_cache_hash_size,
+            lxu_cache_locations = (
+                torch.ops.fbgemm.lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_cache_hash_size,
+                )
+                if self.cache_assoc in [32, 64]
+                else torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_cache_hash_size,
+                )
             )
             if self.record_cache_metrics.record_cache_miss_counter:
                 self._update_cache_miss_counter(
@@ -1991,6 +1990,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     lxu_cache_locations, linear_cache_indices, offsets
                 )
 
+        if self.cache_assoc in [32, 64]:
+            # 64 for AMD
+            self.prefetch_32way(linear_cache_indices)
+        elif self.cache_assoc == 1:
+            self.prefetch_1way(linear_cache_indices)
+        else:
+            raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
+
+    def prefetch_32way(self, linear_cache_indices: Tensor) -> None:
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fbgemm.lru_cache_populate_byte(
                 self.weights_uvm,
@@ -2032,43 +2040,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
-    def prefetch_1way(self, indices: Tensor, offsets: Tensor) -> None:
-        self.timestep_counter.increment()
-        self.timestep_prefetch_size.increment()
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
-        if not self.lxu_cache_weights.numel():
-            return
-
-        # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
-        # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
-        indices, offsets = indices.long(), offsets.long()
-
-        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
-            self.cache_hash_size_cumsum,
-            indices,
-            offsets,
-        )
-
-        if (
-            self.record_cache_metrics.record_cache_miss_counter
-            or self.record_cache_metrics.record_tablewise_cache_miss
-        ):
-            lxu_cache_locations = torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_cache_hash_size,
-            )
-            if self.record_cache_metrics.record_cache_miss_counter:
-                self._update_cache_miss_counter(
-                    lxu_cache_locations, linear_cache_indices
-                )
-            if self.record_cache_metrics.record_tablewise_cache_miss:
-                self._update_tablewise_cache_miss(
-                    lxu_cache_locations, linear_cache_indices, offsets
-                )
-
+    def prefetch_1way(self, linear_cache_indices: Tensor) -> None:
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fbgemm.direct_mapped_lru_cache_populate_byte(
                 self.weights_uvm,
@@ -2751,7 +2723,30 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             device=self.current_device,
             dtype=torch.int64,
         )
-        # Internal function for now
+
+        lxu_cache_locations = None
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
+        if self.lxu_cache_weights.numel() > 0:
+            linear_cache_indices = (
+                torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+                    self.cache_hash_size_cumsum,
+                    update_table_indices,
+                    update_row_indices,
+                )
+            )
+
+            if self.cache_assoc in [32, 64]:
+                # 64 for AMD
+                self.prefetch_32way(linear_cache_indices)
+            elif self.cache_assoc == 1:
+                self.prefetch_1way(linear_cache_indices)
+            else:
+                raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
+
+            lxu_cache_locations = self.lxu_cache_locations_list.pop()
+
         torch.ops.fbgemm.emb_inplace_update(
             dev_weights=self.weights_host if self.host_size > 0 else self.weights_dev,
             uvm_weights=self.weights_uvm,
@@ -2764,4 +2759,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             update_row_indices=update_row_indices,
             update_offsets=update_offsets,
             row_alignment=self.row_alignment,
+            lxu_cache_weights=self.lxu_cache_weights,
+            lxu_cache_locations=lxu_cache_locations,
         )

@@ -314,6 +314,81 @@ Tensor linearize_cache_indices_cuda(
   return linear_cache_indices;
 }
 
+namespace {
+
+template <typename index_t>
+__global__
+__launch_bounds__(kMaxThreads) void linearize_cache_indices_from_row_idx_kernel(
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        cache_hash_size_cumsum,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        update_table_indices,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        update_row_indices,
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        linear_cache_indices) {
+  const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= update_row_indices.size(0)) {
+    return;
+  }
+  const int table_index = update_table_indices[index];
+
+  const auto max_offset =
+      ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
+  const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[table_index]);
+  if (curr_offset >= 0 && update_row_indices[index] >= 0) {
+    linear_cache_indices[index] = update_row_indices[index] + curr_offset;
+  } else {
+    // Either table index is wrong, or index value is negative (due to pruning):
+    // set it to invalid value.
+    linear_cache_indices[index] = max_offset;
+  }
+}
+
+} // namespace
+
+Tensor linearize_cache_indices_from_row_idx_cuda(
+    Tensor cache_hash_size_cumsum,
+    Tensor update_table_indices,
+    Tensor update_row_indices) {
+  TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
+  TENSOR_ON_CUDA_GPU(update_table_indices);
+  TENSOR_ON_CUDA_GPU(update_row_indices);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(cache_hash_size_cumsum.get_device());
+
+  const auto T = cache_hash_size_cumsum.size(0) - 1;
+  TORCH_CHECK(T > 0);
+
+  auto linear_cache_indices = at::empty_like(update_row_indices);
+  const auto num_indices = update_row_indices.numel();
+  if (num_indices == 0) {
+    return linear_cache_indices;
+  }
+
+  AT_DISPATCH_INDEX_TYPES(
+      update_row_indices.scalar_type(),
+      "linearize_cache_indices_from_row_idx_kernel",
+      [&] {
+        linearize_cache_indices_from_row_idx_kernel<<<
+            div_round_up(num_indices, kMaxThreads),
+            kMaxThreads,
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+            cache_hash_size_cumsum
+                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            update_table_indices
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            update_row_indices
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            linear_cache_indices
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+  return linear_cache_indices;
+}
+
 std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
     Tensor linear_indices,
     int64_t max_indices,

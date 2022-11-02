@@ -4719,6 +4719,75 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
+    def test_linearize_cache_indices_from_row_idx(self) -> None:
+        update_row_indices = torch.tensor(
+            [10, 2, 3, 7, 1, 4, 5, 9, 2, 7, 6, 8, 5, 1, 0, 4],
+            dtype=torch.int,
+            device="cuda",
+        )
+        update_table_indices = torch.tensor(
+            [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3],
+            dtype=torch.int,
+            device="cuda",
+        )
+        varying_update_table_indices = torch.tensor(
+            [0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3],
+            dtype=torch.int,
+            device="cuda",
+        )
+
+        # Testing equal sized tables.
+        cache_hash_size_cumsum_0 = torch.tensor([0, 12, 24, 36, 48]).cuda()
+        linear_cache_indices_0 = torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+            cache_hash_size_cumsum_0,
+            update_table_indices,
+            update_row_indices,
+        )
+        self.assertTrue(
+            torch.equal(
+                linear_cache_indices_0.cpu(),
+                torch.tensor(
+                    [10, 2, 3, 7, 13, 16, 17, 21, 26, 31, 30, 32, 41, 37, 36, 40],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+        # Testing partially cached tables.
+        cache_hash_size_cumsum_1 = torch.tensor([0, 12, -1, 24, 36]).cuda()
+        linear_cache_indices_1 = torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+            cache_hash_size_cumsum_1,
+            update_table_indices,
+            update_row_indices,
+        )
+        self.assertTrue(
+            torch.equal(
+                linear_cache_indices_1.cpu(),
+                torch.tensor(
+                    [10, 2, 3, 7, 13, 16, 17, 21, 36, 36, 36, 36, 29, 25, 24, 28],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+        # Testing batched with varying pooling factor.
+        cache_hash_size_cumsum_2 = torch.tensor([0, 12, -1, 24, 36]).cuda()
+        linear_cache_indices_2 = torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+            cache_hash_size_cumsum_2,
+            varying_update_table_indices,
+            update_row_indices,
+        )
+        self.assertTrue(
+            torch.equal(
+                linear_cache_indices_2.cpu(),
+                torch.tensor(
+                    [10, 2, 3, 19, 13, 16, 17, 21, 36, 36, 36, 36, 36, 36, 24, 28],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         associativity=st.sampled_from(
             [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
