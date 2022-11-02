@@ -226,6 +226,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[torch.device] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
+        cache_assoc: int = 32,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -233,6 +234,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
         self.output_dtype: int = output_dtype.as_int()
+
+        # 64 for AMD
+        if cache_assoc == 32 and torch.version.hip is not None:
+            cache_assoc = 64
+        self.cache_assoc = cache_assoc
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -771,10 +777,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.record_cache_metrics.record_cache_miss_counter
             or self.record_cache_metrics.record_tablewise_cache_miss
         ):
-            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_cache_hash_size,
+            lxu_cache_locations = (
+                torch.ops.fbgemm.lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_cache_hash_size,
+                )
+                if self.cache_assoc in [32, 64]
+                else torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_cache_hash_size,
+                )
             )
             if self.record_cache_metrics.record_cache_miss_counter:
                 self._update_cache_miss_counter(
@@ -785,6 +799,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     lxu_cache_locations, linear_cache_indices, offsets
                 )
 
+        if self.cache_assoc in [32, 64]:
+            # 64 for AMD
+            self.prefetch_32way(linear_cache_indices)
+        elif self.cache_assoc == 1:
+            self.prefetch_1way(linear_cache_indices)
+        else:
+            raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
+
+    def prefetch_32way(self, linear_cache_indices: Tensor) -> None:
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fbgemm.lru_cache_populate(
                 self.weights_uvm,
@@ -820,6 +843,37 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
         self.lxu_cache_locations_list.append(
             torch.ops.fbgemm.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.total_cache_hash_size,
+            )
+        )
+
+    def prefetch_1way(self, linear_cache_indices: Tensor) -> None:
+        if self.cache_algorithm == CacheAlgorithm.LRU:
+            torch.ops.fbgemm.direct_mapped_lru_cache_populate_byte(
+                self.weights_uvm,
+                self.cache_hash_size_cumsum,
+                self.total_cache_hash_size,
+                self.cache_index_table_map,
+                self.weights_offsets,
+                self.weights_tys,
+                self.D_offsets,
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.lxu_cache_weights,
+                self.timestep,
+                self.lxu_state,
+                self.lxu_cache_miss_timestamp,
+            )
+        else:
+            raise ValueError("Direct Mapped for LRU only")
+
+        assert (
+            len(self.lxu_cache_locations_list) < self.max_prefetch_depth
+        ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
+        self.lxu_cache_locations_list.append(
+            torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
                 self.total_cache_hash_size,
@@ -1655,10 +1709,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
-        # 64 for AMD
-        if cache_assoc == 32 and torch.version.hip is not None:
-            cache_assoc = 64
-
         if device is None:
             self.current_device: torch.device = torch.device(
                 torch.cuda.current_device()
@@ -1681,6 +1731,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         dims: List[int] = [e[2] for e in embedding_specs]
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+
+        # 64 for AMD
+        if cache_assoc == 32 and torch.version.hip is not None:
+            cache_assoc = 64
+        self.cache_assoc = cache_assoc
 
         if row_alignment is None:
             self.row_alignment: int = 1 if self.use_cpu else 16
@@ -1956,7 +2011,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
         # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
-        indices, offsets = indices.long(), offsets.long()
+        (indices, offsets) = indices.long(), offsets.long()
 
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
