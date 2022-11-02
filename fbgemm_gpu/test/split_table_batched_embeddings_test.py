@@ -289,9 +289,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             raise RuntimeError("Unknown PoolingMode!")
 
         E = int(10**log_E)
-        if use_cpu:
-            D = (D + 15) // 16 * 4
-        else:
+        if not use_cpu:
             D = D * 4
         if not mixed:
             Ds = [D] * T
