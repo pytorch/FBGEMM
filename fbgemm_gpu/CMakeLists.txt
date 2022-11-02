@@ -314,8 +314,12 @@ if(NOT FBGEMM_CPU_ONLY)
     src/metric_ops_host.cpp)
 
   if(NVML_LIB_PATH)
-    list(APPEND fbgemm_gpu_sources_cpu src/merge_pooled_embeddings_cpu.cpp
-         src/merge_pooled_embeddings_gpu.cpp)
+    list(
+      APPEND
+      fbgemm_gpu_sources_cpu
+      src/merge_pooled_embeddings_cpu.cpp
+      src/merge_pooled_embeddings_gpu.cpp
+      src/topology_utils.cpp)
   endif()
 endif()
 
