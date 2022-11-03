@@ -9,6 +9,17 @@
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 
+// clang-format off
+#ifdef __HIP_PLATFORM_HCC__
+#define HIPCUB_ARCH 1
+#include <hipcub/backend/rocprim/block/block_scan.hpp>
+#else
+#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include <cub/block/block_scan.cuh>
+#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+#endif
+// clang-format on
+
 #include <cuda.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -28,6 +39,10 @@ using fint32 = union fint32 {
 namespace fbgemm_gpu {
 
 enum class PrimitiveType : uint8_t { FP = 0, INT = 1, BF = 2 };
+
+#ifdef __HIP_PLATFORM_HCC__
+namespace cub = hipcub;
+#endif
 
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
@@ -2715,5 +2730,54 @@ class FixedDivisor {
   uint64_t magic_;
   int shift_;
 };
+
+template <typename scalar_t, int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK>
+__inline__ __device__ void inclusive_sum_scan_kernel(
+    scalar_t (&arr)[ITEMS_PER_THREAD],
+    typename cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>::TempStorage&
+        temp_storage,
+    int* block_flags, // global flags for inter-block sync
+    scalar_t* block_sums, // global sums for inter-block sync
+    scalar_t* block_prev, // shared memory for previous sum sync within a block
+    const int num_entries_per_block,
+    const int block_id,
+    const bool is_multi_block,
+    const int signal) {
+  // Perform scan within a block
+  cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>(temp_storage)
+      .InclusiveSum(arr, arr);
+
+  // Perform stream scan across blocks
+  if (is_multi_block) {
+    // The thread that holds the last entry in the block does synchronization
+    if (threadIdx.x == (num_entries_per_block - 1) / ITEMS_PER_THREAD) {
+      scalar_t block_prev_local = 0;
+      if (block_id != 0) {
+        // Spin wait for the previous block to write the sum value
+        while (atomicAdd(&block_flags[block_id - 1], 0) < signal)
+          ;
+
+        // Get sum from the previous block
+        *block_prev = block_prev_local = block_sums[block_id - 1];
+      }
+
+      // Write sum to global memory for the next block to consume
+      const int scope = (num_entries_per_block - 1) % ITEMS_PER_THREAD;
+      block_sums[block_id] = block_prev_local + arr[scope];
+      __threadfence();
+      // Set a flag to notify the next block
+      atomicAdd(&block_flags[block_id], 1);
+    }
+
+    __syncthreads();
+
+    if (block_id != 0) {
+      scalar_t block_prev_local = *block_prev;
+      for (int i = 0; i < ITEMS_PER_THREAD; i++) {
+        arr[i] += block_prev_local;
+      }
+    }
+  }
+}
 
 } // namespace fbgemm_gpu

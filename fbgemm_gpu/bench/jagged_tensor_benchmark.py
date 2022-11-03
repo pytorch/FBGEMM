@@ -3,8 +3,9 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import functools
 import logging
-from typing import Tuple
+from typing import List, Tuple
 
 import click
 import fbgemm_gpu
@@ -274,6 +275,151 @@ def masked_select_jagged_1d(
 
     logging.info(f"reference {time_ref} sec {bytes / time_ref / 1e9} GB/s")
     logging.info(f"masked_select_jagged_1d {time} sec {bytes / time / 1e9} GB/s")
+
+
+@cli.command()
+@click.option("--num-batches", type=int, default=40)
+@click.option("--max-seq-length", type=int, default=400)
+@click.option("--input-batch-size", type=int, default=1024)
+@click.option("--output-batch-size", type=int, default=512)
+@click.option("--jagged-tensor-type", type=str, default="float")
+@click.option("--has-weights", is_flag=True, default=False)
+@click.option("--weight-type", type=str, default="float")
+def keyed_jagged_index_select_dim1(
+    num_batches: int,
+    max_seq_length: int,
+    input_batch_size: int,
+    output_batch_size: int,
+    jagged_tensor_type: str,
+    has_weights: bool,
+    weight_type: str,
+) -> None:
+    jagged_tensor_types = {
+        "float": torch.float,
+        "half": torch.half,
+        "int": torch.int,
+        "long": torch.long,
+    }
+    weight_types = {"float": torch.float, "half": torch.half}
+
+    if jagged_tensor_type not in jagged_tensor_types.keys():
+        raise AssertionError(
+            f"--jagged-tensor-type ({jagged_tensor_type}) is not supported"
+        )
+    if weight_type not in weight_types.keys():
+        raise AssertionError(f"--weight-type ({weight_type}) is not supported")
+
+    jagged_tensor_dtype = jagged_tensor_types[jagged_tensor_type]
+    is_float = jagged_tensor_dtype in [torch.float, torch.half]
+    weight_dtype = weight_types[weight_type]
+
+    lengths = torch.randint(
+        low=0,
+        high=max_seq_length,
+        size=(input_batch_size * num_batches,),
+        dtype=torch.long,
+        device="cuda",
+    )
+    # Imitate KeyedJaggedTensor offsets
+    offsets = torch.concat(
+        [torch.zeros(1, dtype=torch.long, device="cuda"), lengths.cumsum(0)]
+    )
+    indices = torch.randint(
+        low=0,
+        high=1,
+        size=(output_batch_size,),
+        dtype=torch.long,
+        device="cuda",
+    )
+    if is_float:
+        values = torch.rand(
+            int(offsets[-1].item()),
+            dtype=jagged_tensor_dtype,
+            device="cuda",
+        )
+    else:
+        values = torch.randint(
+            2**16,
+            (int(offsets[-1].item()),),
+            dtype=jagged_tensor_dtype,
+            device="cuda",
+        )
+    weights = (
+        torch.rand(int(offsets[-1].item()), dtype=weight_dtype, device="cuda")
+        if has_weights
+        else None
+    )
+
+    # Only float tensors can require grad
+    if is_float:
+        values.requires_grad = True
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.keyed_jagged_index_select_dim1,
+        (values, lengths, offsets, indices, input_batch_size, weights),
+        iters=1000,
+    )
+    output = output[0]
+
+    # Prepare inputs for the reference run
+    ref_inputs = []
+    for k in range(num_batches):
+        key_lengths = lengths[k * input_batch_size : (k + 1) * input_batch_size]
+        start_offset = offsets[k * input_batch_size]
+        end_offset = offsets[(k + 1) * input_batch_size]
+        key_values = values[start_offset:end_offset].view(-1, 1)
+        if has_weights:
+            # pyre-ignore[16]
+            key_weights = weights[start_offset:end_offset].view(-1, 1)
+        else:
+            key_weights = torch.empty(0)
+        ref_inputs.append((key_values, key_lengths, indices, key_weights))
+
+    def keyed_jagged_index_select_dim1_ref(
+        inputs: List[torch.Tensor],
+        has_weights: bool,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        outputs = []
+        output_weights = []
+        for key_values, key_lengths, indices, _ in inputs:
+            outputs.append(
+                torch.ops.fbgemm.jagged_index_select(key_values, key_lengths, indices)[
+                    0
+                ].view(-1)
+            )
+        if has_weights:
+            for _, key_lengths, indices, key_weights in inputs:
+                output_weights.append(
+                    torch.ops.fbgemm.jagged_index_select(
+                        key_weights, key_lengths, indices
+                    )[0].view(-1)
+                )
+        return torch.concat(outputs), torch.concat(
+            output_weights
+        ) if has_weights else torch.empty(0)
+
+    time_ref, output_ref = benchmark_torch_function(
+        keyed_jagged_index_select_dim1_ref, (ref_inputs, has_weights)
+    )
+    output_ref = output_ref[0]
+
+    logging.info(
+        f"keyed_jagged_index_select_dim1 forward time: {time * 1e3} ms, ref {time_ref * 1e3}"
+    )
+
+    if not is_float:
+        return
+
+    grad = torch.rand_like(output)
+    time, _ = benchmark_torch_function(
+        functools.partial(output.backward, retain_graph=True), (grad,), iters=1000
+    )
+    time_ref, _ = benchmark_torch_function(
+        functools.partial(output_ref.backward, retain_graph=True), (grad,), iters=1000
+    )
+    logging.info(
+        f"keyed_jagged_index_select_dim1 backward time: {time * 1e3} ms, ref {time_ref * 1e3}"
+    )
 
 
 if __name__ == "__main__":
