@@ -697,5 +697,32 @@ at::Tensor index_add_with_unique_indices_cuda(
     std::vector<int64_t>& input_shape,
     const int consecutive_range_start,
     const int consecutive_range_length);
+
+///@ingroup sparse-data-cuda
+std::vector<at::Tensor> group_index_select_cuda(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    const c10::TensorOptions& input_tensor_options,
+    const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& indices_scalar_type,
+    const c10::DeviceIndex& device,
+    const std::vector<int64_t>& output_shape,
+    const int num_input_rows,
+    const int num_output_rows,
+    const int num_cols,
+    const int num_groups);
+
+std::vector<at::Tensor> group_index_add_cuda(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    const c10::TensorOptions& input_tensor_options,
+    const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& indices_scalar_type,
+    const c10::DeviceIndex& device,
+    const std::vector<int64_t>& output_shape,
+    const int num_input_rows,
+    const int num_output_rows,
+    const int num_cols,
+    const int num_groups);
 #endif
 } // namespace fbgemm_gpu

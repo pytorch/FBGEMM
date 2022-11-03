@@ -2850,6 +2850,198 @@ Tensor index_add_with_unique_indices_cuda(
   return input_grad.reshape(input_shape);
 }
 
+template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
+__global__ __launch_bounds__(kMaxThreads) void group_index_select_2d_kernel(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    scalar_t* output,
+    const int64_t num_input_rows,
+    const int64_t num_output_rows,
+    const int64_t num_cols,
+    const int64_t num_groups) {
+  for (int64_t bid = threadIdx.y * gridDim.x + blockIdx.x;
+       bid < num_groups * num_output_rows;
+       bid += gridDim.x * blockDim.y) {
+    const int64_t group_id = bid / num_output_rows;
+    const int64_t row = bid % num_output_rows;
+    scalar_t* input = (scalar_t*)input_ptrs[group_id];
+    index_t* indices = (index_t*)indices_ptrs[group_id];
+    const index_t idx = indices[row];
+    CUDA_KERNEL_ASSERT(idx < num_input_rows)
+    int col;
+    scalar_t* output_ = output + (num_output_rows * num_cols * group_id);
+    for (col = threadIdx.x * UNROLL_FACTOR;
+         col < num_cols / UNROLL_FACTOR * UNROLL_FACTOR;
+         col += blockDim.x * UNROLL_FACTOR) {
+#pragma unroll
+      for (int i = 0; i < UNROLL_FACTOR; i++) {
+        output_[row * num_cols + col + i] =
+            LDG(&input[idx * num_cols + col + i]);
+      }
+    }
+    for (; col < num_cols; ++col) {
+      output_[row * num_cols + col] = LDG(&input[idx * num_cols + col]);
+    }
+  }
+}
+
+template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
+__global__ __launch_bounds__(kMaxThreads) void group_index_add_2d_kernel(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    scalar_t* output,
+    const int64_t num_input_rows,
+    const int64_t num_output_rows,
+    const int64_t num_cols,
+    const int64_t num_groups) {
+  for (int64_t bid = threadIdx.y * gridDim.x + blockIdx.x;
+       bid < num_groups * num_input_rows;
+       bid += gridDim.x * blockDim.y) {
+    const int64_t group_id = bid / num_input_rows;
+    const int64_t row = bid % num_input_rows;
+    scalar_t* input = (scalar_t*)input_ptrs[group_id];
+    index_t* indices = (index_t*)indices_ptrs[group_id];
+    const index_t idx = indices[row];
+    CUDA_KERNEL_ASSERT(idx < num_output_rows)
+    int col;
+    scalar_t* output_ = output + (num_output_rows * num_cols * group_id);
+    for (col = threadIdx.x * UNROLL_FACTOR;
+         col < num_cols / UNROLL_FACTOR * UNROLL_FACTOR;
+         col += blockDim.x * UNROLL_FACTOR) {
+#pragma unroll
+      for (int i = 0; i < UNROLL_FACTOR; i++) {
+        // PyTorch also uses atomicAdd.  It does not require sorting and
+        // provides better parallelism.  But this can lead to numerical
+        // indeterminisim.
+        gpuAtomicAddNoReturn(
+            &output_[idx * num_cols + col + i],
+            input[row * num_cols + col + i]);
+      }
+    }
+    for (; col < num_cols; ++col) {
+      gpuAtomicAddNoReturn(
+          &output[idx * num_cols + col], input[row * num_cols + col]);
+    }
+  }
+}
+
+std::vector<Tensor> group_index_select_cuda(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    const c10::TensorOptions& input_tensor_options,
+    const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& indices_scalar_type,
+    const c10::DeviceIndex& device,
+    const std::vector<int64_t>& output_shape,
+    const int num_input_rows,
+    const int num_output_rows,
+    const int num_cols,
+    const int num_groups) {
+  if (num_groups == 0) {
+    return std::vector<Tensor>();
+  }
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(device);
+
+  Tensor output = at::empty(output_shape, input_tensor_options);
+
+  // Partition work based on num_output_rows
+  const int UNROLL_FACTOR = 1;
+  uint32_t max_grid_size =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount * 8;
+  uint32_t grid_size = std::min(
+      cuda_calc_xblock_count(num_groups * num_output_rows, 1), max_grid_size);
+  uint32_t block_size_x =
+      std::min(div_round_up(num_cols, UNROLL_FACTOR), kMaxThreads);
+  uint32_t block_size_y =
+      std::max((num_groups * num_output_rows) / grid_size, (uint32_t)1);
+  dim3 block_size(
+      block_size_x,
+      std::min(block_size_y, (uint32_t)(kMaxThreads / block_size_x)),
+      1);
+
+  AT_DISPATCH_INDEX_TYPES(
+      indices_scalar_type, "group_index_select_2d_wrapper_1", [&] {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            input_scalar_type, "group_index_select_2d_wrapper_2", [&] {
+              group_index_select_2d_kernel<index_t, scalar_t, UNROLL_FACTOR>
+                  <<<grid_size,
+                     block_size,
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      input_ptrs,
+                      indices_ptrs,
+                      output.data_ptr<scalar_t>(),
+                      num_input_rows,
+                      num_output_rows,
+                      num_cols,
+                      num_groups);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      });
+
+  return output.split(num_output_rows, 0);
+}
+
+std::vector<Tensor> group_index_add_cuda(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    const c10::TensorOptions& input_tensor_options,
+    const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& indices_scalar_type,
+    const c10::DeviceIndex& device,
+    const std::vector<int64_t>& output_shape,
+    const int num_input_rows,
+    const int num_output_rows,
+    const int num_cols,
+    const int num_groups) {
+  if (num_groups == 0) {
+    return std::vector<Tensor>();
+  }
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(device);
+
+  Tensor output = at::zeros(output_shape, input_tensor_options);
+
+  // Partition work based on num_input_rows
+  const int UNROLL_FACTOR = 1;
+  uint32_t max_grid_size =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount * 8;
+  uint32_t grid_size = std::min(
+      cuda_calc_xblock_count(num_groups * num_input_rows, 1), max_grid_size);
+  uint32_t block_size_x =
+      std::min(div_round_up(num_cols, UNROLL_FACTOR), kMaxThreads);
+  uint32_t block_size_y =
+      std::max((num_groups * num_input_rows) / grid_size, (uint32_t)1);
+  dim3 block_size(
+      block_size_x,
+      std::min(block_size_y, (uint32_t)(kMaxThreads / block_size_x)),
+      1);
+
+  AT_DISPATCH_INDEX_TYPES(
+      indices_scalar_type, "group_index_add_2d_wrapper_1", [&] {
+        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            input_scalar_type, "group_index_add_2d_wrapper_2", [&] {
+              group_index_add_2d_kernel<index_t, scalar_t, UNROLL_FACTOR>
+                  <<<grid_size,
+                     block_size,
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      input_ptrs,
+                      indices_ptrs,
+                      output.data_ptr<scalar_t>(),
+                      num_input_rows,
+                      num_output_rows,
+                      num_cols,
+                      num_groups);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      });
+
+  return output.split(num_output_rows, 0);
+}
 // Copied from cupy/random/_kernels.py v11
 // (commit id 420e41fd41157d4cf526b0e94eb86a3f8eb5a231)
 
