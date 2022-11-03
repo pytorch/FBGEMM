@@ -2636,7 +2636,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets = torch.tensor([0] + list(accumulate(original_feature_rows))).int()
 
             if self.use_cpu:
-                self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
+                self.index_remapping_hash_table_cpu = (
+                    torch.classes.fbgemm.PrunedMapCPU()
+                )
                 self.index_remapping_hash_table_cpu.insert(
                     indices, dense_indices, offsets, T
                 )

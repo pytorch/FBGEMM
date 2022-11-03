@@ -4104,7 +4104,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         if use_cpu_hashtable:
-            ht = torch.classes.fb.PrunedMapCPU()
+            ht = torch.classes.fbgemm.PrunedMapCPU()
             ht.insert(indices, dense_indices, offsets, T)
 
         # Initialize and insert Array index remapping based data structure
