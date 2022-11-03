@@ -2464,6 +2464,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // replacement Along dim=-1, find smallest unique k. If the number of unique
   // elements is less than k, errors out.
   m.def("bottom_unique_k_per_row(Tensor input, int k) -> Tensor");
+  m.def(
+      "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, int batch_size, Tensor? weights=None) -> Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
