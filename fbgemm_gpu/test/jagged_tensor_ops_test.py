@@ -1332,6 +1332,128 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(masked_values, masked_values_ref)
         torch.testing.assert_close(masked_lengths, masked_lengths_ref)
 
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-ignore [56]
+    @given(
+        max_seq_length=st.integers(5, 10),
+        input_batch_size=st.integers(1, 128),
+        output_batch_size=st.integers(1, 128),
+        num_batches=st.integers(1, 3),
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from(
+            [torch.float, torch.half, torch.int, torch.long]
+        ),
+        has_weights=st.booleans(),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_keyed_jagged_index_select_dim1(
+        self,
+        max_seq_length: int,
+        input_batch_size: int,
+        output_batch_size: int,
+        num_batches: int,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+        has_weights: bool,
+    ) -> None:
+        is_float = jagged_tensor_dtype in [torch.float, torch.half]
+        lengths = torch.randint(
+            low=0,
+            high=max_seq_length,
+            size=(input_batch_size * num_batches,),
+            dtype=index_dtype,
+            device="cuda",
+        )
+        offsets = torch.concat(
+            [torch.zeros(1, dtype=torch.long, device="cuda"), lengths.cumsum(0)]
+        )
+        indices = torch.randint(
+            low=0,
+            high=1,
+            size=(output_batch_size,),
+            dtype=index_dtype,
+            device="cuda",
+        )
+        if is_float:
+            values = torch.rand(
+                int(offsets[-1].item()),
+                dtype=jagged_tensor_dtype,
+                device="cuda",
+            )
+        else:
+            values = torch.randint(
+                2**16,
+                (int(offsets[-1].item()),),
+                dtype=jagged_tensor_dtype,
+                device="cuda",
+            )
+        values_ref = values.detach().clone()
+        if has_weights:
+            weights = torch.rand(
+                int(offsets[-1].item()),
+                dtype=random.choice([torch.float, torch.half]),
+                device="cuda",
+            )
+        else:
+            weights = None
+
+        # Only float tensors can require grad
+        if is_float:
+            values.requires_grad = True
+            values_ref.requires_grad = True
+
+        index_select_output = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
+            values, lengths, offsets, indices, input_batch_size, weights
+        )
+        output = index_select_output[0]
+        if has_weights:
+            output_weights = index_select_output[2]
+
+        output_ref = []
+        output_weight_ref = []
+        for k in range(num_batches):
+            key_lengths = lengths[k * input_batch_size : (k + 1) * input_batch_size]
+            start_offset = offsets[k * input_batch_size]
+            end_offset = offsets[(k + 1) * input_batch_size]
+            key_values = values_ref[start_offset:end_offset].view(-1, 1)
+            output_ref.append(
+                torch.ops.fbgemm.jagged_index_select(key_values, key_lengths, indices)[
+                    0
+                ].view(-1)
+            )
+            if has_weights:
+                # pyre-ignore[16]
+                key_weights = weights[start_offset:end_offset].view(-1, 1)
+                output_weight_ref.append(
+                    torch.ops.fbgemm.jagged_index_select(
+                        key_weights, key_lengths, indices
+                    )[0].view(-1)
+                )
+
+        output_ref = torch.concat(output_ref)
+        assert torch.equal(output, output_ref)
+
+        if has_weights:
+            output_weight_ref = torch.concat(output_weight_ref)
+            # pyre-ignore[61]
+            assert torch.equal(output_weights, output_weight_ref)
+
+        if not is_float:
+            return
+
+        grad = torch.rand_like(output)
+        grad_ref = grad.detach().clone()
+
+        output.backward(grad)
+        output_ref.backward(grad_ref)
+
+        torch.testing.assert_close(
+            values.grad,
+            values_ref.grad,
+            rtol=1e-2 if jagged_tensor_dtype == torch.half else None,
+            atol=1e-2 if jagged_tensor_dtype == torch.half else None,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
