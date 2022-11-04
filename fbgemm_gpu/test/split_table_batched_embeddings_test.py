@@ -3580,6 +3580,38 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @given(
+        D=st.integers(min_value=1, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        row_alignment=st.sampled_from([1, 16, 32]),
+        scale_bias_size_in_bytes=st.sampled_from([4, 8]),
+    )
+    def test_int_nbit_split_embedding_codegen_init(
+        self, D: int, B: int, row_alignment: int, scale_bias_size_in_bytes: int
+    ) -> None:
+        op = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "feature_name",
+                    D,
+                    B,
+                    SparseType.FP32,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.HOST,
+                )
+            ],
+            device=torch.device("cpu"),
+            row_alignment=row_alignment,
+            scale_bias_size_in_bytes=scale_bias_size_in_bytes,
+            cacheline_alignment=False,
+            use_fp16=True,
+        )
+        self.assertEqual(op.row_alignment, row_alignment)
+        self.assertEqual(op.scale_bias_size_in_bytes, scale_bias_size_in_bytes)
+        self.assertEqual(len(op.embedding_specs), 1)
+        # Check the embedding spec is converted to FP16
+        self.assertEqual(list(op.embedding_specs)[0][3], SparseType.FP16)
+        self.assertEqual(op.host_size, D * round_up(B * 2, row_alignment))
+
+    @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
         do_pruning=st.booleans(),
