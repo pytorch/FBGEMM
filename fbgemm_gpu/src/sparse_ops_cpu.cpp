@@ -2380,23 +2380,26 @@ Tensor bottom_unique_k_per_row(const Tensor& input, const int64_t k) {
   Tensor output = at::empty({num_rows, k}, input.options());
   auto output_accessor = output.accessor<int64_t, 2>();
 
-  for (auto i : c10::irange(input_reshaped.size(0))) {
-    std::set<int64_t> s;
-    for (auto j : c10::irange(num_cols)) {
-      s.insert(input_accessor[i][j]);
-      if (s.size() == static_cast<size_t>(k)) {
-        break;
-      }
-    }
-    TORCH_CHECK(
-        s.size() == static_cast<size_t>(k),
-        "too skewed distribution (alpha too big)")
-    int j = 0;
-    for (int64_t x : s) {
-      output_accessor[i][j] = x;
-      ++j;
-    }
-  }
+  at::parallel_for(
+      0, input_reshaped.size(0), 1, [&](int64_t start, int64_t end) {
+        for (auto i = start; i < end; i++) {
+          std::set<int64_t> s;
+          for (auto j : c10::irange(num_cols)) {
+            s.insert(input_accessor[i][j]);
+            if (s.size() == static_cast<size_t>(k)) {
+              break;
+            }
+          }
+          TORCH_CHECK(
+              s.size() == static_cast<size_t>(k),
+              "too skewed distribution (alpha too big)")
+          int j = 0;
+          for (int64_t x : s) {
+            output_accessor[i][j] = x;
+            ++j;
+          }
+        }
+      });
 
   auto output_shape = input.sizes().vec();
   output_shape[output_shape.size() - 1] = k;
