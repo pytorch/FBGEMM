@@ -993,6 +993,16 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ),
         )
 
+    def test_zeros(self):
+        xval = torch.zeros(524288, 96, device="cuda")
+        xoff = torch.zeros(1025, dtype=torch.int64, device="cuda")
+        y0 = torch.zeros(1024, 512, 96, device="cuda")
+        y1 = torch.zeros(1024, 512, 96, device="cuda")
+        _, _ = torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+            xval, [xoff], y0, y1
+        )
+        torch.cuda.synchronize()
+
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 4),
