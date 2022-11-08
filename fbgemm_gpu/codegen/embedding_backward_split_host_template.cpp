@@ -32,6 +32,7 @@ Tensor split_embedding_codegen_forward_unweighted_cuda(
     int64_t pooling_mode,
     Tensor lxu_cache_locations,
     int64_t output_dtype,
+    int64_t weight_dtype,
     int64_t BT_block_size);
 
 Tensor split_embedding_codegen_forward_weighted_cuda(
@@ -49,6 +50,7 @@ Tensor split_embedding_codegen_forward_weighted_cuda(
     Tensor indice_weights,
     Tensor lxu_cache_locations,
     int64_t output_dtype,
+    int64_t weight_dtype,
     int64_t BT_block_size);
 
 Tensor split_embedding_codegen_grad_indice_weights_cuda(
@@ -57,6 +59,7 @@ Tensor split_embedding_codegen_grad_indice_weights_cuda(
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
+    int64_t weight_dtype,
     Tensor weights_offsets,
     Tensor D_offsets,
     int64_t max_D,
@@ -71,6 +74,7 @@ void split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
+    int64_t weight_dtype,
     Tensor weights_offsets,
     Tensor D_offsets,
     int64_t max_D,
@@ -91,6 +95,7 @@ void split_embedding_backward_codegen_{{ optimizer }}_weighted_exact_cuda(
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
+    int64_t weight_dtype,
     Tensor weights_offsets,
     Tensor D_offsets,
     int64_t max_D,
@@ -117,6 +122,7 @@ Tensor split_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor offsets,
     Tensor lxu_cache_locations,
     int64_t output_dtype,
+    int64_t weight_dtype,
     int64_t unused);
 
 void split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
@@ -125,6 +131,7 @@ void split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cud
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
+    int64_t weight_dtype,
     Tensor weights_offsets,
     int64_t D,
     Tensor hash_size_cumsum,
@@ -149,6 +156,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
+    int64_t weight_dtype,
     Tensor weights_offsets,
     {% if not nobag %}
     Tensor D_offsets,
@@ -181,6 +189,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     {% else %}
     ctx->saved_data["D"] = D;
     {% endif %}
+    ctx->saved_data["weight_dtype"] = weight_dtype;
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
     ctx->saved_data["gradient_clipping"] = gradient_clipping;
     ctx->saved_data["max_gradient"] = max_gradient;
@@ -199,11 +208,11 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     if (!indice_weights) {
         return {split_embedding_codegen_forward_unweighted_cuda(
         dev_weights, uvm_weights, lxu_cache_weights, weights_placements, weights_offsets,
-        D_offsets, total_D, max_D, indices, offsets, pooling_mode, lxu_cache_locations, output_dtype, BT_block_size)};
+        D_offsets, total_D, max_D, indices, offsets, pooling_mode, lxu_cache_locations, output_dtype, weight_dtype, BT_block_size)};
     }  else {
         return {split_embedding_codegen_forward_weighted_cuda(
         dev_weights, uvm_weights, lxu_cache_weights, weights_placements, weights_offsets,
-        D_offsets, total_D, max_D, indices, offsets, pooling_mode, *indice_weights, lxu_cache_locations, output_dtype, BT_block_size)};
+        D_offsets, total_D, max_D, indices, offsets, pooling_mode, *indice_weights, lxu_cache_locations, output_dtype, weight_dtype, BT_block_size)};
     }
     {% else %}
     return {split_embedding_nobag_codegen_forward_unweighted_cuda(
@@ -217,6 +226,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
       offsets,
       lxu_cache_locations,
       output_dtype,
+      weight_dtype,
       0)};
     {% endif %}
   }
@@ -253,6 +263,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     {% else %}
     auto D = ctx->saved_data["D"].toInt();
     {% endif %}
+    auto weight_dtype = ctx->saved_data["weight_dtype"].toInt();
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
     auto gradient_clipping = ctx->saved_data["gradient_clipping"].toBool();
     auto max_gradient = ctx->saved_data["max_gradient"].toDouble();
@@ -292,6 +303,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
           uvm_weights,
           lxu_cache_weights,
           weights_placements,
+          weight_dtype,
           weights_offsets,
           D_offsets,
           max_D,
@@ -312,6 +324,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
           Variable(), // uvm_weights
           Variable(), // lxu_cache_weights
           Variable(), // weights_placements
+          Variable(), // weight_dtype
           Variable(), // weights_offsets
           Variable(), // D_offsets
           Variable(), // total_D
@@ -336,6 +349,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
           uvm_weights,
           lxu_cache_weights,
           weights_placements,
+          weight_dtype,
           weights_offsets,
           D_offsets,
           max_D,
@@ -349,6 +363,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
           uvm_weights,
           lxu_cache_weights,
           weights_placements,
+          weight_dtype,
           weights_offsets,
           D_offsets,
           max_D,
@@ -370,6 +385,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
           Variable(), // uvm_weights
           Variable(), // lxu_cache_weights
           Variable(), // weights_placements
+          Variable(), // weight_dtype
           Variable(), // weights_offsets
           Variable(), // D_offsets
           Variable(), // total_D
@@ -396,6 +412,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
         uvm_weights,
         lxu_cache_weights,
         weights_placements,
+        weight_dtype,
         weights_offsets,
         D,
         hash_size_cumsum,
@@ -414,6 +431,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
         Variable(), // uvm_weights
         Variable(), // lxu_cache_weights
         Variable(), // weights_placements
+        Variable(), // weight_dtype
         Variable(), // weights_offsets
         Variable(), // D
         Variable(), // hash_size_cumsum
@@ -454,7 +472,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     double max_gradient,
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
+    int64_t weight_dtype = static_cast<int64_t>(SparseType::FP32)) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_{{ optimizer }}_Op::apply(
       placeholder_autograd_tensor,
@@ -463,6 +482,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
       uvm_weights,
       lxu_cache_weights,
       weights_placements,
+      weight_dtype,
       weights_offsets,
       max_D,
       hash_size_cumsum,
@@ -482,6 +502,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
       uvm_weights,
       lxu_cache_weights,
       weights_placements,
+      weight_dtype,
       weights_offsets,
       D_offsets,
       total_D,
@@ -502,7 +523,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0, int weight_dtype=0) -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
 

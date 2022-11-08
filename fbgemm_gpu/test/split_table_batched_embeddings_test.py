@@ -8,7 +8,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
-
+import logging
 import pickle
 import random
 import unittest
@@ -33,16 +33,18 @@ from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from hypothesis.strategies import composite
 from torch import Tensor
 
+logger: logging.Logger = logging.getLogger(__name__)
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
+    from test_utils import gpu_available, gpu_unavailable, skipIfRocm, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_unavailable,
+        skipIfRocm,
         TEST_WITH_ROCM,
     )
 
@@ -655,6 +657,191 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+        )
+
+    @skipIfRocm()
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_forward_gpu_no_cache_msfp(
+        self,
+    ) -> None:
+        weights_precision = SparseType.MSFP12
+        use_cpu = False
+        T = random.randint(1, 10)
+        D = random.randint(2, 256)
+        B = random.randint(1, 128)
+        L = random.randint(0, 20)
+        log_E = random.randint(3, 5)
+
+        ebits = 4
+        mbits = 7
+        bias = 14
+        bounding_box_size = 4
+        max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+        min_pos = 2 ** (1 - bias - mbits)
+
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                split_table_batched_embeddings_ops.PoolingMode.SUM,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
+            ]
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+            mode = "sum"
+            do_pooling = True
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+            mode = "mean"
+            do_pooling = True
+        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+            mode = "sum"
+            do_pooling = False
+        else:
+            # This proves that we have exhaustively checked all PoolingModes
+            raise RuntimeError("Unknown PoolingMode!")
+
+        E = int(10**log_E)
+        D = D * 4
+
+        Ds = [D] * T
+        Es = [int(1e4)] * T
+
+        print(f"test input: T {T} D {D} B {B} L {L} E {E}\n")
+        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+
+        managed = [
+            np.random.choice(
+                [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                ]
+            )
+            for _ in range(T)
+        ]
+        if do_pooling:
+            bs = [
+                to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
+                for (E, D) in zip(Es, Ds)
+            ]
+        else:
+            bs = [
+                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
+                #  `Embedding`.
+                to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
+                for (E, D) in zip(Es, Ds)
+            ]
+
+        for t in range(T):
+            weight_in_msfp = torch.ops.fbgemm.FloatToMSFPBytes(
+                bs[t].weight,
+                bounding_box_size,
+                ebits,
+                mbits,
+                bias,
+                min_pos,
+                max_pos,
+            )
+            bs[t].weight.data.copy_(
+                torch.ops.fbgemm.MSFPBytesToFloat(
+                    weight_in_msfp,
+                    Ds[t],
+                    bounding_box_size,
+                    ebits,
+                    mbits,
+                    bias,
+                )
+            )
+
+        xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
+        xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
+        xws_acc_type = copy.deepcopy(xws)
+
+        fs = (
+            [
+                b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
+                for (b, x) in zip(bs, xs)
+            ]
+            if not weighted
+            else [
+                b_indices(
+                    b,
+                    x,
+                    per_sample_weights=xw.view(-1),
+                    use_cpu=use_cpu,
+                    do_pooling=do_pooling,
+                )
+                for (b, x, xw) in zip(bs, xs, xws)
+            ]
+        )
+        if do_pooling:
+            f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+        else:
+            f = torch.cat(fs, dim=0).view(-1, D)
+
+        cc = emb_op(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation(M),
+                    compute_device,
+                )
+                for (E, D, M) in zip(Es, Ds, managed)
+            ],
+            weights_precision=weights_precision,
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,
+            learning_rate=0.05,
+            cache_algorithm=cache_algorithm,
+            pooling_mode=pooling_mode,
+            output_dtype=SparseType.FP32,
+        )
+        # NOTE: test TorchScript-compatible!
+        cc = torch.jit.script(cc)
+
+        for t in range(T):
+            max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+            min_pos = 2 ** (1 - bias - mbits)
+
+            cc.split_embedding_weights()[t].data.copy_(
+                torch.ops.fbgemm.FloatToMSFPBytes(
+                    bs[t].weight,
+                    bounding_box_size,
+                    ebits,
+                    mbits,
+                    bias,
+                    min_pos,
+                    max_pos,
+                )
+            )
+        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+
+        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
+        fc2 = (
+            cc(indices, offsets)
+            if not weighted
+            else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
+        )
+        tolerance = 8.0e-3
+        torch.testing.assert_close(
+            fc2.float(),
+            f.float(),
+            atol=tolerance,
+            rtol=tolerance,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -2026,6 +2213,305 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         y = cc(indices, offsets, per_sample_weights)
         y.sum().backward()
         # pyre-fixme[16]: `Optional` has no attribute `clone`.
+        indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
+        T_ = len(xws)
+        feature_requires_grad = to_device(
+            torch.tensor(np.random.choice([0, 1], replace=True, size=(T_,))).int(),
+            use_cpu,
+        )
+        per_sample_weights = per_sample_weights.detach().clone()
+        per_sample_weights.requires_grad = True
+        y = cc(
+            indices,
+            offsets,
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        )
+        y.sum().backward()
+        indice_weight_grad_mask = per_sample_weights.grad.clone().cpu()
+        for t in range(T_):
+            if feature_requires_grad[t]:
+                torch.testing.assert_close(
+                    indice_weight_grad_mask.view(T_, B, L)[t],
+                    indice_weight_grad_all.view(T_, B, L)[t],
+                )
+            else:
+                torch.testing.assert_close(
+                    indice_weight_grad_mask.view(T_, B, L)[t],
+                    torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
+                )
+
+    @skipIfRocm()
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weighted=st.booleans(),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+    )
+    def test_backward_adagrad_msfp_pmSUM(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weighted: bool,
+        output_dtype: SparseType,
+    ) -> None:
+
+        weights_precision = SparseType.MSFP12
+        stochastic_rounding = True
+        row_wise = True
+
+        use_cpu = False
+        exact = True
+        pooling_mode = split_table_batched_embeddings_ops.PoolingMode.SUM
+        do_pooling = True
+        mode = "sum"
+
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+
+        E = int(10**log_E)
+        D = D * 4
+        Ds = [D] * T
+        Es = [E] * T
+
+        ebits = 4
+        mbits = 7
+        bias = 14
+        bounding_box_size = 4
+        max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+        min_pos = 2 ** (1 - bias - mbits)
+
+        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+
+        managed = [
+            np.random.choice(
+                [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                ]
+            )
+            for _ in range(T)
+        ]
+        bs = [
+            to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
+            for (E, D) in zip(Es, Ds)
+        ]
+
+        feature_table_map = list(range(T))
+        if exact:
+            # autograd with shared embedding only works for exact
+            table_to_replicate = T // 2
+            bs.insert(table_to_replicate, bs[table_to_replicate])
+            feature_table_map.insert(table_to_replicate, table_to_replicate)
+
+        xs = [
+            to_device(
+                torch.from_numpy(
+                    np.random.choice(range(Es[t]), size=(B, L), replace=exact).astype(
+                        np.int64
+                    )
+                ),
+                use_cpu,
+            )
+            for t in feature_table_map
+        ]
+        xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(len(xs))]
+        xws_acc_type = copy.deepcopy(xws)
+
+        for t in range(T):
+            weight_in_msfp = torch.ops.fbgemm.FloatToMSFPBytes(
+                bs[t].weight,
+                bounding_box_size,
+                ebits,
+                mbits,
+                bias,
+                min_pos,
+                max_pos,
+            )
+            dequantized_weight = torch.ops.fbgemm.MSFPBytesToFloat(
+                weight_in_msfp,
+                Ds[t],
+                bounding_box_size,
+                ebits,
+                mbits,
+                bias,
+            )
+            bs[t].weight.data.copy_(dequantized_weight)
+
+        fs = (
+            [
+                b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
+                for (b, x) in zip(bs, xs)
+            ]
+            if not weighted
+            else [
+                b_indices(
+                    b,
+                    x,
+                    per_sample_weights=xw.view(-1),
+                    use_cpu=use_cpu,
+                    do_pooling=do_pooling,
+                )
+                for (b, x, xw) in zip(bs, xs, xws)
+            ]
+        )
+        gos = [torch.randn_like(f) for f in fs]
+        [f.backward(go) for (f, go) in zip(fs, gos)]
+        # do SGD update
+        lr = 0.5
+        eps = 0.2
+
+        optimizer = (
+            (OptimType.EXACT_ROWWISE_ADAGRAD if exact else OptimType.ROWWISE_ADAGRAD)
+            if row_wise
+            else OptimType.EXACT_ADAGRAD
+        )
+        cc = emb_op(
+            embedding_specs=[
+                (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
+            ],
+            feature_table_map=feature_table_map,
+            optimizer=optimizer,
+            learning_rate=lr,
+            eps=eps,
+            weights_precision=weights_precision,
+            stochastic_rounding=stochastic_rounding,
+            pooling_mode=pooling_mode,
+            output_dtype=output_dtype,
+        )
+
+        if exact:
+            # pyre-ignore [61]
+            del bs[table_to_replicate]
+        for t in range(T):
+            cc.split_embedding_weights()[t].data.copy_(
+                torch.ops.fbgemm.FloatToMSFPBytes(
+                    bs[t].weight,
+                    bounding_box_size,
+                    ebits,
+                    mbits,
+                    bias,
+                    min_pos,
+                    max_pos,
+                )
+            )
+
+        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+
+        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
+        fc2 = (
+            cc(indices, offsets)
+            if not weighted
+            else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
+        )
+        if do_pooling:
+            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
+        else:
+            goc = torch.cat(gos, dim=0)
+        fc2.backward(goc)
+        cc.flush()
+
+        split_optimizer_states = [s for (s,) in cc.split_optimizer_states()]
+        tolerance = 1.0e-2
+        for t in range(T):
+            # pyre-ignore [16]
+            ref_optimizer_state = bs[t].weight.grad.float().cpu().to_dense().pow(2)
+
+            torch.testing.assert_close(
+                split_optimizer_states[t].float().cpu(),
+                ref_optimizer_state.mean(dim=1) if row_wise else ref_optimizer_state,
+                atol=tolerance,
+                rtol=tolerance,
+            )
+        for t in range(T):
+            # optimizer_state = squares (no row-wise) or sum squares (row-wise)
+            dequantized_embedding_weights = torch.ops.fbgemm.MSFPBytesToFloat(
+                cc.split_embedding_weights()[t],
+                Ds[t],
+                bounding_box_size,
+                ebits,
+                mbits,
+                bias,
+            )
+            tensor1 = bs[t].weight.grad.float().cpu().to_dense()
+            tensor2 = (
+                split_optimizer_states[t]
+                .float()
+                .sqrt_()
+                .add_(eps)
+                .view(Es[t], 1 if row_wise else Ds[t])
+                .cpu()
+            )
+            manually_updated_embedding_weights = torch.addcdiv(
+                bs[t].weight.float().cpu(),
+                value=-lr,
+                tensor1=tensor1,
+                tensor2=tensor2,
+            )
+            logger.info(
+                f"dequantized_embedding_weights\n{dequantized_embedding_weights}"
+            )
+            logger.info(
+                f"manually_updated_embedding_weights\n{manually_updated_embedding_weights}"
+            )
+
+        if use_cpu:
+            D_gradcheck = (D_gradcheck + 15) // 16 * 4
+        else:
+            D_gradcheck = D_gradcheck * 4
+        cc = emb_op(
+            embedding_specs=[
+                (E, D_gradcheck, M, compute_device) for (E, M) in zip(Es, managed)
+            ],
+            feature_table_map=feature_table_map,
+            optimizer=optimizer,
+            learning_rate=0.0,
+            eps=eps,
+            weights_precision=weights_precision,
+            stochastic_rounding=stochastic_rounding,
+            # NOTE: only SUM pooling can work with per_sample_weights!
+            pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
+            output_dtype=output_dtype,
+        )
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
+        if use_cpu:
+            # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
+            cc = cc.double()
+            per_sample_weights = per_sample_weights.double()
+        per_sample_weights.requires_grad = True
+        indices.requires_grad = False
+        offsets.requires_grad = False
+        for param in cc.parameters():
+            param.requires_grad = False
+        torch.autograd.gradcheck(cc, (indices, offsets, per_sample_weights))
+
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
+        if use_cpu:
+            per_sample_weights = per_sample_weights.double()
+        per_sample_weights.requires_grad = True
+        indices.requires_grad = False
+        offsets.requires_grad = False
+        for param in cc.parameters():
+            param.requires_grad = False
+        y = cc(indices, offsets, per_sample_weights)
+        y.sum().backward()
+        # pyre-ignore [16]
         indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
         T_ = len(xws)
         feature_requires_grad = to_device(

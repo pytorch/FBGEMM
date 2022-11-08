@@ -169,4 +169,5 @@ def invoke(
             iter=iter,
             {% endif %}
             output_dtype=common_args.output_dtype,
+            weight_dtype=common_args.weight_dtype,
         )

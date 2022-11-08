@@ -106,6 +106,9 @@ def construct_split_state(
         ), f"embedding_dim must be a multiple of 4, but got {embedding_dim}"
         if precision == SparseType.INT8:
             embedding_dim += int8_emb_row_dim_offset
+        elif precision == SparseType.MSFP12:
+            # Assume block_size = 4
+            embedding_dim += embedding_dim // 4
         state_size = num_embeddings * embedding_dim if not rowwise else num_embeddings
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
@@ -232,6 +235,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
+        self.weight_dtype: int = weights_precision.as_int()
         self.output_dtype: int = output_dtype.as_int()
 
         if record_cache_metrics is not None:
@@ -653,6 +657,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=lxu_cache_locations,
             output_dtype=self.output_dtype,
+            weight_dtype=self.weight_dtype,
         )
 
         if self.optimizer == OptimType.EXACT_SGD:
@@ -897,6 +902,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 tmp_emb.uniform_(min_val, max_val)
                 tmp_emb_i8 = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(tmp_emb)
                 emb.data.copy_(tmp_emb_i8)
+        elif self.weights_precision == SparseType.MSFP12:
+            # TODO: skip the init for now because of OOM
+            for emb in splits:
+                assert (
+                    len(emb.shape) == 2
+                ), "MSFP12 embedding only supported for 2D weight tensors."
+                shape = [emb.shape[0], (4 * emb.shape[1]) // 5]
+                """
+                tmp_emb = torch.zeros(shape, device=self.current_device)
+                tmp_emb.uniform_(min_val, max_val)
+                bounding_box_size = 4
+                ebits = 4
+                mbits = 7
+                bias = 14
+                max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+                min_pos = 2 ** (1 - bias - mbits)
+                tmp_emb_msfp12 = torch.ops.fbgemm.FloatToMSFPBytes(
+                    tmp_emb, bounding_box_size, ebits, mbits, bias, min_pos, max_pos
+                )
+                emb.data.copy_(tmp_emb_msfp12)
+                """
         else:
             for param in splits:
                 param.uniform_(min_val, max_val)
@@ -910,6 +936,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
             if self.weights_precision == SparseType.INT8:
                 dim += self.int8_emb_row_dim_offset
+            elif self.weights_precision == SparseType.MSFP12:
+                dim += dim // 4
             # pyre-fixme[29]:
             #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
             #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
@@ -1567,6 +1595,7 @@ def unpadded_row_size_in_bytes(
         SparseType.INT8.value: dim + scale_bias_size_in_bytes,
         SparseType.INT4.value: dim // 2 + scale_bias_size_in_bytes,
         SparseType.INT2.value: dim // 4 + scale_bias_size_in_bytes,
+        SparseType.MSFP12.value: dim + dim // 4,
     }[weight_ty.value]
     return r
 
@@ -2540,6 +2569,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         (
                             weights_shifts[:, self.scale_bias_size_in_bytes :],
                             weights_shifts[:, : self.scale_bias_size_in_bytes],
+                        )
+                    )
+                elif weight_ty == SparseType.MSFP12:
+                    shared_expo_bytes = int(dim // 4)
+                    splits.append(
+                        (
+                            weights_shifts[:, shared_expo_bytes:],
+                            weights_shifts[:, :shared_expo_bytes],
                         )
                     )
                 else:

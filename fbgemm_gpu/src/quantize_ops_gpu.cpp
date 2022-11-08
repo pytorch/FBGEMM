@@ -58,4 +58,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("HFP8QuantizedToFloat", fbgemm_gpu::_hfp8_to_float_gpu);
   DISPATCH_TO_CUDA("FloatToMSFPQuantized", fbgemm_gpu::_float_to_msfp_gpu);
   DISPATCH_TO_CUDA("MSFPQuantizedToFloat", fbgemm_gpu::_msfp_to_float_gpu);
+  DISPATCH_TO_CUDA("FloatToMSFPBytes", fbgemm_gpu::_float_to_msfp_bytes_gpu);
+  DISPATCH_TO_CUDA("MSFPBytesToFloat", fbgemm_gpu::_msfp_bytes_to_float_gpu);
 }

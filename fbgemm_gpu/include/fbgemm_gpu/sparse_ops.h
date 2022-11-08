@@ -252,8 +252,31 @@ at::Tensor _float_to_msfp_gpu(
     const int64_t bias,
     const double min_pos,
     const double max_pos);
+at::Tensor _float_to_msfp_uint8_gpu(
+    const at::Tensor& input,
+    const int64_t bounding_box_size,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias,
+    const double min_pos,
+    const double max_pos);
 at::Tensor _msfp_to_float_gpu(
     const at::Tensor& input,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias);
+at::Tensor _float_to_msfp_bytes_gpu(
+    const at::Tensor& input,
+    const int64_t bounding_box_size,
+    const int64_t ebits,
+    const int64_t mbits,
+    const int64_t bias,
+    const double min_pos,
+    const double max_pos);
+at::Tensor _msfp_bytes_to_float_gpu(
+    const at::Tensor& input,
+    const int64_t bounding_box_size,
+    const int64_t dim,
     const int64_t ebits,
     const int64_t mbits,
     const int64_t bias);

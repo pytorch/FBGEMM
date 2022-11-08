@@ -20,7 +20,8 @@ enum class SparseType : uint8_t {
   INT2 = 4,
   BF16 = 5,
   FP8 = 6,
-  INVALID = 7,
+  MSFP12 = 7,
+  INVALID = 8,
 };
 
 enum class PoolingMode : uint8_t { SUM = 0, MEAN = 1, NONE = 2 };
@@ -53,6 +54,8 @@ inline at::ScalarType getScalarType(SparseType dtype) {
       return at::kQUInt4x2;
     case SparseType::INT2:
       return at::kQUInt2x4;
+    case SparseType::MSFP12:
+      return at::kByte;
     default:
       return at::ScalarType::Undefined;
   }
@@ -112,6 +115,9 @@ unpadded_row_size_in_bytes(int32_t dim, fbgemm_gpu::SparseType weight_ty) {
   }
   if (weight_ty == fbgemm_gpu::SparseType::INT2) {
     return dim / 4 + 4;
+  }
+  if (weight_ty == fbgemm_gpu::SparseType::MSFP12) {
+    return dim + int(dim / 4);
   }
   return 0;
 }

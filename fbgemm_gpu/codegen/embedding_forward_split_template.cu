@@ -34,6 +34,7 @@ template <
     typename cache_t,
     typename output_t,
     typename index_t,
+    int32_t weight_dtype,
     size_t kThreadGroupSize
     >
 __launch_bounds__(kForwardMaxThreads)
@@ -83,9 +84,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     weights = &dev_weights[weights_offset];
     {% endif %}
 
+    SparseType weight_precision = static_cast<SparseType>(weight_dtype);
     int32_t D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if (weight_precision == SparseType::INT8) {
         D_emb += kINT8QparamsBytes;
+    } else if (weight_precision == SparseType::MSFP12) {
+        D_emb += D/4;
     }
 
     const int32_t group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
@@ -121,8 +125,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
                 D,
                 nullptr);
             float2 qparams_emb;
-            if (std::is_same<emb_t, uint8_t>::value) {
+            uint8_t *shared_exponents_emb;
+            if (weight_precision == SparseType::INT8) {
                 qparams_emb = weight_row_emb.load_qparams();
+            } else if(weight_precision == SparseType::MSFP12) {
+                // load shared_exponents;
+                shared_exponents_emb = weight_row_emb.load_shared_exponents();
             }
 
             if (d < D) {
@@ -131,8 +139,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     weight.store(&output[output_j][d]);
                 } else {
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
-                    weight.store(&output[output_j][d]);
+                    Vec4T<cache_t> weight;
+                    if (weight_precision == SparseType::MSFP12) {
+                        weight = weight_row_emb.load(d, shared_exponents_emb, 4, 7, 14);
+                    } else {
+                        weight = weight_row_emb.load(d, qparams_emb);
+                    }
                 }
                 {% else %}
                     Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
@@ -154,6 +166,7 @@ template <
     bool use_lxu_cache,
     {% endif %}
     typename index_t,
+    int32_t weight_dtype,
     {% if not nobag %}
     size_t kMaxVecsPerThread,
     {% endif %}
@@ -228,8 +241,11 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     {% endif %}
 
     int32_t D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    SparseType weight_precision = static_cast<SparseType>(weight_dtype);
+    if (weight_precision == SparseType::INT8) {
         D_emb += kINT8QparamsBytes;
+    } else if (weight_precision == SparseType::MSFP12) {
+        D_emb += D/4;
     }
 
     constexpr int VEC_WIDTH = 4;
@@ -309,8 +325,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     D,
                     nullptr);
                 float2 qparams_emb;
-                if (std::is_same<emb_t, uint8_t>::value) {
+                uint8_t *shared_exponents_emb;
+                if (weight_precision == SparseType::INT8) {
                     qparams_emb = weight_row_emb.load_qparams();
+                } else if(weight_precision == SparseType::MSFP12) {
+                    // load shared_exponents;
+                    shared_exponents_emb = weight_row_emb.load_shared_exponents();
                 }
                 {% if not nobag %}
                 #pragma unroll kMaxVecsPerThread
@@ -318,7 +338,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
                     i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
                     int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
+                    Vec4T<cache_t> weight;
+                    if (weight_precision == SparseType::MSFP12) {
+                        weight = weight_row_emb.load(d, shared_exponents_emb, 4, 7, 14);
+                    } else {
+                        weight = weight_row_emb.load(d, qparams_emb);
+		            }
                     {% if weighted %}
                     accumulators[i].fma_(weight, idx_weight_j);
                     {% else %}
@@ -341,7 +366,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     }
 
     {% if not nobag %}
-    if (!std::is_same<output_t, uint8_t>::value) {
+    if (weight_precision != SparseType::INT8) {
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
         i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
@@ -411,6 +436,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     Tensor lxu_cache_locations,
     {% endif %}
     int64_t output_dtype,
+    {% if not dense %}
+    int64_t weight_dtype,
+    {% endif %}
     int64_t unused
 ) {
     TENSOR_ON_CUDA_GPU(dev_weights);
@@ -476,6 +504,11 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
     {% endif %}
 
+    int32_t weight_dtype_for_template = 0;
+    {% if not dense %}
+    weight_dtype_for_template = weight_dtype;
+    {% endif %}
+
     if (B == 0) {
         return output;
     }
@@ -514,38 +547,139 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 #else
                 constexpr int kThreadGroupSize = kWarpSize;
 #endif
-                {% if not dense %}
-                split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
-                {% else %}
-                dense_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
-                {% endif %}
-                    div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
-                    dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
-                    0,
-                    at::cuda::getCurrentCUDAStream()>>>(
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
                     {% if not dense %}
-                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::INT8), kMaxVecsPerThread, kThreadGroupSize><<<
+                    {% else %}
+                    dense_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::INT8), kMaxVecsPerThread, kThreadGroupSize><<<
                     {% endif %}
-                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    FixedDivisor(B),
-                    indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    pooling_mode,
-                    {% if weighted %}
-                    indice_weights.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
+                        div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
+                        dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
+                        0,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% if not dense %}
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        FixedDivisor(B),
+                        indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        pooling_mode,
+                        {% if weighted %}
+                        indice_weights.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        output.packed_accessor64<
+                            output_t,
+                            2,
+                            at::RestrictPtrTraits>()
+                        );
+                } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::MSFP12) {
                     {% if not dense %}
-                    lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::MSFP12), kMaxVecsPerThread, kThreadGroupSize><<<
+                    {% else %}
+                    dense_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::MSFP12), kMaxVecsPerThread, kThreadGroupSize><<<
                     {% endif %}
-                    output.packed_accessor64<
-                        output_t,
-                        2,
-                        at::RestrictPtrTraits>()
-                    );
+                        div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
+                        dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
+                        0,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% if not dense %}
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        FixedDivisor(B),
+                        indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        pooling_mode,
+                        {% if weighted %}
+                        indice_weights.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        output.packed_accessor64<
+                            output_t,
+                            2,
+                            at::RestrictPtrTraits>()
+                        );
+                } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::FP16) {
+                    {% if not dense %}
+                    split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::FP16), kMaxVecsPerThread, kThreadGroupSize><<<
+                    {% else %}
+                    dense_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP16), kMaxVecsPerThread, kThreadGroupSize><<<
+                    {% endif %}
+                        div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
+                        dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
+                        0,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% if not dense %}
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        FixedDivisor(B),
+                        indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        pooling_mode,
+                        {% if weighted %}
+                        indice_weights.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        output.packed_accessor64<
+                            output_t,
+                            2,
+                            at::RestrictPtrTraits>()
+                        );
+                } else {
+                    {% if not dense %}
+                    split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::FP32), kMaxVecsPerThread, kThreadGroupSize><<<
+                    {% else %}
+                    dense_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP32), kMaxVecsPerThread, kThreadGroupSize><<<
+                    {% endif %}
+                        div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
+                        dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
+                        0,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% if not dense %}
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        FixedDivisor(B),
+                        indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        pooling_mode,
+                        {% if weighted %}
+                        indice_weights.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        output.packed_accessor64<
+                            output_t,
+                            2,
+                            at::RestrictPtrTraits>()
+                        );
+                }
 
                 return;
             }
@@ -559,34 +693,123 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         {% else %}
         {% for kEmbeddingSize in [4, 8, 16, 32] %}
         if (D <= {{ kEmbeddingSize }}) {
-        {% if not dense %}
-        split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, {{ kEmbeddingSize // 4 }}><<<
-        {% else %}
-        dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, {{ kEmbeddingSize // 4 }}><<<
-        {% endif %}
-            div_round_up((B * T), kForwardMaxThreads / kWarpSize),
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+            if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
             {% if not dense %}
-            uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-            weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::INT8), {{ kEmbeddingSize // 4 }}><<<
+            {% else %}
+            dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::INT8), {{ kEmbeddingSize // 4 }}><<<
             {% endif %}
-            weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            D,
-            FixedDivisor(B),
-            indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                output.packed_accessor64<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+            } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::MSFP12) {
             {% if not dense %}
-            lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::MSFP12), {{ kEmbeddingSize // 4 }}><<<
+            {% else %}
+            dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::MSFP12), {{ kEmbeddingSize // 4 }}><<<
             {% endif %}
-            output.packed_accessor64<
-                output_t,
-                2,
-                at::RestrictPtrTraits>()
-            );
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                output.packed_accessor64<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+            } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::FP16) {
+            {% if not dense %}
+            split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP16), {{ kEmbeddingSize // 4 }}><<<
+            {% else %}
+            dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP16), {{ kEmbeddingSize // 4 }}><<<
+            {% endif %}
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                output.packed_accessor64<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+            } else {
+            {% if not dense %}
+            split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP32), {{ kEmbeddingSize // 4 }}><<<
+            {% else %}
+            dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP32), {{ kEmbeddingSize // 4 }}><<<
+            {% endif %}
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                output.packed_accessor64<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+            }
             return;
         }
         {% endfor %}
@@ -594,11 +817,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         // The dense case does not have cache so we have to generate code for
         // only one case (value of use_cache does not matter)
         {% if (not dense) or (use_cache == "true") %}
+        if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
         {% if not dense %}
         if (use_lxu_cache == {{ use_cache }}) {
-            split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t><<<
+        split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::INT8)><<<
         {% else %}
-            dense_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t><<<
+            dense_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::INT8)><<<
         {% endif %}
                 div_round_up((B * T), kForwardMaxThreads / kWarpSize),
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
@@ -627,6 +851,109 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         {% if not dense %}
         } // if (use_lxu_cache == {{ use_cache }})
         {% endif %}
+        } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::MSFP12) {
+            {% if not dense %}
+        if (use_lxu_cache == {{ use_cache }}) {
+        split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::MSFP12)><<<
+        {% else %}
+            dense_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::MSFP12)><<<
+        {% endif %}
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                output.packed_accessor64<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+                return;
+        {% if not dense %}
+        } // if (use_lxu_cache == {{ use_cache }})
+        {% endif %}
+        } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::FP16) {
+            {% if not dense %}
+        if (use_lxu_cache == {{ use_cache }}) {
+        split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::FP16)><<<
+        {% else %}
+            dense_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP16)><<<
+        {% endif %}
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                output.packed_accessor64<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+                return;
+        {% if not dense %}
+        } // if (use_lxu_cache == {{ use_cache }})
+        {% endif %}
+        } else {
+            {% if not dense %}
+        if (use_lxu_cache == {{ use_cache }}) {
+        split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, static_cast<int>(SparseType::FP32)><<<
+        {% else %}
+            dense_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t, static_cast<int>(SparseType::FP32)><<<
+        {% endif %}
+                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                0,
+                at::cuda::getCurrentCUDAStream()>>>(
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                D,
+                FixedDivisor(B),
+                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                {% endif %}
+                output.packed_accessor64<
+                    output_t,
+                    2,
+                    at::RestrictPtrTraits>()
+                );
+                return;
+        {% if not dense %}
+        } // if (use_lxu_cache == {{ use_cache }})
+        {% endif %}
+        }
         {% endif %} // if (not dense) or (use_cache == "true")
         {% endfor %} // for use_cache in ["false", "true"]
         {% endif %}

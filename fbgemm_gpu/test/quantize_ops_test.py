@@ -42,6 +42,7 @@ except Exception:
         fused_rowwise_nbit_quantize_reference,
         gpu_available,
         gpu_unavailable,
+        skipIfRocm,
     )
 
 no_long_tests: bool = False
@@ -811,8 +812,47 @@ class TestHFP8QuantizationConversion(unittest.TestCase):
         )
 
 
+class TestMSFPQuantizationConversions(unittest.TestCase):
+    @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm()
+    # pyre-ignore [56]
+    @given(
+        nrows=st.integers(min_value=1, max_value=100),
+        ncols=st.integers(min_value=1, max_value=100),
+    )
+    @settings(deadline=None, suppress_health_check=[HealthCheck.filter_too_much])
+    def test_quantize_and_dequantize_op(self, nrows: int, ncols: int) -> None:
+        ebits = 4
+        mbits = 7
+        bias = 14
+        max_pos = (1 << ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
+        min_pos = 2 ** (1 - bias - mbits)
+        bounding_box_size = 16
+        ncols = bounding_box_size * ncols
+        input_data = torch.FloatTensor(nrows, ncols).uniform_(-max_pos, max_pos).float()
+        quantized_data = torch.ops.fbgemm.FloatToMSFPBytes(
+            input_data.cuda(),
+            bounding_box_size,
+            ebits,
+            mbits,
+            bias,
+            min_pos,
+            max_pos,
+        )
+        dequantized_data = torch.ops.fbgemm.MSFPBytesToFloat(
+            quantized_data.cuda(), ncols, bounding_box_size, ebits, mbits, bias
+        )
+        torch.testing.assert_close(
+            dequantized_data.cpu(),
+            input_data,
+            rtol=1,
+            atol=0,
+        )
+
+
 class TestDenseMLPQuantizationConversion(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm()
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
