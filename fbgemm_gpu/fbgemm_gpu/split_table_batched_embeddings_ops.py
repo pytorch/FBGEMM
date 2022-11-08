@@ -1581,6 +1581,7 @@ def nbit_construct_split_state(
     cacheable: bool,
     row_alignment: int,
     scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    cacheline_alignment: bool = True,
 ) -> SplitState:
     placements = []
     offsets = []
@@ -1591,7 +1592,9 @@ def nbit_construct_split_state(
         embedding_dim = rounded_row_size_in_bytes(
             embedding_dim, weight_ty, row_alignment, scale_bias_size_in_bytes
         )
-        state_size = align_to_cacheline(num_embeddings * embedding_dim)
+        state_size = num_embeddings * embedding_dim
+        if cacheline_alignment:
+            state_size = align_to_cacheline(state_size)
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
             offsets.append(host_size)
@@ -1652,6 +1655,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         fp8_exponent_bits: Optional[int] = None,
         fp8_exponent_bias: Optional[int] = None,
         cache_assoc: int = 32,
+        scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+        cacheline_alignment: bool = True,
+        use_fp16: bool = False,  # If true, convert FP32 embeddings to FP16 before concat
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1669,10 +1675,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
 
-        self.scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES
+        self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
+        if use_fp16:
+            self._convert_fp32_embedding_specs_to_fp16()
         self.output_dtype: int = output_dtype.as_int()
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
@@ -1797,6 +1805,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cacheable=True,
             row_alignment=self.row_alignment,
             scale_bias_size_in_bytes=self.scale_bias_size_in_bytes,
+            cacheline_alignment=cacheline_alignment,
         )
 
         self.weights_physical_placements: List[int] = [
@@ -1894,6 +1903,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.fp8_exponent_bits = -1
             self.fp8_exponent_bias = -1
+
+    def _convert_fp32_embedding_specs_to_fp16(self) -> None:
+        # convert FP32 embedding specs to FP16 before tensor concatenation
+        for idx, embedding_spec in enumerate(self.embedding_specs):
+            embedding_spec_list = list(embedding_spec)
+            assert type(embedding_spec_list[3]) == SparseType
+            if embedding_spec_list[3] == SparseType.FP32:
+                embedding_spec_list[3] = SparseType.FP16
+                self.embedding_specs[idx] = tuple(embedding_spec_list)  # pyre-ignore
 
     def get_cache_miss_counter(self) -> Tensor:
         # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
