@@ -290,6 +290,7 @@ __launch_bounds__(kMaxThreads) void jagged_dense_dense_elementwise_jagged_output
         output_values,
     StackArray<int64_t> jagged_dims,
     F f) {
+  const int outer_dense_size = y_0.size(0);
   const int inner_dense_size = y_0.size(2);
   const int nnz = x_values.size(0);
 
@@ -328,6 +329,11 @@ __launch_bounds__(kMaxThreads) void jagged_dense_dense_elementwise_jagged_output
       offset_temp = first;
     }
 
+    if (offset_temp >= outer_dense_size) {
+      // This can happen when values have more elements than the last element of
+      // offset
+      truncated = true;
+    }
     if (!truncated) {
       const int oidx = offset_temp;
       int iidx;
