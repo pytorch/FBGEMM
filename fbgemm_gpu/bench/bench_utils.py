@@ -28,7 +28,9 @@ def benchmark_torch_function(
     iters: int = 10,
     num_warmups: int = 2,
     device: str = "cuda",
+    name: str = "",
 ) -> Tuple[float, Tensor]:
+    logging.info(f"Start to benchmark {name}...")
     if device != "" and device != "cuda":
         torch.cuda.set_device(device)
     for _ in range(num_warmups):
@@ -48,7 +50,8 @@ def benchmark_torch_function(
             if flush_gpu_cache_size_mb:
                 cache.zero_()
             start_event[i].record()
-            output = f(*args)
+            with torch.cuda.nvtx.range(f"RunCudaModule_{name}"):
+                output = f(*args)
             end_event[i].record()
         torch.cuda.synchronize(device)
         times = torch.tensor(
@@ -58,7 +61,8 @@ def benchmark_torch_function(
     else:
         start_time = time.time()
         for _ in range(iters):
-            output = f(*args)
+            with torch.cuda.nvtx.range(f"RunCPUModule_{name}"):
+                output = f(*args)
         elapsed_time = (time.time() - start_time) / iters
 
     # pyre-fixme[61]: `output` is undefined, or not always defined.
