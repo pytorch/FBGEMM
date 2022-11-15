@@ -880,13 +880,11 @@ def nbit_cpu(  # noqa C901
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
 @click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
-@click.option("--stoc", is_flag=True, default=False)
 @click.option("--managed", default="device")
 @click.option("--mixed", is_flag=True, default=False)
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=32)
 @click.option("--reuse", default=0.0)
-@click.option("--row-wise/--no-row-wise", default=True)
 @click.option("--weighted", is_flag=True, default=False)
 @click.option("--pooling", type=str, default="sum")
 @click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
@@ -910,13 +908,11 @@ def nbit_device(  # noqa C901
     batch_size: int,
     embedding_dim: int,
     weights_precision: SparseType,
-    stoc: bool,
     managed: str,
     mixed: bool,
     num_embeddings: int,
     num_tables: int,
     reuse: float,
-    row_wise: bool,
     weighted: bool,
     pooling: str,
     bounds_check_mode: int,
@@ -1147,6 +1143,253 @@ def nbit_device(  # noqa C901
             f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
             f"Effective BW: {bandwidth: .2f} GB/s, "  # noqa: B950
             f"Time: {time_per_iter_refer * 1.0e6:.0f}us "
+        )
+
+
+@cli.command()
+@click.option("--alpha", default=1.0)
+@click.option("--bag-size-list", type=str, default="20")
+@click.option("--batch-size", default=512)
+@click.option("--embedding-dim-list", type=str, default="128")
+@click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
+@click.option("--managed", default="device")
+@click.option("--mixed", is_flag=True, default=False)
+@click.option("--num-embeddings-list", type=str, default="100000")
+@click.option("--reuse", default=0.0)
+@click.option("--weighted", is_flag=True, default=False)
+@click.option("--pooling", type=str, default="sum")
+@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
+@click.option("--pruning-ratio", type=float, default=None)
+@click.option("--pruning-hash-load-factor", default=0.75)
+@click.option("--use-array-for-index-remapping", is_flag=True, default=True)
+@click.option("--check-median", is_flag=True, default=True)
+@click.option("--iters", default=100)
+@click.option("--runs-of-iters", default=5)
+@click.option("--warmup-runs", default=2)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
+@click.option("--report-aibench", is_flag=True)
+@click.option("--fp8-exponent-bits", type=int, default=None)
+@click.option("--fp8-exponent-bias", type=int, default=None)
+def nbit_device_with_spec(  # noqa C901
+    alpha: float,
+    bag_size_list: str,
+    batch_size: int,
+    embedding_dim_list: str,
+    weights_precision: SparseType,
+    managed: str,
+    mixed: bool,
+    num_embeddings_list: str,
+    reuse: float,
+    weighted: bool,
+    pooling: str,
+    bounds_check_mode: int,
+    pruning_ratio: Optional[float],
+    pruning_hash_load_factor: float,
+    use_array_for_index_remapping: bool,
+    check_median: bool,
+    iters: int,
+    runs_of_iters: int,
+    warmup_runs: int,
+    output_dtype: SparseType,
+    report_aibench: bool,
+    fp8_exponent_bits: Optional[int],
+    fp8_exponent_bias: Optional[int],
+) -> None:
+    np.random.seed(42)
+    torch.manual_seed(42)
+    B = batch_size
+    Ds = [int(D) for D in embedding_dim_list.split(",")]
+    Ls = [int(L) for L in bag_size_list.split(",")]
+    Es = [int(E) for E in num_embeddings_list.split(",")]
+    E = np.mean(Es)
+    D = np.mean(Ds)
+    L = np.mean(Ls)
+    T = len(Ds)
+    logging.info("TBE Spec:")
+    logging.info("#, E, D, L")
+    for i, (e, d, bag_size) in enumerate(zip(Es, Ds, Ls)):
+        logging.info(f"{i}, {e}, {d}, {bag_size}")
+    logging.info(f"Mean(Es) = {E}, Mean(Ds) = {D}, Mean(Ls) = {L}")
+    index_remapping = None
+
+    mem_for_pruning = 0
+    if pruning_ratio:
+        original_Es = Es
+        assert pruning_ratio < 1 and pruning_ratio >= 0
+        index_remapping = []
+        new_Es = []
+        for original_E in original_Es:
+            E = math.ceil(original_E * (1.0 - pruning_ratio))
+            mapping = torch.tensor([-1] * original_E, dtype=torch.int32)
+            selected_indices = random.sample(range(original_E), E)
+            for i, idx in enumerate(selected_indices):
+                mapping[idx] = i
+            index_remapping.append(mapping)
+            if use_array_for_index_remapping:
+                mem_for_pruning += mapping.numel() * 4
+            else:
+                mem_for_pruning += E / pruning_hash_load_factor * 2 * 4
+            new_Es.append(E)
+        Es = new_Es
+        E = np.mean(Es)
+        logging.info(f"After prunnig (pruning_ratio={pruning_ratio}")
+        logging.info("#, E, D, L")
+        for i, (e, d, bag_size) in enumerate(zip(Es, Ds, Ls)):
+            logging.info(f"{i}, {e}, {d}, {bag_size}")
+        logging.info(f"Mean(Es) = {E}, Mean(Ds) = {D}, Mean(Ls) = {L}")
+
+    if managed == "device":
+        managed_option = EmbeddingLocation.DEVICE
+    else:
+        managed_option = EmbeddingLocation.MANAGED
+
+    if pooling is None or pooling == "sum":
+        pooling = "sum"
+        pooling_mode = PoolingMode.SUM
+        do_pooling = True
+    elif pooling == "mean":
+        pooling_mode = PoolingMode.MEAN
+        do_pooling = True
+    else:  # "none"
+        pooling_mode = PoolingMode.NONE
+        do_pooling = False
+
+    emb = IntNBitTableBatchedEmbeddingBagsCodegen(
+        [("", e, d, weights_precision, managed_option) for d, e in zip(Ds, Es)],
+        bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+        index_remapping=index_remapping,
+        pruning_hash_load_factor=pruning_hash_load_factor,
+        use_array_for_index_remapping=use_array_for_index_remapping,
+        output_dtype=output_dtype,
+        pooling_mode=pooling_mode,
+        fp8_exponent_bits=fp8_exponent_bits,
+        fp8_exponent_bias=fp8_exponent_bias,
+    ).cuda()
+    emb.fill_random_weights()
+
+    nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    if do_pooling:
+        read_write_bytes = sum(
+            [
+                output_size_multiplier * B * d
+                + param_size_multiplier * B * T * bag_size * d
+                for bag_size, d in zip(Ls, Ds)
+            ]
+        )
+    else:
+        read_write_bytes = sum(
+            [
+                output_size_multiplier * B * T * bag_size * d
+                + param_size_multiplier * B * T * bag_size * d
+                for bag_size, d in zip(Ls, Ds)
+            ]
+        )
+    logging.info(
+        f"{weights_precision} Embedding tables: {sum(Es)} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
+        f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
+    )
+    logging.info(
+        f"Accessed weights per batch: {B * sum(Ls)} rows, "
+        f"{B * sum([bag_size * d for bag_size, d in zip(Ls, Ds)]) * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+
+    times = []
+    for i in range(runs_of_iters):
+        # Generate a request for each table then combine
+        all_requests = {
+            "indices": [[] for _ in range(iters)],
+            "offsets": [[] for _ in range(iters)],
+            "weights": [[] for _ in range(iters)],
+        }
+        # row = iter, column = tensor
+        for t, (bag_size, e) in enumerate(zip(Ls, Es)):
+            requests = generate_requests(
+                iters,
+                B,
+                1,
+                bag_size,
+                e,
+                reuse=reuse,
+                alpha=alpha,
+                weights_precision=weights_precision,
+                weighted=weighted,
+            )
+            for it, (indices, offsets, weights) in enumerate(requests):
+                all_requests["indices"][it].append(indices)
+                if t > 0:
+                    offsets = offsets[1:]  # remove the first element
+                    offsets += all_requests["offsets"][it][t - 1][-1]
+                all_requests["offsets"][it].append(offsets)
+                all_requests["weights"][it].append(weights)
+        requests = []
+        for it in range(iters):
+            indices = torch.concat(all_requests["indices"][it])
+            offsets = torch.concat(all_requests["offsets"][it])
+            if weighted:
+                weights = torch.concat(all_requests["weights"][it])
+            else:
+                weights = None
+            requests.append((indices, offsets, weights))
+        requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+        del all_requests
+        assert len(requests) == iters
+
+        # forward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.int(),
+                offsets.int(),
+                per_sample_weights,
+            ),
+            check_median=check_median,
+        )
+
+        # free up GPU memory
+        del requests
+
+        logging.info(
+            f"Iteration {i}: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+            f"Time: {time_per_iter * 1.0e6:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        )
+
+        if i >= warmup_runs:
+            times.append(time_per_iter)
+
+    time_per_iter = statistics.mean(times)
+    bandwidth = read_write_bytes / time_per_iter / 1.0e9
+
+    logging.info(
+        f"Average of all iterations: "
+        f"{weights_precision} Forward, B: {B}, "
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+        f"Time: {time_per_iter * 1.0e6:.0f}us, "
+        f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+    )
+
+    if report_aibench and haveAIBench:
+        print(
+            emitMetric(
+                type="NET",
+                metric=f"bandwidth_{weights_precision}",
+                unit="scalar",
+                value=str(bandwidth),
+            )
+        )
+        print(
+            emitMetric(
+                type="NET",
+                metric=f"time_per_iter_{weights_precision}",
+                unit="scalar",
+                value=str(time_per_iter * 1.0e6),
+            )
         )
 
 
