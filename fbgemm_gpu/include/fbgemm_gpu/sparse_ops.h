@@ -365,23 +365,6 @@ at::Tensor batched_unary_embeddings_backward_cuda(
     const at::Tensor& offsets,
     const at::Tensor& indices);
 
-///@ingroup sparse-data-cuda
-std::tuple<std::vector<at::Tensor>, std::vector<at::Tensor>>
-stacked_jagged_2d_to_dense_forward_cuda(
-    at::Tensor values,
-    at::Tensor lengths,
-    const std::vector<int64_t>& offset_per_key,
-    const std::vector<int64_t>& max_lengths_per_key);
-
-///@ingroup sparse-data-cuda
-at::Tensor stacked_jagged_2d_to_dense_backward_cuda(
-    int64_t B,
-    int64_t D,
-    int64_t total_L,
-    const std::vector<at::Tensor>& grad_padded_values_per_key,
-    const std::vector<at::Tensor>& offsets_tensor_per_key,
-    const std::vector<int64_t>& offset_per_key);
-
 ///@ingroup sparse-data-cpu
 std::vector<at::Tensor> stacked_jagged_2d_to_dense_cpu(
     at::Tensor values,
@@ -390,15 +373,14 @@ std::vector<at::Tensor> stacked_jagged_2d_to_dense_cpu(
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value);
 
-///@ingroup sparse-data-cuda
-at::Tensor jagged_1d_to_dense_gpu(
-    at::Tensor values,
-    at::Tensor offsets,
-    int64_t max_L,
-    int64_t padding_value);
+at::Tensor jagged_to_padded_dense_autograd(
+    const at::Tensor& values,
+    const std::vector<at::Tensor>& offsets,
+    const std::vector<std::int64_t>& max_lengths,
+    const double padding_value);
 
 ///@ingroup sparse-data-cpu
-at::Tensor jagged_1d_to_dense_cpu(
+at::Tensor jagged_1d_to_dense_autograd(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_L,
@@ -409,12 +391,6 @@ at::Tensor jagged_2d_to_dense_forward_cpu(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_L);
-
-///@ingroup sparse-data-cuda
-at::Tensor jagged_2d_to_dense_gpu(
-    at::Tensor values,
-    at::Tensor offsets,
-    int64_t max_sequence_length);
 
 ///@ingroup sparse-data-cuda
 at::Tensor jagged_2d_to_dense_gpu_forward(
