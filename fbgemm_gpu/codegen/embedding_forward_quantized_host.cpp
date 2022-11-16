@@ -55,13 +55,14 @@ DEFINE_int32(
     tbe_uvm_cache_stats_print_out_period,
     -1,
     "If tbe_uvm_cache_stat_report is enabled, more detailed raw stats will be printed with this "
-    "period. This better be an integer multiple of tbe_uvm_cache_stat_report.");
+    "period. This should be an integer multiple of tbe_uvm_cache_stat_report.");
 
 // TODO: align this with uvm_cache_stats_index in
 // split_embeddings_cache_cuda.cu.
 const int kUvmCacheStatsSize = 6;
 
 namespace {
+
 // Processes UVMCacheStats from one batch of TBE op call.
 // Args:
 //  * signature: unique id for TBE op.
@@ -70,64 +71,43 @@ namespace {
 void process_uvm_cache_stats(
     const size_t signature,
     const int64_t total_cache_hash_size,
+    const int64_t call_count,
+    const bool gather_uvm_stats,
     const Tensor& uvm_cache_stats) {
-  static std::mutex uvm_cache_stats_mutex;
-  static std::unordered_map<size_t, int64_t> tbe_call_count;
-  static std::unordered_map<size_t, Tensor> tbe_uvm_cache_stats;
-  static std::unordered_map<size_t, Tensor> tbe_uvm_cache_stats_prev;
-
-  std::lock_guard<std::mutex> guard(uvm_cache_stats_mutex);
-  if (tbe_call_count.count(signature) == 0) {
-    // aggregated stats (tbe_uvm_cache_stats) is also on device (like
-    // uvm_cache_stats), but dtype is int64_t.
-    tbe_uvm_cache_stats[signature] = at::zeros(
-        {kUvmCacheStatsSize}, uvm_cache_stats.options().dtype(at::kLong));
-    // This one is for delta and on CPU.
-    tbe_uvm_cache_stats_prev[signature] =
-        at::zeros({kUvmCacheStatsSize}, at::kLong);
-    tbe_call_count[signature] = 0;
-  }
-  // Accumulate 32-bit per-batch UVM cache stats to global, 64-bit stats.
-  tbe_uvm_cache_stats[signature] =
-      at::add(tbe_uvm_cache_stats[signature], uvm_cache_stats);
-
-  tbe_call_count[signature]++;
-  if (tbe_call_count[signature] % FLAGS_tbe_uvm_cache_stat_report == 0) {
-    auto tbe_stats_cpu = tbe_uvm_cache_stats[signature].cpu();
-    auto tbe_stats_delta =
-        at::sub(tbe_stats_cpu, tbe_uvm_cache_stats_prev[signature]);
+  if (gather_uvm_stats) {
     // Export cache stats.
-    auto* uvm_cache_stats_ptr = tbe_stats_delta.data_ptr<int64_t>();
+    auto uvm_cache_stats_cpu = uvm_cache_stats.cpu();
+    auto* uvm_cache_stats_ptr = uvm_cache_stats_cpu.data_ptr<int32_t>();
     if (uvm_cache_stats_ptr[1] > 0) {
       // Report cache stats in per-mille.
       double num_requested_indices =
           static_cast<double>(uvm_cache_stats_ptr[1]);
-      STATS_tbe_uvm_cache_unique_rate.addValue(
-          (static_cast<double>(uvm_cache_stats_ptr[2] * 1000) /
-           num_requested_indices));
-      STATS_tbe_uvm_cache_unique_miss_rate.addValue(
-          (static_cast<double>(uvm_cache_stats_ptr[3] * 1000) /
-           num_requested_indices));
+      double unique_rate = static_cast<double>(uvm_cache_stats_ptr[2] * 1000) /
+          num_requested_indices;
+      double unique_miss_rate =
+          static_cast<double>(uvm_cache_stats_ptr[3] * 1000) /
+          num_requested_indices;
+      double unique_conflict_miss_rate =
+          static_cast<double>(uvm_cache_stats_ptr[4] * 1000) /
+          num_requested_indices;
+      STATS_tbe_uvm_cache_unique_rate.addValue(unique_rate);
+      STATS_tbe_uvm_cache_unique_miss_rate.addValue(unique_miss_rate);
       STATS_tbe_uvm_cache_conflict_unique_miss_rate.addValue(
-          (static_cast<double>(uvm_cache_stats_ptr[4] * 1000) /
-           num_requested_indices));
+          unique_conflict_miss_rate);
     }
-    tbe_uvm_cache_stats_prev[signature].copy_(tbe_stats_cpu);
-  }
-  if (tbe_call_count[signature] % FLAGS_tbe_uvm_cache_stats_print_out_period ==
-      0) {
-    auto* tbe_stats_ptr =
-        tbe_uvm_cache_stats_prev[signature].data_ptr<int64_t>();
-    LOG(INFO) << "$Stats [" << signature << "] "
-              << " hash_size: " << total_cache_hash_size
-              << ", call_count: " << tbe_call_count[signature]
-              << ", N_requested_indices: " << tbe_stats_ptr[1]
-              << ", N_unique_indices: " << tbe_stats_ptr[2]
-              << ", N_unique_misses: " << tbe_stats_ptr[3]
-              << ", N_conflict_unique_misses: " << tbe_stats_ptr[4]
-              << ", N_conflict_misses: " << tbe_stats_ptr[5];
+    if (call_count % FLAGS_tbe_uvm_cache_stats_print_out_period == 0) {
+      LOG(INFO) << "$Stats [" << signature << "] "
+                << " hash_size: " << total_cache_hash_size
+                << ", call_count: " << call_count
+                << ", N_requested_indices: " << uvm_cache_stats_ptr[1]
+                << ", N_unique_indices: " << uvm_cache_stats_ptr[2]
+                << ", N_unique_misses: " << uvm_cache_stats_ptr[3]
+                << ", N_conflict_unique_misses: " << uvm_cache_stats_ptr[4]
+                << ", N_conflict_misses: " << uvm_cache_stats_ptr[5];
+    }
   }
 }
+
 } // namespace
 #endif
 
@@ -360,6 +340,10 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
   // IntNBitTableBatchedEmbeddingBagsCodegen, but run them in sequence.
   // Prefetching of multiple batches of requests is not yet supported.
 
+#ifdef FBCODE_CAFFE2
+  static std::mutex uvm_cache_stats_mutex;
+  static std::unordered_map<size_t, int64_t> tbe_call_count;
+#endif
   static std::atomic<int64_t> time_stamp = 0; // for LRU replacement.
   int64_t curr_time_stamp = -1;
 
@@ -377,7 +361,18 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     Tensor uvm_cache_stats =
         at::empty({0}, lxu_cache_weights.value().options().dtype(at::kInt));
 #ifdef FBCODE_CAFFE2
-    if (FLAGS_tbe_uvm_cache_stat_report > 0) {
+    size_t signature = reinterpret_cast<size_t>(uvm_weights.data_ptr());
+    int64_t call_count = 0;
+    {
+      std::lock_guard<std::mutex> guard(uvm_cache_stats_mutex);
+      if (tbe_call_count.count(signature) == 0) {
+        tbe_call_count[signature] = 0;
+      }
+      tbe_call_count[signature]++;
+      call_count = tbe_call_count[signature];
+    }
+
+    if (call_count % FLAGS_tbe_uvm_cache_stat_report == 0) {
       gather_uvm_stats = true;
       uvm_cache_stats = at::zeros(
           {kUvmCacheStatsSize},
@@ -412,11 +407,12 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         uvm_cache_stats);
 
 #ifdef FBCODE_CAFFE2
-    if (FLAGS_tbe_uvm_cache_stat_report > 0) {
-      size_t signature = reinterpret_cast<size_t>(uvm_weights.data_ptr());
-      process_uvm_cache_stats(
-          signature, total_cache_hash_size.value(), uvm_cache_stats);
-    }
+    process_uvm_cache_stats(
+        signature,
+        total_cache_hash_size.value(),
+        call_count,
+        gather_uvm_stats,
+        uvm_cache_stats);
 #endif
   }
 
