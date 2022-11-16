@@ -20,7 +20,6 @@
 // clang-format on
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
-#include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
@@ -1143,7 +1142,7 @@ at::Tensor jagged_to_padded_dense_forward(
 at::Tensor jagged_to_padded_dense_backward(
     const Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const int64_t total_L) {
+    const std::vector<int64_t>& max_lengths) {
   auto grad_padded_values = grad_output;
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_padded_values.get_device());
@@ -1151,7 +1150,8 @@ at::Tensor jagged_to_padded_dense_backward(
   int32_t D = grad_padded_values.size(-1);
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
-  auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
+  auto grad_values =
+      at::zeros({max_lengths[0], D}, grad_padded_values.options());
 
   AT_DISPATCH_FLOATING_TYPES_AND2(
       at::ScalarType::Half,
@@ -1171,6 +1171,53 @@ at::Tensor jagged_to_padded_dense_backward(
 
   return grad_values;
 }
+class JaggedToPaddedDenseGPUOp
+    : public torch::autograd::Function<JaggedToPaddedDenseGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& values,
+      const std::vector<Tensor>& offsets,
+      const std::vector<int64_t>& max_lengths,
+      const double padding_value) {
+    ctx->save_for_backward(offsets);
+    ctx->saved_data["total_L"] = values.size(0);
+
+    Tensor padded_values = jagged_to_padded_dense_forward(
+        values, offsets, max_lengths, padding_value);
+
+    return {padded_values};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    int32_t total_L = ctx->saved_data["total_L"].toInt();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    TORCH_CHECK(total_L >= 0);
+    auto grad_values =
+        jagged_to_padded_dense_backward(grad_outputs[0], {offsets}, {total_L});
+
+    return {
+        grad_values,
+        torch::autograd::Variable(), // offsets
+        torch::autograd::Variable(), // max_lengths
+        torch::autograd::Variable(), // padding_value
+    };
+  }
+};
+
+///@ingroup jagged-tensor-ops-cuda
+Tensor jagged_to_padded_dense(
+    const Tensor& values,
+    const std::vector<Tensor>& offsets,
+    const std::vector<int64_t>& max_lengths,
+    const double padding_value) {
+  return JaggedToPaddedDenseGPUOp::apply(
+      values, offsets, max_lengths, padding_value)[0];
+}
 
 ///@ingroup jagged-tensor-ops-cuda
 /// output = x + y where x is jagged, y and output are dense
@@ -1187,11 +1234,11 @@ Tensor jagged_dense_elementwise_add(
   TORCH_CHECK(max_lengths.size() == x_offsets.size());
 
   // Convert x to dense (assume padding is 0.0)
-  auto xd = jagged_to_padded_dense_autograd(
+  auto xd = JaggedToPaddedDenseGPUOp::apply(
       x_values,
       x_offsets,
       max_lengths,
-      /* padding_value */ 0.0);
+      /* padding_value */ 0.0)[0];
 
   auto dense_output = xd + y;
   return dense_output;
@@ -1269,7 +1316,7 @@ class DenseToJaggedGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(grad_outputs[0].get_device());
 
-    Tensor dense_values_grad = jagged_to_padded_dense_forward(
+    Tensor dense_values_grad = jagged_to_padded_dense(
         grad_outputs[0],
         offsets,
         std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
@@ -1283,49 +1330,82 @@ class DenseToJaggedGPUOp
   }
 };
 
-Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
-    const Tensor& x_values,
-    const std::vector<Tensor>& offsets,
-    const Tensor& dense_0,
-    const Tensor& dense_1) {
-  TORCH_CHECK(dense_0.sizes() == dense_1.sizes());
-  auto output = at::empty_like(x_values);
+class JaggedDenseDenseAddJaggedOutputGPUOp
+    : public torch::autograd::Function<JaggedDenseDenseAddJaggedOutputGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const std::vector<Tensor>& offsets,
+      const Tensor& dense_0,
+      const Tensor& dense_1) {
+    ctx->save_for_backward(offsets);
+    ctx->saved_data["dense_shape"] = dense_0.sizes();
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(dense_0.get_device());
+    TORCH_CHECK(dense_0.sizes() == dense_1.sizes());
+    auto output = at::empty_like(x_values);
 
-  AT_DISPATCH_SWITCH(
-      x_values.scalar_type(),
-      "jagged_dense_dense_elementwise_jagged_output_forward",
-      AT_DISPATCH_CASE(
-          at::ScalarType::Half,
-          [&] {
-            jagged_dense_dense_elementwise_jagged_output_opt_<scalar_t>(
-                x_values,
-                offsets,
-                dense_0,
-                dense_1,
-                output,
-                [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
-                    -> scalar_t { return x + y_0 + y_1; });
-          } // lambda
-          ) // CASE
-      AT_DISPATCH_CASE_FLOATING_TYPES([&] {
-        jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
-            x_values,
-            offsets,
-            dense_0,
-            dense_1,
-            output,
-            [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1) -> scalar_t {
-              return x + y_0 + y_1;
-            });
-      } // lambda
-                                      ) // CASE_FLOATING_TYPES_AND
-  ); // SWITCH
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(dense_0.get_device());
 
-  return output;
-}
+    AT_DISPATCH_SWITCH(
+        x_values.scalar_type(),
+        "jagged_dense_dense_elementwise_jagged_output_forward",
+        AT_DISPATCH_CASE(
+            at::ScalarType::Half,
+            [&] {
+              jagged_dense_dense_elementwise_jagged_output_opt_<scalar_t>(
+                  x_values,
+                  offsets,
+                  dense_0,
+                  dense_1,
+                  output,
+                  [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                      -> scalar_t { return x + y_0 + y_1; });
+            } // lambda
+            ) // CASE
+        AT_DISPATCH_CASE_FLOATING_TYPES([&] {
+          jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
+              x_values,
+              offsets,
+              dense_0,
+              dense_1,
+              output,
+              [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                  -> scalar_t { return x + y_0 + y_1; });
+        } // lambda
+                                        ) // CASE_FLOATING_TYPES_AND
+    ); // SWITCH
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad_outputs[0].get_device());
+
+    Tensor dense_values_grad_0 = jagged_to_padded_dense(
+        grad_outputs[0],
+        offsets,
+        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        /*padding_value=*/0);
+    TORCH_CHECK(dense_values_grad_0.sizes() == dense_shape);
+
+    Tensor dense_values_grad_1 = dense_values_grad_0;
+
+    return {
+        grad_outputs[0],
+        torch::autograd::Variable(), // offsets
+        dense_values_grad_0,
+        dense_values_grad_1};
+  }
+};
 
 ///@ingroup jagged-tensor-ops-cuda
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
@@ -1393,7 +1473,7 @@ class JaggedDenseAddJaggedOutputGPUOp
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(grad_outputs[0].get_device());
 
-    Tensor dense_values_grad = jagged_to_padded_dense_forward(
+    Tensor dense_values_grad = jagged_to_padded_dense(
         grad_outputs[0],
         offsets,
         std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
@@ -1416,6 +1496,20 @@ jagged_dense_elementwise_add_jagged_output(
     const Tensor& y) {
   auto sum_values =
       JaggedDenseAddJaggedOutputGPUOp::apply(x_values, x_offsets, y)[0];
+
+  return {sum_values, x_offsets};
+}
+
+// output = x + y_0 + y_1 where x is jagged, y_0 and y_1 are dense, and output
+// is jagged
+std::tuple<Tensor, std::vector<Tensor>>
+jagged_dense_dense_elementwise_add_jagged_output(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y_0,
+    const Tensor& y_1) {
+  auto sum_values = JaggedDenseDenseAddJaggedOutputGPUOp::apply(
+      x_values, x_offsets, y_0, y_1)[0];
 
   return {sum_values, x_offsets};
 }
@@ -1530,80 +1624,109 @@ void jagged_jagged_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-Tensor jagged_dense_elementwise_mul_forward(
+class JaggedDenseMulGPUOp
+    : public torch::autograd::Function<JaggedDenseMulGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const Tensor& y,
+      const std::vector<Tensor>& x_offsets) {
+    std::vector<Tensor> tensors_to_save;
+    tensors_to_save.push_back(x_values);
+    tensors_to_save.insert(
+        tensors_to_save.end(), x_offsets.begin(), x_offsets.end());
+    tensors_to_save.push_back(y);
+    ctx->save_for_backward(tensors_to_save);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(x_values.get_device());
+
+    Tensor output = at::empty_like(x_values);
+
+    AT_DISPATCH_SWITCH(
+        x_values.scalar_type(),
+        "jagged_dense_elementwise_mul_jagged_output_forward",
+        AT_DISPATCH_CASE(
+            at::ScalarType::Half,
+            [&] {
+              jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
+                  x_values,
+                  x_offsets,
+                  y,
+                  output,
+                  [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                    return x * y;
+                  });
+            } // lambda
+            ) // CASE
+        AT_DISPATCH_CASE_FLOATING_TYPES([&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              x_values,
+              x_offsets,
+              y,
+              output,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x * y;
+              });
+        } // lambda
+                                        ) // CASE_FLOATING_TYPES_AND
+    ); // SWITCH
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const Tensor x_values = ctx->get_saved_variables().front();
+    std::vector<Tensor> x_offsets;
+    for (int i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
+      x_offsets.push_back(ctx->get_saved_variables()[i]);
+    }
+    Tensor y = ctx->get_saved_variables().back();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad_outputs[0].get_device());
+
+    Tensor x_values_grad = at::empty_like(grad_outputs[0]);
+    Tensor y_grad = at::empty_like(y);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x_values.scalar_type(), "jagged_scalars", [&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              grad_outputs[0],
+              x_offsets,
+              y,
+              x_values_grad,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x * y;
+              });
+
+          jagged_jagged_elementwise_dense_output_<scalar_t>(
+              grad_outputs[0],
+              x_offsets,
+              x_values,
+              y_grad,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x * y;
+              });
+        });
+
+    return {x_values_grad, y_grad, torch::autograd::Variable()};
+  }
+};
+
+///@ingroup jagged-tensor-ops-cuda
+std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(x_values.get_device());
+  // Convert to jagged
+  auto prod_values = JaggedDenseMulGPUOp::apply(x_values, y, x_offsets)[0];
 
-  Tensor output = at::empty_like(x_values);
-
-  AT_DISPATCH_SWITCH(
-      x_values.scalar_type(),
-      "jagged_dense_elementwise_mul_jagged_output_forward",
-      AT_DISPATCH_CASE(
-          at::ScalarType::Half,
-          [&] {
-            jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
-                x_values,
-                x_offsets,
-                y,
-                output,
-                [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                  return x * y;
-                });
-          } // lambda
-          ) // CASE
-      AT_DISPATCH_CASE_FLOATING_TYPES([&] {
-        jagged_dense_elementwise_jagged_output_<scalar_t>(
-            x_values,
-            x_offsets,
-            y,
-            output,
-            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-              return x * y;
-            });
-      } // lambda
-                                      ) // CASE_FLOATING_TYPES_AND
-  ); // SWITCH
-
-  return output;
-}
-
-std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
-    const Tensor& grad_output,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y,
-    const Tensor& x_values) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
-
-  Tensor x_values_grad = at::empty_like(grad_output);
-  Tensor y_grad = at::empty_like(y);
-
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      x_values.scalar_type(), "jagged_scalars", [&] {
-        jagged_dense_elementwise_jagged_output_<scalar_t>(
-            grad_output,
-            x_offsets,
-            y,
-            x_values_grad,
-            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-              return x * y;
-            });
-
-        jagged_jagged_elementwise_dense_output_<scalar_t>(
-            grad_output,
-            x_offsets,
-            x_values,
-            y_grad,
-            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-              return x * y;
-            });
-      });
-
-  return {x_values_grad, y_grad};
+  return {prod_values, x_offsets};
 }
 
 template <typename index_t, typename scalar_t>
@@ -1716,132 +1839,186 @@ __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
   }
 }
 
-Tensor batched_dense_vec_jagged_2d_mul_forward(
-    const Tensor& v,
-    const Tensor& a_values,
-    const Tensor& a_offsets) {
-  TENSOR_ON_CUDA_GPU(v);
-  TENSOR_ON_CUDA_GPU(a_values);
-  TENSOR_ON_CUDA_GPU(a_offsets);
+// batched dense vector x jagged 2D tensor multiplication
+// dense vector [B H, N]
+// jagged tensor [B, N, H D] where N is jagged
+class BatchedDenseVecJagged2DMulGPUOp
+    : public torch::autograd::Function<BatchedDenseVecJagged2DMulGPUOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& v,
+      const Tensor& a_values,
+      const Tensor& a_offsets) {
+    ctx->save_for_backward({v, a_values, a_offsets});
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(v.get_device());
+    TENSOR_ON_CUDA_GPU(v);
+    TENSOR_ON_CUDA_GPU(a_values);
+    TENSOR_ON_CUDA_GPU(a_offsets);
 
-  const int B = a_offsets.numel() - 1;
-  TORCH_CHECK(
-      B == 0 || v.size(0) % B == 0,
-      "B, ",
-      B,
-      " doesn't divide v.size(0), ",
-      v.size(0));
-  const int H = (B == 0) ? 1 : v.size(0) / B;
-  const int D = a_values.size(-1) / H;
-  auto output = at::empty({B * H, D}, v.options());
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(v.get_device());
 
-  if (B > 0 && D > 0) {
-    const int block_dim_x =
-        std::min(div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
-    const int block_dim_y = kMaxThreads / block_dim_x;
-
-    AT_DISPATCH_INDEX_TYPES(
-        a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              a_values.scalar_type(),
-              "dense_vec_jagged_2d_bmm_kernel_2",
-              [&] {
-                dense_vec_jagged_2d_bmm<index_t, scalar_t>
-                    <<<div_round_up(B * H, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        v.packed_accessor32<scalar_t, 2>(),
-                        a_values.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 2>());
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-              });
-        });
-  }
-
-  return output;
-}
-
-std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
-    const Tensor& grad_output,
-    const Tensor& v,
-    const Tensor& a_values,
-    const Tensor& a_offsets) {
-  TENSOR_ON_CUDA_GPU(grad_output);
-  TENSOR_ON_CUDA_GPU(a_values);
-  TENSOR_ON_CUDA_GPU(a_offsets);
-  TENSOR_ON_CUDA_GPU(v);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
-
-  const int B = a_offsets.numel() - 1;
-  const int D = grad_output.size(-1);
-
-  Tensor a_values_grad = at::zeros_like(a_values);
-  Tensor v_grad = at::empty_like(v);
-
-  if (B > 0 && D > 0) {
+    const int B = a_offsets.numel() - 1;
     TORCH_CHECK(
-        v.size(0) % B == 0, "B, ", B, " doesn't divide v.size(0), ", v.size(0));
-    const int H = v.size(0) / B;
-    const int max_L = v.size(-1);
+        B == 0 || v.size(0) % B == 0,
+        "B, ",
+        B,
+        " doesn't divide v.size(0), ",
+        v.size(0));
+    const int H = (B == 0) ? 1 : v.size(0) / B;
+    const int D = a_values.size(-1) / H;
+    auto output = at::empty({B * H, D}, v.options());
 
-    AT_DISPATCH_INDEX_TYPES(
-        a_offsets.scalar_type(),
-        "dense_vec_jagged_2d_bmm_backward_kernel_1",
-        [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              grad_output.scalar_type(),
-              "dense_vec_jagged_2d_bmm_backward_kernel_2",
-              [&] {
-                int block_dim_x = std::min(
-                    div_round_up(max_L, kWarpSize) * kWarpSize, kMaxThreads);
-                int block_dim_y = kMaxThreads / block_dim_x;
+    if (B > 0 && D > 0) {
+      const int block_dim_x =
+          std::min(div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
+      const int block_dim_y = kMaxThreads / block_dim_x;
 
-                dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>
-                    <<<div_round_up(B * H, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        a_values.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        v_grad.packed_accessor32<scalar_t, 2>());
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+      AT_DISPATCH_INDEX_TYPES(
+          a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
+            AT_DISPATCH_FLOATING_TYPES_AND2(
+                at::ScalarType::Half,
+                at::ScalarType::BFloat16,
+                a_values.scalar_type(),
+                "dense_vec_jagged_2d_bmm_kernel_2",
+                [&] {
+                  dense_vec_jagged_2d_bmm<index_t, scalar_t>
+                      <<<div_round_up(B * H, block_dim_y),
+                         dim3(block_dim_x, block_dim_y),
+                         0,
+                         at::cuda::getCurrentCUDAStream()>>>(
+                          v.packed_accessor32<scalar_t, 2>(),
+                          a_values.packed_accessor32<scalar_t, 2>(),
+                          a_offsets.packed_accessor32<index_t, 1>(),
+                          output.packed_accessor32<scalar_t, 2>());
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                });
+          });
+    }
 
-                block_dim_x = std::min(
-                    div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
-                block_dim_y = kMaxThreads / block_dim_x;
-
-                outer_prod_jagged_2d_output<index_t, scalar_t>
-                    <<<div_round_up(B * H * max_L, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        v.packed_accessor32<scalar_t, 2>(),
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        a_values_grad.packed_accessor32<scalar_t, 2>());
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-              });
-        });
-  } else {
-    v_grad.zero_();
+    return {output};
   }
 
-  return {v_grad, a_values_grad};
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    const Tensor v = *savedItr++;
+    const Tensor a_values = *savedItr++;
+    const Tensor a_offsets = *savedItr++;
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    TENSOR_ON_CUDA_GPU(grad_outputs[0]);
+    TENSOR_ON_CUDA_GPU(a_values);
+    TENSOR_ON_CUDA_GPU(a_offsets);
+    TENSOR_ON_CUDA_GPU(v);
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad_outputs[0].get_device());
+
+    const int B = a_offsets.numel() - 1;
+    const int D = grad_outputs[0].size(-1);
+
+    Tensor a_values_grad = at::zeros_like(a_values);
+    Tensor v_grad = at::empty_like(v);
+
+    if (B > 0 && D > 0) {
+      TORCH_CHECK(
+          v.size(0) % B == 0,
+          "B, ",
+          B,
+          " doesn't divide v.size(0), ",
+          v.size(0));
+      const int H = v.size(0) / B;
+      const int max_L = v.size(-1);
+
+      AT_DISPATCH_INDEX_TYPES(
+          a_offsets.scalar_type(),
+          "dense_vec_jagged_2d_bmm_baackward_kernel_1",
+          [&] {
+            AT_DISPATCH_FLOATING_TYPES_AND2(
+                at::ScalarType::Half,
+                at::ScalarType::BFloat16,
+                grad_outputs[0].scalar_type(),
+                "dense_vec_jagged_2d_bmm_baackward_kernel_2",
+                [&] {
+                  int block_dim_x = std::min(
+                      div_round_up(max_L, kWarpSize) * kWarpSize, kMaxThreads);
+                  int block_dim_y = kMaxThreads / block_dim_x;
+
+                  dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>
+                      <<<div_round_up(B * H, block_dim_y),
+                         dim3(block_dim_x, block_dim_y),
+                         0,
+                         at::cuda::getCurrentCUDAStream()>>>(
+                          grad_outputs[0].packed_accessor32<scalar_t, 2>(),
+                          a_values.packed_accessor32<scalar_t, 2>(),
+                          a_offsets.packed_accessor32<index_t, 1>(),
+                          v_grad.packed_accessor32<scalar_t, 2>());
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+                  block_dim_x = std::min(
+                      div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
+                  block_dim_y = kMaxThreads / block_dim_x;
+
+                  outer_prod_jagged_2d_output<index_t, scalar_t>
+                      <<<div_round_up(B * H * max_L, block_dim_y),
+                         dim3(block_dim_x, block_dim_y),
+                         0,
+                         at::cuda::getCurrentCUDAStream()>>>(
+                          v.packed_accessor32<scalar_t, 2>(),
+                          grad_outputs[0].packed_accessor32<scalar_t, 2>(),
+                          a_offsets.packed_accessor32<index_t, 1>(),
+                          a_values_grad.packed_accessor32<scalar_t, 2>());
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                });
+          });
+    } else {
+      v_grad.zero_();
+    }
+
+    return {
+        v_grad,
+        a_values_grad,
+        torch::autograd::Variable(), // a_offsets
+    };
+  }
+};
+
+///@ingroup jagged-tensor-ops-cuda
+Tensor batched_dense_vec_jagged_2d_mul(
+    const Tensor& v,
+    const Tensor& a_values,
+    const Tensor& a_offsets) {
+  return BatchedDenseVecJagged2DMulGPUOp::apply(v, a_values, a_offsets)[0];
 }
 
 } // namespace
+
+Tensor jagged_1d_to_dense_gpu(
+    Tensor values,
+    Tensor offsets,
+    int64_t max_L,
+    int64_t padding_value) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(offsets.dim() == 1);
+  TORCH_CHECK(max_L > 0);
+
+  return jagged_to_padded_dense(values, {offsets}, {max_L}, padding_value);
+}
+
+Tensor jagged_2d_to_dense_gpu(
+    Tensor values,
+    Tensor offsets,
+    int64_t max_sequence_length) {
+  return jagged_to_padded_dense(
+      values,
+      {offsets},
+      {max_sequence_length},
+      /*padding_value=*/0);
+}
 
 Tensor jagged_2d_to_dense_gpu_forward(
     Tensor values,
@@ -1907,7 +2084,7 @@ stacked_jagged_2d_to_dense_forward_cuda(
         });
     offsets_tensor_per_key.push_back(offsets);
 
-    padded_values_per_key.push_back(jagged_to_padded_dense_forward(
+    padded_values_per_key.push_back(jagged_to_padded_dense(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
@@ -1998,7 +2175,7 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
               at::cuda::getCurrentCUDAStream()));
         });
 
-    padded_values_per_key.push_back(jagged_to_padded_dense_forward(
+    padded_values_per_key.push_back(jagged_to_padded_dense(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
@@ -2798,33 +2975,24 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
   DISPATCH_TO_CUDA(
-      "jagged_to_padded_dense_forward",
-      fbgemm_gpu::jagged_to_padded_dense_forward);
-  DISPATCH_TO_CUDA(
-      "jagged_to_padded_dense_backward",
-      fbgemm_gpu::jagged_to_padded_dense_backward);
+      "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_add_jagged_output",
       fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CUDA(
-      "jagged_dense_dense_elementwise_add_jagged_output_forward",
-      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);
+      "jagged_dense_dense_elementwise_add_jagged_output",
+      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CUDA(
-      "jagged_dense_elementwise_mul_forward",
-      fbgemm_gpu::jagged_dense_elementwise_mul_forward);
+      "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
   DISPATCH_TO_CUDA(
-      "jagged_dense_elementwise_mul_backward",
-      fbgemm_gpu::jagged_dense_elementwise_mul_backward);
-  DISPATCH_TO_CUDA(
-      "batched_dense_vec_jagged_2d_mul_forward",
-      fbgemm_gpu::batched_dense_vec_jagged_2d_mul_forward);
-  DISPATCH_TO_CUDA(
-      "batched_dense_vec_jagged_2d_mul_backward",
-      fbgemm_gpu::batched_dense_vec_jagged_2d_mul_backward);
+      "batched_dense_vec_jagged_2d_mul",
+      fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
   DISPATCH_TO_CUDA(
       "jagged_index_select", fbgemm_gpu::jagged_index_select_2d_gpu);
+  DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_gpu);
+  DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_gpu);
   DISPATCH_TO_CUDA(
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_gpu);
   DISPATCH_TO_CUDA(
