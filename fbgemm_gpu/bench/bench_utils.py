@@ -135,6 +135,7 @@ def generate_requests(
     # alpha <= 1.0: use uniform distribution
     # alpha > 1.0: use zipf distribution
     alpha: float = 1.0,
+    zipf_oversample_ratio: int = 3,
     weights_precision: SparseType = SparseType.FP32,
     weighted: bool = False,
     requests_data_file: Optional[str] = None,
@@ -221,7 +222,7 @@ def generate_requests(
         assert E >= L, "num-embeddings must be greater than equal to bag-size"
         # oversample and then remove duplicates to obtain sampling without
         # replacement
-        zipf_shape = (iters, T, B, 3 * L)
+        zipf_shape = (iters, T, B, zipf_oversample_ratio * L)
         if torch.cuda.is_available():
             zipf_shape_total_len = np.prod(zipf_shape)
             all_indices_list = []
