@@ -1274,15 +1274,15 @@ def nbit_device_with_spec(  # noqa C901
         read_write_bytes = sum(
             [
                 output_size_multiplier * B * d
-                + param_size_multiplier * B * T * bag_size * d
+                + param_size_multiplier * B * bag_size * d
                 for bag_size, d in zip(Ls, Ds)
             ]
         )
     else:
         read_write_bytes = sum(
             [
-                output_size_multiplier * B * T * bag_size * d
-                + param_size_multiplier * B * T * bag_size * d
+                output_size_multiplier * B * bag_size * d
+                + param_size_multiplier * B * bag_size * d
                 for bag_size, d in zip(Ls, Ds)
             ]
         )
@@ -1312,7 +1312,10 @@ def nbit_device_with_spec(  # noqa C901
                 bag_size,
                 e,
                 reuse=reuse,
-                alpha=alpha,
+                # don't use zipf if e isn't large enough compared to bag_size.
+                alpha=alpha if (e / bag_size) > 2.0 else 1.0,
+                # need many more samples for zipf if bag_size is very small.
+                zipf_oversample_ratio=3 if bag_size > 5 else 10,
                 weights_precision=weights_precision,
                 weighted=weighted,
             )
