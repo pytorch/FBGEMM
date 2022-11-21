@@ -1296,6 +1296,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     const void* p_sorted_infos;
                     magic_div_u32_t batch_mdiv;
                     uint32_t max_segment_length_per_warp;
+                    {% if weighted %}
+                    float   *indice_weights_sorted;
+                    {% endif %}
                     uint32_t emb_dim;
                     uint32_t batch;
                     uint32_t num_rows;
@@ -1317,6 +1320,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 karg.p_sorted_infos = infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
                 karg.batch_mdiv = magic_div_u32_gen(B);
                 karg.max_segment_length_per_warp = max_segment_length_per_warp;
+                {% if weighted %}
+                karg.indice_weights_sorted = indice_weights_sorted.packed_accessor32<float, 1, at::RestrictPtrTraits>().data();
+                {% endif %}
                 karg.emb_dim = max_D;
                 karg.batch = B;
                 karg.num_rows = dev_weights.numel() / T / max_D;
@@ -1338,7 +1344,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% for weight_decay_mode_current in [0, 1, 2] %}
                 if(weight_decay_mode == {{ weight_decay_mode_current }}){
                     if(dev_weights.scalar_type() == at::ScalarType::Half && grad_output.scalar_type() == at::ScalarType::Half){
-                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp16_fp16_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                        hipLaunchKernelGGL(split_tbe_bwd_{{wdesc}}_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp16_fp16_e{{ items_per_warp // 4 * kMaxElemPerThread }},
                             dim3(grids[0], grids[1], grids[2]),
                             dim3(blocks[0], blocks[1], blocks[2]),
                             0, 0,
@@ -1353,6 +1359,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                             (const int32_t*)karg.p_sorted_infos ,
                             karg.batch_mdiv,
                             karg.max_segment_length_per_warp,
+                            {% if weighted %}
+                            karg.indice_weights_sorted,
+                            {% endif %}
                             karg.emb_dim ,
                             karg.batch ,
                             karg.num_rows,
@@ -1363,7 +1372,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                         );
                     }else if (!(dev_weights.scalar_type() == at::ScalarType::Half) && grad_output.scalar_type() == at::ScalarType::Half)
                     {
-                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp32_fp16_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                        hipLaunchKernelGGL(split_tbe_bwd_{{wdesc}}_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp32_fp16_e{{ items_per_warp // 4 * kMaxElemPerThread }},
                             dim3(grids[0], grids[1], grids[2]),
                             dim3(blocks[0], blocks[1], blocks[2]),
                             0, 0,
@@ -1378,6 +1387,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                             (const int32_t*)karg.p_sorted_infos ,
                             karg.batch_mdiv,
                             karg.max_segment_length_per_warp,
+                            {% if weighted %}
+                            karg.indice_weights_sorted,
+                            {% endif %}
                             karg.emb_dim ,
                             karg.batch ,
                             karg.num_rows,
@@ -1390,7 +1402,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     }
                     else if (dev_weights.scalar_type() == at::ScalarType::Half && !(grad_output.scalar_type() == at::ScalarType::Half))
                     {
-                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp16_fp32_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                        hipLaunchKernelGGL(split_tbe_bwd_{{wdesc}}_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp16_fp32_e{{ items_per_warp // 4 * kMaxElemPerThread }},
                             dim3(grids[0], grids[1], grids[2]),
                             dim3(blocks[0], blocks[1], blocks[2]),
                             0, 0,
@@ -1405,6 +1417,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                             (const int32_t*)karg.p_sorted_infos ,
                             karg.batch_mdiv,
                             karg.max_segment_length_per_warp,
+                            {% if weighted %}
+                            karg.indice_weights_sorted,
+                            {% endif %}
                             karg.emb_dim ,
                             karg.batch ,
                             karg.num_rows,
@@ -1415,7 +1430,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                         );
                     }
                     else{
-                        hipLaunchKernelGGL(split_tbe_bwd_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp32_fp32_e{{ items_per_warp // 4 * kMaxElemPerThread }},
+                        hipLaunchKernelGGL(split_tbe_bwd_{{wdesc}}_hip_kernel_{{ optimizer }}_w{{ weight_decay_mode_current }}_s0_fp32_fp32_e{{ items_per_warp // 4 * kMaxElemPerThread }},
                             dim3(grids[0], grids[1], grids[2]),
                             dim3(blocks[0], blocks[1], blocks[2]),
                             0, 0,
@@ -1430,6 +1445,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                             (const int32_t*)karg.p_sorted_infos ,
                             karg.batch_mdiv,
                             karg.max_segment_length_per_warp,
+                            {% if weighted %}
+                            karg.indice_weights_sorted,
+                            {% endif %}
                             karg.emb_dim ,
                             karg.batch ,
                             karg.num_rows,

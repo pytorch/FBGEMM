@@ -2961,11 +2961,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.just(48),  # 16, 32, 48, 64
+        D=st.sampled_from([16, 32, 48, 64]),  # 16, 32, 48, 64
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        weighted=st.just(False),
+        weighted=st.sampled_from([True, False]),
         mixed=st.just(False),
         optimizer=st.sampled_from(
             [

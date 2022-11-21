@@ -35,7 +35,7 @@
                                           segment_prefetch,                                                                          \
                                           segment_unroll)                                                                            \
     extern "C" __global__ void                                                                                                       \
-        split_tbe_bwd_hip_kernel_##optimizer##_w##weight_decay_mode##_s##segment_split##_##emb_prec##_##grad_prec##_e##embedding_dim(   \
+        split_tbe_bwd_unweighted_hip_kernel_##optimizer##_w##weight_decay_mode##_s##segment_split##_##emb_prec##_##grad_prec##_e##embedding_dim(   \
             const grad_type* p_output_grad,                                                                                          \
             emb_type* p_emb_table,                                                                                                   \
             const int64_t* p_hash_size_cumsum,                                                                                       \
@@ -47,6 +47,26 @@
             const int32_t* p_sorted_infos,                                                                                           \
             magic_div_u32_t batch_mdiv,                                                                                              \
             uint32_t max_segment_length_per_warp,                                                                                    \
+            uint32_t emb_dim,                                                                                                        \
+            uint32_t batch,                                                                                                          \
+            uint32_t num_rows,                                                                                                       \
+            uint32_t num_tables,                                                                                                     \
+            optimizer##_kernel_arg_t opt_karg);                                                                                      \
+                                                                                                                                     \
+    extern "C" __global__ void                                                                                                       \
+        split_tbe_bwd_weighted_hip_kernel_##optimizer##_w##weight_decay_mode##_s##segment_split##_##emb_prec##_##grad_prec##_e##embedding_dim(   \
+            const grad_type* p_output_grad,                                                                                          \
+            emb_type* p_emb_table,                                                                                                   \
+            const int64_t* p_hash_size_cumsum,                                                                                       \
+            const int64_t* p_sorted_linear_indices_run,                                                                              \
+            const int32_t* p_sorted_linear_indices_cumulative_run_lengths,                                                           \
+            const int32_t* p_sorted_linear_indices_num_runs,                                                                         \
+            const int32_t* p_long_run_ids,                                                                                           \
+            const int32_t* p_num_long_run_ids,                                                                                       \
+            const int32_t* p_sorted_infos,                                                                                           \
+            magic_div_u32_t batch_mdiv,                                                                                              \
+            uint32_t max_segment_length_per_warp,                                                                                    \
+            const float * p_indice_weights,                                                                                          \
             uint32_t emb_dim,                                                                                                        \
             uint32_t batch,                                                                                                          \
             uint32_t num_rows,                                                                                                       \

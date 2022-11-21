@@ -188,16 +188,20 @@ struct load_row_per_warp<half, 512, index_t>
     }
 };
 
-template <typename emb_t, int32_t embedding_dim, typename output_t>
-struct accumulate_row_per_warp
-{
+template<typename emb_t, int32_t embedding_dim, typename output_t, bool weighted>
+struct accumulate_row_per_warp {
     static constexpr int dword_per_row = (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
-    static __device__ void run(output_t* acc, emb_t* emb_data, int lane_id)
-    {
-#pragma unroll
-        for(int i = 0; i < dword_per_row; i++)
-        {
-            acc[i] += static_cast<output_t>(emb_data[i]);
+    static __device__ void run(output_t * acc, emb_t * emb_data, int lane_id, float row_weight = 1.0) {
+        if constexpr (!weighted) {
+            #pragma unroll
+            for(int i = 0; i < dword_per_row; i++){
+                acc[i] += static_cast<output_t>(emb_data[i]);
+            }
+        } else {
+            #pragma unroll
+            for(int i = 0; i < dword_per_row; i++){
+                acc[i] += static_cast<output_t>((float)emb_data[i] * row_weight);
+            }
         }
     }
 };
