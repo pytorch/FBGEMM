@@ -138,9 +138,9 @@ __device__ void split_tbe_backward_hip_kernel(
     optimizer_karg_t opt_karg,
     const float * p_sorted_indice_weights = nullptr)
 {
-    constexpr uint32_t dword_per_row   = (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW; // number of columns each thread will process
-    constexpr uint32_t waves_per_block = block_size / AMDGCN_WAVE_SIZE; // 256 / 64
-    constexpr uint32_t length_mask     = ~(segment_unroll - 1); // ~(8-1) = 0b000
+    constexpr uint32_t dword_per_row   = (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
+    constexpr uint32_t waves_per_block = block_size / AMDGCN_WAVE_SIZE;
+    constexpr uint32_t length_mask     = ~(segment_unroll - 1);
     const uint32_t wave_id = __builtin_amdgcn_readfirstlane(threadIdx.x / AMDGCN_WAVE_SIZE);
     const uint32_t lane_id = threadIdx.x % AMDGCN_WAVE_SIZE;
     const uint32_t run_id  = wave_id + blockIdx.x * waves_per_block;
@@ -148,7 +148,7 @@ __device__ void split_tbe_backward_hip_kernel(
     // printf("wave_id:%d, run_id:%d(%d), batch:%d(%d, %d)\n",
     //     wave_id, run_id, p_sorted_linear_indices_num_runs[0], batch, batch_mdiv.magic, batch_mdiv.shift);
 
-    if(run_id >= p_sorted_linear_indices_num_runs[0])  // number of segment
+    if(run_id >= p_sorted_linear_indices_num_runs[0])
         return;
     
     const int64_t linear_index  = p_sorted_linear_indices_run[run_id];
@@ -156,17 +156,17 @@ __device__ void split_tbe_backward_hip_kernel(
     const int32_t segment_start = p_sorted_linear_indices_cumulative_run_lengths[run_id];
     const int32_t segment_end   = p_sorted_linear_indices_cumulative_run_lengths[run_id + 1];
 
-    int32_t info_0 = p_sorted_infos[segment_start];   // start of a segment in linear index
-    uint32_t t_0 = magic_div_u32_run(batch_mdiv, info_0);  // determine which table info_0 stays
-    int64_t hash_size = p_hash_size_cumsum[t_0];  // p_hash_size_cumsum: the first element offset of a table in rows
+    int32_t info_0 = p_sorted_infos[segment_start];
+    uint32_t t_0 = magic_div_u32_run(batch_mdiv, info_0);
+    int64_t hash_size = p_hash_size_cumsum[t_0];
 
-    const int64_t emb_idx       = linear_index - hash_size;    // the location of a row in a table
+    const int64_t emb_idx       = linear_index - hash_size;
 
     // printf("[%d] segment_start:%d, info_0:%d, t_0:%d, num_rows:%d, emb_dim:%d, linear_index:%ld\n", wave_id, segment_start, info_0, t_0, num_rows, emb_dim, linear_index);
 
     // p_output_grad += t_0 * emb_dim;
 
-    p_emb_table += hash_size * emb_dim;   // start of the current talbe (p_emb_table is a pointer)
+    p_emb_table += hash_size * emb_dim;
     opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<cache_t*>(opt_karg.p_momentum) + hash_size);
 
     const int32_t segment_length = segment_end - segment_start;
@@ -176,7 +176,7 @@ __device__ void split_tbe_backward_hip_kernel(
 
     // printf("[%d] segment_length:%d\n", wave_id, segment_length);
 
-    const int32_t segment_length_mod = segment_length & length_mask;   // segment_length_mod is a multiplication of 8
+    const int32_t segment_length_mod = segment_length & length_mask;
 
     cache_t grad_acc[dword_per_row];
     int32_t infos[segment_unroll];
