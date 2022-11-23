@@ -55,6 +55,15 @@ Tensor jagged_to_padded_dense_backward_meta(
   return grad_values;
 }
 
+at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y_0,
+    const at::Tensor& y_1) {
+  TORCH_CHECK(y_0.sizes() == y_0.sizes());
+  return at::empty_like(x_values);
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
@@ -64,4 +73,9 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "jagged_to_padded_dense_backward",
       TORCH_FN(fbgemm_gpu::jagged_to_padded_dense_backward_meta));
+  m.impl(
+      "jagged_dense_dense_elementwise_add_jagged_output_forward",
+      TORCH_FN(
+          fbgemm_gpu::
+              jagged_dense_dense_elementwise_add_jagged_output_forward_meta));
 }
