@@ -10,6 +10,7 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace fbgemm_gpu {
@@ -363,137 +364,87 @@ void jagged_dense_elementwise_jagged_output_(
 }
 
 ///@ingroup jagged-tensor-ops-cpu
-class JaggedToPaddedDenseCPUOp
-    : public torch::autograd::Function<JaggedToPaddedDenseCPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& values,
-      const std::vector<Tensor>& offsets,
-      const std::vector<int64_t>& max_lengths,
-      const double padding_value) {
-    ctx->save_for_backward(offsets);
-    ctx->saved_data["total_L"] = values.size(0);
-
-    const size_t num_jagged_dim = offsets.size();
-    TORCH_CHECK(
-        max_lengths.size() == num_jagged_dim,
-        "max_lengths.size(), ",
-        max_lengths.size(),
-        " != num_jagged_dim, ",
-        num_jagged_dim);
-
-    const Tensor values_canonicalized = values.view(
-        {values.size(0),
-         std::accumulate(
-             values.sizes().begin() + 1,
-             values.sizes().end(),
-             1,
-             std::multiplies<size_t>())});
-    at::DimVector padded_values_shape({offsets[0].size(0) - 1});
-    padded_values_shape.insert(
-        padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
-    if (values.dim() > 1) {
-      padded_values_shape.push_back(values.size(-1));
-    }
-    Tensor padded_values = at::empty(padded_values_shape, values.options());
-    if (values.numel() == 0) {
-      // To avoid an error due to values_canonicalized.data_ptr is nullptr.
-      padded_values.fill_(padding_value);
-      return {padded_values};
-    }
-    Tensor padded_values_view =
-        values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
-
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        values.scalar_type(),
-        "jagged_to_padded_dense",
-        [&] {
-          jagged_dense_elementwise_dense_output_<scalar_t>(
-              values_canonicalized,
-              offsets,
-              padded_values_view, // dummy not used in the lambda function
-              padded_values_view,
-              [](scalar_t x, scalar_t /*unused*/) -> scalar_t { return x; },
-              static_cast<scalar_t>(padding_value));
-        });
-
-    return {padded_values};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    auto offsets = ctx->get_saved_variables();
-    int32_t total_L = ctx->saved_data["total_L"].toInt();
-    TORCH_CHECK(grad_outputs.size() == 1);
-
-    TORCH_CHECK(total_L >= 0);
-    auto grad_padded_values = grad_outputs[0];
-
-    int32_t D = grad_padded_values.size(-1);
-    // Initialize with zeros so output will be zero for the portion truncated
-    // in forward.
-    auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
-
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        grad_padded_values.scalar_type(),
-        "jagged_2d_to_dense_backward_kernel",
-        [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              grad_values, // dummy not used in the lambda function
-              {offsets},
-              grad_padded_values,
-              grad_values,
-              [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
-        });
-
-    return {
-        grad_values,
-        torch::autograd::Variable(), // offsets
-        torch::autograd::Variable(), // max_lengths
-        torch::autograd::Variable(), // padding_value
-    };
-  }
-};
-
-///@ingroup jagged-tensor-ops-cpu
-Tensor jagged_to_padded_dense(
+at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
     const std::vector<int64_t>& max_lengths,
-    const double padding_value = 0) {
-  return JaggedToPaddedDenseCPUOp::apply(
-      values, offsets, max_lengths, padding_value)[0];
-}
+    const double padding_value) {
+  const size_t num_jagged_dim = offsets.size();
+  TORCH_CHECK(
+      max_lengths.size() == num_jagged_dim,
+      "max_lengths.size(), ",
+      max_lengths.size(),
+      " != num_jagged_dim, ",
+      num_jagged_dim);
 
-///@ingroup jagged-tensor-ops-cpu
-/// Output = x + y where x is jagged, y and output are dense
-Tensor jagged_dense_elementwise_add(
-    const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y) {
-  // Construct max_lengths from y
-  std::vector<int64_t> max_lengths;
-  max_lengths.reserve(x_offsets.size());
-  for (int d = 1; d < y.dim() - 1; d++) {
-    max_lengths.push_back(y.size(d));
+  const Tensor values_canonicalized = values.view(
+      {values.size(0),
+       std::accumulate(
+           values.sizes().begin() + 1,
+           values.sizes().end(),
+           1,
+           std::multiplies<size_t>())});
+  at::DimVector padded_values_shape({offsets[0].size(0) - 1});
+  padded_values_shape.insert(
+      padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
+  if (values.dim() > 1) {
+    padded_values_shape.push_back(values.size(-1));
   }
-  TORCH_CHECK(max_lengths.size() == x_offsets.size());
+  Tensor padded_values = at::empty(padded_values_shape, values.options());
+  if (values.numel() == 0) {
+    // To avoid an error due to values_canonicalized.data_ptr is nullptr.
+    padded_values.fill_(padding_value);
+    return {padded_values};
+  }
+  Tensor padded_values_view =
+      values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
 
-  // Convert x to dense (assume padding is 0.0)
-  auto xd = JaggedToPaddedDenseCPUOp::apply(
-      x_values, x_offsets, max_lengths, /* padding_value */ 0.0)[0];
+  AT_DISPATCH_ALL_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      values.scalar_type(),
+      "jagged_to_padded_dense",
+      [&] {
+        jagged_dense_elementwise_dense_output_<scalar_t>(
+            values_canonicalized,
+            offsets,
+            padded_values_view, // dummy not used in the lambda function
+            padded_values_view,
+            [](scalar_t x, scalar_t /*unused*/) -> scalar_t { return x; },
+            static_cast<scalar_t>(padding_value));
+      });
 
-  auto dense_output = xd + y;
-  return dense_output;
+  return padded_values;
 }
 
-///@ingroup jagged-tensor-ops-cpu
+at::Tensor jagged_to_padded_dense_backward(
+    const Tensor& grad_output,
+    const std::vector<Tensor>& offsets,
+    const int64_t total_L) {
+  auto grad_padded_values = grad_output;
+
+  int32_t D = grad_padded_values.size(-1);
+  // Initialize with zeros so output will be zero for the portion truncated
+  // in forward.
+  auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
+
+  AT_DISPATCH_ALL_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      grad_padded_values.scalar_type(),
+      "jagged_2d_to_dense_backward_kernel",
+      [&] {
+        jagged_dense_elementwise_jagged_output_<scalar_t>(
+            grad_values, // dummy not used in the lambda function
+            {offsets},
+            grad_padded_values,
+            grad_values,
+            [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
+      });
+
+  return grad_values;
+}
+
 // TODO: Add option to pass in total_L
 class DenseToJaggedCPUOp
     : public torch::autograd::Function<DenseToJaggedCPUOp> {
@@ -545,7 +496,7 @@ class DenseToJaggedCPUOp
     auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
     TORCH_CHECK(grad_outputs.size() == 1);
 
-    Tensor dense_values_grad = jagged_to_padded_dense(
+    Tensor dense_values_grad = jagged_to_padded_dense_forward(
         grad_outputs[0],
         offsets,
         std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
@@ -737,7 +688,6 @@ void jagged_jagged_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-///@addtogroup jagged-tensor-ops-cpu
 std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
@@ -1077,12 +1027,12 @@ jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
 
-  return jagged_to_padded_dense(
+  return jagged_to_padded_dense_forward(
       values, {offsets}, {max_L}, /*padding_value=*/0);
 }
 
 ///@ingroup jagged-tensor-ops-cpu
-Tensor jagged_1d_to_dense_cpu(
+Tensor jagged_1d_to_dense_autograd(
     Tensor values,
     Tensor offsets,
     int64_t max_L,
@@ -1091,7 +1041,19 @@ Tensor jagged_1d_to_dense_cpu(
   TORCH_CHECK(offsets.dim() == 1);
   TORCH_CHECK(max_L > 0);
 
-  return jagged_to_padded_dense(values, {offsets}, {max_L}, padding_value);
+  return jagged_to_padded_dense_autograd(
+      values, {offsets}, {max_L}, padding_value);
+}
+
+Tensor jagged_2d_to_dense_autograd(
+    Tensor values,
+    Tensor offsets,
+    int64_t max_sequence_length) {
+  return jagged_to_padded_dense_autograd(
+      values,
+      {offsets},
+      {max_sequence_length},
+      /*padding_value=*/0);
 }
 
 std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
@@ -1121,7 +1083,7 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
             output_ptr[i] = cumsum;
           }
         });
-    padded_values_per_key.push_back(jagged_to_padded_dense(
+    padded_values_per_key.push_back(jagged_to_padded_dense_autograd(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
@@ -1162,7 +1124,7 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
         });
     offsets_tensor_per_key.push_back(offsets);
 
-    padded_values_per_key.push_back(jagged_to_padded_dense(
+    padded_values_per_key.push_back(jagged_to_padded_dense_autograd(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
@@ -1192,6 +1154,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value = 0) -> Tensor[]");
   m.def(
       "jagged_to_padded_dense(Tensor values, Tensor[] offsets, int[] max_lengths, float padding_value = 0) -> Tensor");
+  m.def(
+      "jagged_to_padded_dense_forward(Tensor values, Tensor[] offsets, int[] max_lengths, float padding_value = 0) -> Tensor");
+  m.def(
+      "jagged_to_padded_dense_backward(Tensor grad_output, Tensor[] offsets, int total_L) -> Tensor");
   // jagged + dense -> dense
   m.def(
       "jagged_dense_elementwise_add(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");
@@ -1214,12 +1180,21 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
-      "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_forward_cpu);
-  DISPATCH_TO_CPU("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_cpu);
-  DISPATCH_TO_CPU("dense_to_jagged", fbgemm_gpu::dense_to_jagged_cpu);
-  DISPATCH_TO_CPU("jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
+      "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_autograd);
   DISPATCH_TO_CPU(
-      "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
+      "jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_autograd);
+  DISPATCH_TO_CPU("dense_to_jagged", fbgemm_gpu::dense_to_jagged_cpu);
+  DISPATCH_TO_CPU(
+      "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense_autograd);
+  DISPATCH_TO_CPU(
+      "jagged_to_padded_dense_forward",
+      fbgemm_gpu::jagged_to_padded_dense_forward);
+  DISPATCH_TO_CPU(
+      "jagged_to_padded_dense_backward",
+      fbgemm_gpu::jagged_to_padded_dense_backward);
+  DISPATCH_TO_CPU(
+      "jagged_dense_elementwise_add",
+      fbgemm_gpu::jagged_dense_elementwise_add_autograd);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_add_jagged_output",
       fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
