@@ -405,8 +405,9 @@ class JaggedToPaddedDenseCPUOp
     Tensor padded_values_view =
         values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
 
-    AT_DISPATCH_ALL_TYPES_AND(
+    AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
+        at::ScalarType::BFloat16,
         values.scalar_type(),
         "jagged_to_padded_dense",
         [&] {
@@ -437,8 +438,9 @@ class JaggedToPaddedDenseCPUOp
     // in forward.
     auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
 
-    AT_DISPATCH_ALL_TYPES_AND(
+    AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
+        at::ScalarType::BFloat16,
         grad_padded_values.scalar_type(),
         "jagged_2d_to_dense_backward_kernel",
         [&] {
@@ -519,9 +521,9 @@ class DenseToJaggedCPUOp
     auto values = at::empty({total_L_computed, D}, dense.options());
     auto output = at::zeros({total_L_computed, D}, dense.options());
 
-    AT_DISPATCH_FLOATING_TYPES_AND2(
+    AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
-        at::ScalarType::Long,
+        at::ScalarType::BFloat16,
         values.scalar_type(),
         "jagged_scalars",
         [&] {
@@ -886,7 +888,9 @@ class BatchedDenseVecJagged2DMulCPUOp
     if (B > 0 && D > 0) {
       AT_DISPATCH_INDEX_TYPES(
           a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            AT_DISPATCH_FLOATING_TYPES_AND2(
+                at::ScalarType::Half,
+                at::ScalarType::BFloat16,
                 a_values.scalar_type(),
                 "dense_vec_jagged_2d_bmm_kernel_2",
                 [&] {
@@ -925,7 +929,9 @@ class BatchedDenseVecJagged2DMulCPUOp
           a_offsets.scalar_type(),
           "dense_vec_jagged_2d_bmm_baackward_kernel_1",
           [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+            AT_DISPATCH_FLOATING_TYPES_AND2(
+                at::ScalarType::Half,
+                at::ScalarType::BFloat16,
                 grad_outputs[0].scalar_type(),
                 "dense_vec_jagged_2d_bmm_baackward_kernel_2",
                 [&] {
@@ -974,8 +980,12 @@ Tensor jagged_1d_to_truncated_values_cpu(
   Tensor truncated_values;
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "jagged_1d_to_truncated_values_cpu_kernel", [&] {
-        AT_DISPATCH_ALL_TYPES_AND_HALF(
-            values.scalar_type(), "copy_values_and_truncate_cpu_kernel", [&] {
+        AT_DISPATCH_ALL_TYPES_AND2(
+            at::ScalarType::Half,
+            at::ScalarType::BFloat16,
+            values.scalar_type(),
+            "copy_values_and_truncate_cpu_kernel",
+            [&] {
               const index_t max_length_int =
                   static_cast<index_t>(max_truncated_length);
               const auto lengths_accessor = lengths.accessor<index_t, 1>();
@@ -1021,8 +1031,12 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
 
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "mask_select_jagged_1d_kernel1", [&] {
-        AT_DISPATCH_ALL_TYPES_AND_HALF(
-            values.scalar_type(), "mask_select_jagged_1d_kernel2", [&] {
+        AT_DISPATCH_ALL_TYPES_AND2(
+            at::ScalarType::Half,
+            at::ScalarType::BFloat16,
+            values.scalar_type(),
+            "mask_select_jagged_1d_kernel2",
+            [&] {
               const int32_t num_outputs = mask.sum().item<int32_t>();
               masked_values = at::empty({num_outputs}, values.options());
 
