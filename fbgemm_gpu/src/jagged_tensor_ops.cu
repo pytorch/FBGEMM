@@ -1288,8 +1288,9 @@ class DenseToJaggedGPUOp
                   }); // device lambda
             } // lambda
             ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+        AT_DISPATCH_CASE_FLOATING_TYPES_AND2(
             at::ScalarType::Long,
+            at::ScalarType::BFloat16,
             [&] {
               jagged_dense_elementwise_jagged_output_<scalar_t>(
                   values,
@@ -1364,17 +1365,19 @@ class JaggedDenseDenseAddJaggedOutputGPUOp
                       -> scalar_t { return x + y_0 + y_1; });
             } // lambda
             ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES([&] {
-          jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
-              x_values,
-              offsets,
-              dense_0,
-              dense_1,
-              output,
-              [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
-                  -> scalar_t { return x + y_0 + y_1; });
-        } // lambda
-                                        ) // CASE_FLOATING_TYPES_AND
+        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+            at::ScalarType::BFloat16,
+            [&] {
+              jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
+                  x_values,
+                  offsets,
+                  dense_0,
+                  dense_1,
+                  output,
+                  [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                      -> scalar_t { return x + y_0 + y_1; });
+            } // lambda
+            ) // CASE_FLOATING_TYPES_AND
     ); // SWITCH
 
     return {output};
@@ -1447,17 +1450,19 @@ class JaggedDenseAddJaggedOutputGPUOp
                   }); // device lambda
             } // lambda
             ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES([&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              x_values,
-              offsets,
-              dense,
-              output,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x + y;
-              }); // device lambda
-        } // lambda
-                                        ) // CASE_FLOATING_TYPES_AND
+        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+            at::ScalarType::BFloat16,
+            [&] {
+              jagged_dense_elementwise_jagged_output_<scalar_t>(
+                  x_values,
+                  offsets,
+                  dense,
+                  output,
+                  [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                    return x + y;
+                  }); // device lambda
+            } // lambda
+            ) // CASE_FLOATING_TYPES_AND
     ); // SWITCH
 
     return {output};
@@ -1660,17 +1665,19 @@ class JaggedDenseMulGPUOp
                   });
             } // lambda
             ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES([&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              x_values,
-              x_offsets,
-              y,
-              output,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x * y;
-              });
-        } // lambda
-                                        ) // CASE_FLOATING_TYPES_AND
+        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+            at::ScalarType::BFloat16,
+            [&] {
+              jagged_dense_elementwise_jagged_output_<scalar_t>(
+                  x_values,
+                  x_offsets,
+                  y,
+                  output,
+                  [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                    return x * y;
+                  });
+            } // lambda
+            ) // CASE_FLOATING_TYPES_AND
     ); // SWITCH
 
     return {output};
@@ -1693,8 +1700,12 @@ class JaggedDenseMulGPUOp
     Tensor x_values_grad = at::empty_like(grad_outputs[0]);
     Tensor y_grad = at::empty_like(y);
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        x_values.scalar_type(), "jagged_scalars", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        x_values.scalar_type(),
+        "jagged_scalars",
+        [&] {
           jagged_dense_elementwise_jagged_output_<scalar_t>(
               grad_outputs[0],
               x_offsets,
@@ -2115,8 +2126,12 @@ Tensor stacked_jagged_2d_to_dense_backward_cuda(
     Tensor grad_values_slice =
         grad_values.slice(0, offset_per_key[t], offset_per_key[t + 1]);
 
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        grad_values.scalar_type(), "jagged_2d_to_dense_backward_kernel", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        grad_values.scalar_type(),
+        "jagged_2d_to_dense_backward_kernel",
+        [&] {
           jagged_dense_elementwise_jagged_output_<scalar_t>(
               grad_values_slice, // dummy not used in the lambda function
               {offsets_tensor_per_key[t]},
@@ -2293,8 +2308,9 @@ Tensor jagged_index_select_2d_cuda(
       at::empty({num_dense_output_rows, num_cols}, values.options());
 
   if (num_blocks > 0) {
-    AT_DISPATCH_ALL_TYPES_AND(
+    AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
+        at::ScalarType::BFloat16,
         values.scalar_type(),
         "jagged_index_select_2d_kernel_wrapper_1",
         [&] {
@@ -2388,8 +2404,9 @@ Tensor jagged_index_add_2d_cuda(
   Tensor output = at::zeros({num_output_rows, num_cols}, grad.options());
 
   if (num_blocks > 0) {
-    AT_DISPATCH_ALL_TYPES_AND(
+    AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
+        at::ScalarType::BFloat16,
         grad.scalar_type(),
         "jagged_index_add_2d_kernel_wrapper_1",
         [&] {
@@ -2835,8 +2852,9 @@ class KeyedJaggedIndexSelectDim1GPUOp
             num_outputs);                                                  \
   }
 
-    AT_DISPATCH_ALL_TYPES_AND(
+    AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
+        at::ScalarType::BFloat16,
         values.scalar_type(),
         "keyed_jagged_index_select_dim1_warpper_1",
         [&] {
@@ -2914,8 +2932,9 @@ class KeyedJaggedIndexSelectDim1GPUOp
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
     auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);
 
-    AT_DISPATCH_ALL_TYPES_AND(
+    AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
+        at::ScalarType::BFloat16,
         grad.scalar_type(),
         "keyed_jagged_index_add_dim1_wrapper_1",
         [&] {
