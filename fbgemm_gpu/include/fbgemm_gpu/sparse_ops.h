@@ -402,6 +402,11 @@ jagged_dense_dense_elementwise_add_jagged_output_autograd(
     const at::Tensor& y_0,
     const at::Tensor& y_1);
 
+at::Tensor batched_dense_vec_jagged_2d_mul_autograd(
+    const at::Tensor& v,
+    const at::Tensor& a_values,
+    const at::Tensor& a_offsets);
+
 std::tuple<at::Tensor, std::vector<at::Tensor>>
 jagged_dense_elementwise_mul_autograd(
     const at::Tensor& x_values,

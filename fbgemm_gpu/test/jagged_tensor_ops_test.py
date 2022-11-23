@@ -1187,7 +1187,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_L=st.integers(1, 32),
         D=st.integers(0, 32),
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cuda"),
     )
     def test_batched_dense_vec_jagged_2d_mul(
         self,
@@ -1196,13 +1198,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_L: int,
         D: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         assume(H == 1 or B != 0)
         # CPU doesn't support bfloat16
-        assume(not use_cpu or dtype != torch.bfloat16)
+        assume(device_type != "cpu" or dtype != torch.bfloat16)
 
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
         torch.backends.cuda.matmul.allow_tf32 = False
 
         # Sometimes length[i] exceed max_L meaning jagged->dense will be
@@ -1224,13 +1226,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
             .reshape(B * H, max_L, D)
         )
         # torch.bmm not implemented for Half on CPU
-        if dtype in [torch.half, torch.bfloat16] and use_cpu:
+        if dtype in [torch.half, torch.bfloat16] and device_type == "cpu":
             bmm_arg1 = bmm_arg1.float()
             bmm_arg2 = bmm_arg2.float()
         output_ref = torch.bmm(bmm_arg1, bmm_arg2).squeeze(
             1
         )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
-        if dtype in [torch.half, torch.bfloat16] and use_cpu:
+        if dtype in [torch.half, torch.bfloat16] and device_type == "cpu":
             output_ref = output_ref.to(dtype)
         output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
             dense, values, offsets
@@ -1250,6 +1252,66 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 offsets,
             ),
         )
+
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(0, 32),
+        H=st.integers(1, 3),
+        max_L=st.integers(1, 32),
+        D=st.integers(0, 32),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        device_type=st.sampled_from(["meta"]),
+    )
+    def test_batched_dense_vec_jagged_2d_mul_meta_backend(
+        self,
+        B: int,
+        H: int,
+        max_L: int,
+        D: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        assume(H == 1 or B != 0)
+
+        device = torch.device("cpu")
+        torch.backends.cuda.matmul.allow_tf32 = False
+
+        # Sometimes length[i] exceed max_L meaning jagged->dense will be
+        # truncation vs. padding
+        lengths = torch.randint(max_L * 2, size=(B,), device=device)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        values = torch.rand((offsets[-1], H * D), dtype=dtype, device=device)
+        dense = torch.rand((B * H, max_L), dtype=dtype, device=device)
+        padded_values = torch.ops.fbgemm.jagged_to_padded_dense(
+            values,
+            [offsets],
+            [max_L],
+        )  # [B, N, H * D]
+
+        bmm_arg1 = dense.unsqueeze(1)
+        bmm_arg2 = (
+            padded_values.reshape(B, max_L, H, D)
+            .transpose(1, 2)
+            .reshape(B * H, max_L, D)
+        )
+        # torch.bmm not implemented for Half on CPU
+        if dtype in [torch.half, torch.bfloat16]:
+            bmm_arg1 = bmm_arg1.float()
+            bmm_arg2 = bmm_arg2.float()
+        output_ref = torch.bmm(bmm_arg1, bmm_arg2).squeeze(
+            1
+        )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
+        dense.to(device_type)
+        values.to(device_type)
+        output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            dense, values, offsets
+        )
+        assert output.size() == output_ref.size()
 
     @staticmethod
     def jagged_index_select_2d_ref(
