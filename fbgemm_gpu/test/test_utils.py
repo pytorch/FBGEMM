@@ -14,6 +14,7 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 
+
 TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1"
 # Eigen/Python round 0.5 away from 0, Numpy rounds to even
 round_to_nearest: Callable[[np.ndarray], np.ndarray] = np.vectorize(round)

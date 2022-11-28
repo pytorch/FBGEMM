@@ -6,7 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import enum
-from typing import Any, Dict
+from typing import Any, Dict  # noqa: F401
 
 import torch
 
