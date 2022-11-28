@@ -136,14 +136,14 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         D=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=200),
-        is_half=st.booleans(),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
     )
     def test_jagged_2d_to_dense(
         self,
         B: int,
         D: int,
         max_sequence_length: int,
-        is_half: bool,
+        dtype: torch.dtype,
     ) -> None:
         D = D * 4
         lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
@@ -158,14 +158,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
             max_sequence_length,
             D,
         ).to_dense()
-        if is_half:
-            ref_output_values = ref_output_values.half()
+        ref_output_values = ref_output_values.to(dtype)
 
         # test cpu forward
-        if is_half:
-            values = ref_values.clone().half().detach().requires_grad_(True)
-        else:
-            values = ref_values.clone().detach().requires_grad_(True)
+        values = ref_values.clone().to(dtype).detach().requires_grad_(True)
         output_values = torch.ops.fbgemm.jagged_2d_to_dense(
             values=values,
             offsets=offsets,
@@ -176,10 +172,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if torch.cuda.is_available():
             # test gpu forward
             ref_values = ref_values.cuda()
-            if is_half:
-                values = ref_values.clone().half().detach().requires_grad_(True)
-            else:
-                values = ref_values.clone().detach().requires_grad_(True)
+            values = ref_values.clone().to(dtype).detach().requires_grad_(True)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
             output_values = torch.ops.fbgemm.jagged_2d_to_dense(
@@ -191,8 +184,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
             # test gpu backward
             output_values.backward(ref_output_values)
-            if is_half:
-                ref_values = ref_values.half()
+            ref_values = ref_values.to(dtype)
             torch.testing.assert_close(ref_values, values.grad)
 
     def test_jagged_2d_to_dense_truncation(self) -> None:
@@ -627,7 +619,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
-        dtype=st.sampled_from([torch.float, torch.half]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         precompute_total_L=st.booleans(),
     )
@@ -874,7 +866,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -998,7 +990,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1084,22 +1076,22 @@ class JaggedTensorOpsTest(unittest.TestCase):
             .reshape(B * H, max_L, D)
         )
         # torch.bmm not implemented for Half on CPU
-        if dtype == torch.half and use_cpu:
+        if dtype in [torch.half, torch.bfloat16] and use_cpu:
             bmm_arg1 = bmm_arg1.float()
             bmm_arg2 = bmm_arg2.float()
         output_ref = torch.bmm(bmm_arg1, bmm_arg2).squeeze(
             1
         )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
-        if dtype == torch.half and use_cpu:
-            output_ref = output_ref.half()
+        if dtype in [torch.half, torch.bfloat16] and use_cpu:
+            output_ref = output_ref.to(dtype)
         output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
             dense, values, offsets
         )
         torch.testing.assert_close(
             output,
             output_ref,
-            rtol=1e-2 if dtype == torch.half else None,
-            atol=1e-2 if dtype == torch.half else None,
+            rtol=1e-2 if dtype in [torch.half, torch.bfloat16] else None,
+            atol=1e-2 if dtype in [torch.half, torch.bfloat16] else None,
         )
 
         torch.autograd.gradcheck(
@@ -1139,7 +1131,12 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_tensor_rows=st.integers(1, 128),
         index_dtype=st.sampled_from([torch.int, torch.long]),
         jagged_tensor_dtype=st.sampled_from(
-            [torch.float, torch.half, torch.int, torch.long]
+            [
+                torch.float,
+                torch.half,
+                torch.int,
+                torch.long,
+            ]  # Disable torch.bfloat16 due to large error bound
         ),
     )
     @settings(max_examples=20, deadline=None)
@@ -1152,7 +1149,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
     ) -> None:
-        is_float = jagged_tensor_dtype in [torch.float, torch.half]
+        is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,
             high=max_seq_length,
@@ -1207,8 +1204,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(
             values.grad,
             values_ref.grad,
-            rtol=1e-2 if jagged_tensor_dtype == torch.half else None,
-            atol=1e-2 if jagged_tensor_dtype == torch.half else None,
+            rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
+            atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
     # pyre-ignore [56]
@@ -1218,7 +1215,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_truncated_length=st.integers(1, 32),
         index_dtype=st.sampled_from([torch.int, torch.long]),
         jagged_tensor_dtype=st.sampled_from(
-            [torch.float, torch.half, torch.int, torch.long]
+            [torch.float, torch.half, torch.bfloat16, torch.int, torch.long]
         ),
         use_cpu=st.just(True),
     )
@@ -1233,7 +1230,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         use_cpu: bool,
     ) -> None:
         device = "cpu" if use_cpu else "cuda"
-        is_float = jagged_tensor_dtype in [torch.float, torch.half]
+        is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,
             high=max_length + 1,
@@ -1341,7 +1338,12 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_batches=st.integers(1, 3),
         index_dtype=st.sampled_from([torch.int, torch.long]),
         jagged_tensor_dtype=st.sampled_from(
-            [torch.float, torch.half, torch.int, torch.long]
+            [
+                torch.float,
+                torch.half,
+                torch.int,
+                torch.long,
+            ]  # Disable torch.bfloat16 due to large error bound
         ),
         has_weights=st.booleans(),
     )
@@ -1356,7 +1358,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         jagged_tensor_dtype: torch.dtype,
         has_weights: bool,
     ) -> None:
-        is_float = jagged_tensor_dtype in [torch.float, torch.half]
+        is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,
             high=max_seq_length,
@@ -1450,8 +1452,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(
             values.grad,
             values_ref.grad,
-            rtol=1e-2 if jagged_tensor_dtype == torch.half else None,
-            atol=1e-2 if jagged_tensor_dtype == torch.half else None,
+            rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
+            atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
 
