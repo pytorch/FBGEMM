@@ -290,6 +290,8 @@ set(fbgemm_gpu_sources_cpu
     codegen/embedding_bounds_check_host_cpu.cpp
     src/permute_pooled_embedding_ops_split_cpu.cpp
     src/cpu_utils.cpp
+    src/jagged_tensor_ops_autograd.cpp
+    src/jagged_tensor_ops_meta.cpp
     src/jagged_tensor_ops_cpu.cpp
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
