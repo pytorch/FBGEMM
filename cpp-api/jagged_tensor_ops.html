@@ -344,13 +344,24 @@ system batched inputs.</p>
 <div class="section" id="cpu-operators">
 <h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
+<dt id="_CPPv431jagged_to_padded_dense_autogradRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd">
+<span id="_CPPv331jagged_to_padded_dense_autogradRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd"></span><span id="_CPPv231jagged_to_padded_dense_autogradRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd"></span><span id="jagged_to_padded_dense_autograd__TensorCR.std::vector:Tensor:CR.std::vector:int64_t:CR.doubleC"></span><span class="target" id="group__jagged-tensor-ops-cpu_1ga56fe3af83cfe2cdef28646c9e7fb5f9b"></span>Tensor <code class="sig-name descname">jagged_to_padded_dense_autograd</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>values</em>, <em class="property">const</em> std::vector&lt;Tensor&gt; &amp;<em>offsets</em>, <em class="property">const</em> std::vector&lt;int64_t&gt; &amp;<em>max_lengths</em>, <em class="property">const</em> double <em>padding_value</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv431jagged_to_padded_dense_autogradRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv437jagged_dense_elementwise_add_autogradRK6TensorRKNSt6vectorI6TensorEERK6Tensor">
+<span id="_CPPv337jagged_dense_elementwise_add_autogradRK6TensorRKNSt6vectorI6TensorEERK6Tensor"></span><span id="_CPPv237jagged_dense_elementwise_add_autogradRK6TensorRKNSt6vectorI6TensorEERK6Tensor"></span><span id="jagged_dense_elementwise_add_autograd__TensorCR.std::vector:Tensor:CR.TensorCR"></span><span class="target" id="group__jagged-tensor-ops-cpu_1ga4a70bb7492f860bc2d5b3d13e68ddd98"></span>Tensor <code class="sig-name descname">jagged_dense_elementwise_add_autograd</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>x_values</em>, <em class="property">const</em> std::vector&lt;Tensor&gt; &amp;<em>x_offsets</em>, <em class="property">const</em> Tensor &amp;<em>y</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437jagged_dense_elementwise_add_autogradRK6TensorRKNSt6vectorI6TensorEERK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Output = x + y where x is jagged, y and output are dense </p>
+</dd></dl>
+
+<dl class="cpp function">
 <dt id="_CPPv430jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t">
 <span id="_CPPv330jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t"></span><span id="_CPPv230jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t"></span><span id="jagged_2d_to_dense_forward_cpu__Tensor.Tensor.int64_t"></span><span class="target" id="group__jagged-tensor-ops-cpu_1ga70d2cdc82d96c9c4298b57133393a800"></span>Tensor <code class="sig-name descname">jagged_2d_to_dense_forward_cpu</code><span class="sig-paren">(</span>Tensor <em>values</em>, Tensor <em>offsets</em>, int64_t <em>max_L</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv430jagged_2d_to_dense_forward_cpu6Tensor6Tensor7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv422jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t">
-<span id="_CPPv322jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t"></span><span id="_CPPv222jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t"></span><span id="jagged_1d_to_dense_cpu__Tensor.Tensor.int64_t.int64_t"></span><span class="target" id="group__jagged-tensor-ops-cpu_1gacac146da354fea9595cedc009c156798"></span>Tensor <code class="sig-name descname">jagged_1d_to_dense_cpu</code><span class="sig-paren">(</span>Tensor <em>values</em>, Tensor <em>offsets</em>, int64_t <em>max_L</em>, int64_t <em>padding_value</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv422jagged_1d_to_dense_cpu6Tensor6Tensor7int64_t7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt id="_CPPv427jagged_1d_to_dense_autograd6Tensor6Tensor7int64_t7int64_t">
+<span id="_CPPv327jagged_1d_to_dense_autograd6Tensor6Tensor7int64_t7int64_t"></span><span id="_CPPv227jagged_1d_to_dense_autograd6Tensor6Tensor7int64_t7int64_t"></span><span id="jagged_1d_to_dense_autograd__Tensor.Tensor.int64_t.int64_t"></span><span class="target" id="group__jagged-tensor-ops-cpu_1gaebf021a1988c5e15dc72c2f8b54a681d"></span>Tensor <code class="sig-name descname">jagged_1d_to_dense_autograd</code><span class="sig-paren">(</span>Tensor <em>values</em>, Tensor <em>offsets</em>, int64_t <em>max_L</em>, int64_t <em>padding_value</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv427jagged_1d_to_dense_autograd6Tensor6Tensor7int64_t7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 </div>
