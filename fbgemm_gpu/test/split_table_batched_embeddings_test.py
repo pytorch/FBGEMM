@@ -882,7 +882,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             device=torch.cuda.current_device(),
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         op.fill_random_weights()
 
         op_ref = (
@@ -901,7 +901,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 device=torch.cuda.current_device(),
             )
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         op_ref.fill_random_weights()
 
         # sync weights between two ops
@@ -3254,7 +3254,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if has_fp8_weight
             else None,
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
