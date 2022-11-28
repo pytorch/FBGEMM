@@ -19,6 +19,7 @@ import click
 import fbgemm_gpu
 import numpy as np
 import torch
+from fbgemm_gpu.split_embedding_utils import generate_requests, get_device, round_up
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -54,9 +55,6 @@ if open_source:
         benchmark_requests,
         benchmark_requests_refer,
         benchmark_torch_function,
-        generate_requests,
-        get_device,
-        round_up,
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
@@ -64,9 +62,6 @@ else:
         benchmark_requests,
         benchmark_requests_refer,
         benchmark_torch_function,
-        generate_requests,
-        get_device,
-        round_up,
     )
 
 
@@ -248,7 +243,6 @@ def device(  # noqa C901
         E,
         reuse=reuse,
         alpha=alpha,
-        weights_precision=weights_precision,
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
@@ -447,7 +441,6 @@ def uvm(
         E,
         reuse=reuse,
         alpha=alpha,
-        weights_precision=weights_precision,
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
@@ -463,7 +456,6 @@ def uvm(
             E,
             reuse=reuse,
             alpha=alpha,
-            weights_precision=weights_precision,
             weighted=False,
             requests_data_file=requests_data_file,
             tables=tables,
@@ -848,7 +840,6 @@ def nbit_cpu(  # noqa C901
         E,
         reuse=reuse,
         alpha=alpha,
-        weights_precision=weights_precision,
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
@@ -858,6 +849,8 @@ def nbit_cpu(  # noqa C901
     ]
 
     time_per_iter = benchmark_cpu_requests(
+        # pyre-fixme[6]: For 1st param expected `List[Tuple[IntTensor, IntTensor,
+        #  Optional[Tensor]]]` but got `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`.
         requests,
         lambda indices, offsets, per_sample_weights: emb.forward(
             indices,
@@ -1026,7 +1019,6 @@ def nbit_device(  # noqa C901
             E,
             reuse=reuse,
             alpha=alpha,
-            weights_precision=weights_precision,
             weighted=weighted,
             requests_data_file=requests_data_file,
             tables=tables,
@@ -1100,7 +1092,6 @@ def nbit_device(  # noqa C901
                 E,
                 reuse=reuse,
                 alpha=alpha,
-                weights_precision=weights_precision,
                 weighted=weighted,
                 requests_data_file=requests_data_file,
                 tables=tables,
@@ -1316,7 +1307,6 @@ def nbit_device_with_spec(  # noqa C901
                 alpha=alpha if (e / bag_size) > 2.0 else 1.0,
                 # need many more samples for zipf if bag_size is very small.
                 zipf_oversample_ratio=3 if bag_size > 5 else 10,
-                weights_precision=weights_precision,
                 weighted=weighted,
             )
             for it, (indices, offsets, weights) in enumerate(requests):
@@ -1543,7 +1533,6 @@ def nbit_uvm(
         E_uvm,
         reuse=reuse,
         alpha=alpha,
-        weights_precision=weights_precision,
         weighted=weighted,
     )
     requests_uvm = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests_uvm]
@@ -1558,7 +1547,6 @@ def nbit_uvm(
             E,
             reuse=reuse,
             alpha=alpha,
-            weights_precision=weights_precision,
             weighted=False,
         )
         requests_gpu = [
@@ -1773,9 +1761,10 @@ def nbit_uvm_compare_direct_mapped(
         E,
         reuse=reuse,
         alpha=alpha,
-        weights_precision=weights_precision,
         weighted=weighted,
     )
+    # pyre-fixme[9]: requests_uvm has type `List[Tuple[IntTensor, IntTensor,
+    #  Optional[Tensor]]]`; used as `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`.
     requests_uvm: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]] = [
         (a.int(), b.int(), c if c else None) for (a, b, c) in _requests_uvm
     ]
@@ -2712,7 +2701,6 @@ def device_with_spec(  # noqa C901
             e,
             reuse=reuse,
             alpha=alpha,
-            weights_precision=weights_precision,
             weighted=weighted,
         )
         for i, (indices, offsets, weights) in enumerate(requests):
