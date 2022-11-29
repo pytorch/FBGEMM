@@ -697,18 +697,45 @@ void jagged_jagged_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
+Tensor jagged_dense_elementwise_mul_forward(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
   // Convert to jagged
   auto jagged_values =
-      DenseToJaggedCPUOp::apply(y, x_offsets, c10::optional<int64_t>())[0];
+      dense_to_jagged_forward(y, x_offsets, c10::optional<int64_t>());
 
   // Multiply x_values * jagged_values -> prod_values
   auto prod_values = x_values * jagged_values;
 
-  return {prod_values, x_offsets};
+  return prod_values;
+}
+
+std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
+    const Tensor& grad_output,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y,
+    const Tensor& x_values) {
+  Tensor x_values_grad = at::zeros_like(grad_output);
+  Tensor y_grad = at::zeros_like(y);
+  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      x_values.scalar_type(), "jagged_dense_elementwise_mul_backward", [&] {
+        jagged_dense_elementwise_jagged_output_<scalar_t>(
+            grad_output,
+            x_offsets,
+            y,
+            x_values_grad,
+            [](scalar_t x, scalar_t y) -> scalar_t { return x * y; });
+
+        jagged_jagged_elementwise_dense_output_<scalar_t>(
+            grad_output,
+            x_offsets,
+            x_values,
+            y_grad,
+            [](scalar_t x, scalar_t y) -> scalar_t { return x * y; });
+      });
+
+  return {x_values_grad, y_grad};
 }
 
 template <typename index_t, typename scalar_t>
@@ -1182,6 +1209,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_dense_elementwise_mul(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
   m.def(
+      "jagged_dense_elementwise_mul_forward(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");
+  m.def(
+      "jagged_dense_elementwise_mul_backward(Tensor grad_output, Tensor[] x_offsets, Tensor y, Tensor x_values) -> (Tensor, Tensor)");
+  m.def(
       "batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
   m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
@@ -1216,7 +1247,14 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_dense_dense_elementwise_add_jagged_output",
       fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_autograd);
   DISPATCH_TO_CPU(
-      "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
+      "jagged_dense_elementwise_mul",
+      fbgemm_gpu::jagged_dense_elementwise_mul_autograd);
+  DISPATCH_TO_CPU(
+      "jagged_dense_elementwise_mul_forward",
+      fbgemm_gpu::jagged_dense_elementwise_mul_forward);
+  DISPATCH_TO_CPU(
+      "jagged_dense_elementwise_mul_backward",
+      fbgemm_gpu::jagged_dense_elementwise_mul_backward);
   DISPATCH_TO_CPU(
       "batched_dense_vec_jagged_2d_mul",
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul);

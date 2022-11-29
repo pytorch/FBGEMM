@@ -1509,115 +1509,87 @@ void jagged_jagged_elementwise_dense_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-class JaggedDenseMulGPUOp
-    : public torch::autograd::Function<JaggedDenseMulGPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& x_values,
-      const Tensor& y,
-      const std::vector<Tensor>& x_offsets) {
-    std::vector<Tensor> tensors_to_save;
-    tensors_to_save.push_back(x_values);
-    tensors_to_save.insert(
-        tensors_to_save.end(), x_offsets.begin(), x_offsets.end());
-    tensors_to_save.push_back(y);
-    ctx->save_for_backward(tensors_to_save);
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(x_values.get_device());
-
-    Tensor output = at::empty_like(x_values);
-
-    AT_DISPATCH_SWITCH(
-        x_values.scalar_type(),
-        "jagged_dense_elementwise_mul_jagged_output_forward",
-        AT_DISPATCH_CASE(
-            at::ScalarType::Half,
-            [&] {
-              jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
-                  x_values,
-                  x_offsets,
-                  y,
-                  output,
-                  [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                    return x * y;
-                  });
-            } // lambda
-            ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
-            at::ScalarType::BFloat16,
-            [&] {
-              jagged_dense_elementwise_jagged_output_<scalar_t>(
-                  x_values,
-                  x_offsets,
-                  y,
-                  output,
-                  [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                    return x * y;
-                  });
-            } // lambda
-            ) // CASE_FLOATING_TYPES_AND
-    ); // SWITCH
-
-    return {output};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    const Tensor x_values = ctx->get_saved_variables().front();
-    std::vector<Tensor> x_offsets;
-    for (int i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
-      x_offsets.push_back(ctx->get_saved_variables()[i]);
-    }
-    Tensor y = ctx->get_saved_variables().back();
-    TORCH_CHECK(grad_outputs.size() == 1);
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(grad_outputs[0].get_device());
-
-    Tensor x_values_grad = at::empty_like(grad_outputs[0]);
-    Tensor y_grad = at::empty_like(y);
-
-    AT_DISPATCH_FLOATING_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        x_values.scalar_type(),
-        "jagged_scalars",
-        [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              grad_outputs[0],
-              x_offsets,
-              y,
-              x_values_grad,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x * y;
-              });
-
-          jagged_jagged_elementwise_dense_output_<scalar_t>(
-              grad_outputs[0],
-              x_offsets,
-              x_values,
-              y_grad,
-              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                return x * y;
-              });
-        });
-
-    return {x_values_grad, y_grad, torch::autograd::Variable()};
-  }
-};
-
-///@ingroup jagged-tensor-ops-cuda
-std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
+Tensor jagged_dense_elementwise_mul_forward(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  // Convert to jagged
-  auto prod_values = JaggedDenseMulGPUOp::apply(x_values, y, x_offsets)[0];
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(x_values.get_device());
 
-  return {prod_values, x_offsets};
+  Tensor output = at::empty_like(x_values);
+
+  AT_DISPATCH_SWITCH(
+      x_values.scalar_type(),
+      "jagged_dense_elementwise_mul_jagged_output_forward",
+      AT_DISPATCH_CASE(
+          at::ScalarType::Half,
+          [&] {
+            jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
+                x_values,
+                x_offsets,
+                y,
+                output,
+                [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                  return x * y;
+                });
+          } // lambda
+          ) // CASE
+      AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+          at::ScalarType::BFloat16,
+          [&] {
+            jagged_dense_elementwise_jagged_output_<scalar_t>(
+                x_values,
+                x_offsets,
+                y,
+                output,
+                [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                  return x * y;
+                });
+          } // lambda
+          ) // CASE_FLOATING_TYPES_AND
+
+  ); // SWITCH
+
+  return output;
+}
+
+std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
+    const Tensor& grad_output,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y,
+    const Tensor& x_values) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(grad_output.get_device());
+
+  Tensor x_values_grad = at::empty_like(grad_output);
+  Tensor y_grad = at::empty_like(y);
+
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      x_values.scalar_type(),
+      "jagged_scalars",
+      [&] {
+        jagged_dense_elementwise_jagged_output_<scalar_t>(
+            grad_output,
+            x_offsets,
+            y,
+            x_values_grad,
+            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+              return x * y;
+            });
+
+        jagged_jagged_elementwise_dense_output_<scalar_t>(
+            grad_output,
+            x_offsets,
+            x_values,
+            y_grad,
+            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+              return x * y;
+            });
+      });
+
+  return {x_values_grad, y_grad};
 }
 
 template <typename index_t, typename scalar_t>
@@ -2871,7 +2843,14 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "jagged_dense_dense_elementwise_add_jagged_output",
       fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_autograd);
   DISPATCH_TO_CUDA(
-      "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
+      "jagged_dense_elementwise_mul_forward",
+      fbgemm_gpu::jagged_dense_elementwise_mul_forward);
+  DISPATCH_TO_CUDA(
+      "jagged_dense_elementwise_mul_backward",
+      fbgemm_gpu::jagged_dense_elementwise_mul_backward);
+  DISPATCH_TO_CUDA(
+      "jagged_dense_elementwise_mul",
+      fbgemm_gpu::jagged_dense_elementwise_mul_autograd);
   DISPATCH_TO_CUDA(
       "batched_dense_vec_jagged_2d_mul",
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul);

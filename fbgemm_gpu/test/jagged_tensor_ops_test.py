@@ -820,9 +820,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         operation: str,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
@@ -908,7 +908,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
         dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        device_type=st.sampled_from(["cpu", "cuda"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_elementwise_binary(
@@ -918,7 +918,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         operation: str,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_elementwise_binary(
             num_jagged_dim,
@@ -926,7 +926,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             inner_dense_size,
             operation,
             dtype,
-            use_cpu,
+            device_type,
         )
 
     # pyre-ignore [56]
@@ -936,7 +936,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size=st.sampled_from([16, 64, 96, 192]),
         operation=st.sampled_from(["add_jagged_output", "mul"]),
         dtype=st.just(torch.half),
-        use_cpu=st.just(False),
+        device_type=st.just("cuda"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
     def test_jagged_elementwise_binary_opt(
@@ -946,7 +946,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         operation: str,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_elementwise_binary(
             num_jagged_dim,
@@ -954,8 +954,53 @@ class JaggedTensorOpsTest(unittest.TestCase):
             inner_dense_size,
             operation,
             dtype,
-            use_cpu,
+            device_type,
         )
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 4),
+        outer_dense_size=st.integers(0, 4),
+        inner_dense_size=st.integers(0, 4),
+        operation=st.just("mul"),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        device_type=st.just("meta"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_elementwise_binary_meta_backend(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        operation: str,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        device = torch.device("cpu")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+        y = torch.rand(
+            outer_dense_size * np.prod(max_lengths) * inner_dense_size,
+            dtype=dtype,
+            device=device,
+        ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
+
+        x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        if operation == "mul":
+            output_ref = x_padded * y
+            x_values.to(device_type)
+            y.to(device_type)
+            output, output_offsets = torch.ops.fbgemm.jagged_dense_elementwise_mul(
+                x_values, x_offsets, y
+            )
+            output.to("cpu")
+            output = self._to_padded_dense(output, output_offsets, max_lengths)
+        else:
+            raise AssertionError(f"Unknown operation {operation}")
+
+        assert output.size() == output_ref.size()
 
     def _test_jagged_dense_dense_elementwise_add_jagged_output(
         self,
