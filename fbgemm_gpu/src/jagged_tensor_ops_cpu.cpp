@@ -843,115 +843,86 @@ void outer_prod_jagged_2d_output(
   }
 }
 
-// batched dense vector x jagged 2D tensor multiplication
-// dense vector [B H, N]
-// jagged tensor [B, N, H D] where N is jagged
-class BatchedDenseVecJagged2DMulCPUOp
-    : public torch::autograd::Function<BatchedDenseVecJagged2DMulCPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& v,
-      const Tensor& a_values,
-      const Tensor& a_offsets) {
-    ctx->save_for_backward({v, a_values, a_offsets});
-
-    TENSOR_ON_CPU(v);
-    TENSOR_ON_CPU(a_values);
-    TENSOR_ON_CPU(a_offsets);
-
-    const int B = a_offsets.numel() - 1;
-    TORCH_CHECK(
-        B == 0 || v.size(0) % B == 0,
-        "B, ",
-        B,
-        " doesn't divide v.size(0), ",
-        v.size(0));
-    const int H = B == 0 ? 1 : v.size(0) / B;
-    const int D = a_values.size(-1) / H;
-    auto output = at::empty({B * H, D}, v.options());
-
-    if (B > 0 && D > 0) {
-      AT_DISPATCH_INDEX_TYPES(
-          a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND2(
-                at::ScalarType::Half,
-                at::ScalarType::BFloat16,
-                a_values.scalar_type(),
-                "dense_vec_jagged_2d_bmm_kernel_2",
-                [&] {
-                  dense_vec_jagged_2d_bmm<index_t, scalar_t>(
-                      v.accessor<scalar_t, 2>(),
-                      a_values.accessor<scalar_t, 2>(),
-                      a_offsets.accessor<index_t, 1>(),
-                      output.accessor<scalar_t, 2>());
-                });
-          });
-    }
-
-    return {output};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    const auto saved = ctx->get_saved_variables();
-    auto savedItr = std::begin(saved);
-    const Tensor v = *savedItr++;
-    const Tensor a_values = *savedItr++;
-    const Tensor a_offsets = *savedItr++;
-    TORCH_CHECK(grad_outputs.size() == 1);
-
-    TENSOR_ON_CPU(grad_outputs[0]);
-
-    Tensor a_values_grad = at::zeros_like(a_values);
-    Tensor v_grad = at::empty_like(v);
-
-    const int B = a_offsets.numel() - 1;
-    const int D = grad_outputs[0].size(-1);
-
-    if (B > 0 && D > 0) {
-      AT_DISPATCH_INDEX_TYPES(
-          a_offsets.scalar_type(),
-          "dense_vec_jagged_2d_bmm_baackward_kernel_1",
-          [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND2(
-                at::ScalarType::Half,
-                at::ScalarType::BFloat16,
-                grad_outputs[0].scalar_type(),
-                "dense_vec_jagged_2d_bmm_baackward_kernel_2",
-                [&] {
-                  dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>(
-                      grad_outputs[0].accessor<scalar_t, 2>(),
-                      a_values.accessor<scalar_t, 2>(),
-                      a_offsets.accessor<index_t, 1>(),
-                      v_grad.accessor<scalar_t, 2>());
-
-                  outer_prod_jagged_2d_output<index_t, scalar_t>(
-                      v.accessor<scalar_t, 2>(),
-                      grad_outputs[0].accessor<scalar_t, 2>(),
-                      a_offsets.accessor<index_t, 1>(),
-                      a_values_grad.accessor<scalar_t, 2>());
-                });
-          });
-    } else {
-      v_grad.zero_();
-    }
-
-    return {
-        v_grad,
-        a_values_grad,
-        torch::autograd::Variable(), // a_offsets
-    };
-  }
-};
-
-///@ingroup jagged-tensor-ops-cpu
-Tensor batched_dense_vec_jagged_2d_mul(
+Tensor batched_dense_vec_jagged_2d_mul_forward(
     const Tensor& v,
     const Tensor& a_values,
     const Tensor& a_offsets) {
-  return BatchedDenseVecJagged2DMulCPUOp::apply(v, a_values, a_offsets)[0];
+  TENSOR_ON_CPU(v);
+  TENSOR_ON_CPU(a_values);
+  TENSOR_ON_CPU(a_offsets);
+
+  const int B = a_offsets.numel() - 1;
+  TORCH_CHECK(
+      B == 0 || v.size(0) % B == 0,
+      "B, ",
+      B,
+      " doesn't divide v.size(0), ",
+      v.size(0));
+  const int H = B == 0 ? 1 : v.size(0) / B;
+  const int D = a_values.size(-1) / H;
+  auto output = at::empty({B * H, D}, v.options());
+
+  if (B > 0 && D > 0) {
+    AT_DISPATCH_INDEX_TYPES(
+        a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              a_values.scalar_type(),
+              "dense_vec_jagged_2d_bmm_kernel_2",
+              [&] {
+                dense_vec_jagged_2d_bmm<index_t, scalar_t>(
+                    v.accessor<scalar_t, 2>(),
+                    a_values.accessor<scalar_t, 2>(),
+                    a_offsets.accessor<index_t, 1>(),
+                    output.accessor<scalar_t, 2>());
+              });
+        });
+  }
+  return output;
+}
+
+std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
+    const Tensor& grad_output,
+    const Tensor& v,
+    const Tensor& a_values,
+    const Tensor& a_offsets) {
+  TENSOR_ON_CPU(grad_output);
+
+  Tensor a_values_grad = at::zeros_like(a_values);
+  Tensor v_grad = at::empty_like(v);
+
+  const int B = a_offsets.numel() - 1;
+  const int D = grad_output.size(-1);
+
+  if (B > 0 && D > 0) {
+    AT_DISPATCH_INDEX_TYPES(
+        a_offsets.scalar_type(),
+        "dense_vec_jagged_2d_bmm_backward_kernel_1",
+        [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              grad_output.scalar_type(),
+              "dense_vec_jagged_2d_bmm_backward_kernel_2",
+              [&] {
+                dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>(
+                    grad_output.accessor<scalar_t, 2>(),
+                    a_values.accessor<scalar_t, 2>(),
+                    a_offsets.accessor<index_t, 1>(),
+                    v_grad.accessor<scalar_t, 2>());
+
+                outer_prod_jagged_2d_output<index_t, scalar_t>(
+                    v.accessor<scalar_t, 2>(),
+                    grad_output.accessor<scalar_t, 2>(),
+                    a_offsets.accessor<index_t, 1>(),
+                    a_values_grad.accessor<scalar_t, 2>());
+              });
+        });
+  } else {
+    v_grad.zero_();
+  }
+  return {v_grad, a_values_grad};
 }
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -1215,6 +1186,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
   m.def(
+      "batched_dense_vec_jagged_2d_mul_forward(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
+  m.def(
+      "batched_dense_vec_jagged_2d_mul_backward(Tensor grad_output, Tensor v, Tensor a_values, Tensor a_offsets) -> (Tensor, Tensor)");
+  m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
   m.def(
       "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)");
@@ -1257,7 +1232,13 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       fbgemm_gpu::jagged_dense_elementwise_mul_backward);
   DISPATCH_TO_CPU(
       "batched_dense_vec_jagged_2d_mul",
-      fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
+      fbgemm_gpu::batched_dense_vec_jagged_2d_mul_autograd);
+  DISPATCH_TO_CPU(
+      "batched_dense_vec_jagged_2d_mul_forward",
+      fbgemm_gpu::batched_dense_vec_jagged_2d_mul_forward);
+  DISPATCH_TO_CPU(
+      "batched_dense_vec_jagged_2d_mul_backward",
+      fbgemm_gpu::batched_dense_vec_jagged_2d_mul_backward);
   DISPATCH_TO_CPU(
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_cpu);
   DISPATCH_TO_CPU(
