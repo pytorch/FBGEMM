@@ -963,9 +963,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
@@ -1032,7 +1032,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
         dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        device_type=st.sampled_from(["cpu", "cuda"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output(
@@ -1041,10 +1041,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_dense_dense_elementwise_add_jagged_output(
-            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, use_cpu
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device_type
         )
 
     # pyre-ignore [56]
@@ -1053,7 +1053,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 8),
         inner_dense_size=st.sampled_from([16, 64, 96, 192]),
         dtype=st.just(torch.half),
-        use_cpu=st.just(False),
+        device_type=st.just("cuda"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output_opt(
@@ -1062,11 +1062,73 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_dense_dense_elementwise_add_jagged_output(
-            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, use_cpu
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device_type
         )
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 4),
+        outer_dense_size=st.integers(0, 4),
+        inner_dense_size=st.integers(0, 4),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        device_type=st.just("meta"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_dense_dense_elementwise_add_jagged_output_meta_backend(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        device = torch.device("cpu")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+
+        x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        # create a jagged tensor and then densify
+        y_0 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        y_1 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        output_ref = x_padded + y_0 + y_1
+        x_values.to(device_type)
+        (
+            output,
+            output_offsets,
+        ) = torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+            x_values, x_offsets, y_0, y_1
+        )
+        output.to("cpu")
+        output = self._to_padded_dense(output, output_offsets, max_lengths)
+
+        assert output.size() == output_ref.size()
 
     @settings(
         verbosity=Verbosity.verbose,

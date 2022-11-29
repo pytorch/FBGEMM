@@ -7,6 +7,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
@@ -445,6 +446,40 @@ at::Tensor jagged_to_padded_dense_backward(
   return grad_values;
 }
 
+Tensor dense_to_jagged_forward(
+    const Tensor& dense,
+    const std::vector<Tensor>& offsets,
+    const c10::optional<int64_t>& total_L) {
+  // D is the embedding dimension
+  auto D = dense.size(-1);
+
+  // If total_L is not given then compute it
+  int64_t total_L_computed;
+  if (total_L.has_value()) {
+    total_L_computed = total_L.value();
+  } else {
+    total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
+  }
+  auto values = at::empty({total_L_computed, D}, dense.options());
+  auto output = at::zeros({total_L_computed, D}, dense.options());
+
+  AT_DISPATCH_ALL_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      values.scalar_type(),
+      "jagged_scalars",
+      [&] {
+        jagged_dense_elementwise_jagged_output_<scalar_t>(
+            values,
+            offsets,
+            dense,
+            output,
+            [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
+      });
+
+  return output;
+}
+
 // TODO: Add option to pass in total_L
 class DenseToJaggedCPUOp
     : public torch::autograd::Function<DenseToJaggedCPUOp> {
@@ -459,32 +494,7 @@ class DenseToJaggedCPUOp
     // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
     ctx->saved_data["dense_shape"] = dense.sizes();
 
-    // D is the embedding dimension
-    auto D = dense.size(-1);
-
-    // If total_L is not given then compute it
-    int64_t total_L_computed;
-    if (total_L.has_value()) {
-      total_L_computed = total_L.value();
-    } else {
-      total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
-    }
-    auto values = at::empty({total_L_computed, D}, dense.options());
-    auto output = at::zeros({total_L_computed, D}, dense.options());
-
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        values.scalar_type(),
-        "jagged_scalars",
-        [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              values,
-              offsets,
-              dense,
-              output,
-              [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
-        });
+    Tensor output = dense_to_jagged_forward(dense, offsets, total_L);
 
     return {output};
   }
@@ -538,22 +548,21 @@ jagged_dense_elementwise_add_jagged_output(
 }
 
 // output = x + y where x is jagged, y is dense, and output is jagged
-std::tuple<Tensor, std::vector<Tensor>>
-jagged_dense_dense_elementwise_add_jagged_output(
-    const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y_0,
-    const Tensor& y_1) {
+at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y_0,
+    const at::Tensor& y_1) {
   // Convert to jagged
   auto jagged_values_0 =
-      DenseToJaggedCPUOp::apply(y_0, x_offsets, c10::optional<int64_t>())[0];
+      dense_to_jagged_forward(y_0, x_offsets, c10::optional<int64_t>());
   auto jagged_values_1 =
-      DenseToJaggedCPUOp::apply(y_1, x_offsets, c10::optional<int64_t>())[0];
+      dense_to_jagged_forward(y_1, x_offsets, c10::optional<int64_t>());
 
   // Add jagged_values + x_values -> sum_values
   auto sum_values = x_values + jagged_values_0 + jagged_values_1;
 
-  return {sum_values, x_offsets};
+  return sum_values;
 }
 
 template <
@@ -1166,6 +1175,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
   m.def(
+      "jagged_dense_dense_elementwise_add_jagged_output_forward(Tensor x_values, Tensor[] x_offsets, Tensor y_0, Tensor y_1) -> Tensor");
+  m.def(
       "jagged_dense_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y_0, Tensor y_1) -> (Tensor, Tensor[])");
   // jagged * dense -> jagged (its offsets is same as x_offsets)
   m.def(
@@ -1199,8 +1210,11 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_dense_elementwise_add_jagged_output",
       fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CPU(
+      "jagged_dense_dense_elementwise_add_jagged_output_forward",
+      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);
+  DISPATCH_TO_CPU(
       "jagged_dense_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output);
+      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_autograd);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
   DISPATCH_TO_CPU(

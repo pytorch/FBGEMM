@@ -395,6 +395,13 @@ at::Tensor jagged_2d_to_dense_autograd(
     at::Tensor offsets,
     int64_t max_sequence_length);
 
+std::tuple<at::Tensor, std::vector<at::Tensor>>
+jagged_dense_dense_elementwise_add_jagged_output_autograd(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y_0,
+    const at::Tensor& y_1);
+
 ///@ingroup sparse-data-cpu
 at::Tensor jagged_2d_to_dense_forward_cpu(
     at::Tensor values,
