@@ -179,6 +179,61 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
   }
 };
 
+// batched dense vector x jagged 2D tensor multiplication
+// dense vector [B H, N]
+// jagged tensor [B, N, H D] where N is jagged
+class BatchedDenseVecJagged2DMulOp
+    : public torch::autograd::Function<BatchedDenseVecJagged2DMulOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& v,
+      const Tensor& a_values,
+      const Tensor& a_offsets) {
+    ctx->save_for_backward({v, a_values, a_offsets});
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::batched_dense_vec_jagged_2d_mul_forward", "")
+            .typed<Tensor(
+                const Tensor& v,
+                const Tensor& a_values,
+                const Tensor& a_offsets)>();
+    Tensor output = op.call(v, a_values, a_offsets);
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    const Tensor v = *savedItr++;
+    const Tensor a_values = *savedItr++;
+    const Tensor a_offsets = *savedItr++;
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::batched_dense_vec_jagged_2d_mul_backward", "")
+            .typed<std::tuple<Tensor, Tensor>(
+                const Tensor& grad_output,
+                const Tensor& v,
+                const Tensor& a_values,
+                const Tensor& a_offsets)>();
+    auto outputs = op.call(grad_outputs[0], v, a_values, a_offsets);
+
+    return {
+        std::get<0>(outputs),
+        std::get<1>(outputs),
+        torch::autograd::Variable(), // a_offsets
+    };
+  }
+};
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -238,6 +293,14 @@ std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul_autograd(
   return {prod_values, x_offsets};
 }
 
+///@ingroup jagged-tensor-ops-cpu
+Tensor batched_dense_vec_jagged_2d_mul_autograd(
+    const Tensor& v,
+    const Tensor& a_values,
+    const Tensor& a_offsets) {
+  return BatchedDenseVecJagged2DMulOp::apply(v, a_values, a_offsets)[0];
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
@@ -255,4 +318,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl(
       "jagged_dense_elementwise_mul",
       TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul_autograd));
+  m.impl(
+      "batched_dense_vec_jagged_2d_mul",
+      TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul_autograd));
 }
