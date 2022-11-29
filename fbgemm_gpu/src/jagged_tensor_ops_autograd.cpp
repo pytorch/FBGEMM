@@ -124,6 +124,61 @@ class JaggedDenseDenseAddJaggedOutputOp
   }
 };
 
+class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const std::vector<Tensor>& x_offsets,
+      const Tensor& y) {
+    std::vector<Tensor> tensors_to_save;
+    tensors_to_save.push_back(x_values);
+    tensors_to_save.insert(
+        tensors_to_save.end(), x_offsets.begin(), x_offsets.end());
+    tensors_to_save.push_back(y);
+    ctx->save_for_backward(tensors_to_save);
+
+    static auto op = c10::Dispatcher::singleton()
+                         .findSchemaOrThrow(
+                             "fbgemm::jagged_dense_elementwise_mul_forward", "")
+                         .typed<at::Tensor(
+                             const Tensor& x_values,
+                             const std::vector<Tensor>& x_offsets,
+                             const Tensor& y)>();
+    Tensor output = op.call(x_values, x_offsets, y);
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const Tensor x_values = ctx->get_saved_variables().front();
+    std::vector<Tensor> x_offsets;
+    for (size_t i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
+      x_offsets.push_back(ctx->get_saved_variables()[i]);
+    }
+    Tensor y = ctx->get_saved_variables().back();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::jagged_dense_elementwise_mul_backward", "")
+            .typed<std::tuple<Tensor, Tensor>(
+                const Tensor& grad_output,
+                const std::vector<Tensor>& x_offsets,
+                const Tensor& y,
+                const Tensor& x_values)>();
+    auto outputs = op.call(grad_outputs[0], x_offsets, y, x_values);
+
+    return {
+        std::get<0>(outputs),
+        torch::autograd::Variable(),
+        std::get<1>(outputs)};
+  }
+};
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -172,6 +227,17 @@ jagged_dense_dense_elementwise_add_jagged_output_autograd(
   return {sum_values, x_offsets};
 }
 
+///@ingroup jagged-tensor-ops-cpu
+std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul_autograd(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  // Convert to jagged
+  auto prod_values = JaggedDenseMulOp::apply(x_values, x_offsets, y)[0];
+
+  return {prod_values, x_offsets};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
@@ -186,4 +252,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
       "jagged_dense_dense_elementwise_add_jagged_output",
       TORCH_FN(fbgemm_gpu::
                    jagged_dense_dense_elementwise_add_jagged_output_autograd));
+  m.impl(
+      "jagged_dense_elementwise_mul",
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul_autograd));
 }
