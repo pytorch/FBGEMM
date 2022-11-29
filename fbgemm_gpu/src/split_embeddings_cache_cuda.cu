@@ -1169,11 +1169,15 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
       const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
           D_insert, weight_ty_insert, row_alignment);
 
-      auto row =
-          &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
-      auto cache_row =
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-      for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
+      // insert into cache. Note that nbit::padded_row_size_in_bytes pad each
+      // row with row_alignment (16 bytes on GPUs) So each row will be multiple
+      // of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
+      auto row = reinterpret_cast<const uint4*>(
+          &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0]);
+      auto cache_row = reinterpret_cast<uint4*>(
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0]);
+      for (int32_t d = threadIdx.x; d * sizeof(uint4) < D_insert_bytes;
+           d += blockDim.x) {
         cache_row[d] = row[d];
       }
 
@@ -1259,11 +1263,14 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
     const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
         D_insert, weight_ty_insert, row_alignment);
 
-    auto row =
-        &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
-    auto cache_row = &lxu_cache_weights[cache_set][0];
-
-    for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
+    // insert into cache. Note that nbit::padded_row_size_in_bytes pad each
+    // row with row_alignment (16 bytes on GPUs) So each row will be multiple
+    // of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
+    auto row = reinterpret_cast<const uint4*>(
+        &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0]);
+    auto cache_row = reinterpret_cast<uint4*>(&lxu_cache_weights[cache_set][0]);
+    for (int32_t d = threadIdx.x; d * sizeof(uint4) < D_insert_bytes;
+         d += blockDim.x) {
       cache_row[d] = row[d];
     }
 
@@ -2198,12 +2205,15 @@ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
       const int32_t D_insert_bytes = nbit::padded_row_size_in_bytes(
           D_insert, weight_ty_insert, row_alignment);
 
-      // insert into cache
-      auto row =
-          &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0];
-      auto cache_row =
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0];
-      for (int32_t d = threadIdx.x; d < D_insert_bytes; d += blockDim.x) {
+      // insert into cache. Note that nbit::padded_row_size_in_bytes pad each
+      // row with row_alignment (16 bytes on GPUs) So each row will be multiple
+      // of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
+      auto row = reinterpret_cast<const uint4*>(
+          &weights[weights_offset_insert + idx_insert * D_insert_bytes + 0]);
+      auto cache_row = reinterpret_cast<uint4*>(
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0]);
+      for (int32_t d = threadIdx.x; d * sizeof(uint4) < D_insert_bytes;
+           d += blockDim.x) {
         cache_row[d] = row[d];
       }
       if (threadIdx.x == 0) {
