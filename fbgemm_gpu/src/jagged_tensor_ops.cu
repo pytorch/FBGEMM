@@ -1270,36 +1270,58 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(dense_0.get_device());
 
-  AT_DISPATCH_SWITCH(
-      x_values.scalar_type(),
-      "jagged_dense_dense_elementwise_jagged_output_forward",
-      AT_DISPATCH_CASE(
-          at::ScalarType::Half,
-          [&] {
-            jagged_dense_dense_elementwise_jagged_output_opt_<scalar_t>(
-                x_values,
-                offsets,
-                dense_0,
-                dense_1,
-                output,
-                [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
-                    -> scalar_t { return x + y_0 + y_1; });
-          } // lambda
-          ) // CASE
-      AT_DISPATCH_CASE_FLOATING_TYPES_AND(
-          at::ScalarType::BFloat16,
-          [&] {
-            jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
-                x_values,
-                offsets,
-                dense_0,
-                dense_1,
-                output,
-                [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
-                    -> scalar_t { return x + y_0 + y_1; });
-          } // lambda
-          ) // CASE_FLOATING_TYPES_AND
-  ); // SWITCH
+  if (x_values.scalar_type() == at::ScalarType::BFloat16 &&
+      dense_0.scalar_type() == at::ScalarType::BFloat16 &&
+      dense_1.scalar_type() == at::ScalarType::Float) {
+    AT_DISPATCH_SWITCH(
+        x_values.scalar_type(),
+        "jagged_dense_dense_elementwise_jagged_output_forward",
+        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+            at::ScalarType::BFloat16,
+            [&] {
+              jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
+                  x_values,
+                  offsets,
+                  dense_0,
+                  dense_1.to(at::ScalarType::BFloat16),
+                  output,
+                  [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                      -> scalar_t { return x + y_0 + y_1; });
+            } // lambda
+            ) // AT_DISPATCH_CASE_FLOATING_TYPES_AND
+    ); // SWITCH
+  } else {
+    AT_DISPATCH_SWITCH(
+        x_values.scalar_type(),
+        "jagged_dense_dense_elementwise_jagged_output_forward",
+        AT_DISPATCH_CASE(
+            at::ScalarType::Half,
+            [&] {
+              jagged_dense_dense_elementwise_jagged_output_opt_<scalar_t>(
+                  x_values,
+                  offsets,
+                  dense_0,
+                  dense_1,
+                  output,
+                  [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                      -> scalar_t { return x + y_0 + y_1; });
+            } // lambda
+            ) // CASE
+        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+            at::ScalarType::BFloat16,
+            [&] {
+              jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
+                  x_values,
+                  offsets,
+                  dense_0,
+                  dense_1,
+                  output,
+                  [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                      -> scalar_t { return x + y_0 + y_1; });
+            } // lambda
+            ) // CASE_FLOATING_TYPES_AND
+    ); // SWITCH
+  }
 
   return output;
 }
