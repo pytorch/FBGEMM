@@ -8,10 +8,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+
 import pickle
 import random
 import unittest
-from typing import Callable, List, Optional, Tuple, TypeVar
+from typing import List, Optional
 
 import fbgemm_gpu
 import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
@@ -19,15 +20,26 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig
+from fbgemm_gpu.split_embedding_utils import (
+    b_indices,
+    generate_requests,
+    get_table_batched_offsets_from_dense,
+    quantize_embs,
+    round_up,
+    to_device,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     BoundsCheckMode,
+    INT8_EMB_ROW_DIM_OFFSET,
     OptimType,
     RecordCacheMetrics,
     rounded_row_size_in_bytes,
     SparseType,
     WeightDecayMode,
 )
-
+from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis.strategies import composite
+from torch import Tensor
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -42,17 +54,11 @@ else:
         TEST_WITH_ROCM,
     )
 
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
-from hypothesis.strategies import composite
-from torch import Tensor
-
 
 MAX_EXAMPLES = 40
 
 # For long running tests reduce the number of iterations to reduce timeout errors.
 MAX_EXAMPLES_LONG_RUNNING = 15
-
-Deviceable = TypeVar("Deviceable", torch.nn.EmbeddingBag, Tensor)
 
 
 @composite
@@ -76,163 +82,6 @@ def get_nbit_weights_ty(draw) -> Optional[SparseType]:
             ]
         )
     )
-
-
-def round_up(a: int, b: int) -> int:
-    return int((a + b - 1) // b) * b
-
-
-def get_offsets_from_dense(indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    (B, L) = indices.size()
-    return (
-        indices.contiguous().view(-1),
-        torch.tensor(
-            np.cumsum(np.asarray([0] + [L for _ in range(B)])[:-1]).astype(np.int64)
-        ),
-    )
-
-
-def to_device(t: Deviceable, use_cpu: bool) -> Deviceable:
-    # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor,
-    #  torch.nn.EmbeddingBag]`.
-    return t.cpu() if use_cpu else t.cuda()
-
-
-def b_indices(
-    b: Callable[..., torch.Tensor],
-    x: torch.Tensor,
-    per_sample_weights: Optional[torch.Tensor] = None,
-    use_cpu: bool = False,
-    do_pooling: bool = True,
-) -> torch.Tensor:
-    (indices, offsets) = get_offsets_from_dense(x)
-    if do_pooling:
-        return b(
-            to_device(indices, use_cpu),
-            to_device(offsets, use_cpu),
-            per_sample_weights=per_sample_weights,
-        )
-    else:
-        return b(to_device(indices, use_cpu))
-
-
-def get_table_batched_offsets_from_dense(
-    merged_indices: torch.Tensor, use_cpu: bool = False
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    (T, B, L) = merged_indices.size()
-    lengths = np.ones((T, B)) * L
-    flat_lengths = lengths.flatten()
-    return (
-        to_device(merged_indices.contiguous().view(-1), use_cpu),
-        to_device(
-            torch.tensor(([0] + np.cumsum(flat_lengths).tolist())).long(),
-            use_cpu,
-        ),
-    )
-
-
-def generate_requests(
-    iters: int,
-    B: int,
-    T: int,
-    L: int,
-    E: int,
-    # inter-batch indices reuse rate
-    reuse: float = 0.0,
-    # alpha <= 1.0: use uniform distribution
-    # alpha > 1.0: use zjpf distribution
-    alpha: float = 1.0,
-    weights_precision: SparseType = SparseType.FP32,
-    weighted: bool = False,
-) -> List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]:
-    if alpha <= 1.0:
-        all_indices = torch.randint(
-            low=0,
-            high=E,
-            size=(iters, T, B * L),
-            # pyre-fixme[6]: For 4th param expected `Union[None, str, device]` but
-            #  got `int`.
-            device=torch.cuda.current_device(),
-            dtype=torch.int32,
-        )
-    else:
-        all_indices = (
-            torch.as_tensor(np.random.zipf(a=alpha, size=(iters, T, B * L)))
-            # pyre-fixme[6]: For 1st param expected `dtype` but got `int`.
-            .to(torch.cuda.current_device()).int()
-            % E
-        )
-    for it in range(iters - 1):
-        for t in range(T):
-            # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]` but
-            #  got `int`.
-            reused_indices = torch.randperm(B * L, device=torch.cuda.current_device())[
-                : int(B * L * reuse)
-            ]
-            all_indices[it + 1, t, reused_indices] = all_indices[it, t, reused_indices]
-
-    rs = []
-    for it in range(iters):
-        weight_tensor = (
-            None
-            if not weighted
-            else torch.randn(
-                T * B * L,
-                # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]`
-                #  but got `int`.
-                device=torch.cuda.current_device(),
-                dtype=torch.float16 if weights_precision else torch.float32,
-            )
-        )
-        rs.append(
-            get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
-            + (weight_tensor,)
-        )
-    return rs
-
-
-def quantize_embs(
-    weight: Tensor, weight_ty: SparseType
-) -> Tuple[Tensor, Optional[Tensor]]:
-    if weight_ty == SparseType.FP32:
-        q_weight = weight.float()
-        # FIXME: How to view the PyTorch Tensor as a different type (e.g., uint8)
-        # Here it uses numpy and it will introduce DtoH/HtoD overhead.
-        res_weight = torch.tensor(q_weight.cpu().numpy().view(np.uint8)).contiguous()
-        return (res_weight, None)
-
-    elif weight_ty == SparseType.FP16:
-        q_weight = weight.half()
-        res_weight = torch.tensor(q_weight.cpu().numpy().view(np.uint8)).contiguous()
-        return (res_weight, None)
-
-    elif weight_ty == SparseType.INT8:
-        q_weight = torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(weight)
-        res_weight = torch.tensor(q_weight[:, :-8].cpu().numpy().view(np.uint8))
-        res_scale_shift = torch.tensor(
-            q_weight[:, -8:]
-            .contiguous()
-            .cpu()
-            .numpy()
-            .view(np.float32)
-            .astype(np.float16)
-            .view(np.uint8)
-        )  # [-4, -2]: scale; [-2:]: bias
-        return (res_weight, res_scale_shift)
-
-    elif weight_ty == SparseType.INT4 or weight_ty == SparseType.INT2:
-        q_weight = torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
-            weight,
-            bit_rate=weight_ty.bit_rate(),
-        )
-        res_weight = torch.tensor(q_weight[:, :-4].cpu().numpy().view(np.uint8))
-        res_scale_shift = torch.tensor(
-            q_weight[:, -4:].contiguous().cpu().numpy().view(np.uint8)
-        )  # [-4, -2]: scale; [-2:]: bias
-        return (res_weight, res_scale_shift)
-
-    else:
-        raise RuntimeError("Unsupported SparseType: {}".format(weight_ty))
 
 
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
@@ -291,11 +140,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             raise RuntimeError("Unknown PoolingMode!")
 
         E = int(10**log_E)
-        if not use_cpu:
+        if use_cpu:
+            D = (D + 15) // 16 * 4
+        else:
             D = D * 4
         if not mixed:
             Ds = [D] * T
-            Es = [int(1e4)] * T
+            Es = [E] * T
         else:
             Ds = [
                 round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
@@ -338,8 +189,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
-                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
-                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -1035,7 +884,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             device=torch.cuda.current_device(),
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         op.fill_random_weights()
 
         op_ref = (
@@ -1054,7 +903,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 device=torch.cuda.current_device(),
             )
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         op_ref.fill_random_weights()
 
         # sync weights between two ops
@@ -1128,7 +977,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=3),
-        D=st.integers(min_value=2, max_value=256),
+        D=st.integers(min_value=2, max_value=128),
         B=st.integers(min_value=1, max_value=32),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=10),
@@ -1148,6 +997,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1168,6 +1018,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
+        output_dtype: SparseType,
     ) -> None:
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
@@ -1230,8 +1081,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
-                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
-                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=False), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -1280,6 +1129,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         gos = [torch.randn_like(f) for f in fs]
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
+        # pyre-fixme[16]: `Optional` has no attribute `view`.
         grad_weights = torch.cat([b.weight.grad.view(-1) for b in bs])
         if weights_precision == SparseType.FP16 and not use_cpu:
             grad_weights = grad_weights.half()
@@ -1289,6 +1139,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
             weights_precision=weights_precision,
+            output_dtype=output_dtype,
         )
         if do_pooling:
             # NOTE: test TorchScript-compatible!
@@ -1315,8 +1166,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(
             fc2.float(),
             f.float(),
-            atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
-            rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-5,
+            atol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-5,
+            rtol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-5,
         )
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
@@ -1326,8 +1181,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(
             cc.weights.grad,
             grad_weights,
-            atol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
-            rtol=5.0e-3 if weights_precision == SparseType.FP16 else 1.0e-4,
+            atol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-4,
+            rtol=5.0e-3
+            if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
+            else 1.0e-4,
         )
 
         cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
@@ -1335,14 +1194,65 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # NOTE: only SUM pooling can work with per_sample_weights!
             pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
             use_cpu=use_cpu,
-        ).double()
-        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu).double()
+        )
+
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
+        if use_cpu:
+            # NOTE: GPU version of DenseTableBatchedEmbeddingBagsCodegen doesn't support double.
+            cc = cc.double()
+            per_sample_weights = per_sample_weights.double()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
         offsets.requires_grad = False
         for param in cc.parameters():
             param.requires_grad = False
-        torch.autograd.gradcheck(cc, (indices, offsets, per_sample_weights))
+        y = cc(indices, offsets, per_sample_weights)
+        y.sum().backward()
+        # pyre-fixme[16]: `Optional` has no attribute `clone`.
+        indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
+        T_ = len(xws)
+        feature_requires_grad = to_device(
+            torch.tensor(np.random.choice([0, 1], replace=True, size=(T_,))).int(),
+            use_cpu,
+        )
+        per_sample_weights = per_sample_weights.detach().clone()
+        per_sample_weights.requires_grad = True
+        y = cc(
+            indices,
+            offsets,
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        )
+        y.sum().backward()
+        indice_weight_grad_mask = per_sample_weights.grad.clone().cpu()
+        for t in range(T_):
+            if feature_requires_grad[t]:
+                torch.testing.assert_close(
+                    indice_weight_grad_mask.view(T_, B, L)[t],
+                    indice_weight_grad_all.view(T_, B, L)[t],
+                )
+            else:
+                torch.testing.assert_close(
+                    indice_weight_grad_mask.view(T_, B, L)[t],
+                    torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
+                )
+
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
+        if use_cpu:
+            # NOTE: GPU version of DenseTableBatchedEmbeddingBagsCodegen doesn't support double.
+            cc = cc.double()
+            per_sample_weights = per_sample_weights.double()
+        else:
+            cc = cc.float()
+            per_sample_weights = per_sample_weights.float()
+        per_sample_weights.requires_grad = True
+        indices.requires_grad = False
+        offsets.requires_grad = False
+        for param in cc.parameters():
+            param.requires_grad = False
+        torch.autograd.gradcheck(
+            cc, (indices, offsets, per_sample_weights), eps=1e-2, atol=1e-3, rtol=1e-3
+        )
 
     def execute_backward_sgd_(  # noqa C901
         self,
@@ -1453,8 +1363,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
-                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
-                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -1465,6 +1373,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         feature_table_map = list(range(T))
         if exact:
             table_to_replicate = T // 2
+            # pyre-fixme[6]: For 2nd param expected `Embedding` but got
+            #  `Union[Embedding, EmbeddingBag]`.
             bs.insert(table_to_replicate, bs[table_to_replicate])
             feature_table_map.insert(table_to_replicate, table_to_replicate)
 
@@ -1514,6 +1424,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if exact:
             # pyre-fixme[61]: `table_to_replicate` may not be initialized here.
             del bs[table_to_replicate]
+        # pyre-fixme[58]: `*` is not supported for operand types
+        #  `Optional[torch._tensor.Tensor]` and `float`.
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
         cc = emb_op(
@@ -1551,7 +1463,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         for t in range(T):
             torch.testing.assert_close(
                 cc.split_embedding_weights()[t],
-                # pyre-fixme[16]: `float` has no attribute `half`.
                 new_weights[t].half()
                 if weights_precision == SparseType.FP16 and not use_cpu
                 else new_weights[t],
@@ -1797,8 +1708,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
-                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
-                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -1810,6 +1719,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if exact:
             # autograd with shared embedding only works for exact
             table_to_replicate = T // 2
+            # pyre-fixme[6]: For 2nd param expected `Embedding` but got
+            #  `Union[Embedding, EmbeddingBag]`.
             bs.insert(table_to_replicate, bs[table_to_replicate])
             feature_table_map.insert(table_to_replicate, table_to_replicate)
 
@@ -1900,6 +1811,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else 1.0e-2
         )
         for t in range(T):
+            # pyre-fixme[16]: `Optional` has no attribute `float`.
             ref_optimizer_state = bs[t].weight.grad.float().cpu().to_dense().pow(2)
             torch.testing.assert_close(
                 split_optimizer_states[t].float().cpu(),
@@ -1943,12 +1855,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
             output_dtype=output_dtype,
         )
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
         if use_cpu:
             # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
             cc = cc.double()
-
-        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
-        if use_cpu:
             per_sample_weights = per_sample_weights.double()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
@@ -2597,8 +2507,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
-                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
-                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -2720,6 +2628,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 (m1,) = split_optimizer_states[t]
                 # to_dense in GPU is non-deterministic due to atmomics used in
                 # coalescing and floating point non-associativity.
+                # pyre-fixme[16]: `Optional` has no attribute `cpu`.
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 if rowwise and not use_cpu and weight_decay_mode == WeightDecayMode.L2:
                     # We need to skip when using cpu because use_fbgemm (https://fburl.com/code/12131iub)
@@ -3237,8 +3146,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         else:
             bs = [
-                # pyre-fixme[6]: For 1st param expected `Deviceable` but got
-                #  `Embedding`.
                 to_device(torch.nn.Embedding(E, D, sparse=True), use_cpu)
                 for (E, D) in zip(Es, Ds)
             ]
@@ -3286,7 +3193,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
 
-            ### generate index_remapping
+            # generate index_remapping
             dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
 
             original_E = E
@@ -3295,11 +3202,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices = indices.view(-1).int()
             offsets = offsets.view(-1).int()
 
-            ### generate index_remapping done
+            # generate index_remapping done
             # Initialize and insert Array index remapping based data structure
             index_remappings_array = []
             for t in range(T):
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int, str]`.
+                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
+                #  str]`.
                 indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
                 dense_indice_t = (
                     (dense_indices.view(T, B, L))[t].view(-1)
@@ -3310,8 +3218,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 index_remappings_array_t = torch.tensor(
                     [-1] * original_E,
                     dtype=torch.int32,
-                    # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]`
-                    #  but got `Union[int, str]`.
                     device=current_device,
                 )
                 index_remappings_array_t[indice_t] = dense_indice_t
@@ -3346,7 +3252,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if has_fp8_weight
             else None,
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
@@ -3687,6 +3593,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         self,
         weights_ty: SparseType,
     ) -> None:
+        # TODO: support direct-mapped in int_nbit_split_embedding_uvm_caching_codegen_lookup_function
         # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
         # We run IntNBitTableBatchedEmbeddingBagsCodegen with UVM_CACHING, and then
         # run int_nbit_split_embedding_uvm_caching_codegen_lookup_function with the
@@ -3882,13 +3789,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(
             split_table_batched_embeddings_ops.CacheAlgorithm
         ),
+        associativity=st.sampled_from(
+            [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward_uvm_cache(
         self,
         weights_ty: SparseType,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        associativity: int,
     ) -> None:
+        assume(
+            cache_algorithm == split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+            or associativity != 1
+        )
+
         T = random.randint(1, 5)
         B = random.randint(1, 128)
         L = random.randint(1, 20)
@@ -3947,6 +3863,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
+            cache_assoc=associativity,
         )
         cc.fill_random_weights()
 
@@ -4033,15 +3950,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         if use_cpu_hashtable:
-            ht = torch.classes.fb.PrunedMapCPU()
+            ht = torch.classes.fbgemm.PrunedMapCPU()
             ht.insert(indices, dense_indices, offsets, T)
 
         # Initialize and insert Array index remapping based data structure
         index_remappings_array = torch.tensor(
             [-1] * original_E * T,
             dtype=torch.int32,
-            # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]` but
-            #  got `Union[int, str]`.
             device=current_device,
         )
         index_remappings_array_offsets = torch.empty(
@@ -4539,12 +4454,17 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_pickle(self) -> None:
         tensor_queue = torch.classes.fbgemm.TensorQueue(torch.empty(0))
         pickled = pickle.dumps(tensor_queue)
-        unpickled = pickle.loads(pickled)
+        unpickled = pickle.loads(pickled)  # noqa: F841
 
     @unittest.skipIf(*gpu_unavailable)
     def test_linearize_cache_indices(self) -> None:
         indices = torch.tensor(
             [10, 2, 3, 7, 1, 4, 5, 9, 2, 7, 6, 8, 5, 1, 0, 4],
+            dtype=torch.int,
+            device="cuda",
+        )
+        pruned_indices = torch.tensor(
+            [10, -1, 3, 7, 1, 4, -1, 9, 2, -1, 6, 8, 5, 1, -1, 4],
             dtype=torch.int,
             device="cuda",
         )
@@ -4613,50 +4533,149 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
         )
 
-    @unittest.skipIf(*gpu_unavailable)
-    def test_lxu_cache_lookup(self) -> None:
-        ASSOC: int = split_table_batched_embeddings_ops.ASSOC
-        max_index: int = 8000
-        # Use single cache set to avoid dealing with cache set hash algorithm.
-        lxu_cache_state_gpu = torch.arange(ASSOC, dtype=torch.int64).unsqueeze(0).cuda()
-
-        # Testing all miss.
-        linear_cache_indices_0 = (
-            torch.tensor([32, 33, 34, 35, 36, 100, 1000, 1725]).cuda()
-            if ASSOC == 32
-            else torch.tensor([64, 65, 66, 67, 68, 100, 1000, 1725]).cuda()
-        )
-        lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
-            linear_cache_indices_0, lxu_cache_state_gpu, max_index
+        # Testing equal sized tables + pruned indices
+        cache_hash_size_cumsum_4 = torch.tensor([0, 12, 24, 36, 48]).cuda()
+        linear_cache_indices_4 = torch.ops.fbgemm.linearize_cache_indices(
+            cache_hash_size_cumsum_4, pruned_indices, equal_offsets
         )
         self.assertTrue(
             torch.equal(
-                lxu_locations.cpu(),
+                linear_cache_indices_4.cpu(),
                 torch.tensor(
-                    [-1, -1, -1, -1, -1, -1, -1, -1],
+                    [10, 48, 3, 7, 13, 16, 48, 21, 26, 48, 30, 32, 41, 37, 48, 40],
                     dtype=torch.int,
                 ),
             )
         )
 
+        # Testing batched with varying pooling factor + pruned indices
+        cache_hash_size_cumsum_5 = torch.tensor([0, 12, -1, 24, 36]).cuda()
+        linear_cache_indices_5 = torch.ops.fbgemm.linearize_cache_indices(
+            cache_hash_size_cumsum_5, pruned_indices, varying_offsets
+        )
+        self.assertTrue(
+            torch.equal(
+                linear_cache_indices_5.cpu(),
+                torch.tensor(
+                    [10, 36, 3, 19, 13, 16, 36, 21, 36, 36, 36, 36, 36, 36, 36, 28],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_linearize_cache_indices_from_row_idx(self) -> None:
+        update_row_indices = torch.tensor(
+            [10, 2, 3, 7, 1, 4, 5, 9, 2, 7, 6, 8, 5, 1, 0, 4],
+            dtype=torch.int,
+            device="cuda",
+        )
+        update_table_indices = torch.tensor(
+            [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3],
+            dtype=torch.int,
+            device="cuda",
+        )
+        varying_update_table_indices = torch.tensor(
+            [0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3],
+            dtype=torch.int,
+            device="cuda",
+        )
+
+        # Testing equal sized tables.
+        cache_hash_size_cumsum_0 = torch.tensor([0, 12, 24, 36, 48]).cuda()
+        linear_cache_indices_0 = torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+            cache_hash_size_cumsum_0,
+            update_table_indices,
+            update_row_indices,
+        )
+        self.assertTrue(
+            torch.equal(
+                linear_cache_indices_0.cpu(),
+                torch.tensor(
+                    [10, 2, 3, 7, 13, 16, 17, 21, 26, 31, 30, 32, 41, 37, 36, 40],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+        # Testing partially cached tables.
+        cache_hash_size_cumsum_1 = torch.tensor([0, 12, -1, 24, 36]).cuda()
+        linear_cache_indices_1 = torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+            cache_hash_size_cumsum_1,
+            update_table_indices,
+            update_row_indices,
+        )
+        self.assertTrue(
+            torch.equal(
+                linear_cache_indices_1.cpu(),
+                torch.tensor(
+                    [10, 2, 3, 7, 13, 16, 17, 21, 36, 36, 36, 36, 29, 25, 24, 28],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+        # Testing batched with varying pooling factor.
+        cache_hash_size_cumsum_2 = torch.tensor([0, 12, -1, 24, 36]).cuda()
+        linear_cache_indices_2 = torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+            cache_hash_size_cumsum_2,
+            varying_update_table_indices,
+            update_row_indices,
+        )
+        self.assertTrue(
+            torch.equal(
+                linear_cache_indices_2.cpu(),
+                torch.tensor(
+                    [10, 2, 3, 19, 13, 16, 17, 21, 36, 36, 36, 36, 36, 36, 24, 28],
+                    dtype=torch.int,
+                ),
+            )
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        associativity=st.sampled_from(
+            [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
+        ),
+    )
+    @settings(deadline=None)
+    def test_lxu_cache_lookup(self, associativity: int) -> None:
+        max_index: int = 8000
+        # Use single cache set to avoid dealing with cache set hash algorithm.
+        lxu_cache_state_gpu = (
+            torch.arange(associativity, dtype=torch.int64).unsqueeze(0).cuda()
+        )
+
+        # Testing all miss.
+        linear_cache_indices_0 = (
+            torch.tensor([32, 33, 34, 35, 36, 100, 1000, 1725])
+            if associativity <= 32
+            else torch.tensor([64, 65, 66, 67, 68, 100, 1000, 1725])
+        ).cuda()
+        lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices_0, lxu_cache_state_gpu, max_index
+        )
+        torch.testing.assert_close(
+            lxu_locations,
+            torch.full_like(lxu_locations, -1),
+        )
+
         # Testing all hits.
-        cache_indices_1 = torch.randint(0, ASSOC, (ASSOC,))
+        cache_indices_1 = torch.randint(0, associativity, (associativity,))
         linear_cache_indices_1 = cache_indices_1.cuda()
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices_1, lxu_cache_state_gpu, max_index
         )
-        self.assertTrue(
-            torch.equal(
-                lxu_locations.cpu(),
-                cache_indices_1.int(),
-            )
+        torch.testing.assert_close(
+            lxu_locations.cpu(),
+            cache_indices_1.int(),
         )
 
         # Testing mixture.
-        miss_cache_indices_0 = torch.randint(ASSOC, max_index, (10,))
-        hit_cache_indices_0 = torch.randint(0, ASSOC, (8,))
-        miss_cache_indices_1 = torch.randint(ASSOC, max_index, (16,))
-        hit_cache_indices_1 = torch.randint(0, ASSOC, (8,))
+        miss_cache_indices_0 = torch.randint(associativity, max_index // 2, (10,))
+        hit_cache_indices_0 = torch.randint(0, associativity, (8,))
+        miss_cache_indices_1 = torch.randint(max_index // 2, max_index, (16,))
+        hit_cache_indices_1 = torch.randint(0, associativity, (8,))
         linear_cache_indices_2 = torch.cat(
             [
                 miss_cache_indices_0,
@@ -4677,11 +4696,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 hit_cache_indices_1,
             ]
         ).int()
-        self.assertTrue(
-            torch.equal(
-                lxu_locations.cpu(),
-                expected_result,
-            )
+        torch.testing.assert_close(
+            lxu_locations.cpu(),
+            expected_result,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -4745,8 +4762,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         weights_ty_list = [weights_ty] * T
-        if open_source:
-            test_internal = False
+        # if open_source:
+        #     test_internal = False
+        test_internal = False
 
         # create two embedding bag op with random weights
         locations = [location] * T
@@ -4805,8 +4823,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             high=255,
             size=(update_weight_size,),
             dtype=torch.uint8,
-            # pyre-fixme[6]: For 5th param expected `Union[None, str, device]` but
-            #  got `Union[int, str]`.
             device=current_device,
         )
 
@@ -4829,8 +4845,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             update_weights_tensor = torch.tensor(
                 update_weights,
-                # pyre-fixme[6]: For 2nd param expected `Union[None, str, device]`
-                #  but got `Union[int, str]`.
                 device=current_device,
                 dtype=torch.uint8,
             )
@@ -4926,6 +4940,161 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
             output_dtype,
         )
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        log_E=st.integers(min_value=2, max_value=3),
+        weights_precision=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.INT8]
+        ),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        num_indices_per_table=st.integers(min_value=1, max_value=5),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+    )
+    def test_reset_embedding_weight_momentum(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        weights_precision: SparseType,
+        mixed: bool,
+        use_cache: bool,
+        output_dtype: SparseType,
+        num_indices_per_table: int,
+    ) -> None:
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+        E = int(10**log_E)
+        D = D * 4
+        Ds: List[int] = []
+        Es: List[int] = []
+        if not mixed:
+            Ds = [D] * T
+            Es = [E] * T
+        else:
+            Ds = [
+                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
+                for _ in range(T)
+            ]
+            Es = [
+                np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
+            ]
+        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+        if use_cache:
+            managed = [
+                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+            ] * T
+            if mixed:
+                average_D = sum(Ds) // T
+                for t, d in enumerate(Ds):
+                    managed[t] = (
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                        if d < average_D
+                        else managed[t]
+                    )
+        else:
+            managed = [
+                np.random.choice(
+                    [
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                    ]
+                )
+                for _ in range(T)
+            ]
+        optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
+        cc = emb_op(
+            embedding_specs=[
+                (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
+            ],
+            optimizer=optimizer,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+        )
+
+        pruned_indices: List[int] = []
+        pruned_indices_offsets: List[int] = [0]
+        logical_table_ids: List[int] = []
+        buffer_ids: List[int] = []
+        for i in range(len(Es)):
+            indices = [
+                np.random.randint(low=1, high=int(Es[i] - 2))
+                for _ in range(num_indices_per_table)
+            ]
+            pruned_indices += indices
+            pruned_indices_offsets.append(
+                pruned_indices_offsets[i] + num_indices_per_table
+            )
+            logical_table_ids.append(i)
+            buffer_ids.append(i)
+        pruned_indices_tensor = to_device(
+            torch.tensor(pruned_indices, dtype=torch.int64, requires_grad=False), False
+        )
+        pruned_indices_offsets_tensor = to_device(
+            torch.tensor(
+                pruned_indices_offsets, dtype=torch.int64, requires_grad=False
+            ),
+            False,
+        )
+        logical_table_ids_tensor = to_device(
+            torch.tensor(logical_table_ids, dtype=torch.int32, requires_grad=False),
+            False,
+        )
+        buffer_ids_tensor = to_device(
+            torch.tensor(buffer_ids, dtype=torch.int32, requires_grad=False), False
+        )
+
+        momentum1: List[Tensor] = [
+            s for (s,) in cc.split_optimizer_states()
+        ]  # List[rows]
+        weight: List[Tensor] = cc.split_embedding_weights()  # List[(rows, dim)]
+        for t in range(T):
+            momentum1[t].fill_(1)
+            weight[t].fill_(1)
+
+        def check_weight_momentum(v: int) -> None:
+            for i in range(len(pruned_indices)):
+                logical_id = i // num_indices_per_table
+                table_momentum1 = momentum1[logical_id]
+                table_weight = weight[logical_id]
+                dim = Ds[logical_id]
+                expected_row_momentum1 = to_device(
+                    torch.tensor(v, dtype=torch.float32), False
+                )
+                expected_row_weight = to_device(
+                    torch.tensor([v] * dim, dtype=weights_precision.as_dtype()),
+                    False,
+                )
+                pruned_index = pruned_indices[i]
+                row_weight = table_weight[pruned_index]
+                if weights_precision == SparseType.INT8:
+                    row_weight = row_weight[:-INT8_EMB_ROW_DIM_OFFSET]
+                self.assertEqual(table_momentum1[pruned_index], expected_row_momentum1)
+                torch.testing.assert_close(
+                    row_weight,
+                    expected_row_weight,
+                    rtol=0,
+                    atol=0,
+                    equal_nan=True,
+                )
+
+        check_weight_momentum(1)
+
+        cc.reset_embedding_weight_momentum(
+            pruned_indices_tensor,
+            pruned_indices_offsets_tensor,
+            logical_table_ids_tensor,
+            buffer_ids_tensor,
+        )
+
+        check_weight_momentum(0)
 
 
 if __name__ == "__main__":

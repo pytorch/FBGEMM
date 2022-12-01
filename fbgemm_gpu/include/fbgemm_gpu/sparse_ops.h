@@ -89,6 +89,8 @@ permute_1D_sparse_data_cuda(
     const at::Tensor& indices,
     const c10::optional<at::Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum);
+
+at::Tensor invert_permute_cuda(const at::Tensor& permute);
 #endif
 
 /// @ingroup sparse-data-cuda
@@ -201,17 +203,29 @@ permute_1D_sparse_data_cpu(
     const c10::optional<int64_t>& permuted_lengths_sum);
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
+at::Tensor _float_to_FP8rowwise_gpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor _half_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _float_or_half_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);
+at::Tensor _FP8rowwise_to_float_gpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,
     const int64_t output_dtype);
 at::Tensor float_to_fused8bitrowwise_cpu(const at::Tensor& input);
+at::Tensor float_to_FP8rowwise_cpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor float_or_half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_cpu(const at::Tensor& input);
+at::Tensor FP8rowwise_to_float_cpu(
+    const at::Tensor& input,
+    const bool forward = true);
 at::Tensor fused8bitrowwise_to_half_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_or_half_cpu(
     const at::Tensor& input,
@@ -351,23 +365,6 @@ at::Tensor batched_unary_embeddings_backward_cuda(
     const at::Tensor& offsets,
     const at::Tensor& indices);
 
-///@ingroup sparse-data-cuda
-std::tuple<std::vector<at::Tensor>, std::vector<at::Tensor>>
-stacked_jagged_2d_to_dense_forward_cuda(
-    at::Tensor values,
-    at::Tensor lengths,
-    const std::vector<int64_t>& offset_per_key,
-    const std::vector<int64_t>& max_lengths_per_key);
-
-///@ingroup sparse-data-cuda
-at::Tensor stacked_jagged_2d_to_dense_backward_cuda(
-    int64_t B,
-    int64_t D,
-    int64_t total_L,
-    const std::vector<at::Tensor>& grad_padded_values_per_key,
-    const std::vector<at::Tensor>& offsets_tensor_per_key,
-    const std::vector<int64_t>& offset_per_key);
-
 ///@ingroup sparse-data-cpu
 std::vector<at::Tensor> stacked_jagged_2d_to_dense_cpu(
     at::Tensor values,
@@ -376,31 +373,51 @@ std::vector<at::Tensor> stacked_jagged_2d_to_dense_cpu(
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value);
 
-///@ingroup sparse-data-cuda
-at::Tensor jagged_1d_to_dense_gpu(
+at::Tensor jagged_to_padded_dense_autograd(
+    const at::Tensor& values,
+    const std::vector<at::Tensor>& offsets,
+    const std::vector<std::int64_t>& max_lengths,
+    const double padding_value);
+
+at::Tensor jagged_dense_elementwise_add_autograd(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y);
+
+at::Tensor jagged_1d_to_dense_autograd(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_L,
     int64_t padding_value);
 
-///@ingroup sparse-data-cpu
-at::Tensor jagged_1d_to_dense_cpu(
+at::Tensor jagged_2d_to_dense_autograd(
     at::Tensor values,
     at::Tensor offsets,
-    int64_t max_L,
-    int64_t padding_value);
+    int64_t max_sequence_length);
+
+std::tuple<at::Tensor, std::vector<at::Tensor>>
+jagged_dense_dense_elementwise_add_jagged_output_autograd(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y_0,
+    const at::Tensor& y_1);
+
+at::Tensor batched_dense_vec_jagged_2d_mul_autograd(
+    const at::Tensor& v,
+    const at::Tensor& a_values,
+    const at::Tensor& a_offsets);
+
+std::tuple<at::Tensor, std::vector<at::Tensor>>
+jagged_dense_elementwise_mul_autograd(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y);
 
 ///@ingroup sparse-data-cpu
 at::Tensor jagged_2d_to_dense_forward_cpu(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_L);
-
-///@ingroup sparse-data-cuda
-at::Tensor jagged_2d_to_dense_gpu(
-    at::Tensor values,
-    at::Tensor offsets,
-    int64_t max_sequence_length);
 
 ///@ingroup sparse-data-cuda
 at::Tensor jagged_2d_to_dense_gpu_forward(
@@ -414,21 +431,6 @@ at::Tensor jagged_2d_to_dense_gpu_backward(
     at::Tensor offsets,
     int64_t max_lengths);
 
-///@ingroup sparse-data-gpu
-std::vector<at::Tensor> stacked_jagged_1d_to_dense_gpu(
-    at::Tensor values,
-    at::Tensor lengths,
-    const std::vector<int64_t>& offset_per_key,
-    const std::vector<int64_t>& max_lengths_per_key,
-    int64_t padding_value);
-
-///@ingroup sparse-data-cpu
-std::vector<at::Tensor> stacked_jagged_1d_to_dense_cpu(
-    at::Tensor values,
-    at::Tensor lengths,
-    const std::vector<int64_t>& offset_per_key,
-    const std::vector<int64_t>& max_lengths_per_key,
-    int64_t padding_value);
 #endif
 
 ///@ingroup sparse-data-cpu
@@ -670,12 +672,11 @@ at::Tensor pack_segments_backward_cuda(
     int64_t max_length);
 
 ///@ingroup sparse-data-cuda
-at::Tensor index_select_with_sorted_indices_cuda(
+at::Tensor index_select_cuda(
     const at::Tensor& input,
     const at::Tensor& sorted_indices,
     const at::Tensor& orig_indices,
-    const int consecutive_range_start,
-    const int consecutive_range_length);
+    const bool indices_sorted);
 
 at::Tensor index_add_with_unique_indices_cuda(
     const at::Tensor& grad_output,
@@ -684,5 +685,32 @@ at::Tensor index_add_with_unique_indices_cuda(
     std::vector<int64_t>& input_shape,
     const int consecutive_range_start,
     const int consecutive_range_length);
+
+///@ingroup sparse-data-cuda
+std::vector<at::Tensor> group_index_select_cuda(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    const c10::TensorOptions& input_tensor_options,
+    const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& indices_scalar_type,
+    const c10::DeviceIndex& device,
+    const std::vector<int64_t>& output_shape,
+    const int num_input_rows,
+    const int num_output_rows,
+    const int num_cols,
+    const int num_groups);
+
+std::vector<at::Tensor> group_index_add_cuda(
+    const int64_t* input_ptrs,
+    const int64_t* indices_ptrs,
+    const c10::TensorOptions& input_tensor_options,
+    const c10::ScalarType& input_scalar_type,
+    const c10::ScalarType& indices_scalar_type,
+    const c10::DeviceIndex& device,
+    const std::vector<int64_t>& output_shape,
+    const int num_input_rows,
+    const int num_output_rows,
+    const int num_cols,
+    const int num_groups);
 #endif
 } // namespace fbgemm_gpu

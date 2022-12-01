@@ -5,14 +5,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/ATen.h>
+#pragma once
+
+#include <functional>
+
+using Node = int64_t;
+using Links = int64_t;
+template <typename T>
+using AdjacencyMatrix = std::function<T(Node, Node)>;
 
 namespace fbgemm_gpu {
-
-at::Tensor batch_auc(
-    const int64_t num_tasks,
-    const at::Tensor& indices,
-    const at::Tensor& labels,
-    const at::Tensor& weights);
-
+AdjacencyMatrix<Links> get_nvlink_matrix();
 } // namespace fbgemm_gpu

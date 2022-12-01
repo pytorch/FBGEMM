@@ -10,12 +10,106 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/library.h>
 #include "c10/core/ScalarType.h"
+#ifdef FBCODE_CAFFE2
+#include "common/stats/Stats.h"
+#endif
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
+
+#ifdef FBCODE_CAFFE2
+// Fraction of unique indices per batch.
+// # unique indices / # requested indices.
+DEFINE_quantile_stat(
+    tbe_uvm_cache_unique_rate,
+    "tbe_uvm_cache_unique_rate_per_mille",
+    facebook::fb303::ExportTypeConsts::kNone,
+    std::array<double, 4>{{.25, .50, .75, .99}});
+
+// Miss rate: # unique index misses / # requested indices
+DEFINE_quantile_stat(
+    tbe_uvm_cache_unique_miss_rate,
+    "tbe_uvm_cache_unique_miss_rate_per_mille",
+    facebook::fb303::ExportTypeConsts::kNone,
+    std::array<double, 4>{{.25, .50, .75, .99}});
+
+// Miss rate due to conflict in cache associativity.
+// # unique misses due to conflict / # requested indices.
+DEFINE_quantile_stat(
+    tbe_uvm_cache_conflict_unique_miss_rate,
+    "tbe_uvm_cache_conflict_unique_miss_rate_per_mille",
+    facebook::fb303::ExportTypeConsts::kNone,
+    std::array<double, 4>{{.25, .50, .75, .99}});
+
+// FLAGs to control UVMCacheStats.
+DEFINE_int32(
+    tbe_uvm_cache_stat_report,
+    -1,
+    "If set to a positive number, it enables UVMCacheStats reporting, and this FLAG value is "
+    "stats collecting period");
+
+DEFINE_int32(
+    tbe_uvm_cache_stats_print_out_period,
+    -1,
+    "If tbe_uvm_cache_stat_report is enabled, more detailed raw stats will be printed with this "
+    "period. This should be an integer multiple of tbe_uvm_cache_stat_report.");
+
+// TODO: align this with uvm_cache_stats_index in
+// split_embeddings_cache_cuda.cu.
+const int kUvmCacheStatsSize = 6;
+
+namespace {
+
+// Processes UVMCacheStats from one batch of TBE op call.
+// Args:
+//  * signature: unique id for TBE op.
+//  * total_cache_hash_size: num_embeddding_rows in the whole TBE op.
+//  * Per-batch UVMCacheStats.
+void process_uvm_cache_stats(
+    const size_t signature,
+    const int64_t total_cache_hash_size,
+    const int64_t call_count,
+    const bool gather_uvm_stats,
+    const Tensor& uvm_cache_stats) {
+  if (gather_uvm_stats) {
+    // Export cache stats.
+    auto uvm_cache_stats_cpu = uvm_cache_stats.cpu();
+    auto* uvm_cache_stats_ptr = uvm_cache_stats_cpu.data_ptr<int32_t>();
+    if (uvm_cache_stats_ptr[1] > 0) {
+      // Report cache stats in per-mille.
+      double num_requested_indices =
+          static_cast<double>(uvm_cache_stats_ptr[1]);
+      double unique_rate = static_cast<double>(uvm_cache_stats_ptr[2] * 1000) /
+          num_requested_indices;
+      double unique_miss_rate =
+          static_cast<double>(uvm_cache_stats_ptr[3] * 1000) /
+          num_requested_indices;
+      double unique_conflict_miss_rate =
+          static_cast<double>(uvm_cache_stats_ptr[4] * 1000) /
+          num_requested_indices;
+      STATS_tbe_uvm_cache_unique_rate.addValue(unique_rate);
+      STATS_tbe_uvm_cache_unique_miss_rate.addValue(unique_miss_rate);
+      STATS_tbe_uvm_cache_conflict_unique_miss_rate.addValue(
+          unique_conflict_miss_rate);
+    }
+    if (call_count % FLAGS_tbe_uvm_cache_stats_print_out_period == 0) {
+      LOG(INFO) << "$Stats [" << signature << "] "
+                << " hash_size: " << total_cache_hash_size
+                << ", call_count: " << call_count
+                << ", N_requested_indices: " << uvm_cache_stats_ptr[1]
+                << ", N_unique_indices: " << uvm_cache_stats_ptr[2]
+                << ", N_unique_misses: " << uvm_cache_stats_ptr[3]
+                << ", N_conflict_unique_misses: " << uvm_cache_stats_ptr[4]
+                << ", N_conflict_misses: " << uvm_cache_stats_ptr[5];
+    }
+  }
+}
+
+} // namespace
+#endif
 
 ///@defgroup embedding-cuda Embedding CUDA Operators
 ///
@@ -197,6 +291,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       fp8_exponent_bits ? *fp8_exponent_bits : -1,
       fp8_exponent_bias ? *fp8_exponent_bias : -1);
 }
+
 ///@ingroup embedding-cuda
 /// Simlar to int_nbit_split_embedding_codegen_lookup_function, but it does
 /// UVM_CACHING lookup.
@@ -245,6 +340,10 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
   // IntNBitTableBatchedEmbeddingBagsCodegen, but run them in sequence.
   // Prefetching of multiple batches of requests is not yet supported.
 
+#ifdef FBCODE_CAFFE2
+  static std::mutex uvm_cache_stats_mutex;
+  static std::unordered_map<size_t, int64_t> tbe_call_count;
+#endif
   static std::atomic<int64_t> time_stamp = 0; // for LRU replacement.
   int64_t curr_time_stamp = -1;
 
@@ -257,6 +356,29 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     // Linearize indices.
     auto linear_cache_indices = linearize_cache_indices_cuda(
         cache_hash_size_cumsum.value(), indices, offsets);
+
+    bool gather_uvm_stats = false;
+    Tensor uvm_cache_stats =
+        at::empty({0}, lxu_cache_weights.value().options().dtype(at::kInt));
+#ifdef FBCODE_CAFFE2
+    size_t signature = reinterpret_cast<size_t>(uvm_weights.data_ptr());
+    int64_t call_count = 0;
+    {
+      std::lock_guard<std::mutex> guard(uvm_cache_stats_mutex);
+      if (tbe_call_count.count(signature) == 0) {
+        tbe_call_count[signature] = 0;
+      }
+      tbe_call_count[signature]++;
+      call_count = tbe_call_count[signature];
+    }
+
+    if (call_count % FLAGS_tbe_uvm_cache_stat_report == 0) {
+      gather_uvm_stats = true;
+      uvm_cache_stats = at::zeros(
+          {kUvmCacheStatsSize},
+          lxu_cache_weights.value().options().dtype(at::kInt));
+    }
+#endif
 
     // Lookup and fetch data from UVM: supporting only lru; no lfu currently.
     lru_cache_populate_byte_cuda(
@@ -272,13 +394,26 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         lxu_cache_weights.value(),
         curr_time_stamp,
         lxu_state.value(),
-        row_alignment ? *row_alignment : 16);
+        row_alignment ? *row_alignment : 16,
+        gather_uvm_stats,
+        uvm_cache_stats);
 
     // Update lxu_cache_locations.
     lxu_cache_locations = lxu_cache_lookup_cuda(
         linear_cache_indices,
         lxu_cache_state.value(),
-        total_cache_hash_size.value());
+        total_cache_hash_size.value(),
+        gather_uvm_stats,
+        uvm_cache_stats);
+
+#ifdef FBCODE_CAFFE2
+    process_uvm_cache_stats(
+        signature,
+        total_cache_hash_size.value(),
+        call_count,
+        gather_uvm_stats,
+        uvm_cache_stats);
+#endif
   }
 
   return int_nbit_split_embedding_codegen_lookup_function(

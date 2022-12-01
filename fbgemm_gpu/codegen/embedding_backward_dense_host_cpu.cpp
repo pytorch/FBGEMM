@@ -160,7 +160,8 @@ Tensor split_embedding_codegen_lookup_dense_function(
     Tensor offsets,
     int64_t pooling_mode,
     c10::optional<Tensor> indice_weights,
-    c10::optional<Tensor> feature_requires_grad) {
+    c10::optional<Tensor> feature_requires_grad,
+    int64_t /* output_dtype = static_cast<int64_t>(SparseType::FP32) */) {
   return SplitLookupFunction_Dense_Op::apply(
       host_weights,
       weights_offsets,
@@ -179,7 +180,7 @@ Tensor split_embedding_codegen_lookup_dense_function(
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad) -> Tensor");
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0) -> Tensor");
   DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
       split_embedding_codegen_lookup_dense_function);
@@ -187,7 +188,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad) -> Tensor");
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0) -> Tensor");
   DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
       split_embedding_codegen_lookup_dense_function);
