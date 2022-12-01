@@ -1657,6 +1657,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_assoc: int = 32,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cacheline_alignment: bool = True,
+        output_column_alignment: Optional[int] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1727,6 +1728,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(accumulate(D_offsets))
         self.total_D: int = D_offsets[-1]
+        if output_column_alignment is not None:
+            self.total_D = round_up(self.total_D, output_column_alignment)
         for dim, weight_ty in zip(dims, weights_tys):
             if not weight_ty.is_float():
                 assert (
