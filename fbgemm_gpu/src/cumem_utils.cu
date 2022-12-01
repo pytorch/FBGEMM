@@ -31,6 +31,24 @@ namespace fbgemm_gpu {
 // and set the correct device in the thread before calling cudaFree[Host]
 
 namespace {
+struct CUDAHostMappedContext {
+  void* ptr_;
+  int cuda_device_;
+
+  CUDAHostMappedContext(void* ptr, int cuda_device)
+      : ptr_(ptr), cuda_device_(cuda_device){};
+
+  ~CUDAHostMappedContext() {
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(cuda_device_);
+    AT_CUDA_CHECK(cudaFreeHost(ptr_));
+  }
+
+  static void release(void* ptr) {
+    delete static_cast<CUDAHostMappedContext*>(ptr);
+  }
+};
+
 struct CUDAManagedContext {
   void* ptr_;
   int cuda_device_;
@@ -41,7 +59,7 @@ struct CUDAManagedContext {
   ~CUDAManagedContext() {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(cuda_device_);
-    cudaFree(ptr_);
+    AT_CUDA_CHECK(cudaFree(ptr_));
   }
 
   static void release(void* ptr) {
@@ -178,10 +196,53 @@ Tensor new_vanilla_managed_tensor(
   return new_managed_tensor_internal(self, sizes);
 }
 
+// Allocate the ATen Tensor with host-mapped memory
+Tensor new_host_mapped_tensor(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(self.get_device());
+
+  auto strides = defaultStrides(sizes);
+  size_t size_bytes =
+      at::detail::computeStorageNbytes(sizes, strides, self.dtype().itemsize());
+  void* ptr;
+  AT_CUDA_CHECK(cudaHostAlloc(
+      &ptr, size_bytes, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+  void* dev_ptr;
+  AT_CUDA_CHECK(cudaHostGetDevicePointer(&dev_ptr, ptr, 0));
+
+  auto storage = Storage(
+      Storage::use_byte_size_t(),
+      size_bytes,
+      at::DataPtr(
+          dev_ptr,
+          new CUDAHostMappedContext(ptr, self.get_device()),
+          &CUDAHostMappedContext::release,
+          {at::DeviceType::CUDA, self.device().index()}),
+      nullptr, /* allocator */
+      /*resizable=*/false);
+  return at::empty({0}, self.options())
+      .set_(std::move(storage), 0, sizes, strides);
+}
+
+// Allocate the ATen Tensor with UVM or host-mapped memory
+Tensor new_unified_tensor(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes,
+    bool is_host_mapped) {
+  if (is_host_mapped) {
+    return new_host_mapped_tensor(self, sizes);
+  } else {
+    return new_managed_tensor(self, sizes);
+  }
+}
+
 // Check if a tensor is allocated with UVM (CPU or GPU Tensor)
 bool uvm_storage(const Tensor& t) {
   auto deleter = t.storage().data_ptr().get_deleter();
-  return deleter == &CUDAManagedIndirectContext::release;
+  return deleter == &CUDAManagedIndirectContext::release ||
+      deleter == &CUDAHostMappedContext::release;
 }
 
 // Check if a tensor is allocated with UVM but is not a CPU Tensor

@@ -23,6 +23,20 @@ Tensor new_managed_tensor(
     const std::vector<std::int64_t>& sizes);
 
 ///@ingroup cumem-utils
+// Allocate the ATen Tensor with host-mapped memory
+Tensor new_host_mapped_tensor(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes);
+
+///@ingroup cumem-utils
+// Allocate the ATen Tensor with unified managed memory (UVM) or host-mapped
+// memory.
+Tensor new_unified_tensor(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes,
+    bool is_host_mapped);
+
+///@ingroup cumem-utils
 /// Allocate the ATen Tensor with unified managed memory (UVM)
 Tensor new_vanilla_managed_tensor(
     const Tensor& self,
