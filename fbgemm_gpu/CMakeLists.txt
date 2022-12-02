@@ -296,7 +296,8 @@ set(fbgemm_gpu_sources_cpu
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
     src/quantize_ops_cpu.cpp
-    src/sparse_ops_cpu.cpp)
+    src/sparse_ops_cpu.cpp
+    src/embedding_inplace_update_cpu.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(
@@ -313,7 +314,8 @@ if(NOT FBGEMM_CPU_ONLY)
     src/sparse_ops_gpu.cpp
     src/split_embeddings_utils.cpp
     src/split_table_batched_embeddings.cpp
-    src/metric_ops_host.cpp)
+    src/metric_ops_host.cpp
+    src/embedding_inplace_update_gpu.cpp)
 
   if(NVML_LIB_PATH)
     list(
@@ -342,7 +344,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops.cu
       src/split_embeddings_cache_cuda.cu
       src/split_embeddings_utils.cu
-      src/metric_ops.cu)
+      src/metric_ops.cu
+      src/embedding_inplace_update.cu)
 
   set_source_files_properties(
     ${fbgemm_gpu_sources_gpu} PROPERTIES COMPILE_OPTIONS
