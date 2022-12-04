@@ -4685,9 +4685,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         weights_ty_list = [weights_ty] * T
-        # if open_source:
-        #     test_internal = False
-        test_internal = False
+        if open_source:
+            test_internal = False
 
         # create two embedding bag op with random weights
         locations = [location] * T
