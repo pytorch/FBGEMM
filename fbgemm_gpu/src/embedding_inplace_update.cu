@@ -10,7 +10,7 @@
 
 #include <c10/cuda/CUDAGuard.h>
 
-#include "embedding_inplace_update.h"
+#include "fbgemm_gpu/embedding_inplace_update.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
 using Tensor = at::Tensor;
