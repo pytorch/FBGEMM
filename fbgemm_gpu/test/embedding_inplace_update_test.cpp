@@ -6,7 +6,7 @@
  */
 #include <folly/Random.h>
 #include <gtest/gtest.h>
-#include "deeplearning/fbgemm/fbgemm_gpu/src/embedding_inplace_update.h"
+#include "fbgemm_gpu/embedding_inplace_update.h"
 
 using namespace ::testing;
 using namespace fbgemm_gpu;

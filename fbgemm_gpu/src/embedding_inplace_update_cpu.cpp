@@ -12,7 +12,7 @@
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
-#include "embedding_inplace_update.h"
+#include "fbgemm_gpu/embedding_inplace_update.h"
 
 using Tensor = at::Tensor;
 
@@ -72,11 +72,8 @@ void embedding_inplace_update_cpu(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights =
-        c10::nullopt, // Not used, to match cache interface for CUDA op
-    c10::optional<Tensor> lxu_cache_locations =
-        c10::nullopt // Not used, to match cache interface for CUDA op
-) {
+    c10::optional<Tensor> lxu_cache_weights,
+    c10::optional<Tensor> lxu_cache_locations) {
   TENSOR_ON_CPU(dev_weights);
   TENSOR_ON_CPU(uvm_weights);
   TENSOR_ON_CPU(weights_placements);
