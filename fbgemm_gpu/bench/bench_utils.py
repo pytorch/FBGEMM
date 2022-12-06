@@ -118,7 +118,7 @@ def benchmark_torch_function(
         torch.cuda.synchronize(device)
         if copy_f_for_multi_thread_test:
             # clean the copies of f and clean the HBM cache
-            for idx in range(num_threads - 1):
+            for idx in reversed(range(num_threads - 1)):
                 del f_list[idx + 1]
         torch.cuda.empty_cache()
 
