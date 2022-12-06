@@ -19,7 +19,9 @@ from torch import Tensor
 try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
-    from test_utils import (  # pyre-ignore[21]
+
+    # pyre-ignore[21]
+    from test_utils import (  # noqa: F401
         bytes_to_half_floats,
         fused_rowwise_8bit_dequantize_reference,
         fused_rowwise_8bit_quantize_reference,

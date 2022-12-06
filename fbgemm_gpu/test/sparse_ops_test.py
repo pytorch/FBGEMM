@@ -10,7 +10,7 @@ import itertools
 import random
 import unittest
 from itertools import accumulate
-from typing import Any, Callable, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -244,6 +244,33 @@ class SparseOpsTest(unittest.TestCase):
                 )
             else:
                 assert permuted_weights_gpu is None
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        permute_size=st.integers(min_value=30, max_value=1000),
+        long_index=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_invert_permute(
+        self,
+        permute_size: int,
+        long_index: bool,
+    ) -> None:
+        index_dtype = torch.int64 if long_index else torch.int32
+        permute_list = list(range(permute_size))
+        random.shuffle(permute_list)
+        inversed_permute_list = [0] * len(permute_list)
+        for i in range(permute_size):
+            inversed_permute_list[permute_list[i]] = i
+        permute = torch.IntTensor(permute_list).type(index_dtype)
+        inverse_permute_ref = torch.IntTensor(inversed_permute_list).type(index_dtype)
+
+        inverse_permute_cpu = torch.ops.fbgemm.invert_permute(permute)
+        torch.testing.assert_close(inverse_permute_cpu, inverse_permute_ref)
+
+        if gpu_available:
+            inverse_permute_gpu = torch.ops.fbgemm.invert_permute(permute.cuda())
+            torch.testing.assert_close(inverse_permute_gpu.cpu(), inverse_permute_cpu)
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
@@ -1527,6 +1554,101 @@ class SparseOpsTest(unittest.TestCase):
                 gradcheck_args.append(kwargs[k])
 
             torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
+
+    # pyre-ignore [56]
+    @given(
+        num_indices=st.integers(1, 32),
+        num_input_rows=st.integers(1, 32),
+        shape=st.lists(st.integers(1, 32), min_size=1, max_size=2),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        num_groups=st.integers(1, 32),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_group_index_select_dim0(
+        self,
+        num_indices: int,
+        num_input_rows: int,
+        shape: List[int],
+        dtype: torch.dtype,
+        use_cpu: bool,
+        num_groups: int,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+
+        input_group: List[torch.Tensor] = []
+        input_ref_group: List[torch.Tensor] = []
+        indices_group: List[torch.Tensor] = []
+        grad_group: List[torch.Tensor] = []
+        for _ in range(num_groups):
+            indices = torch.randint(num_input_rows, (num_indices,), device=device)
+            assert indices.max() < num_input_rows
+
+            indices_group.append(indices)
+            input = torch.rand(
+                (num_input_rows,) + tuple(shape), dtype=dtype, device=device
+            )
+            input_ref = input.clone().detach()
+
+            input.requires_grad = True
+            input_ref.requires_grad = True
+
+            input_group.append(input)
+            input_ref_group.append(input_ref)
+
+            grad = torch.rand((num_indices,) + tuple(shape), dtype=dtype, device=device)
+            grad_group.append(grad)
+
+        # Test forward
+        output_ref_group = []
+        for input, indices in zip(input_ref_group, indices_group):
+            output_ref_group.append(torch.index_select(input, 0, indices))
+
+        output_group = torch.ops.fbgemm.group_index_select_dim0(
+            input_group, indices_group
+        )
+
+        # Test backward
+        for out, grad in zip(output_ref_group, grad_group):
+            out.backward(grad)
+
+        cat_output = torch.concat(output_group)
+        cat_grad = torch.concat(grad_group)
+        cat_output.backward(cat_grad)
+
+        def compare_tensor_groups(
+            test_group: List[torch.Tensor],
+            ref_group: List[torch.Tensor],
+            tensor_type: str,
+            tols: Dict["str", float],
+        ) -> None:
+            passed = True
+            failure_count = 0
+            for i, (test, ref) in enumerate(zip(test_group, ref_group)):
+                # pyre-ignore [6]
+                if not torch.allclose(test, ref, **tols):
+                    passed = False
+                    failure_count += 1
+                    print(
+                        f"FAILED: group {i} {tensor_type} ({dtype}), "
+                        f"input shape {input_group[i].shape}, indices "
+                        f"{indices_group[i]}, test {test}, ref {ref}"
+                    )
+            assert (
+                passed
+            ), f"{failure_count}/{num_groups} groups of {tensor_type} failed"
+
+        compare_tensor_groups(
+            output_group, output_ref_group, "activation", {"rtol": 0, "atol": 0}
+        )
+        compare_tensor_groups(
+            # pyre-ignore [6]
+            [i.grad for i in input_group],
+            # pyre-ignore [6]
+            [i.grad for i in input_ref_group],
+            "gradient",
+            {"rtol": 1e-02, "atol": 1e-02} if dtype == torch.half else {},
+        )
 
     # pyre-ignore [56]
     @given(

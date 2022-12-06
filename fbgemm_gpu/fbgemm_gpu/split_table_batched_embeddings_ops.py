@@ -15,9 +15,9 @@ from math import log2
 from typing import Dict, List, NamedTuple, Optional, Tuple, Type, Union
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-import torch
+import torch  # usort:skip
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from torch import nn, Tensor
+from torch import nn, Tensor  # usort:skip
 
 DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
 # Maximum number of times prefetch() can be called without
@@ -1581,6 +1581,7 @@ def nbit_construct_split_state(
     cacheable: bool,
     row_alignment: int,
     scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    cacheline_alignment: bool = True,
 ) -> SplitState:
     placements = []
     offsets = []
@@ -1591,7 +1592,9 @@ def nbit_construct_split_state(
         embedding_dim = rounded_row_size_in_bytes(
             embedding_dim, weight_ty, row_alignment, scale_bias_size_in_bytes
         )
-        state_size = align_to_cacheline(num_embeddings * embedding_dim)
+        state_size = num_embeddings * embedding_dim
+        if cacheline_alignment:
+            state_size = align_to_cacheline(state_size)
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
             offsets.append(host_size)
@@ -1621,7 +1624,7 @@ def nbit_construct_split_state(
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
-    Inference version, with FP16/FP8/INT8/INT4/INT2 supports
+    Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
@@ -1639,7 +1642,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         weight_lists: Optional[List[Tuple[Tensor, Tensor]]] = None,
-        load_factor: float = 0.5,
+        pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
         cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
@@ -1652,6 +1655,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         fp8_exponent_bits: Optional[int] = None,
         fp8_exponent_bias: Optional[int] = None,
         cache_assoc: int = 32,
+        scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+        cacheline_alignment: bool = True,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1669,7 +1674,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
 
-        self.scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES
+        self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
@@ -1726,7 +1731,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if not weight_ty.is_float():
                 assert (
                     dim % (8 / weight_ty.bit_rate()) == 0
-                ), "For quantized types we need to at least pack at byte granularity"
+                ), f"For quantized types we need to at least pack at byte granularity, dim: {dim}, weight_ty: {weight_ty}"
 
         def max_ty_D(ty: SparseType) -> int:
             return max(
@@ -1797,6 +1802,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             cacheable=True,
             row_alignment=self.row_alignment,
             scale_bias_size_in_bytes=self.scale_bias_size_in_bytes,
+            cacheline_alignment=cacheline_alignment,
         )
 
         self.weights_physical_placements: List[int] = [
@@ -1842,7 +1848,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if index_remapping:
             self.set_index_remappings(
-                index_remapping, load_factor, use_array_for_index_remapping
+                index_remapping, pruning_hash_load_factor, use_array_for_index_remapping
             )
 
         # Currently only support cache_precision == embedding_precision.
@@ -1946,15 +1952,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
-        if self.cache_assoc in [32, 64]:
-            # 64 for AMD
-            self.prefetch_32way(indices, offsets)
-        elif self.cache_assoc == 1:
-            self.prefetch_1way(indices, offsets)
-        else:
-            raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
-
-    def prefetch_32way(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
         # pyre-fixme[29]:
@@ -1977,10 +1974,18 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.record_cache_metrics.record_cache_miss_counter
             or self.record_cache_metrics.record_tablewise_cache_miss
         ):
-            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_cache_hash_size,
+            lxu_cache_locations = (
+                torch.ops.fbgemm.lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_cache_hash_size,
+                )
+                if self.cache_assoc in [32, 64]
+                else torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_cache_hash_size,
+                )
             )
             if self.record_cache_metrics.record_cache_miss_counter:
                 self._update_cache_miss_counter(
@@ -1991,6 +1996,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     lxu_cache_locations, linear_cache_indices, offsets
                 )
 
+        if self.cache_assoc in [32, 64]:
+            # 64 for AMD
+            self.prefetch_32way(linear_cache_indices)
+        elif self.cache_assoc == 1:
+            self.prefetch_1way(linear_cache_indices)
+        else:
+            raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
+
+    def prefetch_32way(self, linear_cache_indices: Tensor) -> None:
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fbgemm.lru_cache_populate_byte(
                 self.weights_uvm,
@@ -2032,43 +2046,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
-    def prefetch_1way(self, indices: Tensor, offsets: Tensor) -> None:
-        self.timestep_counter.increment()
-        self.timestep_prefetch_size.increment()
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
-        if not self.lxu_cache_weights.numel():
-            return
-
-        # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
-        # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
-        indices, offsets = indices.long(), offsets.long()
-
-        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
-            self.cache_hash_size_cumsum,
-            indices,
-            offsets,
-        )
-
-        if (
-            self.record_cache_metrics.record_cache_miss_counter
-            or self.record_cache_metrics.record_tablewise_cache_miss
-        ):
-            lxu_cache_locations = torch.ops.fbgemm.direct_mapped_lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_cache_hash_size,
-            )
-            if self.record_cache_metrics.record_cache_miss_counter:
-                self._update_cache_miss_counter(
-                    lxu_cache_locations, linear_cache_indices
-                )
-            if self.record_cache_metrics.record_tablewise_cache_miss:
-                self._update_tablewise_cache_miss(
-                    lxu_cache_locations, linear_cache_indices, offsets
-                )
-
+    def prefetch_1way(self, linear_cache_indices: Tensor) -> None:
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fbgemm.direct_mapped_lru_cache_populate_byte(
                 self.weights_uvm,
@@ -2400,7 +2378,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         logging.info(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
-            f"load_factor: {cache_load_factor : .3f}, "
+            f"cache_load_factor: {cache_load_factor : .3f}, "
             f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB"
         )
 
@@ -2603,14 +2581,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def set_index_remappings(
         self,
         index_remapping: List[Tensor],
-        load_factor: float = 0.5,
+        pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
     ) -> None:
         rows: List[int] = [e[1] for e in self.embedding_specs]
         T = len(self.embedding_specs)
         if not use_array_for_index_remapping:
             capacities = [
-                round_up(int(row * 1.0 / load_factor), 32)
+                round_up(int(row * 1.0 / pruning_hash_load_factor), 32)
                 if index_remap is not None
                 else 0
                 for (index_remap, row) in zip(index_remapping, rows)
@@ -2636,7 +2614,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets = torch.tensor([0] + list(accumulate(original_feature_rows))).int()
 
             if self.use_cpu:
-                self.index_remapping_hash_table_cpu = torch.classes.fb.PrunedMapCPU()
+                self.index_remapping_hash_table_cpu = (
+                    torch.classes.fbgemm.PrunedMapCPU()
+                )
                 self.index_remapping_hash_table_cpu.insert(
                     indices, dense_indices, offsets, T
                 )
@@ -2751,7 +2731,30 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             device=self.current_device,
             dtype=torch.int64,
         )
-        # Internal function for now
+
+        lxu_cache_locations = None
+        # pyre-fixme[29]:
+        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
+        #  int], Tensor], Tensor, nn.Module]` is not a function.
+        if self.lxu_cache_weights.numel() > 0:
+            linear_cache_indices = (
+                torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
+                    self.cache_hash_size_cumsum,
+                    update_table_indices,
+                    update_row_indices,
+                )
+            )
+
+            if self.cache_assoc in [32, 64]:
+                # 64 for AMD
+                self.prefetch_32way(linear_cache_indices)
+            elif self.cache_assoc == 1:
+                self.prefetch_1way(linear_cache_indices)
+            else:
+                raise ValueError(f"{self.cache_assoc} not in [1, 32, 64]")
+
+            lxu_cache_locations = self.lxu_cache_locations_list.pop()
+
         torch.ops.fbgemm.emb_inplace_update(
             dev_weights=self.weights_host if self.host_size > 0 else self.weights_dev,
             uvm_weights=self.weights_uvm,
@@ -2764,4 +2767,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             update_row_indices=update_row_indices,
             update_offsets=update_offsets,
             row_alignment=self.row_alignment,
+            lxu_cache_weights=self.lxu_cache_weights,
+            lxu_cache_locations=lxu_cache_locations,
         )

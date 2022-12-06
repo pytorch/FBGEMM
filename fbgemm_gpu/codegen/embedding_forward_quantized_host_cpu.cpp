@@ -397,7 +397,7 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
 };
 
 static auto PrunedMapCPURegistry =
-    torch::class_<PrunedMapCPU>("fb", "PrunedMapCPU")
+    torch::class_<PrunedMapCPU>("fbgemm", "PrunedMapCPU")
         .def(torch::init<>())
         .def("insert", &PrunedMapCPU::insert)
         .def("lookup", &PrunedMapCPU::lookup)
