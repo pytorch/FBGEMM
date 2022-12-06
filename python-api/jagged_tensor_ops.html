@@ -334,6 +334,61 @@
               
   <div class="section" id="module-fbgemm_gpu">
 <span id="jagged-tensor-operators"></span><h1>Jagged Tensor Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this headline">¶</a></h1>
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_2d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_2d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_1d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_1d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.dense_to_jagged">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">dense_to_jagged</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.dense_to_jagged" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_to_padded_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_to_padded_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_to_padded_dense" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_elementwise_add">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_add</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_add_jagged_output</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_dense_elementwise_add_jagged_output</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.jagged_dense_elementwise_mul">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_mul</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_mul" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">batched_dense_vec_jagged_2d_mul</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.stacked_jagged_1d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">stacked_jagged_1d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt id="torch.ops.fbgemm.stacked_jagged_2d_to_dense">
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">stacked_jagged_2d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
 </div>
 
 
