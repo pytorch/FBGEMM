@@ -231,6 +231,18 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
 
   return output;
 }
+// dummy cpu code for gpu fp8_rowwise conversions
+///@ingroup quantize-data-cpu
+Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool forward) {
+  TORCH_CHECK(false, "fp8 is not supported by CPU");
+  return input;
+}
+
+///@ingroup quantize-data-cpu
+Tensor FP8rowwise_to_float_cpu(const Tensor& input, bool forward) {
+  TORCH_CHECK(false, "fp8 is not supported by CPU");
+  return input;
+}
 
 ///@ingroup quantize-data-cpu
 Tensor fusednbitrowwise_to_float_cpu(
@@ -391,11 +403,13 @@ at::Tensor _hfp8_to_float_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
+  m.def("FloatToFP8RowwiseQuantized(Tensor t, bool forward) -> Tensor");
   m.def(
       "FloatToFused8BitRowwiseQuantizedOut(Tensor output, Tensor input) -> Tensor");
   m.def("HalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("FloatOrHalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("Fused8BitRowwiseQuantizedToFloat(Tensor input) -> Tensor");
+  m.def("FP8RowwiseQuantizedToFloat(Tensor input, bool forward) -> Tensor");
   m.def("Fused8BitRowwiseQuantizedToHalf(Tensor input) -> Tensor");
   m.def(
       "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int output_dtype=0) -> Tensor");
@@ -430,6 +444,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "FloatToFused8BitRowwiseQuantized",
       fbgemm_gpu::float_to_fused8bitrowwise_cpu);
   DISPATCH_TO_CPU(
+      "FloatToFP8RowwiseQuantized", fbgemm_gpu::float_to_FP8rowwise_cpu);
+  DISPATCH_TO_CPU(
       "HalfToFused8BitRowwiseQuantized",
       fbgemm_gpu::half_to_fused8bitrowwise_cpu);
   DISPATCH_TO_CPU(
@@ -441,6 +457,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "Fused8BitRowwiseQuantizedToFloat",
       fbgemm_gpu::fused8bitrowwise_to_float_cpu);
+  DISPATCH_TO_CPU(
+      "FP8RowwiseQuantizedToFloat", fbgemm_gpu::FP8rowwise_to_float_cpu);
   DISPATCH_TO_CPU(
       "Fused8BitRowwiseQuantizedToHalf",
       fbgemm_gpu::fused8bitrowwise_to_half_cpu);

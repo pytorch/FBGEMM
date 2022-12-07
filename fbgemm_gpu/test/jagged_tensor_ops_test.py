@@ -136,14 +136,14 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         D=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=200),
-        is_half=st.booleans(),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
     )
     def test_jagged_2d_to_dense(
         self,
         B: int,
         D: int,
         max_sequence_length: int,
-        is_half: bool,
+        dtype: torch.dtype,
     ) -> None:
         D = D * 4
         lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
@@ -158,14 +158,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
             max_sequence_length,
             D,
         ).to_dense()
-        if is_half:
-            ref_output_values = ref_output_values.half()
+        ref_output_values = ref_output_values.to(dtype)
 
         # test cpu forward
-        if is_half:
-            values = ref_values.clone().half().detach().requires_grad_(True)
-        else:
-            values = ref_values.clone().detach().requires_grad_(True)
+        values = ref_values.clone().to(dtype).detach().requires_grad_(True)
         output_values = torch.ops.fbgemm.jagged_2d_to_dense(
             values=values,
             offsets=offsets,
@@ -176,10 +172,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if torch.cuda.is_available():
             # test gpu forward
             ref_values = ref_values.cuda()
-            if is_half:
-                values = ref_values.clone().half().detach().requires_grad_(True)
-            else:
-                values = ref_values.clone().detach().requires_grad_(True)
+            values = ref_values.clone().to(dtype).detach().requires_grad_(True)
             offsets = offsets.cuda()
             ref_output_values = ref_output_values.cuda()
             output_values = torch.ops.fbgemm.jagged_2d_to_dense(
@@ -191,8 +184,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
             # test gpu backward
             output_values.backward(ref_output_values)
-            if is_half:
-                ref_values = ref_values.half()
+            ref_values = ref_values.to(dtype)
             torch.testing.assert_close(ref_values, values.grad)
 
     def test_jagged_2d_to_dense_truncation(self) -> None:
@@ -582,12 +574,12 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
         precompute_total_L: bool,
     ) -> None:
 
         # Generate multi-dim jagged tensor
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
         values_2d, offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
         )
@@ -627,8 +619,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
-        dtype=st.sampled_from([torch.float, torch.half]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
+        device_type=st.sampled_from(["cpu", "cuda"]),
         precompute_total_L=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -638,7 +630,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
         precompute_total_L: bool,
     ) -> None:
         self._test_dense_to_jagged(
@@ -646,7 +638,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             outer_dense_size,
             inner_dense_size,
             dtype,
-            use_cpu,
+            device_type,
             precompute_total_L,
         )
 
@@ -656,7 +648,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 6000),
         inner_dense_size=st.sampled_from([8, 16, 23, 24, 48, 50, 64, 72, 96, 192]),
         dtype=st.just(torch.half),
-        use_cpu=st.just(False),
+        device_type=st.just("cuda"),
         precompute_total_L=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -666,7 +658,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
         precompute_total_L: bool,
     ) -> None:
         self._test_dense_to_jagged(
@@ -674,7 +666,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             outer_dense_size,
             inner_dense_size,
             dtype,
-            use_cpu,
+            device_type,
             precompute_total_L,
         )
 
@@ -686,7 +678,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.just(8000),
         inner_dense_size=st.just(16),
         dtype=st.just(torch.half),
-        use_cpu=st.just(False),
+        device_type=st.just("cuda"),
         precompute_total_L=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=1, deadline=None)
@@ -696,7 +688,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
         precompute_total_L: bool,
     ) -> None:
         self._test_dense_to_jagged(
@@ -704,7 +696,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             outer_dense_size,
             inner_dense_size,
             dtype,
-            use_cpu,
+            device_type,
             precompute_total_L,
         )
 
@@ -715,7 +707,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size=st.integers(0, 5),
         padding_value=st.sampled_from([0, -1e-8]),
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_to_padded_dense(
@@ -725,10 +719,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         padding_value: float,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         # CPU doesn't support bfloat16
-        assume(not use_cpu or dtype != torch.bfloat16)
+        assume(device_type != "cpu" or dtype != torch.bfloat16)
 
         # Testing with a basic crafted example.
         # dense representation is
@@ -752,7 +746,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         # outer_dense_size = len(x_offsets[0]) - 1
         # max_lengths = [4, 3]
 
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim, outer_dense_size, inner_dense_size, torch.float, device
@@ -780,6 +774,45 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ),
         )
 
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 5),
+        outer_dense_size=st.integers(0, 5),
+        inner_dense_size=st.integers(0, 5),
+        padding_value=st.just(0),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        device_type=st.just("meta"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_to_padded_dense_meta_backend(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        padding_value: float,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        assume(device_type != "cpu" or dtype != torch.bfloat16)
+        device = torch.device("cpu")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, torch.float, device
+        )
+
+        output_ref = self._to_padded_dense(
+            x_values, x_offsets, max_lengths, padding_value=padding_value
+        )
+        x_values.to(device_type)
+        output = torch.ops.fbgemm.jagged_to_padded_dense(
+            x_values,
+            x_offsets,
+            max_lengths,
+            padding_value=padding_value,
+        )
+
+        assert output.size() == output_ref.size()
+
     def _test_jagged_elementwise_binary(
         self,
         num_jagged_dim: int,
@@ -787,9 +820,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         operation: str,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
@@ -874,8 +907,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        device_type=st.sampled_from(["cpu", "cuda"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_elementwise_binary(
@@ -885,7 +918,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         operation: str,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_elementwise_binary(
             num_jagged_dim,
@@ -893,7 +926,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             inner_dense_size,
             operation,
             dtype,
-            use_cpu,
+            device_type,
         )
 
     # pyre-ignore [56]
@@ -903,7 +936,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size=st.sampled_from([16, 64, 96, 192]),
         operation=st.sampled_from(["add_jagged_output", "mul"]),
         dtype=st.just(torch.half),
-        use_cpu=st.just(False),
+        device_type=st.just("cuda"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
     def test_jagged_elementwise_binary_opt(
@@ -913,7 +946,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         operation: str,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_elementwise_binary(
             num_jagged_dim,
@@ -921,8 +954,53 @@ class JaggedTensorOpsTest(unittest.TestCase):
             inner_dense_size,
             operation,
             dtype,
-            use_cpu,
+            device_type,
         )
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 4),
+        outer_dense_size=st.integers(0, 4),
+        inner_dense_size=st.integers(0, 4),
+        operation=st.just("mul"),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        device_type=st.just("meta"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_elementwise_binary_meta_backend(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        operation: str,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        device = torch.device("cpu")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+        y = torch.rand(
+            outer_dense_size * np.prod(max_lengths) * inner_dense_size,
+            dtype=dtype,
+            device=device,
+        ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
+
+        x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        if operation == "mul":
+            output_ref = x_padded * y
+            x_values.to(device_type)
+            y.to(device_type)
+            output, output_offsets = torch.ops.fbgemm.jagged_dense_elementwise_mul(
+                x_values, x_offsets, y
+            )
+            output.to("cpu")
+            output = self._to_padded_dense(output, output_offsets, max_lengths)
+        else:
+            raise AssertionError(f"Unknown operation {operation}")
+
+        assert output.size() == output_ref.size()
 
     def _test_jagged_dense_dense_elementwise_add_jagged_output(
         self,
@@ -930,9 +1008,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
@@ -998,8 +1076,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        device_type=st.sampled_from(["cpu", "cuda"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output(
@@ -1008,10 +1086,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_dense_dense_elementwise_add_jagged_output(
-            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, use_cpu
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device_type
         )
 
     # pyre-ignore [56]
@@ -1020,7 +1098,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 8),
         inner_dense_size=st.sampled_from([16, 64, 96, 192]),
         dtype=st.just(torch.half),
-        use_cpu=st.just(False),
+        device_type=st.just("cuda"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=4, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output_opt(
@@ -1029,11 +1107,73 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size: int,
         inner_dense_size: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         self._test_jagged_dense_dense_elementwise_add_jagged_output(
-            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, use_cpu
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device_type
         )
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 4),
+        outer_dense_size=st.integers(0, 4),
+        inner_dense_size=st.integers(0, 4),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        device_type=st.just("meta"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_dense_dense_elementwise_add_jagged_output_meta_backend(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        device = torch.device("cpu")
+
+        x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+
+        x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
+        # create a jagged tensor and then densify
+        y_0 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        y_1 = self._to_padded_dense(
+            torch.rand(
+                (
+                    max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                    inner_dense_size,
+                ),
+                dtype=dtype,
+                device=device,
+            ),
+            x_offsets,
+            max_lengths,
+        )
+        output_ref = x_padded + y_0 + y_1
+        x_values.to(device_type)
+        (
+            output,
+            output_offsets,
+        ) = torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output(
+            x_values, x_offsets, y_0, y_1
+        )
+        output.to("cpu")
+        output = self._to_padded_dense(output, output_offsets, max_lengths)
+
+        assert output.size() == output_ref.size()
 
     @settings(
         verbosity=Verbosity.verbose,
@@ -1047,7 +1187,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_L=st.integers(1, 32),
         D=st.integers(0, 32),
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cuda"),
     )
     def test_batched_dense_vec_jagged_2d_mul(
         self,
@@ -1056,13 +1198,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_L: int,
         D: int,
         dtype: torch.dtype,
-        use_cpu: bool,
+        device_type: str,
     ) -> None:
         assume(H == 1 or B != 0)
         # CPU doesn't support bfloat16
-        assume(not use_cpu or dtype != torch.bfloat16)
+        assume(device_type != "cpu" or dtype != torch.bfloat16)
 
-        device = torch.device("cpu" if use_cpu else "cuda")
+        device = torch.device(device_type)
         torch.backends.cuda.matmul.allow_tf32 = False
 
         # Sometimes length[i] exceed max_L meaning jagged->dense will be
@@ -1084,22 +1226,22 @@ class JaggedTensorOpsTest(unittest.TestCase):
             .reshape(B * H, max_L, D)
         )
         # torch.bmm not implemented for Half on CPU
-        if dtype == torch.half and use_cpu:
+        if dtype in [torch.half, torch.bfloat16] and device_type == "cpu":
             bmm_arg1 = bmm_arg1.float()
             bmm_arg2 = bmm_arg2.float()
         output_ref = torch.bmm(bmm_arg1, bmm_arg2).squeeze(
             1
         )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
-        if dtype == torch.half and use_cpu:
-            output_ref = output_ref.half()
+        if dtype in [torch.half, torch.bfloat16] and device_type == "cpu":
+            output_ref = output_ref.to(dtype)
         output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
             dense, values, offsets
         )
         torch.testing.assert_close(
             output,
             output_ref,
-            rtol=1e-2 if dtype == torch.half else None,
-            atol=1e-2 if dtype == torch.half else None,
+            rtol=1e-2 if dtype in [torch.half, torch.bfloat16] else None,
+            atol=1e-2 if dtype in [torch.half, torch.bfloat16] else None,
         )
 
         torch.autograd.gradcheck(
@@ -1110,6 +1252,66 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 offsets,
             ),
         )
+
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(0, 32),
+        H=st.integers(1, 3),
+        max_L=st.integers(1, 32),
+        D=st.integers(0, 32),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        device_type=st.sampled_from(["meta"]),
+    )
+    def test_batched_dense_vec_jagged_2d_mul_meta_backend(
+        self,
+        B: int,
+        H: int,
+        max_L: int,
+        D: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        assume(H == 1 or B != 0)
+
+        device = torch.device("cpu")
+        torch.backends.cuda.matmul.allow_tf32 = False
+
+        # Sometimes length[i] exceed max_L meaning jagged->dense will be
+        # truncation vs. padding
+        lengths = torch.randint(max_L * 2, size=(B,), device=device)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        values = torch.rand((offsets[-1], H * D), dtype=dtype, device=device)
+        dense = torch.rand((B * H, max_L), dtype=dtype, device=device)
+        padded_values = torch.ops.fbgemm.jagged_to_padded_dense(
+            values,
+            [offsets],
+            [max_L],
+        )  # [B, N, H * D]
+
+        bmm_arg1 = dense.unsqueeze(1)
+        bmm_arg2 = (
+            padded_values.reshape(B, max_L, H, D)
+            .transpose(1, 2)
+            .reshape(B * H, max_L, D)
+        )
+        # torch.bmm not implemented for Half on CPU
+        if dtype in [torch.half, torch.bfloat16]:
+            bmm_arg1 = bmm_arg1.float()
+            bmm_arg2 = bmm_arg2.float()
+        output_ref = torch.bmm(bmm_arg1, bmm_arg2).squeeze(
+            1
+        )  # [B H, 1, N] x [B H, N, D] = [B H, 1, D]
+        dense.to(device_type)
+        values.to(device_type)
+        output = torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul(
+            dense, values, offsets
+        )
+        assert output.size() == output_ref.size()
 
     @staticmethod
     def jagged_index_select_2d_ref(
@@ -1139,7 +1341,12 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_tensor_rows=st.integers(1, 128),
         index_dtype=st.sampled_from([torch.int, torch.long]),
         jagged_tensor_dtype=st.sampled_from(
-            [torch.float, torch.half, torch.int, torch.long]
+            [
+                torch.float,
+                torch.half,
+                torch.int,
+                torch.long,
+            ]  # Disable torch.bfloat16 due to large error bound
         ),
     )
     @settings(max_examples=20, deadline=None)
@@ -1152,7 +1359,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
     ) -> None:
-        is_float = jagged_tensor_dtype in [torch.float, torch.half]
+        is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,
             high=max_seq_length,
@@ -1207,8 +1414,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(
             values.grad,
             values_ref.grad,
-            rtol=1e-2 if jagged_tensor_dtype == torch.half else None,
-            atol=1e-2 if jagged_tensor_dtype == torch.half else None,
+            rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
+            atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
     # pyre-ignore [56]
@@ -1218,7 +1425,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_truncated_length=st.integers(1, 32),
         index_dtype=st.sampled_from([torch.int, torch.long]),
         jagged_tensor_dtype=st.sampled_from(
-            [torch.float, torch.half, torch.int, torch.long]
+            [torch.float, torch.half, torch.bfloat16, torch.int, torch.long]
         ),
         use_cpu=st.just(True),
     )
@@ -1233,7 +1440,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         use_cpu: bool,
     ) -> None:
         device = "cpu" if use_cpu else "cuda"
-        is_float = jagged_tensor_dtype in [torch.float, torch.half]
+        is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,
             high=max_length + 1,
@@ -1331,6 +1538,133 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(masked_values, masked_values_ref)
         torch.testing.assert_close(masked_lengths, masked_lengths_ref)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-ignore [56]
+    @given(
+        max_seq_length=st.integers(5, 10),
+        input_batch_size=st.integers(1, 128),
+        output_batch_size=st.integers(1, 128),
+        num_batches=st.integers(1, 3),
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+                torch.int,
+                torch.long,
+            ]  # Disable torch.bfloat16 due to large error bound
+        ),
+        has_weights=st.booleans(),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_keyed_jagged_index_select_dim1(
+        self,
+        max_seq_length: int,
+        input_batch_size: int,
+        output_batch_size: int,
+        num_batches: int,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+        has_weights: bool,
+    ) -> None:
+        is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
+        lengths = torch.randint(
+            low=0,
+            high=max_seq_length,
+            size=(input_batch_size * num_batches,),
+            dtype=index_dtype,
+            device="cuda",
+        )
+        offsets = torch.concat(
+            [torch.zeros(1, dtype=torch.long, device="cuda"), lengths.cumsum(0)]
+        )
+        indices = torch.randint(
+            low=0,
+            high=1,
+            size=(output_batch_size,),
+            dtype=index_dtype,
+            device="cuda",
+        )
+        if is_float:
+            values = torch.rand(
+                int(offsets[-1].item()),
+                dtype=jagged_tensor_dtype,
+                device="cuda",
+            )
+        else:
+            values = torch.randint(
+                2**16,
+                (int(offsets[-1].item()),),
+                dtype=jagged_tensor_dtype,
+                device="cuda",
+            )
+        values_ref = values.detach().clone()
+        if has_weights:
+            weights = torch.rand(
+                int(offsets[-1].item()),
+                dtype=random.choice([torch.float, torch.half]),
+                device="cuda",
+            )
+        else:
+            weights = None
+
+        # Only float tensors can require grad
+        if is_float:
+            values.requires_grad = True
+            values_ref.requires_grad = True
+
+        index_select_output = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
+            values, lengths, offsets, indices, input_batch_size, weights
+        )
+        output = index_select_output[0]
+        if has_weights:
+            output_weights = index_select_output[2]
+
+        output_ref = []
+        output_weight_ref = []
+        for k in range(num_batches):
+            key_lengths = lengths[k * input_batch_size : (k + 1) * input_batch_size]
+            start_offset = offsets[k * input_batch_size]
+            end_offset = offsets[(k + 1) * input_batch_size]
+            key_values = values_ref[start_offset:end_offset].view(-1, 1)
+            output_ref.append(
+                torch.ops.fbgemm.jagged_index_select(key_values, key_lengths, indices)[
+                    0
+                ].view(-1)
+            )
+            if has_weights:
+                # pyre-ignore[16]
+                key_weights = weights[start_offset:end_offset].view(-1, 1)
+                output_weight_ref.append(
+                    torch.ops.fbgemm.jagged_index_select(
+                        key_weights, key_lengths, indices
+                    )[0].view(-1)
+                )
+
+        output_ref = torch.concat(output_ref)
+        assert torch.equal(output, output_ref)
+
+        if has_weights:
+            output_weight_ref = torch.concat(output_weight_ref)
+            # pyre-ignore[61]
+            assert torch.equal(output_weights, output_weight_ref)
+
+        if not is_float:
+            return
+
+        grad = torch.rand_like(output)
+        grad_ref = grad.detach().clone()
+
+        output.backward(grad)
+        output_ref.backward(grad_ref)
+
+        torch.testing.assert_close(
+            values.grad,
+            values_ref.grad,
+            rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
+            atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
+        )
 
 
 if __name__ == "__main__":
