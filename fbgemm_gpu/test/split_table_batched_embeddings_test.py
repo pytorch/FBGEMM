@@ -1330,31 +1330,37 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
-        elif use_cache:
+        # ROCm managed momory allocation is under development
+        if TEST_WITH_ROCM:
             managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-            ] * T
-            if mixed:
-                average_D = sum(Ds) // T
-                for t, d in enumerate(Ds):
-                    managed[t] = (
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
-                    )
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                ] * T
         else:
-            managed = [
-                np.random.choice(
-                    [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
-                    ]
-                )
-                for _ in range(T)
-            ]
+            if use_cpu:
+                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            elif use_cache:
+                managed = [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+                ] * T
+                if mixed:
+                    average_D = sum(Ds) // T
+                    for t, d in enumerate(Ds):
+                        managed[t] = (
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                            if d < average_D
+                            else managed[t]
+                        )
+            else:
+                managed = [
+                    np.random.choice(
+                        [
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        ]
+                    )
+                    for _ in range(T)
+                ]
         if do_pooling:
             bs = [
                 to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
@@ -1675,31 +1681,37 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
-        elif use_cache:
+        # ROCm managed momory allocation is under development
+        if TEST_WITH_ROCM:
             managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-            ] * T
-            if mixed:
-                average_D = sum(Ds) // T
-                for t, d in enumerate(Ds):
-                    managed[t] = (
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
-                    )
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                ] * T
         else:
-            managed = [
-                np.random.choice(
-                    [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
-                    ]
-                )
-                for _ in range(T)
-            ]
+            if use_cpu:
+                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            elif use_cache:
+                managed = [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+                ] * T
+                if mixed:
+                    average_D = sum(Ds) // T
+                    for t, d in enumerate(Ds):
+                        managed[t] = (
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                            if d < average_D
+                            else managed[t]
+                        )
+            else:
+                managed = [
+                    np.random.choice(
+                        [
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        ]
+                    )
+                    for _ in range(T)
+                ]
         if do_pooling:
             bs = [
                 to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
@@ -2490,19 +2502,25 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
-        else:
+        # ROCm managed momory allocation is under development
+        if TEST_WITH_ROCM:
             managed = [
-                np.random.choice(
-                    [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
-                    ]
-                )
-                for _ in range(T)
-            ]
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                ] * T
+        else:
+            if use_cpu:
+                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            else:
+                managed = [
+                    np.random.choice(
+                        [
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        ]
+                    )
+                    for _ in range(T)
+                ]
         if do_pooling:
             bs = [
                 to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
