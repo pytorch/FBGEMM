@@ -305,32 +305,41 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
-        elif use_cache:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-            ] * T
-            if mixed:
-                average_D = sum(Ds) // T
-                for t, d in enumerate(Ds):
-                    managed[t] = (
+        if TEST_WITH_ROCM:
+            if use_cpu:
+                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            else:
+                managed = [
                         split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
-                    )
+                    ] * T
         else:
-            managed = [
-                np.random.choice(
-                    [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        # split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
-                        # NOTE: since we only implement GPU kernel with device location, comment out others here
-                    ]
-                )
-                for _ in range(T)
-            ]
+            if use_cpu:
+                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            elif use_cache:
+                managed = [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+                ] * T
+                if mixed:
+                    average_D = sum(Ds) // T
+                    for t, d in enumerate(Ds):
+                        managed[t] = (
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                            if d < average_D
+                            else managed[t]
+                        )
+            else:
+                managed = [
+                    np.random.choice(
+                        [
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                            # NOTE: since we only implement GPU kernel with device location, comment out others here
+                        ]
+                    )
+                    for _ in range(T)
+                ]
         if do_pooling:
             bs = [
                 to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
@@ -1035,7 +1044,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             device=torch.cuda.current_device(),
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         op.fill_random_weights()
 
         op_ref = (
@@ -1054,7 +1063,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 device=torch.cuda.current_device(),
             )
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         op_ref.fill_random_weights()
 
         # sync weights between two ops
@@ -2578,19 +2587,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
-        else:
+        if TEST_WITH_ROCM:
             managed = [
-                np.random.choice(
-                    [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        # split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
-                    ]
-                )
-                for _ in range(T)
-            ]
+                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                ] * T
+        else:
+            if use_cpu:
+                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            else:
+                managed = [
+                    np.random.choice(
+                        [
+                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        ]
+                    )
+                    for _ in range(T)
+                ]
         if do_pooling:
             bs = [
                 to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
@@ -2961,36 +2975,36 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.sampled_from([16, 32, 48, 64]),  # 16, 32, 48, 64
+        D=st.integers(min_value=2, max_value=256),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        weighted=st.sampled_from([True, False]),
-        mixed=st.just(False),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
         optimizer=st.sampled_from(
             [
-                # currently only support exact rowwise adagrad
-                #OptimType.EXACT_ADAGRAD,
+                OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
-                #OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
             ]
         ),
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
-                # can only uncomment this when fwd kernel support any pooling mode
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
-                #split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                #split_table_batched_embeddings_ops.PoolingMode.NONE,
+                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                split_table_batched_embeddings_ops.PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.just(False),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
         weight_decay_mode=st.sampled_from(
             [
-                # can change this within 3 modes
-                WeightDecayMode.NONE,
-                #WeightDecayMode.L2,
-                #WeightDecayMode.DECOUPLE,
+                WeightDecayMode.L2,
+                WeightDecayMode.DECOUPLE,
             ]
         ),
     )
@@ -3347,7 +3361,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if has_fp8_weight
             else None,
         )
-        # Initilize the random weights for int nbit table split embedding bag
+        # Initialize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
@@ -4926,6 +4940,58 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             output_dtype,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=1, max_value=1024//4),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=32),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        optimizer=st.just(OptimType.EXACT_ROWWISE_ADAGRAD),
+        long_segments=st.booleans(),
+        pooling_mode=st.just(split_table_batched_embeddings_ops.PoolingMode.SUM),
+        use_cpu=st.just(False),
+        weight_decay_mode=st.just(WeightDecayMode.NONE),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(not TEST_WITH_ROCM, "skip test_rocm_tbe_forward if not AMD ROCm stack.")
+    def test_rocm_backward_optimizers_adagrad(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        use_cpu: bool,
+        weight_decay_mode: WeightDecayMode,
+    ) -> None:
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            weight_decay_mode,
         )
 
 
