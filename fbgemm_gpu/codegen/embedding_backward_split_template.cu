@@ -946,9 +946,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     static hipModule_t hip_kernel_module;
     static hipFunction_t hip_kernel_func;
 {% if optimizer == "rowwise_adagrad" and not dense %}
-    std::set<int> D_emb_s {64, 128, 192, 256};
-    bool hip_opt_kernel_supported = (D_emb_s.find(max_D) != D_emb_s.end()) &&
-        (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float);
+    // The backward embedding dimension is limited by 256 
+    bool hip_opt_kernel_supported = (max_D <= 256) && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float);
 {% else %}
     bool hip_opt_kernel_supported = false;      // TODO: figure out support range
 {% endif %}
@@ -1254,7 +1253,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
 
             C10_CUDA_KERNEL_LAUNCH_CHECK();
-            {% if optimizer == "rowwise_adagrad" and not dense and not nobag and (items_per_warp // 4 * kMaxElemPerThread) in [64, 128, 192, 256] %}
+            {% if optimizer == "rowwise_adagrad" and not dense and not nobag and (items_per_warp % 4 == 0) %} // * kMaxElemPerThread) in [64, 128, 192, 256] %}
             if(hip_opt_kernel_supported){
                 struct {
                     const void* p_output_grad;
@@ -1437,10 +1436,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     }
                 }
                 {% endfor %}
-
-                // hipModuleLaunchKernel(hip_kernel_func,
-                //     grids[0], grids[1], grids[2],
-                //     blocks[0], blocks[1], blocks[2], 0, 0, NULL, (void **) &kconf);
 
             }else
             {% endif %}
