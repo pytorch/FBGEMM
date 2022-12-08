@@ -1918,6 +1918,7 @@ def nbit_uvm_compare_direct_mapped(
 @click.option("--enforce-hbm", is_flag=True, default=False)
 @click.option("--record-cache-miss-counter", is_flag=True, default=False)
 @click.option("--record-tablewise-cache-miss", is_flag=True, default=False)
+@click.option("--gather-uvm-cache-stats", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_cache(  # noqa C901
@@ -1939,6 +1940,7 @@ def nbit_cache(  # noqa C901
     enforce_hbm: bool,
     record_cache_miss_counter: bool,
     record_tablewise_cache_miss: bool,
+    gather_uvm_cache_stats: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
 ) -> None:
@@ -1991,6 +1993,7 @@ def nbit_cache(  # noqa C901
         record_cache_metrics=RecordCacheMetrics(
             record_cache_miss_counter, record_tablewise_cache_miss
         ),
+        gather_uvm_cache_stats=gather_uvm_cache_stats,
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
         output_dtype=output_dtype,
@@ -2049,6 +2052,8 @@ def nbit_cache(  # noqa C901
     # reset the cache miss counters after warmup
     if record_cache_miss_counter or record_tablewise_cache_miss:
         emb.reset_cache_miss_counter()
+    if gather_uvm_cache_stats:
+        emb.reset_uvm_cache_stats()
 
     for indices, offsets, _ in requests:
         # pyre-fixme[29]:
@@ -2098,9 +2103,15 @@ def nbit_cache(  # noqa C901
     )
     if record_cache_miss_counter or record_tablewise_cache_miss:
         emb.print_cache_miss_counter()
+    if gather_uvm_cache_stats:
+        emb.print_uvm_cache_stats()
+
     # benchmark prefetch
     if record_cache_miss_counter or record_tablewise_cache_miss:
         emb.reset_cache_states()
+    if gather_uvm_cache_stats:
+        emb.reset_uvm_cache_stats()
+
     for indices, offsets, _ in warmup_requests:
         emb.forward(indices, offsets)
 
