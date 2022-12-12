@@ -788,8 +788,13 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     const int64_t time_stamp,
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     const bool stochastic_rounding,
-    at::PhiloxCudaState stochastic_rounding_philox_args) {
+    at::PhiloxCudaState stochastic_rounding_philox_args,
+    const bool gather_cache_stats,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        uvm_cache_stats) {
   const int32_t C = lxu_cache_state.size(0);
+  int64_t n_conflict_misses = 0;
+  int64_t n_inserted = 0;
   for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
@@ -929,7 +934,14 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
         lru_state[cache_set][insert_slot] = time_stamp;
       }
+      n_inserted++;
     }
+    n_conflict_misses += (SL - n_inserted);
+  }
+  if (gather_cache_stats && n_conflict_misses > 0 && threadIdx.x == 0) {
+    atomicAdd(
+        &uvm_cache_stats[uvm_cache_stats_index::num_conflict_unique_misses],
+        n_conflict_misses);
   }
 }
 
@@ -946,7 +958,9 @@ void lru_cache_insert_cuda(
     Tensor lxu_cache_weights,
     const int64_t time_stamp,
     Tensor lru_state,
-    const bool stochastic_rounding) {
+    const bool stochastic_rounding,
+    bool gather_cache_stats,
+    Tensor uvm_cache_stats) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -958,6 +972,7 @@ void lru_cache_insert_cuda(
   TENSOR_ON_CUDA_GPU(lxu_cache_state);
   TENSOR_ON_CUDA_GPU(lxu_cache_weights);
   TENSOR_ON_CUDA_GPU(lru_state);
+  TENSOR_ON_CUDA_GPU(uvm_cache_stats);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
@@ -1004,7 +1019,10 @@ void lru_cache_insert_cuda(
                 lru_state
                     .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
-                rng_engine_inputs);
+                rng_engine_inputs,
+                gather_cache_stats,
+                uvm_cache_stats
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
       }));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
@@ -1023,7 +1041,9 @@ void lru_cache_populate_cuda(
     Tensor lxu_cache_weights,
     const int64_t time_stamp,
     Tensor lru_state,
-    const bool stochastic_rounding) {
+    const bool stochastic_rounding,
+    bool gather_cache_stats,
+    c10::optional<Tensor> uvm_cache_stats) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -1033,6 +1053,13 @@ void lru_cache_populate_cuda(
   TENSOR_ON_CUDA_GPU(lxu_cache_state);
   TENSOR_ON_CUDA_GPU(lxu_cache_weights);
   TENSOR_ON_CUDA_GPU(lru_state);
+
+  Tensor uvm_cache_stats_ = at::empty({0}, weights.options().dtype(at::kInt));
+  if (gather_cache_stats) {
+    TORCH_CHECK(uvm_cache_stats.has_value());
+    uvm_cache_stats_ = uvm_cache_stats.value();
+    TENSOR_ON_CUDA_GPU(uvm_cache_stats_);
+  }
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
@@ -1052,9 +1079,6 @@ void lru_cache_populate_cuda(
       get_unique_indices_cuda(
           linear_cache_indices, total_cache_hash_size, false);
 
-  // Find uncached indices
-  Tensor uvm_cache_stats = at::empty({0}, weights.options().dtype(at::kInt));
-
   auto cache_sets_and_unique_indices = lru_cache_find_uncached_cuda(
       unique_indices,
       unique_indices_length,
@@ -1062,8 +1086,8 @@ void lru_cache_populate_cuda(
       lxu_cache_state,
       time_stamp,
       lru_state,
-      false, // gather_cache_stats
-      uvm_cache_stats);
+      gather_cache_stats,
+      uvm_cache_stats_);
   auto sorted_cache_sets = cache_sets_and_unique_indices.first;
   auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
 
@@ -1081,7 +1105,9 @@ void lru_cache_populate_cuda(
       lxu_cache_weights,
       time_stamp,
       lru_state,
-      stochastic_rounding);
+      stochastic_rounding,
+      gather_cache_stats,
+      uvm_cache_stats_);
 }
 
 namespace {
