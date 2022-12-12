@@ -197,7 +197,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-20.04]
         config: [[pip, 11.3], [pip, 11.5], [pip, 11.6], [pip, 11.7], [conda, 11.7]]
 
     steps:
@@ -277,7 +277,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-20.04]
         config: [[pip, 5.1.1]]
 
     steps:

@@ -22,6 +22,7 @@ import torch
 from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
+    fake_quantize_embs,
     generate_requests,
     get_table_batched_offsets_from_dense,
     quantize_embs,
@@ -3278,95 +3279,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     np.stack([scales, shifts], axis=1).astype(np.float16).view(np.uint8)
                 )
 
-        for t in range(T):
-            (weights, scale_shift) = cc.split_embedding_weights()[t]
-            np_weights = weights.contiguous().cpu().numpy()
-
-            if scale_shift is not None:
-                scale_shift: np.ndarray = (
-                    scale_shift.cpu()
-                    .contiguous()
-                    .numpy()
-                    .view(np.float16)
-                    .astype(np.float32)
-                )
-
-            if weights_ty_list[t] == SparseType.INT4:
-                (E, D_2) = np_weights.shape
-                D = D_2 * 2
-
-                def comp(i: int) -> np.ndarray:
-                    subs = np_weights.view(np.uint8) >> (i * 4)
-                    sub_mask = subs & 0xF
-                    result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
-                        -1, 1
-                    ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
-                        np.float32
-                    )
-                    return result.astype(np.float32)
-
-                comps = [comp(i) for i in range(2)]
-                comps = np.stack(comps)
-                comps = comps.transpose(1, 2, 0)
-                comps = comps.reshape(E, D)
-                bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
-
-            elif weights_ty_list[t] == SparseType.INT2:
-                (E, D_4) = np_weights.shape
-                D = D_4 * 4
-
-                # pyre-fixme[53]: Captured variable `scale_shift` is not annotated.
-                # pyre-fixme[53]: Captured variable `weights` is not annotated.
-                def comp(i: int) -> np.ndarray:
-                    subs = np_weights.view(np.uint8) >> (i * 2)
-                    sub_mask = subs & 0x3
-                    result = sub_mask.astype(np.float32) * scale_shift[:, 0].reshape(
-                        -1, 1
-                    ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
-                        np.float32
-                    )
-                    return result.astype(np.float32)
-
-                comps = [comp(i) for i in range(4)]
-                comps = np.stack(comps)
-                comps = comps.transpose(1, 2, 0)
-                comps = comps.reshape(E, D)
-                bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
-
-            elif weights_ty_list[t] == SparseType.INT8:
-                (E, D) = np_weights.shape
-                # pyre-fixme[16]: `Optional` has no attribute `__getitem__`.
-                comps = np_weights.astype(np.float32) * scale_shift[:, 0].reshape(
-                    -1, 1
-                ).astype(np.float32) + scale_shift[:, 1].reshape(-1, 1).astype(
-                    np.float32
-                )
-                bs[t].weight.detach().copy_(to_device(torch.tensor(comps), use_cpu))
-
-            elif weights_ty_list[t] == SparseType.FP8:
-                # Quantize FP32 to HPF8
-                comps = torch.ops.fbgemm.FloatToHFP8Quantized(
-                    bs[t].weight.detach().float(),
-                    fp8_config.get("exponent_bits"),
-                    fp8_config.get("exponent_bias"),
-                    fp8_config.get("max_position"),
-                )
-                weights.copy_(comps)
-
-                # Dequantize HPF8 to FP32
-                comps = torch.ops.fbgemm.HFP8QuantizedToFloat(
-                    comps,
-                    fp8_config.get("exponent_bits"),
-                    fp8_config.get("exponent_bias"),
-                )
-                bs[t].weight.data.copy_(comps)
-
-            elif weights_ty_list[t] == SparseType.FP16:
-                comps = bs[t].weight.detach().half().cpu().numpy().view(np.uint8)
-                weights.copy_(torch.tensor(comps))
-            elif weights_ty_list[t] == SparseType.FP32:
-                comps = bs[t].weight.detach().float().cpu().numpy().view(np.uint8)
-                weights.copy_(torch.tensor(comps))
+            fake_quantize_embs(
+                weights,
+                scale_shift,
+                bs[t].weight.detach(),
+                weights_ty_list[t],
+                use_cpu=False,
+                # pyre-fixme[61]: `fp8_config` is undefined, or not always defined.
+                fp8_config=fp8_config if has_fp8_weight else None,
+            )
 
         if not use_cpu:
             fc2 = (

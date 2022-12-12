@@ -1731,7 +1731,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if not weight_ty.is_float():
                 assert (
                     dim % (8 / weight_ty.bit_rate()) == 0
-                ), "For quantized types we need to at least pack at byte granularity"
+                ), f"For quantized types we need to at least pack at byte granularity, dim: {dim}, weight_ty: {weight_ty}"
 
         def max_ty_D(ty: SparseType) -> int:
             return max(
