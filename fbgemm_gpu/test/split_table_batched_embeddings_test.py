@@ -4894,7 +4894,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=32),
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
-        mixed=st.just(False),
+        mixed=st.booleans(),
         use_cache=st.just(False),
         use_cpu=st.just(False),
         cache_algorithm=st.sampled_from(

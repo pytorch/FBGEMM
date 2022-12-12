@@ -41,13 +41,15 @@ __device__ void split_tbe_forward_hip_kernel(
     const emb_t * p_emb_table,
     const index_t * p_indices,
     const index_t * p_offsets,
+    const int32_t * D_offsets,
+    const int64_t * weights_offsets,
     const int64_t pooling_mode,
-    uint32_t emb_dim,
     uint32_t batch,
     uint32_t num_rows,
     uint32_t num_tables,
     const float * p_indice_weights = nullptr)
-{
+{ 
+    const auto emb_dim = D_offsets[blockIdx.y + 1] - D_offsets[blockIdx.y];
     constexpr uint32_t dword_output_per_row = (embedding_dim + THREADS_PER_ROW - 1) / THREADS_PER_ROW;
     // constexpr uint32_t input_data_per_dword = 4 / sizeof(emb_t);    // TODO: larger than 4 byte
     // constexpr uint32_t dword_input_per_row = (dword_output_per_row + input_data_per_dword - 1) / input_data_per_dword;
@@ -73,10 +75,8 @@ __device__ void split_tbe_forward_hip_kernel(
     index_t indices_start = p_offsets[0];
     index_t indices_end = p_offsets[1];
 
-    uint64_t emb_table_stride = static_cast<uint64_t>(num_rows) * emb_dim;
-    uint64_t out_bag_stride = num_tables * emb_dim;
-    p_emb_table += blockIdx.y * emb_table_stride;
-    p_output += blockIdx.y * emb_dim + bag_id * out_bag_stride;
+    p_emb_table += weights_offsets[blockIdx.y];
+    p_output += D_offsets[blockIdx.y] + bag_id * D_offsets[num_tables];
 
     #pragma unroll
     for(int i=0; i < dword_output_per_row; i++)
@@ -235,14 +235,15 @@ L_end:
             const emb_type * p_emb_table,  \
             const int64_t * p_indices,     \
             const int64_t * p_offsets,     \
+            const int32_t * D_offsets,     \
+            const int64_t * weights_offsets, \
             const int64_t pooling_mode,    \
-            uint32_t emb_dim,              \
             uint32_t batch,                \
             uint32_t num_rows,             \
             uint32_t num_tables)           \
     {                                      \
         split_tbe_forward_hip_kernel<emb_type, float, float, int64_t, embedding_dim, bag_prefetch, bag_unroll, false> \
-                (p_output, p_emb_table, p_indices, p_offsets, pooling_mode, emb_dim, batch, num_rows, num_tables); \
+                (p_output, p_emb_table, p_indices, p_offsets, D_offsets, weights_offsets, pooling_mode, batch, num_rows, num_tables); \
     } \
     \
     extern "C" __global__ void split_tbe_fwd_weighted_hip_kernel_ ## emb_prec ## _e ## embedding_dim ( \
@@ -250,15 +251,16 @@ L_end:
             const emb_type * p_emb_table,  \
             const int64_t * p_indices,     \
             const int64_t * p_offsets,     \
+            const int32_t * D_offsets,     \
+            const int64_t * weights_offsets, \
             const int64_t pooling_mode,    \
             const float * p_indice_weights,\
-            uint32_t emb_dim,              \
             uint32_t batch,                \
             uint32_t num_rows,             \
             uint32_t num_tables)           \
     {                                      \
         split_tbe_forward_hip_kernel<emb_type, float, float, int64_t, embedding_dim, bag_prefetch, bag_unroll, true> \
-                (p_output, p_emb_table, p_indices, p_offsets, pooling_mode, emb_dim, batch, num_rows, num_tables, p_indice_weights); \
+                (p_output, p_emb_table, p_indices, p_offsets, D_offsets, weights_offsets, pooling_mode, batch, num_rows, num_tables, p_indice_weights); \
     }
 
 
