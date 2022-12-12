@@ -46,8 +46,9 @@
             const int32_t* p_num_long_run_ids,                                                                                       \
             const int32_t* p_sorted_infos,                                                                                           \
             magic_div_u32_t batch_mdiv,                                                                                              \
+            const int32_t * D_offsets,                                                                                               \
+            const int64_t * weights_offsets,                                                                                         \
             uint32_t max_segment_length_per_warp,                                                                                    \
-            uint32_t emb_dim,                                                                                                        \
             uint32_t batch,                                                                                                          \
             uint32_t num_rows,                                                                                                       \
             uint32_t num_tables,                                                                                                     \
@@ -65,9 +66,10 @@
             const int32_t* p_num_long_run_ids,                                                                                       \
             const int32_t* p_sorted_infos,                                                                                           \
             magic_div_u32_t batch_mdiv,                                                                                              \
+            const int32_t * D_offsets,                                                                                               \
+            const int64_t * weights_offsets,                                                                                         \
             uint32_t max_segment_length_per_warp,                                                                                    \
             const float * p_indice_weights,                                                                                          \
-            uint32_t emb_dim,                                                                                                        \
             uint32_t batch,                                                                                                          \
             uint32_t num_rows,                                                                                                       \
             uint32_t num_tables,                                                                                                     \
@@ -100,3 +102,6 @@ SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 64);
 SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 128);
 SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 192);
 SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 256);
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 512);
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 768);
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 1024);

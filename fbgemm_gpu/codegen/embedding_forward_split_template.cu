@@ -529,8 +529,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 void         *emb_table;
                 const int64_t  *indices;
                 const int64_t  *offsets;
-		const int32_t* D_offsets;
-		const int64_t* weights_offsets;
+                const int32_t* D_offsets;
+                const int64_t* weights_offsets;
                 int64_t    pooling_mode;
                 {% if weighted %}
                 float   *indice_weights;
@@ -589,7 +589,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% endif %}  // not nobag
 #endif  // HIP Optimal Kernel
 
-    {% if not dense %}
     DISPATCH_EMB_CACHE_OUTPUT_TYPES(
         dev_weights.scalar_type(),
         {% if not dense %}

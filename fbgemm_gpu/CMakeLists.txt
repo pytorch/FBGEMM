@@ -30,12 +30,12 @@ message(STATUS "USE_ROCM ${USE_ROCM}")
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
   project(
     fbgemm_gpu
-    VERSION 0.0.1
+    VERSION 0.3.1
     LANGUAGES CXX C)
 else()
   project(
     fbgemm_gpu
-    VERSION 0.0.1
+    VERSION 0.3.1
     LANGUAGES CXX C CUDA)
 endif()
 

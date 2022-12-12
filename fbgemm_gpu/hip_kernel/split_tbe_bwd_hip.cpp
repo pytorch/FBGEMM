@@ -33,12 +33,8 @@ struct rowwise_adagrad_optimizer_t
     {
     }
 
-    // template<int32_t acc_length>
-    // __device__ static void precompute(float * acc){
-    //     // compute per row square sum
-    // }
     template <int32_t thread_length, int32_t segment_split>
-    __device__ void update(cache_t* acc, emb_t* weight, uint32_t row_index)
+    __device__ void update(cache_t* acc, emb_t* weight, uint32_t row_index, int lane_id, uint32_t emb_dim)
     {
         if constexpr(segment_split == 0)
         {
@@ -51,9 +47,12 @@ struct rowwise_adagrad_optimizer_t
 #pragma unroll
                 for(auto i = 0; i < thread_length; i++)
                 {
-                    cache_t w = static_cast<cache_t>(weight[i]);
-                    cache_t a = acc[i] + w * karg.weight_decay;
-                    local_sum_squre += a * a;
+                    if (i * 64 + lane_id < emb_dim)
+                    {   
+                        cache_t w = static_cast<cache_t>(weight[i]);
+                        cache_t a = acc[i] + w * karg.weight_decay;
+                        local_sum_squre += a * a;
+                    }
                 }
             }
             else
@@ -61,14 +60,16 @@ struct rowwise_adagrad_optimizer_t
 #pragma unroll
                 for(auto i = 0; i < thread_length; i++)
                 {
-                    cache_t a = acc[i];
-                    local_sum_squre += a * a;
+                    if (i * 64 + lane_id < emb_dim)
+                    {
+                        cache_t a = acc[i];
+                        local_sum_squre += a * a;
+                    }
                 }
             }
-
             cache_t avg_square =
                 wave_reduce<reduce_op_sum_t<cache_t>, cache_t, AMDGCN_WAVE_SIZE>(local_sum_squre) /
-                embedding_dim;
+                emb_dim;
 
             cache_t momentum_new = momentum + avg_square;
 
@@ -91,15 +92,15 @@ struct rowwise_adagrad_optimizer_t
 // update new weight value
 #pragma unroll
             for(auto i = 0; i < thread_length; i++)
-            {
-                cache_t w = static_cast<cache_t>(weight[i]);
-                cache_t a = acc[i];
-                w         = correction * w - multiplier * a;
-                weight[i] = static_cast<emb_t>(w);
+            {   
+                if (i * 64 + lane_id < emb_dim)
+                {
+                    cache_t w = static_cast<cache_t>(weight[i]);
+                    cache_t a = acc[i];
+                    w         = correction * w - multiplier * a;
+                    weight[i] = static_cast<emb_t>(w);
+                }
             }
-
-            // printf("momentum_new:%f, avg_square:%f, row_index:%d, momentum:%f\n",  momentum_new,  avg_square, row_index, momentum);
-            // printf("momentum_new:%f",  momentum_new);
 
             p_momentum[row_index] = momentum_new;
         }
@@ -115,9 +116,9 @@ template <typename optimizer_t,
           typename grad_t,
           int32_t block_size,
           int32_t embedding_dim,
-          int32_t segment_prefetch, // 2
-          int32_t segment_unroll, // 8
-          int32_t segment_split,  // 0-warp per row, 1-cta per row, 2-atomic(needed?)
+          int32_t segment_prefetch,
+          int32_t segment_unroll,
+          int32_t segment_split,
           bool    weighted>
 __device__ void split_tbe_backward_hip_kernel(
     const grad_t* p_output_grad,
@@ -130,8 +131,9 @@ __device__ void split_tbe_backward_hip_kernel(
     const int32_t* p_num_long_run_ids,
     const int32_t* p_sorted_infos,
     magic_div_u32_t batch_mdiv,
+    const int32_t * D_offsets,
+    const int64_t * weights_offsets,
     uint32_t max_segment_length_per_warp,
-    uint32_t emb_dim,
     uint32_t batch,
     uint32_t num_rows,
     uint32_t num_tables,
@@ -145,9 +147,6 @@ __device__ void split_tbe_backward_hip_kernel(
     const uint32_t lane_id = threadIdx.x % AMDGCN_WAVE_SIZE;
     const uint32_t run_id  = wave_id + blockIdx.x * waves_per_block;
 
-    // printf("wave_id:%d, run_id:%d(%d), batch:%d(%d, %d)\n",
-    //     wave_id, run_id, p_sorted_linear_indices_num_runs[0], batch, batch_mdiv.magic, batch_mdiv.shift);
-
     if(run_id >= p_sorted_linear_indices_num_runs[0])
         return;
     
@@ -159,22 +158,17 @@ __device__ void split_tbe_backward_hip_kernel(
     int32_t info_0 = p_sorted_infos[segment_start];
     uint32_t t_0 = magic_div_u32_run(batch_mdiv, info_0);
     int64_t hash_size = p_hash_size_cumsum[t_0];
+    const auto emb_dim = D_offsets[t_0 + 1] - D_offsets[t_0];
 
     const int64_t emb_idx       = linear_index - hash_size;
 
-    // printf("[%d] segment_start:%d, info_0:%d, t_0:%d, num_rows:%d, emb_dim:%d, linear_index:%ld\n", wave_id, segment_start, info_0, t_0, num_rows, emb_dim, linear_index);
-
-    // p_output_grad += t_0 * emb_dim;
-
-    p_emb_table += hash_size * emb_dim;
+    p_emb_table += weights_offsets[t_0];
     opt_karg.p_momentum = reinterpret_cast<void*>(reinterpret_cast<cache_t*>(opt_karg.p_momentum) + hash_size);
 
     const int32_t segment_length = segment_end - segment_start;
 
     if(segment_length >= max_segment_length_per_warp)
         return;
-
-    // printf("[%d] segment_length:%d\n", wave_id, segment_length);
 
     const int32_t segment_length_mod = segment_length & length_mask;
 
@@ -194,26 +188,26 @@ __device__ void split_tbe_backward_hip_kernel(
     if(segment_length_mod == 0)
         goto L_tail_grad_acc;
 
-if constexpr (!weighted) {
-    #pragma unroll
-    for(int i = 0; i < segment_unroll; i++)
-    {
-        infos[i] = p_sorted_infos[segment_start + i];
+    if constexpr (!weighted) {
+        #pragma unroll
+        for(int i = 0; i < segment_unroll; i++)
+        {
+            infos[i] = p_sorted_infos[segment_start + i];
+        }
+    } else {
+        for(int i = 0; i < segment_unroll; i++)
+        {
+            infos[i] = p_sorted_infos[segment_start + i];
+            indice_weights[i] = p_sorted_indice_weights[segment_start + i];
+        }
     }
-} else {
-    for(int i = 0; i < segment_unroll; i++)
-    {
-        infos[i] = p_sorted_infos[segment_start + i];
-        indice_weights[i] = p_sorted_indice_weights[segment_start + i];
-    }
-}
 
     itr += segment_unroll;
     p_sorted_infos += segment_unroll;
 
-if constexpr (weighted) {
-    p_sorted_indice_weights += segment_unroll;
-}
+    if constexpr (weighted) {
+        p_sorted_indice_weights += segment_unroll;
+    }
 
     uint32_t bag_index;
     uint32_t table_index;
@@ -223,11 +217,11 @@ if constexpr (weighted) {
     {
         magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-            &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+            &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
 
         magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index, bag_index);
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-            &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+            &grad_data[dword_per_row], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
         if constexpr (!weighted){
             #pragma unroll
             for(int j = 2; j < segment_unroll; j += 2)
@@ -236,14 +230,14 @@ if constexpr (weighted) {
                     &grad_acc[0], &grad_data[0], lane_id);
                 magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                    &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                    &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
 
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[dword_per_row], lane_id);
                 magic_div_u32_run_with_mod(
                     batch_mdiv, infos[j + 1], batch, table_index, bag_index);
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                    &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                    &grad_data[dword_per_row], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
             }
 
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
@@ -257,8 +251,6 @@ if constexpr (weighted) {
                 infos[i] = p_sorted_infos[segment_start + i];
             }
             p_sorted_infos += segment_unroll;
-
-
         } else {
             #pragma unroll
             for(int j = 2; j < segment_unroll; j += 2)
@@ -267,14 +259,14 @@ if constexpr (weighted) {
                     &grad_acc[0], &grad_data[0], lane_id, indice_weights[j-2]);
                 magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                    &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                    &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
 
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[j-1]);
                 magic_div_u32_run_with_mod(
                     batch_mdiv, infos[j + 1], batch, table_index, bag_index);
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                    &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                    &grad_data[dword_per_row], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
             }
 
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
@@ -296,11 +288,11 @@ if constexpr (weighted) {
     // LAST
     magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
     load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-        &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+        &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
 
     magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index, bag_index);
     load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-        &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+        &grad_data[dword_per_row], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
 
     if constexpr (!weighted) {
         #pragma unroll
@@ -310,13 +302,13 @@ if constexpr (weighted) {
                 &grad_acc[0], &grad_data[0], lane_id);
             magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
 
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id);
             magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index, bag_index);
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                &grad_data[dword_per_row], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
         }
 
         accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
@@ -331,13 +323,13 @@ if constexpr (weighted) {
                 &grad_acc[0], &grad_data[0], lane_id, indice_weights[j-2]);
             magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
 
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[j-1]);
             magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index, bag_index);
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                &grad_data[dword_per_row], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
         }
 
         accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
@@ -358,7 +350,7 @@ L_tail_grad_acc:
 
                 magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                    &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                    &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id);
 
@@ -374,7 +366,7 @@ L_tail_grad_acc:
 
                 magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
-                    &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
+                    &grad_data[0], 0, p_output_grad + D_offsets[num_tables] * bag_index + D_offsets[table_index], lane_id, emb_dim);
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id, indice_weights[0]);
 
@@ -383,16 +375,14 @@ L_tail_grad_acc:
         }
     }
 
-    // printf("[%d] segment_length:%d ==<< %f, emb_idx:%ld\n", wave_id, segment_length, grad_acc[0], emb_idx);
-
     // load the old emb weight data
     load_row_per_warp<emb_t, embedding_dim, int64_t>::run(
-        &emb_data[0], emb_idx, p_emb_table, lane_id);
+        &emb_data[0], emb_idx, p_emb_table, lane_id, emb_dim);
     optimizer_t optimizer(opt_karg);
-    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx);
+    optimizer.template update<dword_per_row, segment_split>(grad_acc, emb_data, emb_idx, lane_id, emb_dim);
 
-    // store updated weight to grad ??
-    store_row_per_warp<emb_t, embedding_dim, emb_t>::run(&emb_data[0], p_emb_table + emb_idx * embedding_dim, lane_id);
+    // store updated weight
+    store_row_per_warp<emb_t, embedding_dim, emb_t>::run(&emb_data[0], p_emb_table + emb_idx * emb_dim, lane_id, emb_dim);
 }
 
 #define __SPLIT_TBE_BWD_KERNEL(optimizer,                                                                                            \
@@ -417,8 +407,9 @@ L_tail_grad_acc:
             const int32_t* p_num_long_run_ids,                                                                                       \
             const int32_t* p_sorted_infos,                                                                                           \
             magic_div_u32_t batch_mdiv,                                                                                              \
+            const int32_t * D_offsets,                                                                                               \
+            const int64_t * weights_offsets,                                                                                         \
             uint32_t max_segment_length_per_warp,                                                                                    \
-            uint32_t emb_dim,                                                                                                        \
             uint32_t batch,                                                                                                          \
             uint32_t num_rows,                                                                                                       \
             uint32_t num_tables,                                                                                                     \
@@ -445,8 +436,9 @@ L_tail_grad_acc:
                            p_num_long_run_ids,                                                                                       \
                            p_sorted_infos,                                                                                           \
                            batch_mdiv,                                                                                               \
+                           D_offsets,                                                                                                \
+                           weights_offsets,                                                                                          \
                            max_segment_length_per_warp,                                                                              \
-                           emb_dim,                                                                                                  \
                            batch,                                                                                                    \
                            num_rows,                                                                                                 \
                            num_tables,                                                                                               \
@@ -465,9 +457,10 @@ L_tail_grad_acc:
             const int32_t* p_num_long_run_ids,                                                                                       \
             const int32_t* p_sorted_infos,                                                                                           \
             magic_div_u32_t batch_mdiv,                                                                                              \
+            const int32_t * D_offsets,                                                                                               \
+            const int64_t * weights_offsets,                                                                                         \
             uint32_t max_segment_length_per_warp,                                                                                    \
             const float * p_indice_weights,                                                                                          \
-            uint32_t emb_dim,                                                                                                        \
             uint32_t batch,                                                                                                          \
             uint32_t num_rows,                                                                                                       \
             uint32_t num_tables,                                                                                                     \
@@ -494,8 +487,9 @@ L_tail_grad_acc:
                            p_num_long_run_ids,                                                                                       \
                            p_sorted_infos,                                                                                           \
                            batch_mdiv,                                                                                               \
+                           D_offsets,                                                                                                \
+                           weights_offsets,                                                                                          \
                            max_segment_length_per_warp,                                                                              \
-                           emb_dim,                                                                                                  \
                            batch,                                                                                                    \
                            num_rows,                                                                                                 \
                            num_tables,                                                                                               \
@@ -530,4 +524,6 @@ SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 64)
 SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 128)
 SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 192)
 SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 256)
-
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 512)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 768)
+SPLIT_TBE_BWD_KERNEL(rowwise_adagrad, 0, 1024)

@@ -31,8 +31,8 @@
             const emb_type * p_emb_table,  \
             const int64_t * p_indices,     \
             const int64_t * p_offsets,     \
-	    const int32_t * D_offsets,       \
-	    const int64_t * weights_offsets, \
+            const int32_t * D_offsets,       \
+            const int64_t * weights_offsets, \
             const int64_t pooling_mode,    \
             uint32_t batch,                \
             uint32_t num_rows,             \
@@ -43,8 +43,8 @@
             const emb_type * p_emb_table,  \
             const int64_t * p_indices,     \
             const int64_t * p_offsets,     \
-	    const int32_t * D_offsets,       \
-	    const int64_t * weights_offsets, \
+            const int32_t * D_offsets,       \
+            const int64_t * weights_offsets, \
             const int64_t pooling_mode,    \
             const float * p_indice_weights,\
             uint32_t batch,                \
