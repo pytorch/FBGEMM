@@ -1,20 +1,16 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 #include <ATen/ceil_div.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <math.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
-
-// clang-format off
-#ifdef __HIP_PLATFORM_HCC__
-#define HIPCUB_ARCH 1
-#include <hipcub/backend/rocprim/block/block_scan.hpp>
-#else
-#include "fbgemm_gpu/cub_namespace_prefix.cuh"
-#include <cub/block/block_scan.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh"
-#endif
-// clang-format on
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "metric_ops.h"
@@ -23,59 +19,6 @@ constexpr int MAX_ENTRIES_PER_BLOCK = 512;
 constexpr int NUM_THREADS_PER_BLOCK = 256;
 
 namespace fbgemm_gpu {
-
-#ifdef __HIP_PLATFORM_HCC__
-namespace cub = hipcub;
-#endif
-
-template <typename scalar_t, int ITEMS_PER_THREAD>
-__inline__ __device__ void inclusive_sum_scan_kernel(
-    scalar_t (&arr)[ITEMS_PER_THREAD],
-    typename cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>::TempStorage&
-        temp_storage,
-    int* block_flags, // global flags for inter-block sync
-    scalar_t* block_sums, // global sums for inter-block sync
-    scalar_t* block_prev, // shared memory for previous sum sync within a block
-    const int num_entries_per_block,
-    const int block_id,
-    const bool is_multi_block,
-    const int signal) {
-  // Perform scan within a block
-  cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>(temp_storage)
-      .InclusiveSum(arr, arr);
-
-  // Perform stream scan across blocks
-  if (is_multi_block) {
-    // The thread that holds the last entry in the block does synchronization
-    if (threadIdx.x == (num_entries_per_block - 1) / ITEMS_PER_THREAD) {
-      scalar_t block_prev_local = 0;
-      if (block_id != 0) {
-        // Spin wait for the previous block to write the sum value
-        while (atomicAdd(&block_flags[block_id - 1], 0) < signal)
-          ;
-
-        // Get sum from the previous block
-        *block_prev = block_prev_local = block_sums[block_id - 1];
-      }
-
-      // Write sum to global memory for the next block to consume
-      const int scope = (num_entries_per_block - 1) % ITEMS_PER_THREAD;
-      block_sums[block_id] = block_prev_local + arr[scope];
-      __threadfence();
-      // Set a flag to notify the next block
-      atomicAdd(&block_flags[block_id], 1);
-    }
-
-    __syncthreads();
-
-    if (block_id != 0) {
-      scalar_t block_prev_local = *block_prev;
-      for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-        arr[i] += block_prev_local;
-      }
-    }
-  }
-}
 
 template <typename scalar_t>
 __inline__ __device__ void trapz_kernel(
@@ -171,7 +114,7 @@ __global__ void auc_kernel(
 
   __syncthreads();
 
-  inclusive_sum_scan_kernel(
+  inclusive_sum_scan_kernel<acc_t, PADDED_SECTION_SIZE, NUM_THREADS_PER_BLOCK>(
       local_fp,
       bs_temp_storage,
       block_flags,
@@ -182,7 +125,7 @@ __global__ void auc_kernel(
       is_multi_block,
       /*signal=*/1);
 
-  inclusive_sum_scan_kernel(
+  inclusive_sum_scan_kernel<acc_t, PADDED_SECTION_SIZE, NUM_THREADS_PER_BLOCK>(
       local_tp,
       bs_temp_storage,
       block_flags,

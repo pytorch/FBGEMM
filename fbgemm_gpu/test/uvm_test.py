@@ -7,12 +7,14 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import random
 import unittest
 from typing import List
 
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
+from hypothesis import given, settings, Verbosity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -27,7 +29,6 @@ if gpu_available:
     # pyre-ignore[21]
     from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
 
-from hypothesis import given, settings, Verbosity
 
 MAX_EXAMPLES = 40
 
@@ -36,33 +37,54 @@ class UvmTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_host_mapped_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_is_uvm_tensor(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_is_uvm_tensor(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = random.choice([True, False])
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
         sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_uvm_to_cpu(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_uvm_to_cpu(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = False
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
 
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
         cpu_t = torch.ops.fbgemm.uvm_to_cpu(uvm_t)
         assert not torch.ops.fbgemm.is_uvm_tensor(cpu_t)
         assert torch.ops.fbgemm.uvm_storage(cpu_t)
@@ -86,16 +108,27 @@ class UvmTest(unittest.TestCase):
         sizes=st.lists(
             st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
         ),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_cudaMemAdvise(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_cudaMemAdvise(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = False
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
@@ -107,16 +140,27 @@ class UvmTest(unittest.TestCase):
         sizes=st.lists(
             st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=3
         ),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_cudaMemPrefetchAsync(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_cudaMemPrefetchAsync(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = False
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
@@ -130,16 +174,27 @@ class UvmTest(unittest.TestCase):
         sizes=st.lists(
             st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
         ),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_uvm_to_device(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_uvm_to_device(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = False
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
@@ -162,16 +217,27 @@ class UvmTest(unittest.TestCase):
         sizes=st.lists(
             st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
         ),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_uvm_slice(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_uvm_slice(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = False
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
@@ -192,16 +258,27 @@ class UvmTest(unittest.TestCase):
         sizes=st.lists(
             st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
         ),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_uvm_memadviceDontFork(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_uvm_memadviceDontFork(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = False
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
@@ -214,16 +291,27 @@ class UvmTest(unittest.TestCase):
         sizes=st.lists(
             st.integers(min_value=1, max_value=(512)), min_size=1, max_size=3
         ),
-        vanilla=st.booleans(),
+        uvm_op=st.sampled_from(
+            [
+                torch.ops.fbgemm.new_unified_tensor,
+                torch.ops.fbgemm.new_managed_tensor,
+                torch.ops.fbgemm.new_vanilla_managed_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_uvm_to_cpu_clone(self, sizes: List[int], vanilla: bool) -> None:
-        op = (
-            torch.ops.fbgemm.new_managed_tensor
-            if not vanilla
-            else torch.ops.fbgemm.new_vanilla_managed_tensor
-        )
-        uvm_t = op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+    # pyre-fixme[2]: Parameter must be annotated.
+    def test_uvm_to_cpu_clone(self, sizes: List[int], uvm_op) -> None:
+        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
+            is_host_mapped = False
+            uvm_t = uvm_op(
+                torch.empty(0, device="cuda:0", dtype=torch.float),
+                sizes,
+                is_host_mapped,
+            )
+        else:
+            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
+
         assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 

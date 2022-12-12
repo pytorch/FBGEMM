@@ -30,17 +30,16 @@ message(STATUS "USE_ROCM ${USE_ROCM}")
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
   project(
     fbgemm_gpu
-    VERSION 0.0.1
+    VERSION 0.3.1
     LANGUAGES CXX C)
 else()
   project(
     fbgemm_gpu
-    VERSION 0.0.1
+    VERSION 0.3.1
     LANGUAGES CXX C CUDA)
 endif()
 
 find_package(Torch REQUIRED)
-find_package(PythonExtensions REQUIRED)
 
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/third_party)
@@ -162,6 +161,7 @@ set(codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/dispatch_macros.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_inplace_update.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
@@ -290,12 +290,16 @@ set(fbgemm_gpu_sources_cpu
     codegen/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
+    src/permute_pooled_embedding_ops_split_cpu.cpp
     src/cpu_utils.cpp
+    src/jagged_tensor_ops_autograd.cpp
+    src/jagged_tensor_ops_meta.cpp
     src/jagged_tensor_ops_cpu.cpp
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
     src/quantize_ops_cpu.cpp
-    src/sparse_ops_cpu.cpp)
+    src/sparse_ops_cpu.cpp
+    src/embedding_inplace_update_cpu.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(
@@ -310,16 +314,20 @@ if(NOT FBGEMM_CPU_ONLY)
     src/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops_split_gpu.cpp
-    src/permute_pooled_embedding_ops_split_cpu.cpp
     src/quantize_ops_gpu.cpp
     src/sparse_ops_gpu.cpp
     src/split_embeddings_utils.cpp
     src/split_table_batched_embeddings.cpp
-    src/metric_ops_host.cpp)
+    src/metric_ops_host.cpp
+    src/embedding_inplace_update_gpu.cpp)
 
   if(NVML_LIB_PATH)
-    list(APPEND fbgemm_gpu_sources_cpu src/merge_pooled_embeddings_cpu.cpp
-         src/merge_pooled_embeddings_gpu.cpp)
+    list(
+      APPEND
+      fbgemm_gpu_sources_cpu
+      src/merge_pooled_embeddings_cpu.cpp
+      src/merge_pooled_embeddings_gpu.cpp
+      src/topology_utils.cpp)
   endif()
 endif()
 
@@ -340,7 +348,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops.cu
       src/split_embeddings_cache_cuda.cu
       src/split_embeddings_utils.cu
-      src/metric_ops.cu)
+      src/metric_ops.cu
+      src/embedding_inplace_update.cu)
 
   set_source_files_properties(
     ${fbgemm_gpu_sources_gpu} PROPERTIES COMPILE_OPTIONS

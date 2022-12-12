@@ -38,9 +38,7 @@ using namespace fbgemm_gpu;
 template <
     typename emb_t,
     typename cache_t,
-    {% if not dense %}
     typename output_t,
-    {% endif %}
     typename index_t,
     size_t kThreadGroupSize
     >
@@ -62,12 +60,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     {% if not dense %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
-    at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
-        output // [B][total_D],
-    {% else %}
-    at::PackedTensorAccessor32<at::acc_type<cache_t,true>, 2, at::RestrictPtrTraits>
-        output // [B][total_D],
     {% endif %}
+    at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits>
+        output // [B][total_D],
     ) {
     int32_t T = weights_offsets.size(0);
     int32_t B = (offsets.size(0) - 1) / T;
@@ -160,8 +155,8 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
 template <
     typename emb_t,
     typename cache_t,
-    {% if not dense %}
     typename output_t,
+    {% if not dense %}
     bool use_lxu_cache,
     {% endif %}
     typename index_t,
@@ -199,12 +194,9 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     {% if not dense %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
-    at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
-        output // [B][total_D],
-    {% else %}
-    at::PackedTensorAccessor32<at::acc_type<cache_t,true>, 2, at::RestrictPtrTraits>
-        output // [B][total_D],
     {% endif %}
+    at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits>
+        output // [B][total_D],
     ) {
     int32_t T = weights_offsets.size(0);
     {% if not nobag %}
@@ -355,7 +347,6 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     }
 
     {% if not nobag %}
-    {% if not dense %}
     if (!std::is_same<output_t, uint8_t>::value) {
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
@@ -396,19 +387,6 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
         }
 
     }
-    {% else %}
-    // no pooled embedding quantization fusion for dense embeddings
-    #pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-        ++i) {
-        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-        if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && L != 0) {
-            accumulators[i].mul_(1.0 / L);
-        }
-        accumulators[i].store(&output[b][D_start + d]);
-    }
-    {% endif %}
     {% endif %}
 }
 
@@ -438,9 +416,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% if not dense %}
     Tensor lxu_cache_locations,
     {% endif %}
-    {% if not dense %}
     int64_t output_dtype,
-    {% endif %}
     int64_t unused
 ) {
     TENSOR_ON_CUDA_GPU(dev_weights);
@@ -486,9 +462,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
 
     Tensor output;
     {% if nobag %}
-    {% if dense %}
-        output = at::empty({total_L, D}, dev_weights.options().dtype(at::kFloat));
-    {% else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
@@ -497,14 +470,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         adjusted_D += T * kINT8QparamsBytes;
     }
     output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
-    {% endif %}
-    {% else %}
-    {% if dense %}
-    if (dev_weights.scalar_type() == at::kHalf || dev_weights.scalar_type() == at::kByte) {
-        output = at::empty({B, total_D}, dev_weights.options().dtype(at::kFloat));
-    } else {
-        output = at::empty({B, total_D}, dev_weights.options());
-    }
     {% else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
@@ -515,7 +480,6 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     }
     output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
 
-    {% endif %}
     {% endif %}
 
     if (B == 0) {
@@ -625,16 +589,14 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {% endif %}  // not nobag
 #endif  // HIP Optimal Kernel
 
-    {% if not dense %}
     DISPATCH_EMB_CACHE_OUTPUT_TYPES(
-    {% else %}
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    {% endif %}
         dev_weights.scalar_type(),
         {% if not dense %}
         lxu_cache_weights.scalar_type(),
-        output.scalar_type(),
+        {% else %}
+        dev_weights.scalar_type(),
         {% endif %}
+        output.scalar_type(),
         "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", [&] {
         {% if not dense %}
         // Check if LXU cache is used
@@ -664,13 +626,13 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 {% if not dense %}
                 split_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
                 {% else %}
-                dense_embedding_codegen_forward_{{ wdesc }}_kernel<scalar_t, scalar_t, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
+                dense_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
                 {% endif %}
                     div_round_up((B * T), kForwardMaxThreads / kThreadGroupSize),
                     dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
-                    dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
+                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                     {% if not dense %}
                     uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                     lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
@@ -683,22 +645,16 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                     pooling_mode,
                     {% if weighted %}
-                    indice_weights.packed_accessor32<at::acc_type<{{ "scalar_t" if dense else "cache_t" }}, true>, 1, at::RestrictPtrTraits>(),
+                    indice_weights.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
                     {% endif %}
                     {% if not dense %}
                     lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    output.packed_accessor32<
+                    {% endif %}
+                    output.packed_accessor64<
                         output_t,
                         2,
                         at::RestrictPtrTraits>()
                     );
-                    {% else %}
-                    output.packed_accessor32<
-                        at::acc_type<scalar_t, true>,
-                        2,
-                        at::RestrictPtrTraits>()
-                    );
-                    {% endif %}
 
                 return;
             }
@@ -715,13 +671,13 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         {% if not dense %}
         split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, {{ kEmbeddingSize // 4 }}><<<
         {% else %}
-        dense_embedding_nobag_codegen_forward_unweighted_small_kernel<scalar_t, scalar_t, int64_t, {{ kEmbeddingSize // 4 }}><<<
+        dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, {{ kEmbeddingSize // 4 }}><<<
         {% endif %}
             div_round_up((B * T), kForwardMaxThreads / kWarpSize),
             dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
+            dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
             {% if not dense %}
             uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
             lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
@@ -734,19 +690,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
             {% if not dense %}
             lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            output.packed_accessor32<
+            {% endif %}
+            output.packed_accessor64<
                 output_t,
                 2,
                 at::RestrictPtrTraits>()
             );
-            {% else %}
-            output.packed_accessor32<
-                at::acc_type<scalar_t, true>,
-                2,
-                at::RestrictPtrTraits>()
-            );
-            {% endif %}
-
             return;
         }
         {% endfor %}
@@ -758,13 +707,13 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         if (use_lxu_cache == {{ use_cache }}) {
             split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t><<<
         {% else %}
-            dense_embedding_nobag_codegen_forward_unweighted_kernel<scalar_t, scalar_t, int64_t><<<
+            dense_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t><<<
         {% endif %}
                 div_round_up((B * T), kForwardMaxThreads / kWarpSize),
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
-                dev_weights.packed_accessor64<{{ "scalar_t" if dense else "emb_t" }}, 1, at::RestrictPtrTraits>(),
+                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 {% if not dense %}
                 uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                 lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
@@ -777,19 +726,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 {% if not dense %}
                 lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                output.packed_accessor32<
+                {% endif %}
+                output.packed_accessor64<
                     output_t,
                     2,
                     at::RestrictPtrTraits>()
                 );
-                {% else %}
-                output.packed_accessor32<
-                    at::acc_type<scalar_t, true>,
-                    2,
-                    at::RestrictPtrTraits>()
-                );
-                {% endif %}
-
                 return;
         {% if not dense %}
         } // if (use_lxu_cache == {{ use_cache }})

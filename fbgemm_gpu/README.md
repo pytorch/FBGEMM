@@ -38,23 +38,28 @@ Certain operations require this library to be present. Be sure to provide the pa
 Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
-# Release
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-pip install fbgemm-gpu (release version)
-OR
-pip install fbgemm-gpu-cpu (release version with CPU only)
+# Release GPU
+conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+pip install fbgemm-gpu
 
-# Nightly
+# Release CPU-only
+conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+pip install fbgemm-gpu-cpu
+
+# Nightly GPU
 conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-pip install fbgemm-gpu-nightly (nightly build version)
-OR
-pip install fbgemm-gpu-nightly-cpu (nightly build with CPU only)
+pip install fbgemm-gpu-nightly
+
+# Nightly CPU-only
+pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
+pip install fbgemm-gpu-nightly-cpu
 
 ```
 
 ## Build from source
 
 Additional dependencies: currently cuDNN is required to be installed.
+Please [download][4] and follow instructions [here][5] to install cuDNN.
 
 ```
 # Requires PyTorch 1.13 or later
@@ -70,8 +75,11 @@ git submodule update --init --recursive
 export CUDA_BIN_PATH=/usr/local/cuda-11.3/
 export CUDACXX=/usr/local/cuda-11.3/bin/nvcc
 
-# if using CUDA 10 or earliers set the location to the CUB installation directory
-export CUB_DIR=${CUB_DIR}
+# Specify cuDNN library and header paths.  We tested CUDA 11.6 and 11.7 with
+# cuDNN version 8.5.0.96
+export CUDNN_LIBRARY=${HOME}/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/lib
+export CUDNN_INCLUDE_DIR=${HOME}/cudnn-linux-x86_64-8.5.0.96_cuda11-archive/include
+
 # in fbgemm_gpu folder
 # build for the CUDA architecture supported by current system (or all architectures if no CUDA device present)
 python setup.py install
@@ -177,3 +185,5 @@ FBGEMM is BSD licensed, as found in the [`LICENSE`](../LICENSE) file.
 [1]:https://github.com/NVIDIA/cub
 [2]:https://github.com/pytorch/pytorch
 [3]:https://jinja.palletsprojects.com/en/2.11.x/
+[4]:https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#download
+[5]:https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#installlinux-tar

@@ -11,11 +11,13 @@ import logging
 import math
 from typing import Optional, Tuple
 
-import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
+import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops  # usort:skip
 import numpy as np
 import torch
+
 from fbgemm_gpu.split_embedding_configs import QuantizationConfig, SparseType
-from torch import nn, Tensor
+from torch import nn, Tensor  # usort:skip
+
 
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
 # TODO: optimize embedding pruning and quantization latency.

@@ -17,6 +17,15 @@ import numpy as np
 import tabulate
 import torch
 
+from fbgemm_gpu.split_table_batched_embeddings_ops import (
+    BoundsCheckMode,
+    EmbeddingLocation,
+    IntNBitTableBatchedEmbeddingBagsCodegen,
+    SparseType,
+)
+from torch import Tensor
+from torch.profiler import profile, ProfilerActivity
+
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
@@ -30,15 +39,6 @@ else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
     )
-
-
-from fbgemm_gpu.split_table_batched_embeddings_ops import (
-    BoundsCheckMode,
-    EmbeddingLocation,
-    IntNBitTableBatchedEmbeddingBagsCodegen,
-    SparseType,
-)
-from torch.profiler import profile, ProfilerActivity
 
 
 def get_gpu_device(gpu_num) -> torch.device:
@@ -72,7 +72,7 @@ def generate_requests(
     E: int,
     # inter-batch indices reuse rate
     reuse: float = 0.0,
-) -> List[Tuple[torch.IntTensor, torch.IntTensor,]]:
+) -> List[Tuple[torch.IntTensor, torch.IntTensor, None]]:
     rs = []
     for gpu_num in range(num_gpus):
         all_indices = torch.randint(
@@ -392,21 +392,24 @@ def benchmark(
             )
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
-    # merged is a list of tensors.
+    if isinstance(merged, Tensor):
+        # all_to_one_only returns a list of tensors,
+        # otherwise, it's a Tensor.
+        merged = [merged]
+
     output_num_el = sum([a.numel() for a in merged])
-    num_el_transferred = sum(
-        [a.numel() for i, a in enumerate(merged) if i is not dst_device]
-    )
+    # Assume tensors gathered are all the same size.
+    num_el_transferred = output_num_el * (num_gpus - 1) / num_gpus
 
     logging.debug(
-        f"Mode: {mode}, Data Type: {data_type}, B: {num_ads}, D: {embedding_dimension}, T: {ads_tables}, Num GPUs: {num_gpus}, Destination GPU: {dst_device}, "
-        f"Number of elements: {total_elements / 1.0e6:.2f} Million, Number of elements per GPU: {total_elements / 1.0e6 / num_gpus:.2f}, Billion elements per sec: {total_elements / t / 1.0e9:.1f}, "
-        f"Output Size: {output_num_el * bytes_per_element / 1.0e6:.0f}MB, All-to-one BW: {output_num_el * bytes_per_element / t / 1.0e9:.1f}GB/s, link BW: {num_el_transferred * bytes_per_element / t / 1.0e9:.1f}GB/s, "
+        f"Mode: {mode}, Data Type: {data_type}, B: {num_ads}, D: {embedding_dimension}, T: {ads_tables}, Num GPUs: {num_gpus}, Destination GPU: {dst_device}, all_to_one_only: {all_to_one_only}, "
+        f"Number of elements: {total_elements / 1.0e6:.2f}, Million, Number of elements per GPU: {total_elements / 1.0e6 / num_gpus:.2f}, Billion elements per sec: {total_elements / t / 1.0e9:.1f}, "
+        f"Output Size: {output_num_el * bytes_per_element / 1.0e6:.0f}MB, Num elements transferred: {num_el_transferred / 1.0e6}, All-to-one BW: {output_num_el * bytes_per_element / t / 1.0e9:.1f}GB/s, link BW: {num_el_transferred * bytes_per_element / t / 1.0e9:.1f}GB/s, "
         f"t: {t * 1.0e3:.2f}ms"
     )
     # return result in CSV format
     return (
-        f"{mode}, {data_type}, {num_ads}, {embedding_dimension}, {ads_tables}, {num_gpus}, {dst_device}, "
+        f"{mode}, {data_type}, {num_ads}, {embedding_dimension}, {ads_tables}, {num_gpus}, {dst_device}, {all_to_one_only}, "
         f"{total_elements / 1.0e6:.2f}, {total_elements / 1.0e6 / num_gpus:.2f}, {total_elements / 1.0e9 / t:.1f}, "
         f"{output_num_el * bytes_per_element / 1.0e6:.0f}, {output_num_el * bytes_per_element / t / 1.0e9:.1f}, "
         f"{num_el_transferred * bytes_per_element / 1.0e9 / t:.1f}, "
@@ -457,8 +460,8 @@ def main(
     sweep: bool,
 ) -> None:
     csv_header = (
-        "mode, data_type, num_ads, embedding_dimension, ads_tables, num_gpus, "
-        "dst_device, number of elements (Million), number of elements per GPU (Million), throughput (billion elements per sec), "
+        "mode, data_type, num_ads, embedding_dimension, ads_tables, num_gpus, dst_device, all_to_one_only, "
+        "number of elements (Million), number of elements per GPU (Million), throughput (billion elements per sec), "
         "output size (MB), all-to-one BW (GB/s), link BW (GB/s), t (ms)"
     )
     if sweep:

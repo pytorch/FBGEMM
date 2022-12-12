@@ -10,10 +10,9 @@ from typing import Optional, Tuple
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.quantize_comm import QuantizedCommCodec
+from fbgemm_gpu.quantize_comm import none_throws, QuantizedCommCodec
 from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, settings
-from pyre_extensions import none_throws
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
@@ -35,6 +34,7 @@ class QuantizedCommCodecTest(unittest.TestCase):
         row_size=st.integers(4, 256),
         col_size=st.integers(4, 256),
         rand_seed=st.integers(0, 65534),
+        row_dim=st.sampled_from([-1, 4, 8, 16, 32]),
     )
     def test_quantized_comm_codec(
         self,
@@ -42,25 +42,38 @@ class QuantizedCommCodecTest(unittest.TestCase):
         row_size: int,
         col_size: int,
         rand_seed: int,
+        row_dim: int,
     ) -> None:
 
         (comm_precision, loss_scale) = comm_precisions_loss_scale
 
         if comm_precision == SparseType.FP8:
+            if row_dim > 0:
+                assume((col_size * row_size) % row_dim == 0)
             assume(col_size % 4 == 0)
 
         torch.manual_seed(rand_seed)
         shape = (row_size, col_size)
-        quant_codec = QuantizedCommCodec(comm_precision, loss_scale)
+        input_tensor = torch.rand(shape, requires_grad=True)
 
+        cur_row_dim = None
+
+        if (
+            comm_precision == SparseType.FP8
+            and torch.cuda.device_count() != 0
+            and row_dim > 0
+        ):
+            cur_row_dim = row_dim
+            input_tensor = input_tensor.view(-1).cuda()
+
+        quant_codec = QuantizedCommCodec(
+            comm_precision, loss_scale, row_dim=cur_row_dim
+        )
         ctx = quant_codec.create_context()
+
         if comm_precision == SparseType.INT8:
             ctx = none_throws(ctx)
             assume(row_size * col_size % ctx.row_dim == 0)
-
-        input_tensor = torch.rand(shape, requires_grad=True)
-
-        if comm_precision == SparseType.INT8:
             input_tensor = input_tensor.view(-1)
 
         quant_tensor = quant_codec.encode(input_tensor, ctx)
@@ -80,5 +93,8 @@ class QuantizedCommCodecTest(unittest.TestCase):
             atol = 0.05
 
         torch.testing.assert_close(
-            input_tensor.detach(), output_tensor.detach(), rtol=rtol, atol=atol
+            input_tensor.detach().cpu(),
+            output_tensor.detach().cpu(),
+            rtol=rtol,
+            atol=atol,
         )

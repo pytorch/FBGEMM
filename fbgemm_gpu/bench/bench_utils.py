@@ -3,19 +3,20 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import itertools
+import copy
 import logging
 import statistics
+import threading
 import time
 from typing import Callable, List, Optional, Tuple
 
-import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import SparseType
-
-# pyre-fixme[21]: Could not find name `default_rng` in `numpy.random` (stubbed).
-from numpy.random import default_rng
-from torch import Tensor
+from fbgemm_gpu.split_embedding_utils import (  # noqa: F401
+    b_indices,
+    generate_requests,  # noqa: F401
+    get_device,  # noqa: F401
+    round_up,  # noqa: F401
+)
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -28,244 +29,118 @@ def benchmark_torch_function(
     flush_gpu_cache_size_mb: int = 40,
     iters: int = 10,
     num_warmups: int = 2,
-) -> Tuple[float, Tensor]:
+    device: str = "cuda",
+    name: str = "",
+    num_threads: int = 1,
+    copy_f_for_multi_thread_test: bool = False,
+) -> Tuple[float, torch.Tensor]:
+    logging.info(f"Start to benchmark {name}...")
+    if device != "" and device != "cuda":
+        torch.cuda.set_device(device)
     for _ in range(num_warmups):
         output = f(*args)
 
-    if torch.cuda.is_available():
+    assert num_threads > 0
+    if torch.cuda.is_available() and (num_threads == 1):
         cache = torch.empty(
             int(flush_gpu_cache_size_mb * 1024 * 1024 // 4),
             dtype=torch.float,
-            device="cuda",
+            device=device,
         )
         start_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
         end_event = [torch.cuda.Event(enable_timing=True) for i in range(iters)]
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(device)
         for i in range(iters):
             # flush the cache
             if flush_gpu_cache_size_mb:
                 cache.zero_()
             start_event[i].record()
-            output = f(*args)
+            with torch.cuda.nvtx.range(f"RunCudaModule_{name}"):
+                output = f(*args)
             end_event[i].record()
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(device)
         times = torch.tensor(
             [s.elapsed_time(e) for s, e in zip(start_event, end_event)]
         )
         elapsed_time = torch.mean(times).item() * 1.0e-3
+    elif torch.cuda.is_available() and (num_threads > 1):
+        cache = torch.empty(
+            int(flush_gpu_cache_size_mb * 1024 * 1024 // 4),
+            dtype=torch.float,
+            device=device,
+        )
+        duration_ms_list: List[float] = []
+
+        f_list = [f]
+        # make deepcopy of f if necessary
+        for _ in range(num_threads - 1):
+            f_list.append(copy.deepcopy(f) if copy_f_for_multi_thread_test else f)
+
+        @torch.inference_mode()
+        # pyre-ignore[53]
+        def forward(idx: int) -> None:
+            stream = torch.cuda.Stream()
+            f_temp = f_list[idx]
+            start_event = [
+                torch.cuda.Event(enable_timing=True)
+                for i in range(iters // num_threads)
+            ]
+            end_event = [
+                torch.cuda.Event(enable_timing=True)
+                for i in range(iters // num_threads)
+            ]
+            torch.cuda.synchronize(device)
+            with torch.cuda.stream(stream):
+                for i in range(iters // num_threads):
+                    # flush the cache
+                    if flush_gpu_cache_size_mb:
+                        cache.zero_()
+                    start_event[i].record()
+                    with torch.cuda.nvtx.range(f"RunCudaModule_{name}"):
+                        _ = f_temp(*args)
+                    end_event[i].record()
+                torch.cuda.synchronize(device)
+                times = torch.tensor(
+                    [s.elapsed_time(e) for s, e in zip(start_event, end_event)]
+                )
+                duration_ms = torch.sum(times).item()
+                duration_ms_list.append(duration_ms)
+
+        threads = [
+            threading.Thread(target=forward, args=(idx,)) for idx in range(num_threads)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        elapsed_time = sum(duration_ms_list) * 1.0e-3 / num_threads / iters
+
+        torch.cuda.synchronize(device)
+        if copy_f_for_multi_thread_test:
+            # clean the copies of f and clean the HBM cache
+            for idx in reversed(range(num_threads - 1)):
+                del f_list[idx + 1]
+        torch.cuda.empty_cache()
+
     else:
         start_time = time.time()
         for _ in range(iters):
-            output = f(*args)
+            with torch.cuda.nvtx.range(f"RunCPUModule_{name}"):
+                output = f(*args)
         elapsed_time = (time.time() - start_time) / iters
 
     # pyre-fixme[61]: `output` is undefined, or not always defined.
     return float(elapsed_time), output
 
 
-def round_up(a: int, b: int) -> int:
-    return int((a + b - 1) // b) * b
-
-
-def get_device() -> torch.device:
-    # pyre-fixme[7]: Expected `device` but got `Union[int, device]`.
-    return (
-        torch.cuda.current_device()
-        if torch.cuda.is_available()
-        else torch.device("cpu")
-    )
-
-
-# Merged indices with shape (T, B, L) -> (flattened indices with shape
-# (T * B * L), offsets with shape (T * B + 1))
-def get_table_batched_offsets_from_dense(
-    merged_indices: Tensor,
-) -> Tuple[Tensor, Tensor]:
-    (T, B, L) = merged_indices.size()
-    lengths = np.ones((T, B)) * L
-    flat_lengths = lengths.flatten()
-    return (
-        merged_indices.long().contiguous().view(-1).to(get_device()),
-        torch.tensor(([0] + np.cumsum(flat_lengths).tolist())).long().to(get_device()),
-    )
-
-
-def get_offsets_from_dense(indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    (B, L) = indices.size()
-    return (
-        indices.contiguous().view(-1),
-        torch.tensor(
-            np.cumsum(np.asarray([0] + [L for _ in range(B)])[:-1]).astype(np.int64)
-        ),
-    )
-
-
-def b_indices(
-    b: Callable[..., torch.Tensor],
-    x: torch.Tensor,
-    per_sample_weights: Optional[torch.Tensor] = None,
-    use_cpu: bool = False,
-    do_pooling: bool = True,
-) -> torch.Tensor:
-    (indices, offsets) = get_offsets_from_dense(x)
-    if do_pooling:
-        return b(
-            indices.cuda(),
-            offsets.cuda(),
-            per_sample_weights=per_sample_weights,
-        )
-    else:
-        return b(indices.cuda())
-
-
-def generate_requests(
-    iters: int,
-    B: int,
-    T: int,
-    L: int,
-    E: int,
-    # inter-batch indices reuse rate
-    reuse: float = 0.0,
-    # alpha <= 1.0: use uniform distribution
-    # alpha > 1.0: use zipf distribution
-    alpha: float = 1.0,
-    weights_precision: SparseType = SparseType.FP32,
-    weighted: bool = False,
-    requests_data_file: Optional[str] = None,
-    # Comma-separated list of table numbers
-    tables: Optional[str] = None,
-) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]]:
-    if requests_data_file is not None:
-        indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
-
-        average_L = 0
-        if tables is not None:
-            emb_tables = tuple(int(x) for x in tables.split(","))
-            indices = torch.zeros(0, dtype=indices_tensor.dtype)
-            offsets = torch.zeros(1, dtype=offsets_tensor.dtype)
-            total_L = 0
-            for t in emb_tables:
-                t_offsets = offsets_tensor[B * t : B * (t + 1) + 1]
-                total_L += t_offsets[-1] - t_offsets[0]
-                indices = torch.cat(
-                    (indices, indices_tensor[t_offsets[0] : t_offsets[-1]])
-                )
-                offsets = torch.cat(
-                    (
-                        offsets,
-                        t_offsets[1:] - t_offsets[0] + offsets[-1],
-                    )
-                )
-            indices_tensor = indices
-            offsets_tensor = offsets
-            average_L = int(total_L / B)
-
-            assert np.prod(offsets_tensor.size()) - 1 == np.prod((T, B)), (
-                f"Requested tables: {emb_tables} "
-                f"does not conform to inputs (T, B) = ({T}, {B})."
-            )
-            logging.warning(
-                f"Using (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}) based "
-                f"on tables: {emb_tables}"
-            )
-        else:
-            average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
-            assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
-                f"Data file (indices = {indices_tensor.size()}, "
-                f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
-                f"does not conform to inputs (T, B) = ({T}, {B})."
-            )
-
-        assert (
-            L == average_L
-        ), f"Requested L does not align with provided data file ({L} vs. {average_L})"
-        assert E > max(indices_tensor), (
-            f"Number of embeddings is not enough to support maximum index "
-            f"provided by data file {E} vs. {max(indices_tensor)}"
-        )
-
-        weights_tensor = (
-            None
-            if not weighted
-            else torch.randn(indices_tensor.size(), device=get_device())
-        )
-        rs = []
-        for _ in range(iters):
-            rs.append(
-                (
-                    indices_tensor.to(get_device()),
-                    offsets_tensor.to(get_device()),
-                    weights_tensor,
-                )
-            )
-        return rs
-
-    if alpha <= 1.0:
-        all_indices = torch.randint(
-            low=0,
-            high=E,
-            size=(iters, T, B, L),
-            device=get_device(),
-            dtype=torch.int32,
-        )
-        # each bag is usually sorted
-        (all_indices, _) = torch.sort(all_indices)
-        all_indices = all_indices.reshape(iters, T, B * L)
-    else:
-        assert E >= L, "num-embeddings must be greater than equal to bag-size"
-        # oversample and then remove duplicates to obtain sampling without
-        # replacement
-        zipf_shape = (iters, T, B, 3 * L)
-        if torch.cuda.is_available():
-            zipf_shape_total_len = np.prod(zipf_shape)
-            all_indices_list = []
-            # process 8 GB at a time on GPU
-            chunk_len = int(1e9)
-            for chunk_begin in range(0, zipf_shape_total_len, chunk_len):
-                all_indices_gpu = torch.ops.fbgemm.zipf_cuda(
-                    alpha,
-                    min(zipf_shape_total_len - chunk_begin, chunk_len),
-                    seed=torch.randint(2**31 - 1, (1,))[0],
-                )
-                all_indices_list.append(all_indices_gpu.cpu())
-            all_indices = torch.cat(all_indices_list).reshape(zipf_shape)
-        else:
-            all_indices = torch.as_tensor(np.random.zipf(a=alpha, size=zipf_shape))
-        all_indices = (all_indices - 1) % E
-        all_indices = torch.ops.fbgemm.bottom_unique_k_per_row(all_indices, L)
-        rng = default_rng()
-        permutation = torch.as_tensor(
-            rng.choice(E, size=all_indices.max().item() + 1, replace=False)
-        )
-        all_indices = permutation.gather(0, all_indices.flatten())
-        all_indices = all_indices.to(get_device()).int().reshape(iters, T, B * L)
-    for it in range(iters - 1):
-        for t in range(T):
-            reused_indices = torch.randperm(B * L, device=get_device())[
-                : int(B * L * reuse)
-            ]
-            all_indices[it + 1, t, reused_indices] = all_indices[it, t, reused_indices]
-
-    rs = []
-    for it in range(iters):
-        weights_tensor = (
-            None if not weighted else torch.randn(T * B * L, device=get_device())
-        )
-        rs.append(
-            get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
-            + (weights_tensor,)
-        )
-    return rs
-
-
 def benchmark_requests(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
-    func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
+    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
     num_warmups: int = 0,
     bwd_only: bool = False,
-    grad: Optional[Tensor] = None,
+    grad: Optional[torch.Tensor] = None,
     # Used to label benchmark iterations differently in nsys profile result
     # so that we can compare performance of two different models for example.
     # If empty string is provided, it won't have any effect.
@@ -329,7 +204,7 @@ def benchmark_requests(
 
 
 def benchmark_requests_refer(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
+    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
     T: int,
     B: int,
     L: int,
@@ -341,6 +216,7 @@ def benchmark_requests_refer(
     check_median: bool = False,
 ) -> float:
     do_pooling = pooling_mode in ["sum", "mean"]
+
     if do_pooling:
         nn_embedding_list = [
             torch.nn.EmbeddingBag(E, D, mode=pooling_mode, sparse=True).cuda()
@@ -394,12 +270,15 @@ def benchmark_requests_refer(
                 )
             ]
         )
+
         if do_pooling:
             final_output = torch.cat(
                 [f.view(B, -1) for f in nn_embedding_output], dim=1
             )
         else:
-            final_output = torch.cat(nn_embedding_output, dim=0).view(-1, D)
+            final_output = torch.cat(nn_embedding_output, dim=0).view(  # noqa: F841
+                -1, D
+            )
 
         if torch.cuda.is_available():
             end_event.record()
@@ -415,9 +294,9 @@ def benchmark_requests_refer(
 
 
 def benchmark_pipelined_requests(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]],
-    func1: Callable[[Tensor, Tensor, Optional[Tensor]], None],
-    func2: Callable[[Tensor, Tensor, Optional[Tensor]], None],
+    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
+    func1: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
+    func2: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
 ) -> Tuple[float, float]:

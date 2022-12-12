@@ -224,5 +224,93 @@ def jagged_index_select_2d_bench(
     logging.info(f"backward: fbgemm {time * 1e3:.3f} ms, ref {time_ref * 1e3:.3f} ms")
 
 
+@cli.command()
+@click.option("--row-size", default=512)
+@click.option("--batch-size", default=4096)
+@click.option("--unique-batch-size", default=1024)
+@click.option("--input-precision", type=str, default="fp32")
+@click.option("--sort-indices", type=bool, default=True)
+@click.option("--num-groups", default=32)
+def group_index_select_2d_bench(
+    row_size: int,
+    batch_size: int,
+    unique_batch_size: int,
+    input_precision: str,
+    sort_indices: bool,
+    num_groups: int,
+) -> None:
+    def gen_inverse_index(curr_size: int, final_size: int) -> np.array:
+        inverse_index = list(range(curr_size))
+        np_arr = np.array(inverse_index)
+        for _ in range(final_size - curr_size):
+            inverse_index.append(np.random.randint(0, curr_size))
+            np_arr = np.array(inverse_index)
+            np.random.shuffle(np_arr)
+        return np_arr
+
+    dtype = torch.float
+    if input_precision == "fp32":
+        dtype = torch.float
+    elif input_precision == "fp16":
+        dtype = torch.half
+    else:
+        raise RuntimeError(f"Does not support data type {input_precision}")
+
+    offset_indices_group = []
+    indices_group = []
+    for i in range(num_groups):
+        # pyre-fixme[16]: Module `cuda` has no attribute `IntTensor`.
+        indices = torch.cuda.IntTensor(gen_inverse_index(unique_batch_size, batch_size))
+        if sort_indices:
+            indices, _ = indices.sort()
+        indices_group.append(indices)
+        indices = torch.add(indices, batch_size * i)
+        offset_indices_group.append(indices)
+
+    offset_indices = torch.concat(offset_indices_group)
+
+    input = torch.rand(num_groups * batch_size, row_size, dtype=dtype, device="cuda")
+    input.requires_grad = True
+
+    num_bytes = 2 * batch_size * row_size * input.element_size() * num_groups
+
+    bench_kwargs = {"num_warmups": 10, "iters": 100}
+
+    # Benchmark forward
+    time_ref, output_ref = benchmark_torch_function(
+        torch.index_select, (input, 0, offset_indices), **bench_kwargs
+    )
+
+    input_group = input.split(batch_size, 0)
+    time, output_group = benchmark_torch_function(
+        torch.ops.fbgemm.group_index_select_dim0,
+        (input_group, indices_group),
+        **bench_kwargs,
+    )
+    logging.info(
+        f"forward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
+        f"fbgemm group {time:5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
+    )
+
+    # Benchmark backward
+    grad = torch.rand_like(output_ref)
+    time_ref, _ = benchmark_torch_function(
+        functools.partial(output_ref.backward, retain_graph=True),
+        (grad,),
+        **bench_kwargs,
+    )
+
+    cat_output = torch.cat(output_group)
+    time, _ = benchmark_torch_function(
+        functools.partial(cat_output.backward, retain_graph=True),
+        (grad,),
+        **bench_kwargs,
+    )
+    logging.info(
+        f"backward: PyTorch batch {time_ref:.5f} sec ({num_bytes / time_ref / 1e9:.5f} GB/s), "
+        f"fbgemm group {time:.5f} sec ({num_bytes / time / 1e9:.5f} GB/s)"
+    )
+
+
 if __name__ == "__main__":
     cli()

@@ -20,16 +20,20 @@ jobs:
       matrix:
         include:
          - os: linux.2xlarge
-           python-version: 3.7
+           python-version: "3.7"
            python-tag: "py37"
            cuda-tag: "cu11"
          - os: linux.2xlarge
-           python-version: 3.8
+           python-version: "3.8"
            python-tag: "py38"
            cuda-tag: "cu11"
          - os: linux.2xlarge
-           python-version: 3.9
+           python-version: "3.9"
            python-tag: "py39"
+           cuda-tag: "cu11"
+         - os: linux.2xlarge
+           python-version: "3.10"
+           python-tag: "py310"
            cuda-tag: "cu11"
     steps:
     # Checkout the repository to the GitHub Actions runner
@@ -67,7 +71,6 @@ jobs:
       shell: bash
       run: |
         conda install -n build_binary -y pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-        conda install -n build_binary -y cudnn
     - name: Install Other Dependencies
       shell: bash
       run: |
@@ -86,10 +89,25 @@ jobs:
     # here is the issue: https://github.com/conda/conda/issues/10972
     - name: Build FBGEMM_GPU Nightly
       run: |
+        # Install cuDNN. This is needed to build FBGEMM but not for execution.
+        # See https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+        tmp_cudnn_path="$(pwd)/build_only/cudnn"
+        mkdir -p tmp_cudnn
+        cd tmp_cudnn
+        wget -q https://ossci-linux.s3.amazonaws.com/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz -O cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz
+        tar xf cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz
+        mkdir -p "${tmp_cudnn_path}"
+        mv cudnn-linux-x86_64-8.5.0.96_cuda11-archive/include "${tmp_cudnn_path}"
+        mv cudnn-linux-x86_64-8.5.0.96_cuda11-archive/lib "${tmp_cudnn_path}"
+        cd ../
+        rm -rf tmp_cudnn
+
+        export CUDNN_INCLUDE_DIR="${tmp_cudnn_path}/include"
+        export CUDNN_LIBRARY="${tmp_cudnn_path}/lib"
         cd fbgemm_gpu/
         rm -rf dist
         # build cuda7.0;8.0 for v100/a100 arch:
-        # Couldn't build more cuda arch due to 100 MB binary size limit from
+        # Couldn't build more cuda arch due to 300 MB binary size limit from
         # pypi website.
         # manylinux1_x86_64 is specified for pypi upload:
         # distribute python extensions as wheels on Linux
@@ -111,8 +129,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [linux.4xlarge.nvidia.gpu]
-        python-version: [3.7, 3.8, 3.9]
+        os: [linux.g5.4xlarge.nvidia.gpu]
+        python-version: ["3.7", "3.8", "3.9", "3.10"]
         cuda-tag: ["cu11"]
     needs: build_on_cpu
     steps:
@@ -223,7 +241,7 @@ jobs:
         echo "numpy succeeded"
     - name: Install FBGEMM_GPU Nightly
       run: |
-        rm -r dist || true
+        rm -rf dist
         conda run -n build_binary \
           python -m pip install *.whl
     - name: Test fbgemm_gpu installation
