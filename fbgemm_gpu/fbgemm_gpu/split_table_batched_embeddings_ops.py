@@ -193,6 +193,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     lxu_cache_locations_empty: Tensor
     timesteps_prefetched: List[int]
     record_cache_metrics: RecordCacheMetrics
+    uvm_cache_stats: torch.Tensor
 
     def __init__(  # noqa C901
         self,
@@ -210,6 +211,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         enforce_hbm: bool = False,  # place all weights/momentums in HBM when using cache
         optimizer: OptimType = OptimType.EXACT_SGD,
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
+        gather_uvm_cache_stats: Optional[bool] = False,
         # General Optimizer args
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
@@ -238,6 +240,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.record_cache_metrics = record_cache_metrics
         else:
             self.record_cache_metrics = RecordCacheMetrics(False, False)
+
+        self.gather_uvm_cache_stats = gather_uvm_cache_stats
+        # Define the size of uvm cache stats as class variable
+        # to make it work with torch jit script.
+        self.uvm_cache_stats_size = 6
+        # 0: N_calls, 1: N_requested_indices, 2: N_unique_indices, 3: N_unique_misses,
+        # 4: N_conflict_unique_misses, 5: N_conflict_misses
+
+        self.uvm_cache_stats: Tensor = torch.zeros(
+            size=(self.uvm_cache_stats_size,),
+            device=device,
+            dtype=torch.int64,
+        )
+
+        # uvm cache stats for local batch, using int32.
+        self.local_uvm_cache_stats: Tensor = torch.zeros(
+            size=(self.uvm_cache_stats_size,),
+            device=device,
+            dtype=torch.int32,
+        )
+
         # NOTE: a placeholder to avoid multi-construction and make TorchScript work!
         self.dummy_tensor: Tensor = torch.zeros(0, device=device)
 
@@ -286,6 +309,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.placeholder_autograd_tensor = nn.Parameter(
             torch.zeros(0, device=self.current_device, dtype=torch.float)
         )
+
+        if self.gather_uvm_cache_stats:
+            self.reset_uvm_cache_stats()
 
         self.int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET
 
@@ -751,6 +777,36 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
+    def reset_uvm_cache_stats(self) -> None:
+        self.uvm_cache_stats = torch.zeros(
+            size=(self.uvm_cache_stats_size,),
+            device=self.current_device,
+            dtype=torch.int64,
+        )
+
+    def get_uvm_cache_stats(self) -> Tensor:
+        assert (
+            self.gather_uvm_cache_stats
+        ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
+        return self.uvm_cache_stats
+
+    def print_uvm_cache_stats(self) -> None:
+        assert (
+            self.gather_uvm_cache_stats
+        ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
+        logging.info(
+            f"N_called: {self.uvm_cache_stats[0]}\n"
+            f"N_requested_indices: {self.uvm_cache_stats[1]}\n"
+            f"N_unique_indices: {self.uvm_cache_stats[2]}\n"
+            f"N_unique_misses: {self.uvm_cache_stats[3]}\n"
+            f"N_conflict_unique_misses: {self.uvm_cache_stats[4]}\n"
+            f"N_conflict_misses: {self.uvm_cache_stats[5]}\n"
+        )
+        logging.info(
+            f"unique indices / requested indices: {self.uvm_cache_stats[2]/self.uvm_cache_stats[1]}\n"
+            f"unique misses / requested indices: {self.uvm_cache_stats[3]/self.uvm_cache_stats[1]}\n"
+        )
+
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
@@ -785,6 +841,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     lxu_cache_locations, linear_cache_indices, offsets
                 )
 
+        self.local_uvm_cache_stats.zero_()
+
         if self.cache_algorithm == CacheAlgorithm.LRU:
             torch.ops.fbgemm.lru_cache_populate(
                 self.weights_uvm,
@@ -799,6 +857,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.timestep,
                 self.lxu_state,
                 self.stochastic_rounding,
+                self.gather_uvm_cache_stats,
+                self.local_uvm_cache_stats,
             )
         elif self.cache_algorithm == CacheAlgorithm.LFU:
             torch.ops.fbgemm.lfu_cache_populate(
@@ -823,8 +883,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 linear_cache_indices,
                 self.lxu_cache_state,
                 self.total_cache_hash_size,
+                self.gather_uvm_cache_stats,
+                self.local_uvm_cache_stats,
             )
         )
+        if self.gather_uvm_cache_stats:
+            # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
+            # We may wanna do this accumulation atomically, but as it's only for monitoring,
+            # slightly inaccurate result may be acceptable.
+            self.uvm_cache_stats = torch.add(
+                self.uvm_cache_stats, self.local_uvm_cache_stats
+            )
 
     def _update_cache_miss_counter(
         self,
