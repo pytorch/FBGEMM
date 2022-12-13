@@ -1746,6 +1746,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             bs.insert(table_to_replicate, bs[table_to_replicate])
             feature_table_map.insert(table_to_replicate, table_to_replicate)
 
+
         xs = [
             to_device(
                 torch.from_numpy(
@@ -1937,7 +1938,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         D_gradcheck=st.integers(min_value=1, max_value=2),
         weights_precision=st.just(SparseType.FP16),
         stochastic_rounding=st.booleans(),
-        weighted=st.booleans(),
+        weighted=st.just(True),
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
@@ -5012,7 +5013,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=32),
-        weighted=st.booleans(),
+        weighted=st.just(True),
         mixed=st.booleans(),
         optimizer=st.just(OptimType.EXACT_ROWWISE_ADAGRAD),
         long_segments=st.booleans(),
@@ -5057,6 +5058,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
             weight_decay_mode,
         )
+        
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=128),

@@ -941,17 +941,28 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
 
     {% if optimizer == "rowwise_adagrad" and not dense and not nobag and weighted%}
-    // The limitations of piplined ROCm backward kernel:
-    // 1. (optimizer) only row-wise adagrad 
-    // 2. (embedding dim) the backward embedding dimension is limited by 256
-    // 3. (pooling) only sum
-    // 4. not support per_sample_weights requires gradient
+    /*
+    The limitations of piplined ROCm backward kernel:
+    1. (optimizer) only row-wise adagrad 
+    2. (embedding dim) the backward embedding dimension is limited by 256
+    3. (pooling) only sum
+    4. not support per_sample_weights requires gradient
+    5. not support duplicated tables
+    */
+    std::vector<int64_t> woffs(weights_offsets.data_ptr<int64_t>(), weights_offsets.data_ptr<int64_t>() + weights_offsets.numel());
+    std::vector<int64_t>::iterator it = std::unique(woffs.begin(), woffs.end());
+    bool no_dupt = (it == woffs.end());
     bool hip_opt_kernel_supported = (max_D <= 256) \
     && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) \
     && static_cast<PoolingMode>(pooling_mode) == PoolingMode::SUM \
-    && !indice_weights.requires_grad();
-{% else %}
+    && !indice_weights.requires_grad() && no_dupt;
+    {% elif optimizer == "rowwise_adagrad" and not dense and not nobag and not weighted%}
+    bool hip_opt_kernel_supported = (max_D <= 256) \
+    && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) \
+    && static_cast<PoolingMode>(pooling_mode) == PoolingMode::SUM;
+    {% else %}
     bool hip_opt_kernel_supported = false;
+    {% endif %}
 
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
