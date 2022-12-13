@@ -703,10 +703,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        # FIXME: switch to
-        # output_dtype=st.sampled_from([SparseType.FP16, SparseType.INT8]),
-        # after v0/v2 is landed.
-        output_dtype=st.sampled_from([SparseType.FP32]),
+        output_dtype=st.sampled_from([SparseType.FP16, SparseType.INT8]),
     )
     @settings(
         verbosity=Verbosity.verbose,
