@@ -1665,8 +1665,8 @@ class SparseOpsTest(unittest.TestCase):
     ) -> None:
         E = 1000000
         all_indices = (np.random.zipf(a=1.15, size=(T, B, 3 * L)) - 1) % E
-        all_indices_deduped = torch.ops.fbgemm.bottom_unique_k_per_row(
-            torch.as_tensor(all_indices), L
+        all_indices_deduped = torch.ops.fbgemm.bottom_k_per_row(
+            torch.as_tensor(all_indices), torch.tensor([0, L], dtype=torch.long), True
         )
         for index_tuple in itertools.product(range(T), range(B)):
             # sample without replacement from

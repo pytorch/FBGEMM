@@ -2370,40 +2370,62 @@ std::vector<Tensor> group_index_select_dim0(
   return output_group;
 }
 
-Tensor bottom_unique_k_per_row(const Tensor& input, const int64_t k) {
+Tensor bottom_k_per_row(
+    const Tensor& input,
+    const Tensor& k_offsets,
+    const bool requires_unique) {
   auto num_cols = input.size(-1);
   Tensor input_reshaped = input.reshape({-1, num_cols});
   auto input_accessor = input_reshaped.accessor<int64_t, 2>();
+  auto k_offsets_accessor = k_offsets.accessor<int64_t, 1>();
+
+  // Assume fixed k is used if there are only two offsets
+  bool use_fixed_k = k_offsets.size(0) == 2;
+  const int64_t fixed_k =
+      use_fixed_k ? k_offsets_accessor[1] - k_offsets_accessor[0] : 0;
 
   // Create output tensor
-  int num_rows = input_reshaped.size(0);
-  Tensor output = at::empty({num_rows, k}, input.options());
-  auto output_accessor = output.accessor<int64_t, 2>();
+  Tensor output = at::empty(
+      {use_fixed_k ? input_reshaped.size(0) * fixed_k
+                   : k_offsets_accessor[k_offsets.numel() - 1]},
+      input.options());
+  auto output_accessor = output.accessor<int64_t, 1>();
 
   at::parallel_for(
       0, input_reshaped.size(0), 1, [&](int64_t start, int64_t end) {
         for (auto i = start; i < end; i++) {
-          std::set<int64_t> s;
-          for (auto j : c10::irange(num_cols)) {
-            s.insert(input_accessor[i][j]);
-            if (s.size() == static_cast<size_t>(k)) {
-              break;
+          auto start_k_offset =
+              use_fixed_k ? i * fixed_k : k_offsets_accessor[i];
+          auto k = use_fixed_k ? fixed_k
+                               : k_offsets_accessor[i + 1] - start_k_offset;
+          TORCH_CHECK(k >= 0);
+
+          if (requires_unique) {
+            std::set<int64_t> s;
+
+            for (auto j : c10::irange(num_cols)) {
+              s.insert(input_accessor[i][j]);
+              if (s.size() == static_cast<size_t>(k)) {
+                break;
+              }
             }
-          }
-          TORCH_CHECK(
-              s.size() == static_cast<size_t>(k),
-              "too skewed distribution (alpha too big)")
-          int j = 0;
-          for (int64_t x : s) {
-            output_accessor[i][j] = x;
-            ++j;
+            TORCH_CHECK(
+                s.size() == static_cast<size_t>(k),
+                "too skewed distribution (alpha too big)")
+            int j = 0;
+            for (int64_t x : s) {
+              output_accessor[start_k_offset + j] = x;
+              ++j;
+            }
+          } else {
+            for (auto j : c10::irange(k)) {
+              output_accessor[start_k_offset + j] = input_accessor[i][j];
+            }
           }
         }
       });
 
-  auto output_shape = input.sizes().vec();
-  output_shape[output_shape.size() - 1] = k;
-  return output.reshape(output_shape);
+  return use_fixed_k ? output.reshape({input.size(0), -1, fixed_k}) : output;
 }
 
 } // namespace
@@ -2479,10 +2501,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]");
   m.def(
       "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
-  // This is an one-off op to be used in bench_utils.py for zipf generation w/o
-  // replacement Along dim=-1, find smallest unique k. If the number of unique
-  // elements is less than k, errors out.
-  m.def("bottom_unique_k_per_row(Tensor input, int k) -> Tensor");
+  // This is an one-off op to be used in split_embedding_utils.py for zipf
+  // generation w/o replacement along dim=-1. If requires_unique=True, find
+  // smallest unique k.  If the number of unique elements is less than k,
+  // errors out. If requires_unique=False, copy the top k elements into a new
+  // buffer. If k_offsets's length is 2, assume that k is fixed (using length =
+  // 2 instead of 1 to trigger the fixed-k assumption to keep the k_offsets
+  // semantic).
+  m.def(
+      "bottom_k_per_row(Tensor input, Tensor k_offsets, bool requires_unique) -> Tensor");
   m.def(
       "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, int batch_size, Tensor? weights=None) -> Tensor[]");
 }
@@ -2549,6 +2576,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
   DISPATCH_TO_CPU(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0);
-  DISPATCH_TO_CPU(
-      "bottom_unique_k_per_row", fbgemm_gpu::bottom_unique_k_per_row);
+  DISPATCH_TO_CPU("bottom_k_per_row", fbgemm_gpu::bottom_k_per_row);
 }
