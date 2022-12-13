@@ -831,6 +831,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         output_dtype=st.sampled_from(
             [
                 SparseType.FP16,
+                SparseType.BF16,
                 SparseType.INT8,
                 # SparseType.INT4,
             ]
@@ -855,6 +856,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         D_alignment = max(weights_ty.align_size() for t in range(T))
         D_alignment = max(D_alignment, output_dtype.align_size())
         D = round_up(D, D_alignment)
+
+        if (
+            not torch.cuda.is_available() or torch.cuda.get_device_capability() < (8, 0)
+        ) and output_dtype == SparseType.BF16:
+            output_dtype = SparseType.FP16
 
         Ds = [
             round_up(
