@@ -940,15 +940,18 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     }
     {% endif %}
 
-    static int init_hsaco = 0;
-    static hipModule_t hip_kernel_module;
-    static hipFunction_t hip_kernel_func;
-{% if optimizer == "rowwise_adagrad" and not dense %}
-    // The backward embedding dimension is limited by 256 
-    bool hip_opt_kernel_supported = (max_D <= 256) && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float);
+    {% if optimizer == "rowwise_adagrad" and not dense and not nobag and weighted%}
+    // The limitations of piplined ROCm backward kernel:
+    // 1. (optimizer) only row-wise adagrad 
+    // 2. (embedding dim) the backward embedding dimension is limited by 256
+    // 3. (pooling) only sum
+    // 4. not support per_sample_weights requires gradient
+    bool hip_opt_kernel_supported = (max_D <= 256) \
+    && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) \
+    && static_cast<PoolingMode>(pooling_mode) == PoolingMode::SUM \
+    && !indice_weights.requires_grad();
 {% else %}
-    bool hip_opt_kernel_supported = false;      // TODO: figure out support range
-{% endif %}
+    bool hip_opt_kernel_supported = false;
 
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
