@@ -2400,6 +2400,10 @@ Tensor bottom_k_per_row(
                                : k_offsets_accessor[i + 1] - start_k_offset;
           TORCH_CHECK(k >= 0);
 
+          if (k == 0) {
+            continue;
+          }
+
           if (requires_unique) {
             std::set<int64_t> s;
 
