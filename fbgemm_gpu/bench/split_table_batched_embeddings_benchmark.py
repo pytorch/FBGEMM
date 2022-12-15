@@ -2729,6 +2729,7 @@ def device_with_spec(  # noqa C901
             alpha=alpha,
             weighted=weighted,
             sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
+            zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
         )
         for i, (indices, offsets, weights) in enumerate(requests):
             all_requests["indices"][i].append(indices)
