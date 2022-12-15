@@ -49,11 +49,6 @@ jobs:
         cd fbgemm_gpu/
         git submodule sync
         git submodule update --init --recursive
-    - name: Update pip
-      run: |
-        sudo yum update -y
-        sudo yum -y install git python3-pip
-        sudo pip3 install --upgrade pip
     - name: Setup conda
       run: |
         wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
