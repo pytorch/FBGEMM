@@ -25,7 +25,7 @@ TEST(embedding_inplace_update_test, random_update) {
   std::vector<uint8_t> weights_tys;
   int64_t update_size = 0;
   std::vector<int32_t> update_tables;
-  std::vector<int32_t> update_rows;
+  std::vector<int64_t> update_rows;
   int64_t dev_weights_offset = 0;
   int64_t uvm_weights_offset = 0;
   for (int i = 0; i < T; i++) {

@@ -51,7 +51,7 @@ void embedding_inplace_update_host_weight_cuda(
     Tensor D_offsets,
     Tensor update_weights,
     const std::vector<int32_t>& update_table_idx,
-    const std::vector<int32_t>& update_row_idx,
+    const std::vector<int64_t>& update_row_idx,
     const int64_t row_alignment,
     c10::optional<Tensor> lxu_cache_weights = c10::nullopt,
     c10::optional<Tensor> lxu_cache_locations = c10::nullopt);
