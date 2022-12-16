@@ -66,9 +66,11 @@ __launch_bounds__(kMaxThreads) __global__ void embedding_inplace_update_kernel(
   const auto placement =
       static_cast<PlacementType>(weights_placements[table_idx]);
   if (placement == PlacementType::DEVICE) {
-    weight_row = &dev_weights[weight_offset + D_bytes * row_idx];
+    weight_row =
+        &dev_weights[weight_offset + (int64_t)D_bytes * (int64_t)row_idx];
   } else {
-    weight_row = &uvm_weights[weight_offset + D_bytes * row_idx];
+    weight_row =
+        &uvm_weights[weight_offset + (int64_t)D_bytes * (int64_t)row_idx];
   }
 
   // padded_row_size_in_bytes pad each row with row_alignment (16 bytes on GPUs)
