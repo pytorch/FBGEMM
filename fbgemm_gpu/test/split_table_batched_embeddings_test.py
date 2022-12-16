@@ -1333,8 +1333,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # ROCm managed momory allocation is under development
         if TEST_WITH_ROCM:
             managed = [
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                ] * T
+                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+            ] * T
         else:
             if use_cpu:
                 managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
@@ -1684,8 +1684,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # ROCm managed momory allocation is under development
         if TEST_WITH_ROCM:
             managed = [
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                ] * T
+                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+            ] * T
         else:
             if use_cpu:
                 managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
@@ -2505,8 +2505,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # ROCm managed momory allocation is under development
         if TEST_WITH_ROCM:
             managed = [
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                ] * T
+                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+            ] * T
         else:
             if use_cpu:
                 managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
