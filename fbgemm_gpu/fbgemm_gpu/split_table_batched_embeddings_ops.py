@@ -2804,7 +2804,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         update_row_indices = torch.tensor(
             update_row_indices,
             device=self.current_device,
-            dtype=torch.int32,
+            dtype=torch.int64,
         )
         update_offsets = torch.tensor(
             update_offsets,
