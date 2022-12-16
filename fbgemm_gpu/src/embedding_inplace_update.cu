@@ -19,6 +19,7 @@ namespace fbgemm_gpu {
 
 constexpr int32_t kCacheLocationMissing = -1;
 
+template <typename index_t>
 __launch_bounds__(kMaxThreads) __global__ void embedding_inplace_update_kernel(
     at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
     at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -34,7 +35,7 @@ __launch_bounds__(kMaxThreads) __global__ void embedding_inplace_update_kernel(
         update_weights,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         update_table_idx,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         update_row_idx,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         update_offsets,
@@ -47,12 +48,12 @@ __launch_bounds__(kMaxThreads) __global__ void embedding_inplace_update_kernel(
   // blockIdx.x: block idx, threadIdx.x: thread idx in the warp,
   // threadIdx.y: warp idx in the block.
   // blockDim.x = warpSize, blockDim.y = warpsPerBlock.
-  const int32_t i = blockIdx.x * blockDim.y + threadIdx.y;
+  const int64_t i = blockIdx.x * blockDim.y + threadIdx.y;
   if (i >= update_row_idx.size(0)) {
     return;
   }
   const int32_t table_idx = update_table_idx[i];
-  const int32_t row_idx = update_row_idx[i];
+  const auto row_idx = update_row_idx[i];
 
   const int32_t D_start = D_offsets[table_idx];
   const int32_t D_end = D_offsets[table_idx + 1];
@@ -162,27 +163,36 @@ void embedding_inplace_update_cuda(
   auto lxu_cache_locations_value = lxu_cache_locations.value_or(
       at::empty({0}, dev_weights.options().dtype(at::kInt)));
 
-  embedding_inplace_update_kernel<<<
-      nbit::div_round_up(N, warpsPerBlock), // number of blocks needed
-      dim3(kWarpSize, warpsPerBlock), // shape of each block
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
-      uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
-      weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(),
-      D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      update_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
-      update_table_idx.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      update_row_idx.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      update_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      row_alignment,
-      lxu_cache_weights_value
-          .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
-      lxu_cache_locations_value
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  AT_DISPATCH_INDEX_TYPES(
+      update_row_idx.scalar_type(), "embedding_inplace_update_kernel", [&] {
+        embedding_inplace_update_kernel<<<
+            nbit::div_round_up(N, warpsPerBlock), // number of blocks needed
+            dim3(kWarpSize, warpsPerBlock), // shape of each block
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+            dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+            uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+            weights_placements
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            weights_offsets
+                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(),
+            D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            update_weights
+                .packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+            update_table_idx
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            update_row_idx
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            update_offsets
+                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            row_alignment,
+            lxu_cache_weights_value
+                .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
+            lxu_cache_locations_value
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
 }
 
 void embedding_inplace_update_host_weight_cuda(
@@ -194,7 +204,7 @@ void embedding_inplace_update_host_weight_cuda(
     const Tensor D_offsets,
     const Tensor update_weights,
     const std::vector<int32_t>& update_table_idx,
-    const std::vector<int32_t>& update_row_idx,
+    const std::vector<int64_t>& update_row_idx,
     const int64_t row_alignment,
     c10::optional<Tensor> lxu_cache_weights,
     c10::optional<Tensor> lxu_cache_locations) {
@@ -235,7 +245,7 @@ void embedding_inplace_update_host_weight_cuda(
   auto table_idx_tensor =
       at::tensor(update_table_idx, at::device(device).dtype(at::kInt));
   auto row_idx_tensor =
-      at::tensor(update_row_idx, at::device(device).dtype(at::kInt));
+      at::tensor(update_row_idx, at::device(device).dtype(at::kLong));
 
   embedding_inplace_update_cuda(
       dev_weights,
