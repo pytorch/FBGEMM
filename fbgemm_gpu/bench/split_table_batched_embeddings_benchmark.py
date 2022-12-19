@@ -741,7 +741,7 @@ def benchmark_cpu_requests(
     import time
 
     start_time = time.perf_counter()
-    for (indices, offsets, weights) in requests:
+    for indices, offsets, weights in requests:
         func(indices, offsets, weights)
     end_time = time.perf_counter()
     return (end_time - start_time) / len(requests)

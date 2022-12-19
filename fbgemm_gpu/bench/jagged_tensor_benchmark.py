@@ -151,7 +151,6 @@ def batched_dense_vec_jagged_2d_mul(
     max_len: int,
     elem_type: str,
 ) -> None:
-
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
     total_lengths = lengths.sum().item()
     offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
@@ -192,7 +191,6 @@ def jagged_1d_to_truncated_values(
     max_len: int,
     dtype: str,
 ) -> None:
-
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
     total_lengths = lengths.sum().item()
     torch_dtype = torch.float16 if dtype in ["half", "float16"] else torch.float32
@@ -239,7 +237,6 @@ def masked_select_jagged_1d(
     batch_size: int,
     max_len: int,
 ) -> None:
-
     lengths = torch.randint(2 * max_len, size=(batch_size,))  # Allow for truncation
     total_lengths = int(lengths.sum().item())
     dtype = torch.long

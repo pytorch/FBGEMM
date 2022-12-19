@@ -577,7 +577,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         device_type: str,
         precompute_total_L: bool,
     ) -> None:
-
         # Generate multi-dim jagged tensor
         device = torch.device(device_type)
         values_2d, offsets, max_lengths = self._generate_jagged_tensor(
@@ -875,7 +874,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if operation == "add":
             f = torch.ops.fbgemm.jagged_dense_elementwise_add
         elif operation == "add_jagged_output":
-
             # pyre-fixme[2]: Parameter must be annotated.
             def add_jagged_output_func(*args) -> torch.Tensor:
                 return torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
