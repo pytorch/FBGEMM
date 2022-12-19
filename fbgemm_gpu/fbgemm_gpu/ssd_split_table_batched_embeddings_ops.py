@@ -624,7 +624,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         placements = []
         offsets = []
         uvm_size = 0
-        for (num_embeddings, embedding_dim, weight_ty) in embedding_specs:
+        for num_embeddings, embedding_dim, weight_ty in embedding_specs:
             embedding_dim = rounded_row_size_in_bytes(
                 embedding_dim, weight_ty, self.row_alignment, scale_bias_size_in_bytes
             )

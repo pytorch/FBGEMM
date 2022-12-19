@@ -317,7 +317,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
             # Verify that prefetching twice avoids any actions.
-            (_, _, _, actions_count_gpu,) = torch.ops.fbgemm.ssd_cache_populate_actions(
+            (
+                _,
+                _,
+                _,
+                actions_count_gpu,
+            ) = torch.ops.fbgemm.ssd_cache_populate_actions(  # noqa
                 linear_cache_indices,
                 emb.total_hash_size,
                 emb.lxu_cache_state,
@@ -338,7 +343,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             NOT_FOUND = np.iinfo(np.int32).max
             ASSOC = 32
 
-            for (loc, linear_idx) in zip(
+            for loc, linear_idx in zip(
                 lxu_cache_locations.cpu().numpy().tolist(),
                 linear_cache_indices.cpu().numpy().tolist(),
             ):
@@ -416,7 +421,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT2,
             ]
         ),
-        mixed_weights_ty=st.just(False),
+        mixed_weights_ty=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_ssd_forward(
@@ -702,7 +707,12 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
             # Verify that prefetching twice avoids any actions.
-            (_, _, _, actions_count_gpu,) = torch.ops.fbgemm.ssd_cache_populate_actions(
+            (
+                _,
+                _,
+                _,
+                actions_count_gpu,
+            ) = torch.ops.fbgemm.ssd_cache_populate_actions(  # noqa
                 linear_cache_indices,
                 emb.total_hash_size,
                 emb.lxu_cache_state,
@@ -723,7 +733,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             NOT_FOUND = np.iinfo(np.int32).max
             ASSOC = 32
 
-            for (loc, linear_idx) in zip(
+            for loc, linear_idx in zip(
                 lxu_cache_locations.cpu().numpy().tolist(),
                 linear_cache_indices.cpu().numpy().tolist(),
             ):
