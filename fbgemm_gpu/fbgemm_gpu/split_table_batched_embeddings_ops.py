@@ -100,7 +100,7 @@ def construct_split_state(
     dev_size = 0
     host_size = 0
     uvm_size = 0
-    for (num_embeddings, embedding_dim, location, _) in embedding_specs:
+    for num_embeddings, embedding_dim, location, _ in embedding_specs:
         assert (
             embedding_dim % 4 == 0
         ), f"embedding_dim must be a multiple of 4, but got {embedding_dim}"
@@ -149,7 +149,7 @@ def construct_cache_state(
 ) -> CacheState:
     _cache_hash_size_cumsum = [0]
     total_cache_hash_size = 0
-    for (num_embeddings, location) in zip(row_list, location_list):
+    for num_embeddings, location in zip(row_list, location_list):
         if location == EmbeddingLocation.MANAGED_CACHING:
             total_cache_hash_size += num_embeddings
         _cache_hash_size_cumsum.append(total_cache_hash_size)
@@ -1588,7 +1588,7 @@ def nbit_construct_split_state(
     dev_size = 0
     host_size = 0
     uvm_size = 0
-    for (_, num_embeddings, embedding_dim, weight_ty, location) in embedding_specs:
+    for _, num_embeddings, embedding_dim, weight_ty, location in embedding_specs:
         embedding_dim = rounded_row_size_in_bytes(
             embedding_dim, weight_ty, row_alignment, scale_bias_size_in_bytes
         )
@@ -2650,7 +2650,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         weights = self.split_embedding_weights()
         assert len(q_weight_list) == len(weights)
 
-        for (dest_weight, input_weight) in zip(weights, q_weight_list):
+        for dest_weight, input_weight in zip(weights, q_weight_list):
             dest_weight[0].copy_(input_weight[0])
             if input_weight[1] is not None:
                 assert dest_weight[1] is not None

@@ -74,7 +74,7 @@ class BatchedUnaryEmbeddingBag(torch.nn.Module):
 
     @torch.jit.export
     def init_parameters(self):
-        for (num_emb, param) in zip(
+        for num_emb, param in zip(
             self.hash_sizes * self.num_tasks,
             wrap_weight_to_parameter(self.split_embedding_weights()),
         ):

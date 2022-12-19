@@ -50,7 +50,6 @@ def main(
     iters: int,
     warmup_runs: int,
 ) -> None:
-
     data_types = [torch.half, torch.float, torch.double]
 
     total_time = {

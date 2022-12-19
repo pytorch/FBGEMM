@@ -150,7 +150,7 @@ class SplitEmbInferenceConverter:
                     child.embedding_specs[0][3]
                     == split_table_batched_embeddings_ops.ComputeDevice.CPU
                 )
-                for (E, D, _, _) in child.embedding_specs:
+                for E, D, _, _ in child.embedding_specs:
                     weights_ty = self.quantize_type
                     if D % weights_ty.align_size() != 0:
                         logging.warning(

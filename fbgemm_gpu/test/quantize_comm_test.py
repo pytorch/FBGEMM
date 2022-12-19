@@ -44,7 +44,6 @@ class QuantizedCommCodecTest(unittest.TestCase):
         rand_seed: int,
         row_dim: int,
     ) -> None:
-
         (comm_precision, loss_scale) = comm_precisions_loss_scale
 
         if comm_precision == SparseType.FP8:

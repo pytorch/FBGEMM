@@ -140,7 +140,6 @@ class QuantizedCommCodec:
         row_dim: Optional[int] = None,
         is_fwd: bool = True,
     ) -> None:
-
         if loss_scale is not None:
             if comm_precision not in [SparseType.FP16, SparseType.BF16]:
                 logger.warning(
