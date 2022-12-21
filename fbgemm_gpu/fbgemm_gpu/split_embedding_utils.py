@@ -105,6 +105,7 @@ def generate_requests(
     # If sigma_L is not None, treat L as mu_L and generate Ls from sigma_L
     # and mu_L
     sigma_L: Optional[int] = None,
+    emulate_pruning: bool = False,
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
     if requests_data_file is not None:
         indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
@@ -255,6 +256,20 @@ def generate_requests(
                 all_indices[it + 1, t, reused_indices] = all_indices[
                     it, t, reused_indices
                 ]
+
+    # Some indices are set to -1 for emulating pruned rows.
+    if emulate_pruning:
+        for it in range(iters):
+            for t in range(T):
+                num_negative_indices = B // 2
+                random_locations = torch.randint(
+                    low=0,
+                    high=(B * L),
+                    size=(num_negative_indices,),
+                    device=torch.cuda.current_device(),
+                    dtype=torch.int32,
+                )
+                all_indices[it, t, random_locations] = -1
 
     rs = []
     for it in range(iters):

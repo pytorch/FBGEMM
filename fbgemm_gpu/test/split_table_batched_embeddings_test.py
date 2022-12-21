@@ -3507,11 +3507,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT2,
             ]
         ),
+        emulate_pruning=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         self,
         weights_ty: SparseType,
+        emulate_pruning: bool,
     ) -> None:
         # TODO: support direct-mapped in int_nbit_split_embedding_uvm_caching_codegen_lookup_function
         # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
@@ -3577,7 +3579,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             0, 0, device=current_device, dtype=torch.uint8
         )
 
-        requests = generate_requests(iters, B, T, L, min(Es), reuse=0.1)
+        requests = generate_requests(
+            iters, B, T, L, min(Es), reuse=0.1, emulate_pruning=emulate_pruning
+        )
         for indices, offsets, _ in requests:
             indices = indices.int()
             offsets = offsets.int()
@@ -3712,6 +3716,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         associativity=st.sampled_from(
             [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
         ),
+        do_pruning=st.booleans(),
+        use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward_uvm_cache(
@@ -3719,6 +3725,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_ty: SparseType,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         associativity: int,
+        do_pruning: bool,
+        use_array_for_index_remapping: bool,
     ) -> None:
         assume(
             cache_algorithm == split_table_batched_embeddings_ops.CacheAlgorithm.LRU
@@ -3765,6 +3773,21 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     if d < average_D
                     else managed[t]
                 )
+        index_remapping = None
+        pruning_hash_load_factor = 0.5
+        if do_pruning:
+            current_device = torch.cuda.current_device()
+            index_remapping = []
+            for E in Es:
+                # For each table, keep the first half of rows as is, but
+                # the rest is treated as pruned (-1).
+                remapping = list(range(0, E // 2)) + [-1] * (E - E // 2)
+                remapping_t = torch.tensor(
+                    remapping,
+                    dtype=torch.int32,
+                    device=current_device,
+                )
+                index_remapping.append(remapping_t)
         cc_ref = (
             split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
                 [
@@ -3777,6 +3800,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     )
                     for (E, D) in zip(Es, Ds)
                 ],
+                index_remapping=index_remapping,
+                use_array_for_index_remapping=use_array_for_index_remapping,
+                pruning_hash_load_factor=pruning_hash_load_factor,
             )
         )
         cc_ref.fill_random_weights()
@@ -3784,6 +3810,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
             cache_assoc=associativity,
+            index_remapping=index_remapping,
+            use_array_for_index_remapping=use_array_for_index_remapping,
+            pruning_hash_load_factor=pruning_hash_load_factor,
         )
         cc.fill_random_weights()
 

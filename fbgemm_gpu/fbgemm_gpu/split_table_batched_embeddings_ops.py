@@ -2209,15 +2209,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
     ) -> Tensor:
-        if self.timestep_prefetch_size.get() <= 0:
-            self.prefetch(indices, offsets)
-        self.timestep_prefetch_size.decrement()
-
-        lxu_cache_locations = self.lxu_cache_locations_list.pop()
-
         assert (
             self.weight_initialized
         ), "weight needs to be initialized before forward function"
+        # Index remapping changes input indices, and some of them becomes -1 (prunned rows).
+        # Hence, remapping should be done before before prefetch, bound check, and emb lookup
+        # so that these operations are with the remapped indices.
         if self.index_remapping_hash_table_cpu is not None:
             indices = self.index_remapping_hash_table_cpu.lookup(indices, offsets)
         elif self.index_remapping_hash_table.numel() > 0:
@@ -2235,6 +2232,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
+        if self.timestep_prefetch_size.get() <= 0:
+            self.prefetch(indices, offsets)
+        self.timestep_prefetch_size.decrement()
+
+        lxu_cache_locations = self.lxu_cache_locations_list.pop()
 
         # We cast to int as a TorchScript workaround.
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
