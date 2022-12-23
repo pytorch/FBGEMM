@@ -580,7 +580,9 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
     int64_t idx = linear_cache_indices[n];
     if (idx == max_indices) {
       // Invalid or pruned row: set it to sentinel value.
-      cache_sets[n] = C;
+      // 32-way uses C as the sentinel value to reduce the maximum value during
+      // radix sort to make it faster but for direct_mapped we use -1
+      cache_sets[n] = -1;
       continue;
     }
     int32_t cache_set = cache_slot(idx, C);
@@ -592,7 +594,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
       // +1 because AMD doesn't have atomicMax for signed long so we should
       // initialize lxu_cache_miss_timestamp with 0 vs. -1.
       lru_state[cache_set][0] = time_stamp;
-      cache_sets[n] = C; // default value
+      cache_sets[n] = -1; // sentinel value
     } else {
       // There is no atomicMax for int64_t...
 #ifdef __HIP_PLATFORM_HCC__
@@ -615,7 +617,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
       } else {
         // Otherwise (too late to get this set)
         // set it to sentinel value.
-        cache_sets[n] = C;
+        cache_sets[n] = -1;
       }
     }
   }
@@ -1226,7 +1228,6 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     const int64_t row_alignment) {
   const int32_t N = cache_sets.size(0);
-  const int32_t C = lxu_cache_state.size(0);
 
   // one warp for each set (multiple times)
   // (no divergence for each control branch)
@@ -1234,7 +1235,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
        pos += gridDim.x * blockDim.y) {
     auto cache_set = cache_sets[pos];
 
-    if (cache_set == C) {
+    if (cache_set == -1) {
       // Cache hit, index invalid (e.g., pruned), or too late to grab this set.
       continue;
     }
