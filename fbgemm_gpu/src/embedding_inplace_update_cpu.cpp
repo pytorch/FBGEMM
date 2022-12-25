@@ -17,6 +17,8 @@
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+
+template <typename index_t>
 void embedding_inplace_update_cpu_kernel(
     at::TensorAccessor<uint8_t, 1> dev_weights,
     at::TensorAccessor<uint8_t, 1> uvm_weights,
@@ -26,12 +28,12 @@ void embedding_inplace_update_cpu_kernel(
     const at::TensorAccessor<int32_t, 1>& D_offsets,
     const at::TensorAccessor<uint8_t, 1>& update_weights,
     const at::TensorAccessor<int32_t, 1>& update_table_idx,
-    const at::TensorAccessor<int32_t, 1>& update_row_idx,
+    const at::TensorAccessor<index_t, 1>& update_row_idx,
     const at::TensorAccessor<int64_t, 1>& update_offsets,
     int64_t row_alignment) {
-  for (int32_t n = 0; n < update_row_idx.size(0); n++) {
+  for (int64_t n = 0; n < update_row_idx.size(0); n++) {
     int32_t t = update_table_idx[n];
-    int32_t row_idx = update_row_idx[n];
+    auto row_idx = update_row_idx[n];
 
     SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
     const int32_t D_start = D_offsets[t];
@@ -44,9 +46,11 @@ void embedding_inplace_update_cpu_kernel(
     uint8_t* __restrict__ weight_row;
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::HOST) {
-      weight_row = &dev_weights[weight_offset + D_bytes * row_idx];
+      weight_row =
+          &dev_weights[weight_offset + (int64_t)D_bytes * (int64_t)row_idx];
     } else {
-      weight_row = &uvm_weights[weight_offset + D_bytes * row_idx];
+      weight_row =
+          &uvm_weights[weight_offset + (int64_t)D_bytes * (int64_t)row_idx];
     }
 
     int64_t update_weight_offset = update_offsets[n];
@@ -91,18 +95,21 @@ void embedding_inplace_update_cpu(
     return;
   }
 
-  embedding_inplace_update_cpu_kernel(
-      dev_weights.accessor<uint8_t, 1>(),
-      uvm_weights.accessor<uint8_t, 1>(),
-      weights_placements.accessor<int32_t, 1>(),
-      weights_offsets.accessor<int64_t, 1>(),
-      weights_tys.accessor<uint8_t, 1>(),
-      D_offsets.accessor<int32_t, 1>(),
-      update_weights.accessor<uint8_t, 1>(),
-      update_table_idx.accessor<int32_t, 1>(),
-      update_row_idx.accessor<int32_t, 1>(),
-      update_offsets.accessor<int64_t, 1>(),
-      row_alignment);
+  AT_DISPATCH_INDEX_TYPES(
+      update_row_idx.scalar_type(), "embedding_inplace_update_kernel", [&] {
+        embedding_inplace_update_cpu_kernel(
+            dev_weights.accessor<uint8_t, 1>(),
+            uvm_weights.accessor<uint8_t, 1>(),
+            weights_placements.accessor<int32_t, 1>(),
+            weights_offsets.accessor<int64_t, 1>(),
+            weights_tys.accessor<uint8_t, 1>(),
+            D_offsets.accessor<int32_t, 1>(),
+            update_weights.accessor<uint8_t, 1>(),
+            update_table_idx.accessor<int32_t, 1>(),
+            update_row_idx.accessor<index_t, 1>(),
+            update_offsets.accessor<int64_t, 1>(),
+            row_alignment);
+      });
 }
 
 } // namespace fbgemm_gpu
