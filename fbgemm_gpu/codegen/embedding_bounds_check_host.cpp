@@ -25,6 +25,14 @@ void bounds_check_indices_cuda(
     Tensor& warning,
     c10::optional<Tensor> weights);
 
+///@ingroup embedding-cuda
+void bounds_check_row_indices_cuda(
+    Tensor& rows_per_table,
+    Tensor& update_row_indices,
+    Tensor& update_table_indices,
+    int64_t bounds_check_mode,
+    Tensor& warning);
+
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
@@ -32,4 +40,5 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
+  DISPATCH_TO_CUDA("bounds_check_row_indices", bounds_check_row_indices_cuda);
 }
