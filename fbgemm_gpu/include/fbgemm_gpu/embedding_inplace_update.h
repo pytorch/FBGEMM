@@ -39,23 +39,9 @@ namespace fbgemm_gpu {
  * only receive one update at a time.
  *
  * This function has embedding update parameters (update_weights,
- * update_table_idx, updata_offsets) on the host, while embedding weights
- * are on the CUDA devices.
+ * update_table_idx, updata_offsets) and delta embedding weights
+ * on the CUDA devices.
  */
-void embedding_inplace_update_host_weight_cuda(
-    Tensor dev_weights,
-    Tensor uvm_weights,
-    Tensor weights_placements,
-    Tensor weights_offsets,
-    Tensor weights_tys,
-    Tensor D_offsets,
-    Tensor update_weights,
-    const std::vector<int32_t>& update_table_idx,
-    const std::vector<int64_t>& update_row_idx,
-    const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights = c10::nullopt,
-    c10::optional<Tensor> lxu_cache_locations = c10::nullopt);
-
 void embedding_inplace_update_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
