@@ -100,19 +100,6 @@ __launch_bounds__(kMaxThreads) __global__ void embedding_inplace_update_kernel(
   }
 }
 
-int32_t get_D_bytes(
-    Tensor D_offsets,
-    Tensor weights_tys,
-    const int32_t table_idx,
-    const int64_t row_alignment) {
-  const int32_t D_start = D_offsets[table_idx].item<int32_t>();
-  const int32_t D_end = D_offsets[table_idx + 1].item<int32_t>();
-  const int32_t D = D_end - D_start;
-  SparseType weight_ty =
-      static_cast<SparseType>(weights_tys[table_idx].item<uint8_t>());
-  return nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
-}
-
 void embedding_inplace_update_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -193,74 +180,6 @@ void embedding_inplace_update_cuda(
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-}
-
-void embedding_inplace_update_host_weight_cuda(
-    Tensor dev_weights,
-    Tensor uvm_weights,
-    const Tensor weights_placements,
-    const Tensor weights_offsets,
-    const Tensor weights_tys,
-    const Tensor D_offsets,
-    const Tensor update_weights,
-    const std::vector<int32_t>& update_table_idx,
-    const std::vector<int64_t>& update_row_idx,
-    const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations) {
-  TENSOR_ON_CUDA_GPU(dev_weights);
-  TENSOR_ON_CUDA_GPU(uvm_weights);
-  TENSOR_ON_CUDA_GPU(weights_placements);
-  TENSOR_ON_CUDA_GPU(weights_offsets);
-  TENSOR_ON_CUDA_GPU(weights_tys);
-  TENSOR_ON_CUDA_GPU(D_offsets);
-  TENSOR_ON_CUDA_GPU(update_weights);
-
-  if (lxu_cache_weights.has_value()) {
-    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
-  }
-  if (lxu_cache_locations.has_value()) {
-    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
-  }
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(dev_weights.get_device());
-
-  std::unordered_map<int32_t, int32_t> table_dbytes_map;
-  std::vector<int64_t> update_offsets;
-  int64_t update_offset = 0;
-  update_offsets.push_back(0);
-  for (int i = 0; i < update_table_idx.size(); ++i) {
-    int32_t idx = update_table_idx[i];
-    if (table_dbytes_map.find(idx) == table_dbytes_map.end()) {
-      table_dbytes_map[idx] =
-          get_D_bytes(D_offsets, weights_tys, idx, row_alignment);
-    }
-    update_offset += table_dbytes_map[idx];
-    update_offsets.push_back(update_offset);
-  }
-  auto device = at::Device(at::kCUDA, at::cuda::current_device());
-  auto update_offsets_tensor =
-      at::tensor(update_offsets, at::device(device).dtype(at::kLong));
-  auto table_idx_tensor =
-      at::tensor(update_table_idx, at::device(device).dtype(at::kInt));
-  auto row_idx_tensor =
-      at::tensor(update_row_idx, at::device(device).dtype(at::kLong));
-
-  embedding_inplace_update_cuda(
-      dev_weights,
-      uvm_weights,
-      weights_placements,
-      weights_offsets,
-      weights_tys,
-      D_offsets,
-      update_weights,
-      table_idx_tensor,
-      row_idx_tensor,
-      update_offsets_tensor,
-      row_alignment,
-      lxu_cache_weights,
-      lxu_cache_locations);
 }
 
 } // namespace fbgemm_gpu
