@@ -539,9 +539,15 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
   const int64_t index_remappings_end = index_remappings_offsets[t + 1];
   const int64_t capacity = index_remappings_end - index_remappings_start;
 
-  for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
-    int32_t idx = indices[indices_start + l];
-    dense_indices[indices_start + l] = capacity ? index_remappings[index_remappings_start + idx] : idx;
+  if (capacity > 0) {
+    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+        int32_t idx = indices[indices_start + l];
+        dense_indices[indices_start + l] = index_remappings[index_remappings_start + idx];
+    }
+  } else {
+    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+        dense_indices[indices_start + l] = indices[indices_start + l];
+    }
   }
 }
 {% endif %}
