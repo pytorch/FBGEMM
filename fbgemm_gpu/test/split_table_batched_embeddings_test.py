@@ -738,23 +738,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ],
             output_dtype=output_dtype,
-            # pyre-fixme[6]: For 3rd param expected `Optional[device]` but got `int`.
             device=torch.cuda.current_device(),
         )
-        op_ref = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    E,
-                    D,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
-                )
-                for (E, D) in zip(Es, Ds)
-            ],
-            output_dtype=SparseType.FP32,
-            # pyre-fixme[6]: For 3rd param expected `Optional[device]` but got
-            #  `int`.
-            device=torch.cuda.current_device(),
+        op_ref = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (
+                        E,
+                        D,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    )
+                    for (E, D) in zip(Es, Ds)
+                ],
+                output_dtype=SparseType.FP32,
+                device=torch.cuda.current_device(),
+            )
         )
         # sync weights between two ops
         split_weights = op.split_embedding_weights()
