@@ -224,7 +224,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
         pooling_mode: PoolingMode = PoolingMode.SUM,
-        device: Optional[torch.device] = None,
+        device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
@@ -238,8 +238,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.record_cache_metrics = record_cache_metrics
         else:
             self.record_cache_metrics = RecordCacheMetrics(False, False)
-        # NOTE: a placeholder to avoid multi-construction and make TorchScript work!
-        self.dummy_tensor: Tensor = torch.zeros(0, device=device)
 
         self.embedding_specs = embedding_specs
         (rows, dims, locations, compute_devices) = zip(*embedding_specs)
@@ -274,13 +272,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 SparseType.BF16,
             ], "Fused pooled embedding quantization only supported for cuda."
 
-        if device is not None:
-            self.current_device: torch.device = device
-        else:
+        if device is None:
             # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
             self.current_device: torch.device = (
                 torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
             )
+        elif isinstance(device, torch.device):
+            self.current_device = device
+        else:
+            self.current_device = torch.device(device)
 
         # add placeholder require_grad param tensor to enable autograd with int8 weights
         self.placeholder_autograd_tensor = nn.Parameter(
