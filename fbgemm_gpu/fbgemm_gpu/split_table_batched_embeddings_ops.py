@@ -2716,6 +2716,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             original_feature_rows = [
                 mapping.numel() for mapping in merged_index_remappings
             ]
+            if len(original_feature_rows) == 0:
+                original_feature_rows = rows
             self.original_rows_per_table = torch.tensor(
                 [original_feature_rows[t] for t in self.feature_table_map],
                 device=self.current_device,
@@ -2767,6 +2769,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 device=self.current_device,
                 dtype=torch.int64,
             )
+            if len(original_feature_rows) == 0:
+                original_feature_rows = rows
             self.original_rows_per_table = torch.tensor(
                 [original_feature_rows[t] for t in self.feature_table_map],
                 device=self.current_device,
