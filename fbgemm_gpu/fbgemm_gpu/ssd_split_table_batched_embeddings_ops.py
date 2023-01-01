@@ -506,15 +506,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
 
-# pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     """
-    Table-batched version of nn.EmbeddingBag(sparse=False)
+    SSD Table-batched version of nn.EmbeddingBag(sparse=False)
     Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
     """
 
     embedding_specs: List[Tuple[int, int, SparseType]]
-    cache_miss_counter: torch.Tensor
 
     def __init__(
         self,
@@ -794,7 +792,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.fp8_exponent_bias = -1
 
     @torch.jit.export
-    def prefetch(self, indices: Tensor, offsets: Tensor) -> Optional[Tensor]:
+    def prefetch(self, indices: Tensor, offsets: Tensor) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.hash_size_cumsum,
@@ -817,12 +815,10 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             self.lru_state,
         )
 
-        def to_pinned_cpu(t: torch.Tensor) -> torch.Tensor:
-            t_cpu = torch.empty(t.shape, pin_memory=True, dtype=t.dtype)
-            t_cpu.copy_(t, non_blocking=True)
-            return t_cpu
-
-        actions_count_cpu = to_pinned_cpu(actions_count_gpu)
+        actions_count_cpu = torch.empty(
+            actions_count_gpu.shape, pin_memory=True, dtype=actions_count_gpu.dtype
+        )
+        actions_count_cpu.copy_(actions_count_gpu, non_blocking=True)
         assigned_cache_slots = assigned_cache_slots.long()
         evicted_rows = self.lxu_cache_weights[
             assigned_cache_slots.clamp_(min=0).long(), :
@@ -837,13 +833,19 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         # Ensure the previous iterations l3_db.set(..) has completed.
         current_stream.wait_event(self.ssd_set_end)
+        inserted_indices_cpu = torch.empty(
+            inserted_indices.shape, pin_memory=True, dtype=inserted_indices.dtype
+        )
+        inserted_indices_cpu.copy_(inserted_indices, non_blocking=True)
         self.ssd_db.get_cuda(
-            to_pinned_cpu(inserted_indices), inserted_rows, actions_count_cpu
+            inserted_indices_cpu,
+            inserted_rows,
+            actions_count_cpu,
         )
         current_stream.record_event(self.ssd_set_start)
         # TODO: T123943415 T123943414 this is a big copy that is (mostly) unnecessary with a decent cache hit rate.
         # Should we allocate on HBM?
-        inserted_rows_gpu = inserted_rows.cuda(non_blocking=True)
+        inserted_rows_gpu = inserted_rows.to(self.current_device, non_blocking=True)
 
         # self.lxu_cache_weights[assigned_cache_slots, :] = inserted_rows.cuda(non_blocking=True)
         torch.ops.fbgemm.masked_index_put(
@@ -855,8 +857,14 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         with torch.cuda.stream(self.ssd_stream):
             self.ssd_stream.wait_event(self.ssd_set_start)
-            evicted_rows_cpu = to_pinned_cpu(evicted_rows)
-            evicted_indices_cpu = to_pinned_cpu(evicted_indices)
+            evicted_rows_cpu = torch.empty(
+                evicted_rows.shape, pin_memory=True, dtype=evicted_rows.dtype
+            )
+            evicted_rows_cpu.copy_(evicted_rows, non_blocking=True)
+            evicted_indices_cpu = torch.empty(
+                evicted_indices.shape, pin_memory=True, dtype=evicted_indices.dtype
+            )
+            evicted_indices_cpu.copy_(evicted_indices, non_blocking=True)
             # pyre-fixme[6]: For 1st param expected `Stream` but got `Stream`.
             evicted_rows.record_stream(self.ssd_stream)
             evicted_indices.record_stream(self.ssd_stream)
@@ -931,16 +939,14 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     @torch.jit.export
     def split_embedding_weights(
         self, split_scale_shifts: bool = True
-    ) -> List[torch.Tensor]:
+    ) -> List[Tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table.
 
         Testing only, very slow.
         """
-        (rows, _, _) = zip(*self.embedding_specs)
-
-        rows_cumsum = [0] + list(itertools.accumulate(rows))
-        splits = []
+        splits: List[Tuple[Tensor, Optional[Tensor]]] = []
+        rows_cumsum = 0
         for t, (row, dim, weight_ty) in enumerate(self.embedding_specs):
             weights = torch.empty(
                 (
@@ -955,10 +961,11 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 dtype=torch.uint8,
             )
             self.ssd_db.get_cuda(
-                torch.arange(rows_cumsum[t], rows_cumsum[t + 1]).to(torch.int64),
+                torch.arange(rows_cumsum, rows_cumsum + row).to(torch.int64),
                 weights,
                 torch.as_tensor([row]),
             )
+            rows_cumsum += row
             torch.cuda.synchronize(self.current_device)
 
             weights_shifts = weights.detach()
