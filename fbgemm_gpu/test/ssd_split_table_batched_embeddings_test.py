@@ -481,6 +481,8 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 pooling_mode=PoolingMode.SUM,
             ).cuda()
         )
+        # # NOTE: test TorchScript-compatible!
+        # emb = torch.jit.script(emb)
 
         bs = [
             torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
@@ -622,6 +624,8 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 pooling_mode=PoolingMode.SUM,
             ).cuda()
         )
+        # # NOTE: test TorchScript-compatible!
+        # emb = torch.jit.script(emb)
 
         bs = [
             torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
