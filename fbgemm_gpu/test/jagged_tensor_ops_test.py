@@ -505,7 +505,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         padding_value: float = 0,
     ) -> torch.Tensor:
         outer_dense_size = len(offsets[0]) - 1
-        inner_dense_size = values.size(-1)
+        # canonicalize by unsqueeze the last dim if the inner dense dimension
+        # is 1 and folded.
+        inner_dense_size = 1 if values.ndim == 1 else values.size(-1)
         dense = torch.empty(
             (outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,),
             dtype=values.dtype,
@@ -529,7 +531,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 dense[(i,) + jagged_coord] = (
                     padding_value if is_zero else values[cur_offset]
                 )
-        return dense
+        return dense.squeeze(-1) if values.ndim == 1 else dense
 
     # TODO: reuse this code in test_(stacked)_jagged_1/2d
     def _generate_jagged_tensor(
@@ -539,6 +541,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size: int,
         dtype: torch.dtype,
         device: torch.device,
+        fold_inner_dense: bool = False,
     ) -> Tuple[torch.Tensor, List[torch.LongTensor], List[int]]:
         max_lengths = np.random.randint(low=1, high=10, size=(num_jagged_dim,))
         x_offsets: List[torch.LongTensor] = []
@@ -562,9 +565,11 @@ class JaggedTensorOpsTest(unittest.TestCase):
             #  typing.Tuple[int, ...]]` but got `Tensor`.
             x_offsets[-1][-1] * inner_dense_size,
             dtype=dtype,
-            device=device
+            device=device,
+        )
+        if inner_dense_size != 1 or not fold_inner_dense:
             # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
-        ).reshape(x_offsets[-1][-1].item(), inner_dense_size)
+            x_values = x_values.reshape(x_offsets[-1][-1].item(), inner_dense_size)
 
         return x_values, x_offsets, max_lengths
 
@@ -704,6 +709,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
+        fold_inner_dense=st.booleans(),
         padding_value=st.sampled_from([0, -1e-8]),
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
         device_type=st.sampled_from(["cpu", "cuda"])
@@ -716,12 +722,14 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim: int,
         outer_dense_size: int,
         inner_dense_size: int,
+        fold_inner_dense: bool,
         padding_value: float,
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
         # CPU doesn't support bfloat16
         assume(device_type != "cpu" or dtype != torch.bfloat16)
+        assume(not fold_inner_dense or inner_dense_size == 1)
 
         # Testing with a basic crafted example.
         # dense representation is
@@ -748,7 +756,12 @@ class JaggedTensorOpsTest(unittest.TestCase):
         device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
-            num_jagged_dim, outer_dense_size, inner_dense_size, torch.float, device
+            num_jagged_dim,
+            outer_dense_size,
+            inner_dense_size,
+            torch.float,
+            device,
+            fold_inner_dense,
         )
 
         output_ref = self._to_padded_dense(
