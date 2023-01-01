@@ -1113,12 +1113,16 @@ at::Tensor jagged_to_padded_dense_forward(
   at::DimVector padded_values_shape({offsets[0].size(0) - 1});
   padded_values_shape.insert(
       padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
-  if (values.dim() > 1) {
+
+  // Canonicalize padded_values by unsqueeze the last dim if the inner dense
+  // dimension is 1 and folded.
+  const bool D_folded = values.dim() == 1;
+  if (!D_folded) {
     padded_values_shape.push_back(values.size(-1));
   }
   Tensor padded_values = at::empty(padded_values_shape, values.options());
   Tensor padded_values_view =
-      values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
+      D_folded ? padded_values.unsqueeze(-1) : padded_values;
 
   AT_DISPATCH_ALL_TYPES_AND2(
       at::ScalarType::Half,
@@ -1148,7 +1152,13 @@ at::Tensor jagged_to_padded_dense_backward(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_padded_values.get_device());
 
-  int32_t D = grad_padded_values.size(-1);
+  // Canonicalize padded_values by unsqueeze the last dim if the inner dense
+  // dimension is 1 and folded.
+  const bool D_folded = grad_padded_values.dim() == offsets.size() + 1;
+  Tensor grad_padded_values_view =
+      D_folded ? grad_padded_values.unsqueeze(-1) : grad_padded_values;
+  int32_t D = grad_padded_values_view.size(-1);
+
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
   auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
@@ -1162,14 +1172,14 @@ at::Tensor jagged_to_padded_dense_backward(
         jagged_dense_elementwise_jagged_output_<scalar_t>(
             grad_values, // dummy not used in the lambda function
             {offsets},
-            grad_padded_values,
+            grad_padded_values_view,
             grad_values,
             [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
               return y;
             });
       });
 
-  return grad_values;
+  return D_folded ? grad_values.squeeze(-1) : grad_values;
 }
 
 ///@ingroup jagged-tensor-ops-cuda
