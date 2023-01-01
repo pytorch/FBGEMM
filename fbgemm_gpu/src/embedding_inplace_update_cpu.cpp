@@ -47,10 +47,14 @@ void embedding_inplace_update_cpu_kernel(
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::HOST) {
       weight_row =
-          &dev_weights[weight_offset + (int64_t)D_bytes * (int64_t)row_idx];
+          &dev_weights
+              [weight_offset +
+               static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx)];
     } else {
       weight_row =
-          &uvm_weights[weight_offset + (int64_t)D_bytes * (int64_t)row_idx];
+          &uvm_weights
+              [weight_offset +
+               static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx)];
     }
 
     int64_t update_weight_offset = update_offsets[n];
