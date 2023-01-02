@@ -277,7 +277,7 @@ def nbit_ssd(
     feature_table_map = list(range(T))
     C = max(T * B * L, 1)
     emb_ssd = SSDIntNBitTableBatchedEmbeddingBags(
-        embedding_specs=[(E, d, weights_precision) for d in Ds],
+        embedding_specs=[("", E, d, weights_precision) for d in Ds],
         feature_table_map=feature_table_map,
         ssd_storage_directory=tempfile.mkdtemp(),
         cache_sets=C,
