@@ -512,13 +512,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
     """
 
-    embedding_specs: List[Tuple[int, int, SparseType]]
+    embedding_specs: List[Tuple[str, int, int, SparseType]]
 
     def __init__(
         self,
         embedding_specs: List[
-            Tuple[int, int, SparseType]
-        ],  # tuple of (rows, dims, SparseType)
+            Tuple[str, int, int, SparseType]
+        ],  # tuple of (feature_names, rows, dims, SparseType)
         feature_table_map: Optional[List[int]] = None,  # [T]
         pooling_mode: PoolingMode = PoolingMode.SUM,
         output_dtype: SparseType = SparseType.FP16,
@@ -573,11 +573,11 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         assert all(table_has_feature), "Each table must have at least one feature!"
 
         self.output_dtype: int = output_dtype.as_int()
-        # (rows, dims, weights_tys) = zip(*embedding_specs)
+        # (feature_names, rows, dims, weights_tys) = zip(*embedding_specs)
         # Pyre workaround
-        rows: List[int] = [e[0] for e in embedding_specs]
-        dims: List[int] = [e[1] for e in embedding_specs]
-        weights_tys: List[SparseType] = [e[2] for e in embedding_specs]
+        rows: List[int] = [e[1] for e in embedding_specs]
+        dims: List[int] = [e[2] for e in embedding_specs]
+        weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
 
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(itertools.accumulate(D_offsets))
@@ -613,7 +613,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
 
         cached_dims = [
             rounded_row_size_in_bytes(
-                embedding_spec[1], embedding_spec[2], 16, self.scale_bias_size_in_bytes
+                embedding_spec[2], embedding_spec[3], 16, self.scale_bias_size_in_bytes
             )
             for embedding_spec in self.embedding_specs
         ]
@@ -622,7 +622,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         placements = []
         offsets = []
         uvm_size = 0
-        for num_embeddings, embedding_dim, weight_ty in embedding_specs:
+        for _, num_embeddings, embedding_dim, weight_ty in embedding_specs:
             embedding_dim = rounded_row_size_in_bytes(
                 embedding_dim, weight_ty, self.row_alignment, scale_bias_size_in_bytes
             )
@@ -947,7 +947,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         """
         splits: List[Tuple[Tensor, Optional[Tensor]]] = []
         rows_cumsum = 0
-        for t, (row, dim, weight_ty) in enumerate(self.embedding_specs):
+        for _, row, dim, weight_ty in self.embedding_specs:
             weights = torch.empty(
                 (
                     row,

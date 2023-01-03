@@ -391,7 +391,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         feature_table_map = list(range(1))
         emb = (
             ssd_split_table_batched_embeddings_ops.SSDIntNBitTableBatchedEmbeddingBags(
-                embedding_specs=[(E, D, SparseType.FP32)],
+                embedding_specs=[("", E, D, SparseType.FP32)],
                 feature_table_map=feature_table_map,
                 ssd_storage_directory=tempfile.mkdtemp(),
                 cache_sets=1,
@@ -471,7 +471,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb = (
             ssd_split_table_batched_embeddings_ops.SSDIntNBitTableBatchedEmbeddingBags(
                 embedding_specs=[
-                    (E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
+                    ("", E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
                 ],
                 feature_table_map=feature_table_map,
                 ssd_storage_directory=tempfile.mkdtemp(),
@@ -613,7 +613,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb = (
             ssd_split_table_batched_embeddings_ops.SSDIntNBitTableBatchedEmbeddingBags(
                 embedding_specs=[
-                    (E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
+                    ("", E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
                 ],
                 feature_table_map=feature_table_map,
                 ssd_storage_directory=tempfile.mkdtemp(),
