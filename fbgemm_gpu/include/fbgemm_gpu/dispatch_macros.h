@@ -103,6 +103,32 @@
     return __VA_ARGS__();                               \
   }
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+
+#define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
+  [&] {                                                                      \
+    const auto& output_type = OUTPUT_TYPE;                                   \
+    at::ScalarType _output_t = ::detail::scalar_type(output_type);           \
+    switch (_output_t) {                                                     \
+      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Half, at::Half, __VA_ARGS__) \
+      PRIVATE_CASE_TYPE_OUTPUT2(                                             \
+          at::ScalarType::BFloat16, at::BFloat16, __VA_ARGS__)               \
+      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
+      PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Byte, uint8_t, __VA_ARGS__)  \
+      default:                                                               \
+        AT_ERROR(                                                            \
+            #NAME,                                                           \
+            " not implemented for output_t '",                               \
+            toString(_output_t),                                             \
+            "'");                                                            \
+    }                                                                        \
+  }()
+
+#else
+
 #define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
   [&] {                                                                      \
     const auto& output_type = OUTPUT_TYPE;                                   \
@@ -119,6 +145,8 @@
             "'");                                                            \
     }                                                                        \
   }()
+
+#endif
 
 #define PRIVATE_CASE_TYPE_CACHE_EMB(                                       \
     grad_enum_type, _cache_t, _emb_t, grad_cxx_type, NAME, ...)            \

@@ -197,7 +197,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     return;
   }
   static_assert(
-    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
+    std::is_same<output_t, float>::value || std::is_same<output_t, at::BFloat16>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
     "output_t can only be float or half or bytes now"
   );
 
@@ -331,7 +331,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
         }
         {% else %}
         const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
-        if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+        if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, at::BFloat16>::value) {
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
             // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
@@ -388,7 +388,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     const uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
     const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i]: static_cast<float>(1.0);
 
-    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, at::BFloat16>::value) {
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
@@ -539,9 +539,15 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
   const int64_t index_remappings_end = index_remappings_offsets[t + 1];
   const int64_t capacity = index_remappings_end - index_remappings_start;
 
-  for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
-    int32_t idx = indices[indices_start + l];
-    dense_indices[indices_start + l] = capacity ? index_remappings[index_remappings_start + idx] : idx;
+  if (capacity > 0) {
+    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+        int32_t idx = indices[indices_start + l];
+        dense_indices[indices_start + l] = index_remappings[index_remappings_start + idx];
+    }
+  } else {
+    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+        dense_indices[indices_start + l] = indices[indices_start + l];
+    }
   }
 }
 {% endif %}
@@ -625,7 +631,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor output;
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
-    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
     {% if not nobag %}
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {

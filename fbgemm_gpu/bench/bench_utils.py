@@ -229,7 +229,7 @@ def benchmark_requests_refer(
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-    for (indices, _, weights) in requests:
+    for indices, _, weights in requests:
         indices_list = indices.view(T, B, L).split(1)
 
         if weighted:
@@ -309,7 +309,7 @@ def benchmark_pipelined_requests(
         (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
         for _ in requests
     ]
-    for ((indices, offsets, indices_weights), start_event, end_event) in zip(
+    for (indices, offsets, indices_weights), start_event, end_event in zip(
         requests, start_events, end_events
     ):
         if flush_gpu_cache_size_mb:

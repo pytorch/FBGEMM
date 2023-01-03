@@ -703,10 +703,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        # FIXME: switch to
-        # output_dtype=st.sampled_from([SparseType.FP16, SparseType.INT8]),
-        # after v0/v2 is landed.
-        output_dtype=st.sampled_from([SparseType.FP32]),
+        output_dtype=st.sampled_from([SparseType.FP16, SparseType.INT8]),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -741,23 +738,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for (E, D) in zip(Es, Ds)
             ],
             output_dtype=output_dtype,
-            # pyre-fixme[6]: For 3rd param expected `Optional[device]` but got `int`.
             device=torch.cuda.current_device(),
         )
-        op_ref = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    E,
-                    D,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
-                )
-                for (E, D) in zip(Es, Ds)
-            ],
-            output_dtype=SparseType.FP32,
-            # pyre-fixme[6]: For 3rd param expected `Optional[device]` but got
-            #  `int`.
-            device=torch.cuda.current_device(),
+        op_ref = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (
+                        E,
+                        D,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    )
+                    for (E, D) in zip(Es, Ds)
+                ],
+                output_dtype=SparseType.FP32,
+                device=torch.cuda.current_device(),
+            )
         )
         # sync weights between two ops
         split_weights = op.split_embedding_weights()
@@ -831,6 +827,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         output_dtype=st.sampled_from(
             [
                 SparseType.FP16,
+                SparseType.BF16,
                 SparseType.INT8,
                 # SparseType.INT4,
             ]
@@ -855,7 +852,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         D_alignment = max(weights_ty.align_size() for t in range(T))
         D_alignment = max(D_alignment, output_dtype.align_size())
         D = round_up(D, D_alignment)
-
+        # BF16 output only works for CUDA device sm80+ (e.g., A100)
+        assume(
+            torch.cuda.is_available()
+            and torch.cuda.get_device_capability() >= (8, 0)
+            or not output_dtype == SparseType.BF16
+        )
         Ds = [
             round_up(
                 np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
@@ -3528,11 +3530,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT2,
             ]
         ),
+        emulate_pruning=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         self,
         weights_ty: SparseType,
+        emulate_pruning: bool,
     ) -> None:
         # TODO: support direct-mapped in int_nbit_split_embedding_uvm_caching_codegen_lookup_function
         # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
@@ -3598,7 +3602,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             0, 0, device=current_device, dtype=torch.uint8
         )
 
-        requests = generate_requests(iters, B, T, L, min(Es), reuse=0.1)
+        requests = generate_requests(
+            iters, B, T, L, min(Es), reuse=0.1, emulate_pruning=emulate_pruning
+        )
         for indices, offsets, _ in requests:
             indices = indices.int()
             offsets = offsets.int()
@@ -3733,6 +3739,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         associativity=st.sampled_from(
             [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
         ),
+        do_pruning=st.booleans(),
+        use_array_for_index_remapping=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_forward_uvm_cache(
@@ -3740,6 +3748,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_ty: SparseType,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         associativity: int,
+        do_pruning: bool,
+        use_array_for_index_remapping: bool,
     ) -> None:
         assume(
             cache_algorithm == split_table_batched_embeddings_ops.CacheAlgorithm.LRU
@@ -3786,6 +3796,21 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     if d < average_D
                     else managed[t]
                 )
+        index_remapping = None
+        pruning_hash_load_factor = 0.5
+        if do_pruning:
+            current_device = torch.cuda.current_device()
+            index_remapping = []
+            for E in Es:
+                # For each table, keep the first half of rows as is, but
+                # the rest is treated as pruned (-1).
+                remapping = list(range(0, E // 2)) + [-1] * (E - E // 2)
+                remapping_t = torch.tensor(
+                    remapping,
+                    dtype=torch.int32,
+                    device=current_device,
+                )
+                index_remapping.append(remapping_t)
         cc_ref = (
             split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
                 [
@@ -3798,6 +3823,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     )
                     for (E, D) in zip(Es, Ds)
                 ],
+                index_remapping=index_remapping,
+                use_array_for_index_remapping=use_array_for_index_remapping,
+                pruning_hash_load_factor=pruning_hash_load_factor,
             )
         )
         cc_ref.fill_random_weights()
@@ -3805,6 +3833,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
             cache_assoc=associativity,
+            index_remapping=index_remapping,
+            use_array_for_index_remapping=use_array_for_index_remapping,
+            pruning_hash_load_factor=pruning_hash_load_factor,
         )
         cc.fill_random_weights()
 
@@ -4225,6 +4256,123 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 self.assertEqual(unique_cache_miss_count, t_counter[1])
                 for i in range(len(tablewise_cache_miss)):
                     self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        N=st.integers(min_value=1, max_value=8),
+        dtype=st.sampled_from([SparseType.INT8, SparseType.INT4, SparseType.INT2]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_nbit_uvm_cache_stats(self, N: int, dtype: SparseType) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    dtype,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.cuda.current_device(),
+            gather_uvm_cache_stats=True,
+        )
+        cc.fill_random_weights()
+
+        # Create fake input data and the target output
+        x1 = torch.Tensor([[[1], [1]], [[3], [4]]]).cuda()
+        x2 = torch.Tensor([[[2], [1]], [[3], [4]]]).cuda()
+        x3 = torch.Tensor([[[5], [6]], [[7], [8]]]).cuda()
+
+        xs = [x1, x2, x3]
+        # num_unique_indices, num_unique_misses
+        # note that these are cumulative over calls; and also "unique" is per batch.
+        target_counter_list = [[3, 3], [4, 4], [4, 8]]
+        num_calls_expected = 0
+        num_indices_expcted = 0
+        num_unique_indices_expected = 0
+        for x, t_counter in zip(xs, target_counter_list):
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            for _ in range(N):
+                num_calls_expected = num_calls_expected + 1
+                num_indices_expcted = num_indices_expcted + len(indices)
+                cc(indices.int(), offsets.int())
+                (
+                    num_calls,
+                    num_indices,
+                    num_unique_indices,
+                    num_unique_misses,
+                    num_conflict_unique_miss,
+                    num_conflict_miss,
+                ) = cc.get_uvm_cache_stats().cpu()
+                # Note num_unique_indices is cumulative stats.
+                num_unique_indices_expected = num_unique_indices_expected + t_counter[0]
+                self.assertEqual(num_calls, num_calls_expected)
+                self.assertEqual(num_indices, num_indices_expcted)
+                self.assertEqual(num_unique_indices, num_unique_indices_expected)
+                self.assertEqual(num_unique_misses, t_counter[1])
+                self.assertEqual(num_conflict_unique_miss, 0)
+                self.assertEqual(num_conflict_miss, 0)
+
+        T = 1  # for simplicity
+        Ds = [D] * T
+        Es = [E] * T
+        cc1 = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    SparseType.INT8,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.cuda.current_device(),
+            gather_uvm_cache_stats=True,
+            cache_sets=1,  # Only one set.
+        )
+        cc1.fill_random_weights()
+
+        associativty = (
+            split_table_batched_embeddings_ops.DEFAULT_ASSOC
+        )  # 32 for NVidia / 64 for AMD.
+        repetition = 17
+        indices1 = torch.Tensor(
+            [[list(range(0, associativty))] * repetition]
+        ).cuda()  # 0, 1, ..., 31.
+        indices2 = torch.Tensor(
+            [[list(range(0, associativty + 1))] * repetition]
+        ).cuda()  # 0, 1, ..., 31, 32.
+        indices3 = torch.Tensor(
+            [[list(range(0, associativty + 10))] * repetition]
+        ).cuda()  # 0, 1, ..., 31, 32, ..., 41.
+
+        # num_conflict_unique_miss, num_conflict_miss
+        expected = [[0, 0], [1, 17], [10, 170]]
+
+        for x, e in zip((indices1, indices2, indices3), expected):
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            for _ in range(N):
+                cc1(indices.int(), offsets.int())
+                (
+                    _,
+                    _,
+                    _,
+                    _,
+                    num_conflict_unique_miss,
+                    num_conflict_miss,
+                ) = cc1.get_uvm_cache_stats().cpu()
+                self.assertEqual(num_conflict_unique_miss, e[0])
+                self.assertEqual(num_conflict_miss, e[1])
+                cc1.reset_uvm_cache_stats()
 
     @given(
         T=st.integers(min_value=1, max_value=64),

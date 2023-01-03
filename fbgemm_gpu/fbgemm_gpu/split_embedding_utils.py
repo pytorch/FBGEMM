@@ -102,6 +102,10 @@ def generate_requests(
     requests_data_file: Optional[str] = None,
     # Comma-separated list of table numbers
     tables: Optional[str] = None,
+    # If sigma_L is not None, treat L as mu_L and generate Ls from sigma_L
+    # and mu_L
+    sigma_L: Optional[int] = None,
+    emulate_pruning: bool = False,
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
     if requests_data_file is not None:
         indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
@@ -168,17 +172,39 @@ def generate_requests(
             )
         return rs
 
+    # Generate L from stats
+    if sigma_L is not None:
+        use_variable_L = True
+        Ls = np.random.normal(loc=L, scale=sigma_L, size=T * B).astype(int)
+        # Make sure that Ls are positive
+        Ls[Ls < 0] = 0
+        # Use the same L distribution across iters
+        Ls = np.tile(Ls, iters)
+        L = Ls.max()
+        # Make it exclusive cumsum
+        L_offsets = torch.from_numpy(np.insert(Ls.cumsum(), 0, 0)).to(torch.long)
+    else:
+        use_variable_L = False
+        # Init to suppress the pyre error
+        L_offsets = torch.empty(1)
+
     if alpha <= 1.0:
         all_indices = torch.randint(
             low=0,
             high=E,
             size=(iters, T, B, L),
-            device=get_device(),
+            device="cpu" if use_variable_L else get_device(),
             dtype=torch.int32,
         )
         # each bag is usually sorted
         (all_indices, _) = torch.sort(all_indices)
-        all_indices = all_indices.reshape(iters, T, B * L)
+        if use_variable_L:
+            all_indices = torch.ops.fbgemm.bottom_k_per_row(
+                all_indices.to(torch.long), L_offsets, False
+            )
+            all_indices = all_indices.to(get_device()).int()
+        else:
+            all_indices = all_indices.reshape(iters, T, B * L)
     else:
         assert E >= L, "num-embeddings must be greater than equal to bag-size"
         # oversample and then remove duplicates to obtain sampling without
@@ -200,33 +226,87 @@ def generate_requests(
         else:
             all_indices = torch.as_tensor(np.random.zipf(a=alpha, size=zipf_shape))
         all_indices = (all_indices - 1) % E
-        all_indices = torch.ops.fbgemm.bottom_unique_k_per_row(all_indices, L)
+        if use_variable_L:
+            all_indices = torch.ops.fbgemm.bottom_k_per_row(
+                all_indices, L_offsets, True
+            )
+        else:
+            all_indices = torch.ops.fbgemm.bottom_k_per_row(
+                all_indices, torch.tensor([0, L], dtype=torch.long), True
+            )
         rng = default_rng()
         permutation = torch.as_tensor(
             rng.choice(E, size=all_indices.max().item() + 1, replace=False)
         )
         all_indices = permutation.gather(0, all_indices.flatten())
-        all_indices = all_indices.to(get_device()).int().reshape(iters, T, B * L)
-    for it in range(iters - 1):
-        for t in range(T):
-            reused_indices = torch.randperm(B * L, device=get_device())[
-                : int(B * L * reuse)
-            ]
-            all_indices[it + 1, t, reused_indices] = all_indices[it, t, reused_indices]
+        all_indices = all_indices.to(get_device()).int()
+        if not use_variable_L:
+            all_indices = all_indices.reshape(iters, T, B * L)
+
+    if reuse > 0.0:
+        assert (
+            not use_variable_L
+        ), "Does not support generating Ls from stats for reuse > 0.0"
+
+        for it in range(iters - 1):
+            for t in range(T):
+                reused_indices = torch.randperm(B * L, device=get_device())[
+                    : int(B * L * reuse)
+                ]
+                all_indices[it + 1, t, reused_indices] = all_indices[
+                    it, t, reused_indices
+                ]
+
+    # Some indices are set to -1 for emulating pruned rows.
+    if emulate_pruning:
+        for it in range(iters):
+            for t in range(T):
+                num_negative_indices = B // 2
+                random_locations = torch.randint(
+                    low=0,
+                    high=(B * L),
+                    size=(num_negative_indices,),
+                    device=torch.cuda.current_device(),
+                    dtype=torch.int32,
+                )
+                all_indices[it, t, random_locations] = -1
 
     rs = []
     for it in range(iters):
-        weights_tensor = (
-            None
-            if not weighted
-            else torch.randn(
-                T * B * L, device=get_device()
-            )  # per sample weights will always be FP32
-        )
-        rs.append(
-            get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
-            + (weights_tensor,)
-        )
+        if use_variable_L:
+            start_offset = L_offsets[it * T * B]
+            it_L_offsets = torch.concat(
+                [
+                    torch.zeros(1),
+                    L_offsets[it * T * B + 1 : (it + 1) * T * B + 1] - start_offset,
+                ]
+            )
+            weights_tensor = (
+                None
+                if not weighted
+                else torch.randn(
+                    int(it_L_offsets[-1].item()), device=get_device()
+                )  # per sample weights will always be FP32
+            )
+            rs.append(
+                (
+                    all_indices[start_offset : L_offsets[(it + 1) * T * B]],
+                    it_L_offsets.to(get_device()),
+                    weights_tensor,
+                )
+            )
+        else:
+            weights_tensor = (
+                None
+                if not weighted
+                else torch.randn(
+                    T * B * L, device=get_device()
+                )  # per sample weights will always be FP32
+            )
+            rs.append(
+                get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
+                + (weights_tensor,)
+            )
     return rs
 
 

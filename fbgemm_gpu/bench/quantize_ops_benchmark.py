@@ -40,7 +40,6 @@ def bench_impl(
     num_rows: int,
     warmup_runs: int,
 ) -> None:
-
     average_time = {
         "int8_quant": 0.0,
         "int4_quant": 0.0,

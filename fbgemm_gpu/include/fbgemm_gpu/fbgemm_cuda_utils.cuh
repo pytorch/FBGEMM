@@ -21,6 +21,12 @@
 // clang-format on
 
 #include <cuda.h>
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#include <cuda_bf16.h>
+#endif
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -1389,6 +1395,26 @@ struct __align__(32) half16 {
   half2 vals[8];
 };
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+struct __align__(8) bfloat16_4 {
+  __host__ __device__ bfloat16_4() {}
+  __nv_bfloat162 vals[2];
+};
+
+struct __align__(16) bfloat16_8 {
+  __host__ __device__ bfloat16_8() {}
+  __nv_bfloat162 vals[4];
+};
+
+struct __align__(32) bfloat16_16 {
+  __host__ __device__ bfloat16_16() {}
+  __nv_bfloat162 vals[8];
+};
+#endif
+
 DEVICE_INLINE __half to_half(float v) {
   return __float2half_rn(v);
 }
@@ -1434,6 +1460,68 @@ DEVICE_INLINE half16 to_half16(float_16 v) {
       __float22half2_rn(make_float2(v.vals[1].vals[1].z, v.vals[1].vals[1].w));
   return t;
 }
+
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+DEVICE_INLINE __nv_bfloat16 to_bfloat16(float v) {
+  return __float2bfloat16(v);
+}
+
+DEVICE_INLINE __nv_bfloat162 to_bfloat16_2(float2 v) {
+#if __CUDA_ARCH__ >= 800
+  return __float22bfloat162_rn(v);
+#else
+  union {
+    __nv_bfloat162 raw;
+    __nv_bfloat16 x;
+    __nv_bfloat16 y;
+  } t;
+  t.x = __float2bfloat16_rn(v.x);
+  t.y = __float2bfloat16_rn(v.y);
+  return t.raw;
+#endif
+}
+
+DEVICE_INLINE bfloat16_4 to_bfloat16_4(float4 v) {
+  bfloat16_4 t;
+  t.vals[0] = to_bfloat16_2(make_float2(v.x, v.y));
+  t.vals[1] = to_bfloat16_2(make_float2(v.z, v.w));
+  return t;
+}
+
+DEVICE_INLINE bfloat16_8 to_bfloat16_8(float8 v) {
+  bfloat16_8 t;
+  t.vals[0] = to_bfloat16_2(make_float2(v.vals[0].x, v.vals[0].y));
+  t.vals[1] = to_bfloat16_2(make_float2(v.vals[0].z, v.vals[0].w));
+  t.vals[2] = to_bfloat16_2(make_float2(v.vals[1].x, v.vals[1].y));
+  t.vals[3] = to_bfloat16_2(make_float2(v.vals[1].z, v.vals[1].w));
+  return t;
+}
+
+DEVICE_INLINE bfloat16_16 to_bfloat16_16(float_16 v) {
+  bfloat16_16 t;
+  t.vals[0] =
+      to_bfloat16_2(make_float2(v.vals[0].vals[0].x, v.vals[0].vals[0].y));
+  t.vals[1] =
+      to_bfloat16_2(make_float2(v.vals[0].vals[0].z, v.vals[0].vals[0].w));
+  t.vals[2] =
+      to_bfloat16_2(make_float2(v.vals[0].vals[1].x, v.vals[0].vals[1].y));
+  t.vals[3] =
+      to_bfloat16_2(make_float2(v.vals[0].vals[1].z, v.vals[0].vals[1].w));
+
+  t.vals[4] =
+      to_bfloat16_2(make_float2(v.vals[1].vals[0].x, v.vals[1].vals[0].y));
+  t.vals[5] =
+      to_bfloat16_2(make_float2(v.vals[1].vals[0].z, v.vals[1].vals[0].w));
+  t.vals[6] =
+      to_bfloat16_2(make_float2(v.vals[1].vals[1].x, v.vals[1].vals[1].y));
+  t.vals[7] =
+      to_bfloat16_2(make_float2(v.vals[1].vals[1].z, v.vals[1].vals[1].w));
+  return t;
+}
+#endif
 
 DEVICE_INLINE float2 make_zero_float2() {
   return make_float2(0, 0);
@@ -1950,6 +2038,18 @@ struct VecNT<1, PrimitiveType::FP> {
     *reinterpret_cast<__half*>(output_ptr) = val;
   }
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+  DEVICE_INLINE void store(
+      at::BFloat16* output_ptr,
+      int num_valid_outputs = 1) {
+    __nv_bfloat16 val = to_bfloat16(acc);
+    *reinterpret_cast<__nv_bfloat16*>(output_ptr) = val;
+  }
+#endif
+
   DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 1) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -1967,6 +2067,11 @@ struct VecNT<1, PrimitiveType::FP> {
 
   DEVICE_INLINE void
   store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 1) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 1) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -2027,6 +2132,28 @@ struct VecNT<2, PrimitiveType::FP> {
     }
   }
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+  DEVICE_INLINE void store(
+      at::BFloat16* output_ptr,
+      int num_valid_outputs = 2) {
+    __nv_bfloat162 val = to_bfloat16_2(acc);
+    // num_valid_outputs can be any integer for half.
+    if (uintptr_t(output_ptr) % 4 == 0 && num_valid_outputs == 2) {
+      *reinterpret_cast<__nv_bfloat162*>(output_ptr) = val;
+    } else {
+#pragma unroll
+      for (int i = 0; i < 2; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] = *reinterpret_cast<const at::BFloat16*>(&val.x + i);
+        }
+      }
+    }
+  }
+#endif
+
   DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 2) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -2049,6 +2176,11 @@ struct VecNT<2, PrimitiveType::FP> {
 
   DEVICE_INLINE void
   store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 2) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 2) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -2139,6 +2271,43 @@ struct VecNT<4, PrimitiveType::FP> {
     }
   }
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+  DEVICE_INLINE void store(
+      at::BFloat16* output_ptr,
+      int num_valid_outputs = 4) {
+    bfloat16_4 val = to_bfloat16_4(acc);
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    // Since byte granule is guaranteed, num_valid_outputs can be any integer
+    // for int8.
+    if (aligned_8b && num_valid_outputs == 4) {
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&val);
+    } else if (aligned_4b && num_valid_outputs >= 2) {
+      *reinterpret_cast<uint*>(output_ptr) =
+          *reinterpret_cast<const uint*>(&(val.vals[0].x));
+      if (num_valid_outputs == 4) {
+        *reinterpret_cast<uint*>(output_ptr + 2) =
+            *reinterpret_cast<const uint*>(&(val.vals[0].x) + 2);
+      } else if (num_valid_outputs == 3) {
+        *(output_ptr + 2) =
+            *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + 2);
+      }
+    } else {
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
+        }
+      }
+    }
+  }
+#endif
+
   DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -2161,6 +2330,11 @@ struct VecNT<4, PrimitiveType::FP> {
 
   DEVICE_INLINE void
   store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -2253,6 +2427,43 @@ struct VecNT<4, PrimitiveType::INT> {
     }
   }
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+  DEVICE_INLINE void store(
+      at::BFloat16* output_ptr,
+      int num_valid_outputs = 4) {
+    bfloat16_4 val = to_bfloat16_4(acc);
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    // Since byte granule is guaranteed, num_valid_outputs can be any integer
+    // for int8.
+    if (aligned_8b && num_valid_outputs == 4) {
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&val);
+    } else if (aligned_4b && num_valid_outputs >= 2) {
+      *reinterpret_cast<uint*>(output_ptr) =
+          *reinterpret_cast<const uint*>(&(val.vals[0].x));
+      if (num_valid_outputs == 4) {
+        *reinterpret_cast<uint*>(output_ptr + 2) =
+            *reinterpret_cast<const uint*>(&(val.vals[0].x) + 2);
+      } else if (num_valid_outputs == 3) {
+        *(output_ptr + 2) =
+            *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + 2);
+      }
+    } else {
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
+        }
+      }
+    }
+  }
+#endif
+
   DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -2275,6 +2486,11 @@ struct VecNT<4, PrimitiveType::INT> {
 
   DEVICE_INLINE void
   store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 4) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 4) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -2382,6 +2598,52 @@ struct VecNT<8, PrimitiveType::INT> {
     }
   }
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+  DEVICE_INLINE void store(
+      at::BFloat16* output_ptr,
+      int num_valid_outputs = 8) {
+    bfloat16_8 val = to_bfloat16_8(acc);
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    // Since byte granule is guaranteed, num_valid_outputs is multiple of 2 for
+    // int4.
+    if (aligned_16b && num_valid_outputs == 8) {
+      *reinterpret_cast<uint4*>(output_ptr) =
+          *reinterpret_cast<const uint4*>(&val);
+    } else if (aligned_8b && num_valid_outputs >= 4) {
+      *reinterpret_cast<uint2*>(output_ptr) =
+          *reinterpret_cast<const uint2*>(&(val.vals[0].x));
+      if (num_valid_outputs == 8) {
+        *reinterpret_cast<uint2*>(output_ptr + 4) =
+            *reinterpret_cast<const uint2*>(&(val.vals[0].x) + 4);
+      } else if (num_valid_outputs == 6) {
+        *reinterpret_cast<uint*>(output_ptr + 4) =
+            *reinterpret_cast<const uint*>(&(val.vals[0].x) + 4);
+      }
+    } else if (aligned_4b) {
+#pragma unroll
+      for (int i = 0; i < 8; i += 2) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<uint*>(output_ptr + i) =
+              *reinterpret_cast<const uint*>(&(val.vals[0].x) + i);
+        }
+      }
+    } else {
+#pragma unroll
+      for (int i = 0; i < 8; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
+        }
+      }
+    }
+  }
+#endif
+
   DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 8) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -2406,6 +2668,11 @@ struct VecNT<8, PrimitiveType::INT> {
 
   DEVICE_INLINE void
   store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 8) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 8) {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -2519,6 +2786,57 @@ struct VecNT<16, PrimitiveType::INT> {
     }
   }
 
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+  DEVICE_INLINE void store(
+      at::BFloat16* output_ptr,
+      int num_valid_outputs = 16) {
+    bfloat16_16 val = to_bfloat16_16(acc);
+    bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
+    bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
+    bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
+    // Since byte granule is guaranteed, num_valid_outputs is multiple of 4 for
+    // int2.
+    if (aligned_16b && num_valid_outputs >= 8) {
+      *reinterpret_cast<uint4*>(output_ptr) =
+          *reinterpret_cast<const uint4*>(&(val.vals[0].x));
+      if (num_valid_outputs == 16) {
+        *reinterpret_cast<uint4*>(output_ptr + 8) =
+            *reinterpret_cast<const uint4*>(&(val.vals[0].x) + 8);
+      } else if (num_valid_outputs == 12) {
+        *reinterpret_cast<uint2*>(output_ptr + 8) =
+            *reinterpret_cast<const uint2*>(&(val.vals[0].x) + 8);
+      }
+    } else if (aligned_8b) {
+#pragma unroll
+      for (int i = 0; i < 16; i += 4) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<uint2*>(output_ptr + i) =
+              *reinterpret_cast<const uint2*>(&(val.vals[0].x) + i);
+        }
+      }
+    } else if (aligned_4b) {
+#pragma unroll
+      for (int i = 0; i < 16; i += 2) {
+        if (i < num_valid_outputs) {
+          *reinterpret_cast<uint*>(output_ptr + i) =
+              *reinterpret_cast<const uint*>(&(val.vals[0].x) + i);
+        }
+      }
+    } else {
+#pragma unroll
+      for (int i = 0; i < 16; ++i) {
+        if (i < num_valid_outputs) {
+          output_ptr[i] =
+              *reinterpret_cast<const at::BFloat16*>(&(val.vals[0].x) + i);
+        }
+      }
+    }
+  }
+#endif
+
   DEVICE_INLINE void store(uint8_t* output_ptr, int num_valid_outputs = 16) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -2544,6 +2862,11 @@ struct VecNT<16, PrimitiveType::INT> {
 
   DEVICE_INLINE void
   store(at::Half* output_ptr, float2 qparams, int num_valid_outputs = 16) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void
+  store(at::BFloat16* output_ptr, float2 qparams, int num_valid_outputs = 16) {
     CUDA_KERNEL_ASSERT(false);
   }
 

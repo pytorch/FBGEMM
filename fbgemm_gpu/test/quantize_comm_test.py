@@ -16,7 +16,7 @@ from hypothesis import assume, given, settings
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
-    @settings(deadline=2000)
+    @settings(deadline=4000)
     # pyre-ignore
     @given(
         comm_precisions_loss_scale=st.sampled_from(
@@ -44,7 +44,6 @@ class QuantizedCommCodecTest(unittest.TestCase):
         rand_seed: int,
         row_dim: int,
     ) -> None:
-
         (comm_precision, loss_scale) = comm_precisions_loss_scale
 
         if comm_precision == SparseType.FP8:
