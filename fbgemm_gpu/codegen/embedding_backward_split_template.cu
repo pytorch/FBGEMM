@@ -117,6 +117,7 @@ template <
     typename grad_t,
     typename cache_t,
     size_t kMaxVecsPerThread,
+    int32_t weight_dtype,
     int32_t kThreadGroupSize = kWarpSize>
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1(
@@ -429,9 +430,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         {% if not dense %}
         emb_t* __restrict__ weights{nullptr};
         cache_t* __restrict__ cache_weights{nullptr};
+        SparseType weight_precision = static_cast<SparseType>(weight_dtype);
         int32_t D_emb = D;
-        if (std::is_same<emb_t, uint8_t>::value) {
+        if (weight_precision == SparseType::INT8) {
             D_emb += kINT8QparamsBytes;
+        } else if (weight_precision == SparseType::MSFP12) {
+            D_emb += D/4;
         }
         const auto weights_placement = static_cast<PlacementType>(weights_placements[t_0]);
         if (weights_placement == PlacementType::DEVICE) {
@@ -475,8 +479,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         }
 
         float2 qparams_template;
-        if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+        uint8_t *shared_exponents_template;
+        if (weight_precision == SparseType::INT8 && !cache_weights) {
             qparams_template = weight_row_template.load_qparams();
+        } else if (weight_precision == SparseType::MSFP12 && !cache_weights) {
+            shared_exponents_template = weight_row_template.load_shared_exponents();
         }
 
         {{ split_precomputation }}
@@ -487,26 +494,41 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
             int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-            Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
+            Vec4T<at::acc_type<cache_t, true>> weight_new;
+            if(weight_precision == SparseType::MSFP12) {
+                weight_new = weight_row_template.load(d, shared_exponents_template, 4, 7, 14);
+            } else {
+                weight_new = weight_row_template.load(d, qparams_template);
+            }
+
             auto& grad = grad_sum[i];
             {{ split_weight_update }}
             if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
+                // Both INT8 and MSFP12 need to update the weight qparams
                 shared_weight_update_row[lane_id + i * kThreadGroupSize] = weight_new;
             } else {
-                weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if embedding is not int8
+                weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if embedding is not int8 or msfp12
             }
         }
         if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
             // calculate qparams from updated weight row
-            qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(shared_weight_update_row, D);
-            weight_row_template.store_qparams(qparams_new);
+            if (weight_precision == SparseType::INT8) {
+                qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(shared_weight_update_row, D);
+                weight_row_template.store_qparams(qparams_new);
+            } else if (weight_precision == SparseType::MSFP12) {
+                thrust_find_shared_exponents<at::acc_type<cache_t, true>>(shared_weight_update_row, D, shared_exponents_template);
+            }
 
 #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                     i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
                 int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                weight_row_template.store(shared_weight_update_row[lane_id + i * kThreadGroupSize], d, qparams_new);
+                if (weight_precision == SparseType::MSFP12) {
+                    weight_row_template.store(shared_weight_update_row[lane_id + i * kThreadGroupSize], d, shared_exponents_template, 4, 7, 14);
+                } else {
+                    weight_row_template.store(shared_weight_update_row[lane_id + i * kThreadGroupSize], d, qparams_new);
+                }
             }
         }
         {% else %}
@@ -528,6 +550,7 @@ template <
     typename grad_t,
     typename cache_t,
     size_t kMaxVecsPerThread,
+    int32_t weight_dtype,
     int32_t kThreadGroupSize = kWarpSize>
 __global__
 __launch_bounds__(kBackwardMaxThreads)
@@ -683,9 +706,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if not dense %}
     emb_t* __restrict__ weights{nullptr};
     cache_t* __restrict__ cache_weights{nullptr};
+
+    SparseType weight_precision = static_cast<SparseType>(weight_dtype);
     int32_t D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if (weight_precision == SparseType::INT8) {
         D_emb += kINT8QparamsBytes;
+    } else if (weight_precision == SparseType::MSFP12) {
+        D_emb += D/4;
     }
     const auto weights_placement = static_cast<PlacementType>(weights_placements[t_0]);
     if (weights_placement == PlacementType::DEVICE) {
@@ -726,8 +753,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         weight_row_template.set_stoc_state(&state);
     }
     float2 qparams_template;
-    if (std::is_same<emb_t, uint8_t>::value && !cache_weights){
+    uint8_t *shared_exponents_template;
+    if (weight_precision == SparseType::INT8 && !cache_weights) {
         qparams_template = weight_row_template.load_qparams();
+    } else if (weight_precision == SparseType::MSFP12 && !cache_weights) {
+        shared_exponents_template = weight_row_template.load_shared_exponents();
     }
 
     {{ split_precomputation }}
@@ -738,7 +768,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
         int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-        Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
+        Vec4T<at::acc_type<cache_t, true>> weight_new;
+        if(weight_precision == SparseType::MSFP12) {
+            weight_new = weight_row_template.load(d, shared_exponents_template, 4, 7, 14);
+        } else {
+            weight_new = weight_row_template.load(d, qparams_template);
+        }
         auto& grad = grad_sum[i];
         {{ split_weight_update }}
         if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
@@ -750,8 +785,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
     if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
         // calculate new qparams after row update
-        qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kThreadGroupSize], D);
-        weight_row_template.store_qparams(qparams_new);
+        if (weight_precision == SparseType::INT8) {
+            qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kThreadGroupSize], D);
+            weight_row_template.store_qparams(qparams_new);
+        } else if (weight_precision == SparseType::MSFP12) {
+            thrust_find_shared_exponents<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kThreadGroupSize], D, shared_exponents_template);
+        }
 
         // fetch cached updated row from shared mem and quantize on-the-fly when saving to lowp embedding
         #pragma unroll kMaxVecsPerThread
@@ -759,7 +798,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
             int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-            weight_row_template.store(shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize], d, qparams_new);
+            if (weight_precision == SparseType::MSFP12) {
+                weight_row_template.store(shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize], d, shared_exponents_template, 4, 7, 14);
+            } else {
+                weight_row_template.store(shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize], d, qparams_new);
+            }
         }
     }
     {% else %}
@@ -783,6 +826,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
+    int64_t weight_dtype,
     {% endif %}
     Tensor weights_offsets,
     {% if not nobag %}
@@ -861,6 +905,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
 
+    int32_t weight_dtype_for_template = 0;
+    {% if not dense %}
+    weight_dtype_for_template = weight_dtype;
+    {% endif %}
     // V100: 96 KB; A100: 160 KB.
     int max_shared_bytes = 0;
 #ifndef __HIP_PLATFORM_HCC__
@@ -1094,78 +1142,303 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
 
 #ifndef __HIP_PLATFORM_HCC__
-            cudaFuncSetAttribute(
-                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
-                emb_t,
-                grad_t,
-                cache_t,
-                kMaxVecsPerThread,
-                kThreadGroupSize>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+            if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
+                cudaFuncSetAttribute(
+                    split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::INT8),
+                    kThreadGroupSize>,
+                    cudaFuncAttributeMaxDynamicSharedMemorySize,
+                    used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+            } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::MSFP12) {
+                cudaFuncSetAttribute(
+                    split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::MSFP12),
+                    kThreadGroupSize>,
+                    cudaFuncAttributeMaxDynamicSharedMemorySize,
+                    used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+            } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::FP16) {
+                cudaFuncSetAttribute(
+                    split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::FP16),
+                    kThreadGroupSize>,
+                    cudaFuncAttributeMaxDynamicSharedMemorySize,
+                    used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+            } else {
+                cudaFuncSetAttribute(
+                    split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::FP32),
+                    kThreadGroupSize>,
+                    cudaFuncAttributeMaxDynamicSharedMemorySize,
+                    used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+            }
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
-            split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
-                emb_t,
-                grad_t,
-                cache_t,
-                kMaxVecsPerThread,
-                kThreadGroupSize>
-                <<<grid_size,
-                    dim3(kThreadGroupSize, BT_block_size),
-                    BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize *
-                        kMaxVecsPerThread,
-                    at::cuda::getCurrentCUDAStream()>>>(
-                    grad_output_accessor,
-                    {% if not dense %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    B,
-                    D,
-                    {% endif %}
-                    hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run
-                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not dense %}
-                    lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if weighted %}
-                    indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not dense %}
-                    stochastic_rounding,
-                    rng_engine_inputs,
-                    {% else %}
-                    grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not nobag %}
-                    FixedDivisor(B),
-                    {% endif %}
-                    long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
-                    grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    max_segment_length_per_cta,
-                    use_deterministic_algorithms,
-                    {{ args.split_kernel_arg_constructors | join(", ") }});
+            if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::INT8),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, BT_block_size),
+                        BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize *
+                            kMaxVecsPerThread,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
+                        grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_cta,
+                        use_deterministic_algorithms,
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+            } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::MSFP12) {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::MSFP12),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, BT_block_size),
+                        BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize *
+                            kMaxVecsPerThread,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
+                        grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_cta,
+                        use_deterministic_algorithms,
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+            }  else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::FP16) {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::FP16),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, BT_block_size),
+                        BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize *
+                            kMaxVecsPerThread,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
+                        grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_cta,
+                        use_deterministic_algorithms,
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+            } else {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::FP32),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, BT_block_size),
+                        BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize *
+                            kMaxVecsPerThread,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
+                        grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_cta,
+                        use_deterministic_algorithms,
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+            }
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             grid_size = std::min(
                 div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
@@ -1177,74 +1450,264 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 shmem_bytes = BT_block_size * sizeof(
                     at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread;
 #ifndef __HIP_PLATFORM_HCC__
-                cudaFuncSetAttribute(
-                    split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
-                    emb_t,
-                    grad_t,
-                    cache_t,
-                    kMaxVecsPerThread,
-                    kThreadGroupSize>,
-                    cudaFuncAttributeMaxDynamicSharedMemorySize,
-                    used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
+                    cudaFuncSetAttribute(
+                        split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                        emb_t,
+                        grad_t,
+                        cache_t,
+                        kMaxVecsPerThread,
+                        static_cast<int>(SparseType::INT8),
+                        kThreadGroupSize>,
+                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                } else {
+                    cudaFuncSetAttribute(
+                        split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                        emb_t,
+                        grad_t,
+                        cache_t,
+                        kMaxVecsPerThread,
+                        static_cast<int>(SparseType::MSFP12),
+                        kThreadGroupSize>,
+                        cudaFuncAttributeMaxDynamicSharedMemorySize,
+                        used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                }
 #endif
             }
 
             C10_CUDA_KERNEL_LAUNCH_CHECK();
-            split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
-                emb_t,
-                grad_t,
-                cache_t,
-                kMaxVecsPerThread,
-                kThreadGroupSize>
-                <<<grid_size,
-                    dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
-                    shmem_bytes,
-                    at::cuda::getCurrentCUDAStream()>>>(
-                    grad_output_accessor,
-                    {% if not dense %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    B,
-                    D,
-                    {% endif %}
-                    hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run
-                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not dense %}
-                    lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if weighted %}
-                    indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    sorted_linear_indices_num_runs
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    max_segment_length_per_warp,
-                    {% if not dense %}
-                    stochastic_rounding,
-                    rng_engine_inputs,
-                    {% else %}
-                    grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not nobag %}
-                    FixedDivisor(B),
-                    {% endif %}
-                    {{ args.split_kernel_arg_constructors | join(", ") }});
+            if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::INT8),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
+                        shmem_bytes,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        sorted_linear_indices_num_runs
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_warp,
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+            } else if ((static_cast<SparseType>(weight_dtype_for_template) == SparseType::MSFP12)) {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::MSFP12),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
+                        shmem_bytes,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        sorted_linear_indices_num_runs
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_warp,
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+
+            } else if ((static_cast<SparseType>(weight_dtype_for_template) == SparseType::FP16)) {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::FP16),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
+                        shmem_bytes,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        sorted_linear_indices_num_runs
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_warp,
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+
+            } else {
+                split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kMaxVecsPerThread,
+                    static_cast<int>(SparseType::FP32),
+                    kThreadGroupSize>
+                    <<<grid_size,
+                        dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
+                        shmem_bytes,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output_accessor,
+                        {% if not dense %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        B,
+                        D,
+                        {% endif %}
+                        hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_run
+                            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        sorted_linear_indices_cumulative_run_lengths
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% if not nobag %}
+                        infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% else %}
+                        infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not dense %}
+                        lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if weighted %}
+                        indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        sorted_linear_indices_num_runs
+                            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                        max_segment_length_per_warp,
+                        {% if not dense %}
+                        stochastic_rounding,
+                        rng_engine_inputs,
+                        {% else %}
+                        grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                        {% endif %}
+                        {% if not nobag %}
+                        FixedDivisor(B),
+                        {% endif %}
+                        {{ args.split_kernel_arg_constructors | join(", ") }});
+            }
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         }

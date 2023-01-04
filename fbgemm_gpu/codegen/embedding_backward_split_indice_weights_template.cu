@@ -17,7 +17,7 @@ constexpr int32_t kCacheLocationMissing = -1;
 constexpr size_t kForwardMaxThreads = 512;
 
 // TODO: optimization to use multiple warps per row.
-template <typename emb_t, typename grad_t, typename cache_t, size_t kMaxVecsPerThread>
+template <typename emb_t, typename grad_t, typename cache_t, size_t kMaxVecsPerThread, int32_t weight_dtype>
 __global__
 __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel(
     // [\sum_t E_t x D_t]
@@ -122,8 +122,11 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                         weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
                 } else {
                     int32_t D_emb = D;
-                    if (std::is_same<emb_t, uint8_t>::value) {
+                    SparseType weight_precision = static_cast<SparseType>(weight_dtype);
+                    if (weight_precision == SparseType::INT8) {
                         D_emb += kINT8QparamsBytes;
+                    } else if (weight_precision == SparseType::MSFP12) {
+                        D_emb += D/4;
                     }
                     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
                         const_cast<emb_t*>(&weights[idx_j * D_emb]),
@@ -131,11 +134,19 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
                         D,
                         nullptr);
                     float2 qparams;
-                    if (std::is_same<emb_t, uint8_t>::value) {
+                    uint8_t *shared_exponents;
+                    if (weight_precision == SparseType::INT8) {
                         qparams = weight_row.load_qparams();
+                    } else if (weight_precision == SparseType::MSFP12) {
+                        shared_exponents = weight_row.load_shared_exponents();
                     }
-                    Vec4T<at::acc_type<cache_t, true>> weight =
-                    weight_row.load(d, qparams);
+                    Vec4T<at::acc_type<cache_t, true>> weight;
+                    if (weight_precision == SparseType::MSFP12) {
+                        weight = weight_row.load(d, shared_exponents, 4, 7, 14);
+                    } else {
+                        weight = weight_row.load(d, qparams);
+                    }
+
                     grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
                         weight.acc.y * grad_out[i].acc.y +
                         weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
@@ -177,6 +188,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
+    int64_t weight_dtype,
     {% endif %}
     Tensor weights_offsets,
     Tensor D_offsets,
@@ -217,6 +229,10 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     if (B == 0) {
       return grad_indice_weights;
     }
+    int32_t weight_dtype_for_template = 0;
+    {% if not dense %}
+    weight_dtype_for_template = weight_dtype;
+    {% endif %}
     feature_requires_grad = feature_requires_grad.defined() ? feature_requires_grad : at::empty({0}, indices.options().dtype(at::kInt));
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
@@ -230,32 +246,119 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
         [&] {
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
             if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
-            {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
-                emb_t,
-                grad_t,
-                cache_t,
-                {{ kMaxVecsPerThread }}><<<
-                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
-                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-                0,
-                at::cuda::getCurrentCUDAStream()>>>(
-                grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>(),
-                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                {% if not dense %}
-                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                {% endif %}
-                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                {% if not dense %}
-                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                {% endif %}
-                feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>()
-            );
+                if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::INT8) {
+                {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    {{ kMaxVecsPerThread }},
+                    static_cast<int>(SparseType::INT8)><<<
+                    div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                    grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>(),
+                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>()
+                );
+                } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::MSFP12) {
+                {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    {{ kMaxVecsPerThread }},
+                    static_cast<int>(SparseType::MSFP12)><<<
+                    div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                    grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>(),
+                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>()
+                );
+                } else if (static_cast<SparseType>(weight_dtype_for_template) == SparseType::FP16) {
+                {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    {{ kMaxVecsPerThread }},
+                    static_cast<int>(SparseType::FP16)><<<
+                    div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                    grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>(),
+                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>()
+                );
+                } else {
+                {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    {{ kMaxVecsPerThread }},
+                    0><<<
+                    div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                    grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>(),
+                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    {% if not dense %}
+                    lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
+                    feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>()
+                );
+                }
             return;
             }
             {% endfor %}

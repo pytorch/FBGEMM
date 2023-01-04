@@ -34,6 +34,8 @@
     CUDA_VERSION >= 9000
 #define FBGEMM_USE_SUBWARP_SHUFFLE
 #endif
+#include <float.h>
+#include "fbgemm_gpu/quantize_ops_utils.h"
 
 namespace {
 using fint32 = union fint32 {
@@ -95,6 +97,11 @@ struct Half4 {
   }
 };
 
+DEVICE_INLINE int32_t find_expo(float val) {
+  fint32 org_data, scale, inv_scale;
+  org_data.F = val;
+  return ((org_data.I & 0x7F800000) >> 23) - 127;
+}
 // Customized 4-element vector data types (with element type Half, float, or
 // double).
 template <typename T>
@@ -242,6 +249,46 @@ struct Vec4T<float> {
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
     acc.w *= a.acc.w;
+  }
+
+  DEVICE_INLINE void fake_quant_to_fp8(int exp_bits, int exp_bia) {
+    int mbits = 7 - exp_bits;
+    float max_pos = (2 ^ ((2 ^ exp_bits) - 2 - exp_bia)) * (2 - 2 ^ (-mbits));
+    acc.x = hfp8_to_float(
+        float_to_hfp8(acc.x, exp_bits, exp_bia, max_pos), exp_bits, exp_bia);
+    acc.y = hfp8_to_float(
+        float_to_hfp8(acc.y, exp_bits, exp_bia, max_pos), exp_bits, exp_bia);
+    acc.z = hfp8_to_float(
+        float_to_hfp8(acc.z, exp_bits, exp_bia, max_pos), exp_bits, exp_bia);
+    acc.w = hfp8_to_float(
+        float_to_hfp8(acc.w, exp_bits, exp_bia, max_pos), exp_bits, exp_bia);
+  }
+
+  DEVICE_INLINE void fake_quant_to_flexp(int exp_bits, int mbits, int exp_bia) {
+    float max_pos = (2 ^ ((2 ^ exp_bits) - 2 - exp_bia)) * (2 - 2 ^ (-mbits));
+    acc.x = float_to_flexp(acc.x, mbits, exp_bia, max_pos);
+    acc.y = float_to_flexp(acc.y, mbits, exp_bia, max_pos);
+    acc.z = float_to_flexp(acc.z, mbits, exp_bia, max_pos);
+    acc.w = float_to_flexp(acc.w, mbits, exp_bia, max_pos);
+  }
+
+  DEVICE_INLINE void fake_quant_to_msfp(int ebits, int mbits, int bias) {
+    const int32_t expo_x = find_expo(acc.x);
+    const int32_t expo_y = find_expo(acc.y);
+    const int32_t expo_z = find_expo(acc.z);
+    const int32_t expo_w = find_expo(acc.w);
+
+    int32_t max_expo = expo_x;
+    max_expo = max(expo_y, max_expo);
+    max_expo = max(expo_z, max_expo);
+    max_expo = max(expo_w, max_expo);
+
+    float max_pos = (2 ^ ((2 ^ ebits) - 2 - bias)) * (2 - 2 ^ (-mbits));
+
+    acc.x = float_to_msfp(acc.x, max_expo, mbits, bias, max_pos);
+    acc.y = float_to_msfp(acc.y, max_expo, mbits, bias, max_pos);
+    acc.z = float_to_msfp(acc.z, max_expo, mbits, bias, max_pos);
+    acc.w = float_to_msfp(acc.w, max_expo, mbits, bias, max_pos);
   }
 };
 
@@ -429,6 +476,56 @@ struct Vec4T<at::Half> {
     acc.y *= scale;
     acc.z *= scale;
     acc.w *= scale;
+  }
+
+  DEVICE_INLINE void fake_quant_to_fp8(int exp_bits, int exp_bia) {
+    int mbits = 7 - exp_bits;
+    float max_pos = (2 ^ ((2 ^ exp_bits) - 2 - exp_bia)) * (2 - 2 ^ (-mbits));
+    acc.x = __float2half(hfp8_to_float(
+        float_to_hfp8(__half2float(acc.x), exp_bits, exp_bia, max_pos),
+        exp_bits,
+        exp_bia));
+    acc.y = __float2half(hfp8_to_float(
+        float_to_hfp8(__half2float(acc.y), exp_bits, exp_bia, max_pos),
+        exp_bits,
+        exp_bia));
+    acc.z = __float2half(hfp8_to_float(
+        float_to_hfp8(__half2float(acc.z), exp_bits, exp_bia, max_pos),
+        exp_bits,
+        exp_bia));
+    acc.w = __float2half(hfp8_to_float(
+        float_to_hfp8(__half2float(acc.w), exp_bits, exp_bia, max_pos),
+        exp_bits,
+        exp_bia));
+  }
+  DEVICE_INLINE void fake_quant_to_flexp(int exp_bits, int mbits, int exp_bia) {
+    float max_pos = (2 ^ ((2 ^ exp_bits) - 2 - exp_bia)) * (2 - 2 ^ (-mbits));
+    acc.x = __float2half(
+        float_to_flexp(__half2float(acc.x), mbits, exp_bia, max_pos));
+    acc.y = __float2half(
+        float_to_flexp(__half2float(acc.y), mbits, exp_bia, max_pos));
+    acc.z = __float2half(
+        float_to_flexp(__half2float(acc.z), mbits, exp_bia, max_pos));
+    acc.w = __float2half(
+        float_to_flexp(__half2float(acc.w), mbits, exp_bia, max_pos));
+  }
+  DEVICE_INLINE void fake_quant_to_msfp(int ebits, int mbits, int bias) {
+    const int32_t expo_x = find_expo(__half2float(acc.x));
+    const int32_t expo_y = find_expo(__half2float(acc.y));
+    const int32_t expo_z = find_expo(__half2float(acc.z));
+    const int32_t expo_w = find_expo(__half2float(acc.w));
+
+    int32_t max_expo = expo_x;
+    max_expo = max(expo_y, max_expo);
+    max_expo = max(expo_z, max_expo);
+    max_expo = max(expo_w, max_expo);
+
+    float max_pos = (2 ^ ((2 ^ ebits) - 2 - bias)) * (2 - (2 ^ (-mbits)));
+
+    acc.x = __float2half(float_to_msfp(acc.x, max_expo, mbits, bias, max_pos));
+    acc.y = __float2half(float_to_msfp(acc.y, max_expo, mbits, bias, max_pos));
+    acc.z = __float2half(float_to_msfp(acc.z, max_expo, mbits, bias, max_pos));
+    acc.w = __float2half(float_to_msfp(acc.w, max_expo, mbits, bias, max_pos));
   }
 };
 
@@ -1039,6 +1136,26 @@ DEVICE_INLINE void stochastic_rounding_vector(
       (value.acc.w - qparams.y) * inv_scale, random_bits.w);
 }
 
+template <typename src_t>
+DEVICE_INLINE Vec4T<float> stochastic_rounding_vector_msfp(
+    Vec4T<src_t> value,
+    StochasticRoundingRNGState& state,
+    uint8_t /* not used */) {
+  return value;
+}
+template <>
+DEVICE_INLINE Vec4T<float> stochastic_rounding_vector_msfp(
+    Vec4T<float> fake_msfp_value,
+    StochasticRoundingRNGState& state,
+    uint8_t shared_exponent) {
+  uint4 random_bits = stochastic_rounding_rand4(&state);
+  Vec4T<float> out;
+  out.acc.x = stochastic_rounding_scalar(fake_msfp_value.acc.x, random_bits.x);
+  out.acc.y = stochastic_rounding_scalar(fake_msfp_value.acc.y, random_bits.y);
+  out.acc.z = stochastic_rounding_scalar(fake_msfp_value.acc.z, random_bits.z);
+  out.acc.w = stochastic_rounding_scalar(fake_msfp_value.acc.w, random_bits.w);
+  return out;
+}
 // begin nearest rounding and store implementations
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void nearest_rounding_vector(
@@ -1077,6 +1194,21 @@ nearest_rounding_vector(uint8_t* output, Vec4T<double> value, float2 qparams) {
 }
 
 template <typename dst_t, typename src_t>
+DEVICE_INLINE void nearest_rounding_vector(
+    dst_t* output,
+    Vec4T<src_t> value,
+    uint8_t /* not used */) {
+  value.store(output);
+}
+template <>
+DEVICE_INLINE void nearest_rounding_vector(
+    uint8_t* output,
+    Vec4T<float> value,
+    uint8_t shared_exponent) {
+  // Not using nearest_rounding_vector for MSFP
+  CUDA_KERNEL_ASSERT(false);
+}
+template <typename dst_t, typename src_t>
 DEVICE_INLINE void quantize_store(
     dst_t* output,
     Vec4T<src_t> value,
@@ -1089,6 +1221,90 @@ DEVICE_INLINE void quantize_store(
   }
 }
 
+template <typename dst_t, typename src_t>
+DEVICE_INLINE void quantize_store(
+    dst_t* output,
+    Vec4T<src_t> value,
+    StochasticRoundingRNGState* state,
+    int ebits,
+    int mbits,
+    int bias,
+    uint8_t shared_exponent) {
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template <>
+DEVICE_INLINE void quantize_store(
+    uint8_t* output,
+    Vec4T<float> value,
+    StochasticRoundingRNGState* state,
+    int ebits,
+    int mbits,
+    int bias,
+    uint8_t shared_exponent) {
+  if (!state) {
+    CUDA_KERNEL_ASSERT(false);
+  } else {
+    float max_pos = (2 ^ ((2 ^ ebits) - 2 - bias)) * (2 - 2 ^ (-mbits));
+    Vec4T<float> fake_msfp_value;
+
+    fake_msfp_value.acc.x = dequantize_msfp_float_from_uint8(
+        quantize_msfp_float_to_uint8(
+            value.acc.x, shared_exponent, mbits, bias, max_pos),
+        shared_exponent,
+        ebits,
+        mbits,
+        bias);
+    fake_msfp_value.acc.y = dequantize_msfp_float_from_uint8(
+        quantize_msfp_float_to_uint8(
+            value.acc.y, shared_exponent, mbits, bias, max_pos),
+        shared_exponent,
+        ebits,
+        mbits,
+        bias);
+    fake_msfp_value.acc.z = dequantize_msfp_float_from_uint8(
+        quantize_msfp_float_to_uint8(
+            value.acc.z, shared_exponent, mbits, bias, max_pos),
+        shared_exponent,
+        ebits,
+        mbits,
+        bias);
+    fake_msfp_value.acc.w = dequantize_msfp_float_from_uint8(
+        quantize_msfp_float_to_uint8(
+            value.acc.w, shared_exponent, mbits, bias, max_pos),
+        shared_exponent,
+        ebits,
+        mbits,
+        bias);
+    Vec4T<float> fake_msfp_value_with_rounding =
+        stochastic_rounding_vector_msfp(
+            fake_msfp_value, *state, shared_exponent);
+    output[0] = quantize_msfp_float_to_uint8(
+        fake_msfp_value_with_rounding.acc.x,
+        shared_exponent,
+        mbits,
+        bias,
+        max_pos);
+    output[1] = quantize_msfp_float_to_uint8(
+        fake_msfp_value_with_rounding.acc.y,
+        shared_exponent,
+        mbits,
+        bias,
+        max_pos);
+    output[2] = quantize_msfp_float_to_uint8(
+        fake_msfp_value_with_rounding.acc.z,
+        shared_exponent,
+        mbits,
+        bias,
+        max_pos);
+    output[3] = quantize_msfp_float_to_uint8(
+        fake_msfp_value_with_rounding.acc.w,
+        shared_exponent,
+        mbits,
+        bias,
+        max_pos);
+  }
+}
 template <typename dst_t, typename src_t>
 DEVICE_INLINE Vec4T<dst_t> dequantize_load(src_t* value, float2 /* unused */) {
   return Vec4T<dst_t>(value);
@@ -1114,6 +1330,50 @@ DEVICE_INLINE Vec4T<at::Half> dequantize_load(uint8_t* value, float2 qparams) {
   return out;
 }
 
+template <typename dst_t, typename src_t>
+DEVICE_INLINE Vec4T<dst_t>
+dequantize_load(src_t* value, uint8_t /* unused */, int, int, int) {
+  // return Vec4T<dst_t>(value);
+  CUDA_KERNEL_ASSERT(false);
+}
+
+template <>
+DEVICE_INLINE Vec4T<float> dequantize_load(
+    uint8_t* value,
+    uint8_t shared_exponent,
+    int ebits,
+    int mbits,
+    int bias) {
+  Vec4T<float> out;
+  out.acc.x = dequantize_msfp_float_from_uint8(
+      value[0], shared_exponent, ebits, mbits, bias);
+  out.acc.y = dequantize_msfp_float_from_uint8(
+      value[1], shared_exponent, ebits, mbits, bias);
+  out.acc.z = dequantize_msfp_float_from_uint8(
+      value[2], shared_exponent, ebits, mbits, bias);
+  out.acc.w = dequantize_msfp_float_from_uint8(
+      value[3], shared_exponent, ebits, mbits, bias);
+  return out;
+}
+
+template <>
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(
+    uint8_t* value,
+    uint8_t shared_exponent,
+    int ebits,
+    int mbits,
+    int bias) {
+  Vec4T<at::Half> out;
+  out.acc.x = __float2half(dequantize_msfp_float_from_uint8(
+      value[0], shared_exponent, ebits, mbits, bias));
+  out.acc.y = __float2half(dequantize_msfp_float_from_uint8(
+      value[1], shared_exponent, ebits, mbits, bias));
+  out.acc.z = __float2half(dequantize_msfp_float_from_uint8(
+      value[2], shared_exponent, ebits, mbits, bias));
+  out.acc.w = __float2half(dequantize_msfp_float_from_uint8(
+      value[3], shared_exponent, ebits, mbits, bias));
+  return out;
+}
 template <typename emb_t>
 DEVICE_INLINE float2 load_qparams_from_row(emb_t* qparam_ptr) {
   float2 qparams;
@@ -1123,6 +1383,11 @@ DEVICE_INLINE float2 load_qparams_from_row(emb_t* qparam_ptr) {
   return qparams;
 }
 
+template <typename emb_t>
+DEVICE_INLINE uint8_t* load_shared_exponents_from_row(emb_t* qparam_ptr) {
+  uint8_t* shared_exponents_ptr = reinterpret_cast<uint8_t*>(qparam_ptr);
+  return shared_exponents_ptr;
+}
 template <typename emb_t>
 DEVICE_INLINE void store_qparams_to_row(emb_t* ptr, float2 qparams) {
   CUDA_KERNEL_ASSERT(false); // Only int8 embeddding should call this
@@ -1188,6 +1453,18 @@ struct WeightRow {
     }
   }
 
+  // load row with shared exponents
+  DEVICE_INLINE Vec4T<dst_t>
+  load(int32_t d, uint8_t* shared_exponents, int ebits, int mbits, int bias) {
+    int32_t item_idx = d / 4;
+    if (cache_row_) {
+      return dequantize_load<dst_t, cache_t>(
+          cache_row_ + d, shared_exponents[item_idx], ebits, mbits, bias);
+    } else {
+      return dequantize_load<dst_t, emb_t>(
+          row_ + d, shared_exponents[item_idx], ebits, mbits, bias);
+    }
+  }
   // write back weight (high precision) to cache if resident; else write to
   // embedding assume dst_t is higher precision than cache_t and emb_t
   DEVICE_INLINE void store(Vec4T<dst_t> v, int32_t d, float2 qparams) {
@@ -1197,7 +1474,34 @@ struct WeightRow {
       quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
     }
   }
-
+  DEVICE_INLINE void store(
+      Vec4T<dst_t> v,
+      int32_t d,
+      uint8_t* shared_exponents,
+      int ebits,
+      int mbits,
+      int bias) {
+    int32_t item_idx = d / 4;
+    if (cache_row_) {
+      quantize_store(
+          cache_row_ + d,
+          v,
+          stoc_rounding_state_,
+          ebits,
+          mbits,
+          bias,
+          shared_exponents[item_idx]);
+    } else {
+      quantize_store(
+          row_ + d,
+          v,
+          stoc_rounding_state_,
+          ebits,
+          mbits,
+          bias,
+          shared_exponents[item_idx]);
+    }
+  }
   // evict cached row into embedding row (high prec -> low prec)
   DEVICE_INLINE void evict(Vec4T<dst_t> v, int32_t d, float2 qparams) {
     quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
@@ -1209,6 +1513,9 @@ struct WeightRow {
 
   DEVICE_INLINE float2 load_qparams() {
     return load_qparams_from_row<emb_t>(row_ + dim_);
+  }
+  DEVICE_INLINE uint8_t* load_shared_exponents() {
+    return load_shared_exponents_from_row<emb_t>(row_ + dim_);
   }
 };
 
@@ -1316,7 +1623,24 @@ thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
   qparams.y = min_val;
   return qparams;
 }
+template <typename scalar_t>
+__device__ void thrust_find_shared_exponents(
+    fbgemm_gpu::Vec4T<scalar_t>* input_row,
+    int D,
+    uint8_t* shared_exponents) {
+  for (int i = 0; i < D / 4; ++i) {
+    const int32_t expo_x = find_expo(input_row[i].acc.x);
+    const int32_t expo_y = find_expo(input_row[i].acc.y);
+    const int32_t expo_z = find_expo(input_row[i].acc.z);
+    const int32_t expo_w = find_expo(input_row[i].acc.w);
 
+    int32_t max_expo = expo_x;
+    max_expo = max(expo_y, max_expo);
+    max_expo = max(expo_z, max_expo);
+    max_expo = max(expo_w, max_expo);
+    shared_exponents[i] = max_expo;
+  }
+}
 template <typename scalar_t>
 DEVICE_INLINE scalar_t vec4_min(fbgemm_gpu::Vec4T<scalar_t> vec4) {
   scalar_t min_val = vec4.acc.x;

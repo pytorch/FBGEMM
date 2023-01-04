@@ -414,7 +414,12 @@ def rowwise_adagrad() -> None:
         if (weight_decay_mode == 1) {
             // L2 regularization
             int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-            Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+            Vec4T<at::acc_type<cache_t, true>> weight;
+            if (weight_precision == SparseType::MSFP12) {
+                weight = weight_row_template.load(d, shared_exponents_template, 4, 7, 14);
+            } else {
+                weight = weight_row_template.load(d, qparams_template);
+            }
             gx += weight_decay * weight.acc.x;
             gy += weight_decay * weight.acc.y;
             gz += weight_decay * weight.acc.z;
