@@ -302,6 +302,7 @@ jobs:
         sudo apt-get update
         sudo apt-get -y install git pip python3-dev mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
         sudo apt-get install -y hipify-clang || true
+        sudo apt-get install -y miopen-hip miopen-hip-dev
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         sudo apt-get clean
         # Install PyTorch (nightly) as required by fbgemm_gpu
