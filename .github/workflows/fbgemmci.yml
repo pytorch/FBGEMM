@@ -290,11 +290,11 @@ jobs:
       shell: bash
       run: |
         sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
-        wget https://repo.radeon.com/amdgpu-install/22.10.1/ubuntu/focal/amdgpu-install_22.10.1.50101-1_all.deb
+        wget https://repo.radeon.com/amdgpu-install/5.3/ubuntu/focal/amdgpu-install_5.3.50300-1_all.deb
         export DEBIAN_FRONTEND=noninteractive
-        sudo apt install -y ./amdgpu-install_22.10.1.50101-1_all.deb
+        sudo apt install -y ./amdgpu-install_5.3.50300-1_all.deb
         amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
-        sudo rm amdgpu-install_22.10.1.50101-1_all.deb
+        sudo rm amdgpu-install_5.3.50300-1_all.deb
 
     - name: Install dependencies
       shell: bash
@@ -305,7 +305,7 @@ jobs:
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         sudo apt-get clean
         # Install PyTorch (nightly) as required by fbgemm_gpu
-        sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.1.1/
+        sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
 
     - name: Checkout submodules
       shell: bash
@@ -362,7 +362,7 @@ jobs:
         set -eux
         env
         ls -l
-        DOCKER_IMAGE=rocm/pytorch:rocm5.1.1_ubuntu20.04_py3.7_pytorch_staging_base
+        DOCKER_IMAGE=rocm/pytorch:rocm5.3_ubuntu20.04_py3.7_pytorch_staging_base
         docker pull $DOCKER_IMAGE
         JENKINS_REPO_DIR=fbgemm-private-jenkins
         JENKINS_REPO_DIR_BAREMETAL=$PWD
