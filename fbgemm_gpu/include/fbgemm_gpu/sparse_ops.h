@@ -413,6 +413,17 @@ jagged_dense_elementwise_mul_autograd(
     const std::vector<at::Tensor>& x_offsets,
     const at::Tensor& y);
 
+std::tuple<at::Tensor, std::vector<at::Tensor>> dense_to_jagged_autograd(
+    const at::Tensor& dense,
+    const std::vector<at::Tensor>& offsets,
+    const c10::optional<int64_t>& total_L);
+
+std::tuple<at::Tensor, std::vector<at::Tensor>>
+jagged_dense_elementwise_add_jagged_output_autograd(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y);
+
 ///@ingroup sparse-data-cpu
 at::Tensor jagged_2d_to_dense_forward_cpu(
     at::Tensor values,

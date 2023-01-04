@@ -709,6 +709,56 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
+        device_type=st.sampled_from(["meta"]),
+        precompute_total_L=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_dense_to_jagged_meta_backend(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        device_type: str,
+        precompute_total_L: bool,
+    ) -> None:
+        device = torch.device("cpu")
+        values_2d, offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+        values_2d = values_2d.clone().detach().requires_grad_(True)
+
+        # jagged -> dense
+        dense = torch.ops.fbgemm.jagged_to_padded_dense(values_2d, offsets, max_lengths)
+
+        # dense -> jagged (op which is being tested)
+        if precompute_total_L:
+            total_L = values_2d.size(0)
+            dense.to(device_type)
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
+                dense, offsets, total_L
+            )
+        else:
+            dense.to(device_type)
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
+                dense, offsets
+            )
+
+        jagged_values.to(device_type)
+        # jagged -> dense
+        dense2 = torch.ops.fbgemm.jagged_to_padded_dense(
+            jagged_values, jagged_offsets, max_lengths
+        )
+
+        # verify forward
+        assert dense.size() == dense2.size()
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 5),
+        outer_dense_size=st.integers(0, 5),
+        inner_dense_size=st.integers(0, 5),
         fold_inner_dense=st.booleans(),
         padding_value=st.sampled_from([0, -1e-8]),
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
@@ -973,7 +1023,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
-        operation=st.just("mul"),
+        operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
         dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
         device_type=st.just("meta"),
     )
@@ -999,7 +1049,39 @@ class JaggedTensorOpsTest(unittest.TestCase):
         ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
 
         x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
-        if operation == "mul":
+        if operation == "add":
+            output_ref = x_padded + y
+            x_values.to(device_type)
+            y.to(device_type)
+            output = torch.ops.fbgemm.jagged_dense_elementwise_add(
+                x_values, x_offsets, y
+            )
+        elif operation == "add_jagged_output":
+            # create a jagged tensor and then densify
+            y = self._to_padded_dense(
+                torch.rand(
+                    (
+                        max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                        inner_dense_size,
+                    ),
+                    dtype=dtype,
+                    device=device,
+                ),
+                x_offsets,
+                max_lengths,
+            )
+            output_ref = x_padded + y
+            x_values.to(device_type)
+            y.to(device_type)
+            (
+                output,
+                output_offsets,
+            ) = torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
+                x_values, x_offsets, y
+            )
+            output.to("cpu")
+            output = self._to_padded_dense(output, output_offsets, max_lengths)
+        elif operation == "mul":
             output_ref = x_padded * y
             x_values.to(device_type)
             y.to(device_type)
