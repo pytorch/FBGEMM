@@ -203,3 +203,118 @@ void bounds_check_indices_cuda(
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
+
+template <typename index_t>
+__global__ __launch_bounds__(kMaxThreads) void bounds_check_row_indices_kernel(
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        rows_per_table,
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        update_row_indices,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        update_table_indices,
+    const int64_t bounds_check_mode_,
+    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning) {
+  int32_t T = rows_per_table.size(0);
+
+  const int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= update_row_indices.size(0)) {
+    return;
+  }
+  const int table_idx = update_table_indices[idx];
+  const auto row_idx = update_row_indices[idx];
+
+  auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
+
+  if (bounds_check_mode == BoundsCheckMode::FATAL) {
+    CUDA_KERNEL_ASSERT(table_idx >= 0);
+    CUDA_KERNEL_ASSERT(table_idx < T);
+  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    if (table_idx < 0 || table_idx >= T) {
+      if (gpuAtomicIncrement(&warning[0]) == 0) {
+        printf(
+            "EmbeddingBoundsCheck: (at least one) Out of bounds access for idx: %lld, table_idx: %lld. Setting table_idx to zero.\n",
+            static_cast<int64_t>(idx),
+            static_cast<int64_t>(table_idx));
+      }
+      update_table_indices[idx] = 0;
+    }
+  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+    update_table_indices[idx] = 0;
+  }
+
+  auto num_rows = rows_per_table[table_idx];
+
+  if (row_idx == -1) {
+    // -1 indicates pruned rows.
+    return;
+  }
+  if (bounds_check_mode == BoundsCheckMode::FATAL) {
+    CUDA_KERNEL_ASSERT(
+        row_idx >= 0 && "Failed row_idx >= 0 in bounds_check_indices");
+    CUDA_KERNEL_ASSERT(
+        row_idx < num_rows &&
+        "Failed row_idx < num_rows in bounds_check_indices");
+  } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    if (row_idx < 0 || row_idx >= num_rows) {
+      if (gpuAtomicIncrement(&warning[0]) == 0) {
+        printf(
+            "EmbeddingBoundsCheck: (at least one) Out of bounds access for idx: %lld, table_idx: %lld, row_idx: %lld, num_rows: %lld. Setting row_idx to zero.\n",
+            static_cast<int64_t>(idx),
+            static_cast<int64_t>(table_idx),
+            static_cast<int64_t>(row_idx),
+            num_rows);
+      }
+      update_row_indices[idx] = 0;
+    }
+  } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+    if (idx < 0 || idx >= num_rows) {
+      update_row_indices[idx] = 0;
+    }
+  }
+}
+
+void bounds_check_row_indices_cuda(
+    Tensor& rows_per_table,
+    Tensor& update_row_indices,
+    Tensor& update_table_indices,
+    int64_t bounds_check_mode_,
+    Tensor& warning) {
+  TENSOR_ON_CUDA_GPU(rows_per_table);
+  TENSOR_ON_CUDA_GPU(update_row_indices);
+  TENSOR_ON_CUDA_GPU(update_table_indices);
+  TENSOR_ON_CUDA_GPU(warning);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(rows_per_table.get_device());
+
+  const int32_t T = rows_per_table.size(0);
+  if (T == 0) {
+    return;
+  }
+  const auto bounds_check_mode =
+      static_cast<BoundsCheckMode>(bounds_check_mode_);
+  if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    warning.zero_();
+  }
+  const int64_t num_indices = update_row_indices.size(0);
+
+  constexpr size_t kNumThreads = 256;
+
+  AT_DISPATCH_INDEX_TYPES(
+      update_row_indices.scalar_type(), "bounds_check_indices", [&] {
+        bounds_check_row_indices_kernel<index_t>
+            <<<div_round_up(num_indices, kNumThreads),
+               kNumThreads,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                rows_per_table
+                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                update_row_indices
+                    .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                update_table_indices
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                bounds_check_mode_,
+                warning.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+}

@@ -456,6 +456,13 @@ Tensor pruned_array_lookup_cuda(
     Tensor index_remappings,
     Tensor index_remappings_offsets);
 
+///@ingroup embedding-cuda
+Tensor pruned_array_lookup_from_row_idx_cuda(
+    Tensor update_row_indices,
+    Tensor update_table_indices,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets);
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "int_nbit_split_embedding_codegen_lookup_function",
@@ -467,4 +474,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "pruned_hashmap_lookup", pruned_hashmap_lookup_unweighted_cuda);
 
   DISPATCH_TO_CUDA("pruned_array_lookup", pruned_array_lookup_cuda);
+  DISPATCH_TO_CUDA(
+      "pruned_array_lookup_from_row_idx",
+      pruned_array_lookup_from_row_idx_cuda);
 }

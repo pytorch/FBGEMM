@@ -534,5 +534,48 @@ Tensor pruned_array_lookup_cpu(
     }
     return dense_indices;
 }
+
+Tensor pruned_array_lookup_from_row_idx_cpu(
+    Tensor update_row_indices,
+    Tensor update_table_indices,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets) {
+    TENSOR_ON_CPU(update_row_indices);
+    TENSOR_ON_CPU(update_table_indices);
+    TENSOR_ON_CPU(index_remappings);
+    TENSOR_ON_CPU(index_remappings_offsets);
+
+    int32_t T = index_remappings_offsets.size(0) - 1;
+    auto dense_indices = empty_like(update_row_indices);
+    const auto num_indices = update_row_indices.numel();
+    if (num_indices == 0) {
+      return dense_indices;
+    }
+
+    AT_DISPATCH_INDEX_TYPES(
+      update_row_indices.scalar_type(), "pruned_array_lookup_from_row_idx_cpu_kernel", [&] {
+        const auto* update_row_indices_acc = update_row_indices.data_ptr<index_t>();
+        auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
+        const auto* update_table_indices_acc = update_table_indices.data_ptr<int32_t>();
+
+        const auto index_remappings_acc = index_remappings.data_ptr<int32_t>();
+        const auto index_remappings_offsets_acc = index_remappings_offsets.data_ptr<int64_t>();
+
+        for (int64_t idx = 0; idx < num_indices; idx++) {
+            const int table_idx = update_table_indices_acc[idx];
+            const auto row_idx = update_row_indices_acc[idx];
+            int64_t index_remappings_start = index_remappings_offsets_acc[table_idx];
+            int64_t index_remappings_end = index_remappings_offsets_acc[table_idx + 1];
+            int64_t capacity = index_remappings_end - index_remappings_start;
+            if (capacity > 0) {
+                dense_indices_acc[idx] = index_remappings_acc[index_remappings_start + row_idx];
+            } else {
+                dense_indices_acc[idx] = row_idx;
+            }
+        }
+      });
+    return dense_indices;
+}
+
 {% endif %}
 // clang-format on

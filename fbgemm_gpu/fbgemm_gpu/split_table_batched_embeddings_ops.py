@@ -2861,6 +2861,19 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=torch.int64,
         )
 
+        # Only support array based pruning for now.
+        assert self.index_remapping_hash_table_cpu is None
+        assert self.index_remapping_hash_table.numel() == 0
+        assert self.index_remappings_array.numel() >= 0
+
+        if self.index_remappings_array.numel() > 0:
+            update_row_indices = torch.ops.fbgemm.pruned_array_lookup_from_row_idx(
+                update_row_indices,
+                update_table_indices,
+                self.index_remappings_array,
+                self.index_remappings_array_offsets,
+            )
+
         lxu_cache_locations = None
         # pyre-fixme[29]:
         #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],

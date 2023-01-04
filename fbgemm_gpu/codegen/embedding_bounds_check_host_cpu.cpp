@@ -156,6 +156,78 @@ void bounds_check_indices_cpu(
     }
   });
 }
+
+///@addtogroup embedding-cpu
+void bounds_check_row_indices_cpu(
+    Tensor& rows_per_table,
+    Tensor& update_row_indices,
+    Tensor& update_table_indices,
+    int64_t bounds_check_mode_,
+    Tensor& warning) {
+  auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
+  if (bounds_check_mode == BoundsCheckMode::WARNING) {
+    warning.zero_();
+  }
+
+  int32_t T = rows_per_table.size(0);
+  const auto rows_per_table_acc = rows_per_table.accessor<int64_t, 1>();
+  auto warning_acc = warning.data_ptr<int64_t>();
+
+  AT_DISPATCH_INDEX_TYPES(
+      update_row_indices.scalar_type(), "bounds_check_indices", [&] {
+        auto update_table_indices_acc =
+            update_table_indices.accessor<int32_t, 1>();
+        auto update_row_indices_acc = update_row_indices.accessor<index_t, 1>();
+        auto num_indices = update_row_indices.numel();
+
+        for (int64_t idx = 0; idx < num_indices; idx++) {
+          const int table_idx = update_table_indices_acc[idx];
+          const auto row_idx = update_row_indices_acc[idx];
+          if (bounds_check_mode == BoundsCheckMode::FATAL) {
+            TORCH_CHECK(table_idx >= 0);
+            TORCH_CHECK(table_idx < T);
+          } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+            if (table_idx < 0 || table_idx >= T) {
+              if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
+                LOG(ERROR) << "(at least one) Out of bounds access for idx: "
+                           << idx << "table: " << table_idx
+                           << ". Setting table_idx to zero.";
+              }
+              update_table_indices_acc[idx] = 0;
+            }
+          } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+            update_table_indices_acc[idx] = 0;
+          }
+
+          auto num_rows = rows_per_table_acc[table_idx];
+
+          if (row_idx == -1) {
+            // -1 indicates pruned rows.
+            return;
+          }
+          if (bounds_check_mode == BoundsCheckMode::FATAL) {
+            TORCH_CHECK(row_idx >= 0);
+            TORCH_CHECK(row_idx < num_rows);
+          } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
+            if (row_idx < 0 || row_idx >= num_rows) {
+              if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
+                LOG(ERROR) << "(at least one) Out of bounds access for idx: "
+                           << idx << ", table_idx: " << table_idx
+                           << ", row_idx: " << row_idx
+                           << ", num_rows: " << num_rows
+                           << ". Setting row_idx to zero.";
+              }
+              update_row_indices_acc[idx] = 0;
+            }
+          } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
+            if (row_idx < 0 || row_idx >= num_rows) {
+              update_row_indices_acc[idx] = 0;
+            }
+          }
+        }
+      });
+}
+
 } // namespace
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
@@ -173,4 +245,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None) -> ()");
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
+
+  m.def(
+
+      "bounds_check_row_indices(Tensor rows_per_table, Tensor(a!) update_row_indices, Tensor(b!) update_table_indices, int bounds_check_mode, Tensor(c!) warning) -> ()");
+  DISPATCH_TO_CPU("bounds_check_row_indices", bounds_check_row_indices_cpu);
 }
