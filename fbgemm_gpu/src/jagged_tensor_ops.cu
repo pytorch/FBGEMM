@@ -1182,92 +1182,60 @@ at::Tensor jagged_to_padded_dense_backward(
   return D_folded ? grad_values.squeeze(-1) : grad_values;
 }
 
-///@ingroup jagged-tensor-ops-cuda
-class DenseToJaggedGPUOp
-    : public torch::autograd::Function<DenseToJaggedGPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& dense,
-      const std::vector<Tensor>& offsets,
-      const c10::optional<int64_t>& total_L) {
-    ctx->save_for_backward(offsets);
-    ctx->saved_data["dense_shape"] = dense.sizes();
+Tensor dense_to_jagged_forward(
+    const Tensor& dense,
+    const std::vector<Tensor>& offsets,
+    const c10::optional<int64_t>& total_L) {
+  // D is the embedding dimension
+  auto D = dense.size(-1);
 
-    // D is the embedding dimension
-    auto D = dense.size(-1);
-
-    // If total_L is not given then compute it
-    int64_t total_L_computed;
-    if (total_L.has_value()) {
-      total_L_computed = total_L.value();
-    } else {
-      total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
-    }
-    auto values = at::empty({total_L_computed, D}, dense.options());
-    auto output = at::empty_like(values);
-
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(dense.get_device());
-
-    AT_DISPATCH_SWITCH(
-        values.scalar_type(),
-        "dense_to_jagged_gpu_op_forward",
-        AT_DISPATCH_CASE(
-            at::ScalarType::Half,
-            [&] {
-              jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
-                  values,
-                  offsets,
-                  dense,
-                  output,
-                  [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
-                    return y;
-                  }); // device lambda
-            } // lambda
-            ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES_AND2(
-            at::ScalarType::Long,
-            at::ScalarType::BFloat16,
-            [&] {
-              jagged_dense_elementwise_jagged_output_<scalar_t>(
-                  values,
-                  offsets,
-                  dense,
-                  output,
-                  [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
-                    return y;
-                  }); // device lambda
-            } // lambda
-            ) // CASE_FLOATING_TYPES_AND
-    ); // SWITCH
-
-    return {output};
+  // If total_L is not given then compute it
+  int64_t total_L_computed;
+  if (total_L.has_value()) {
+    total_L_computed = total_L.value();
+  } else {
+    total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
   }
+  auto values = at::empty({total_L_computed, D}, dense.options());
+  auto output = at::empty_like(values);
 
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    auto offsets = ctx->get_saved_variables();
-    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-    TORCH_CHECK(grad_outputs.size() == 1);
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(dense.get_device());
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(grad_outputs[0].get_device());
+  AT_DISPATCH_SWITCH(
+      values.scalar_type(),
+      "dense_to_jagged_gpu_op_forward",
+      AT_DISPATCH_CASE(
+          at::ScalarType::Half,
+          [&] {
+            jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
+                values,
+                offsets,
+                dense,
+                output,
+                [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
+                  return y;
+                }); // device lambda
+          } // lambda
+          ) // CASE
+      AT_DISPATCH_CASE_FLOATING_TYPES_AND2(
+          at::ScalarType::Long,
+          at::ScalarType::BFloat16,
+          [&] {
+            jagged_dense_elementwise_jagged_output_<scalar_t>(
+                values,
+                offsets,
+                dense,
+                output,
+                [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
+                  return y;
+                }); // device lambda
+          } // lambda
+          ) // CASE_FLOATING_TYPES_AND
+  ); // SWITCH
 
-    Tensor dense_values_grad = jagged_to_padded_dense_forward(
-        grad_outputs[0],
-        offsets,
-        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
-        /*padding_value=*/0);
-    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
-
-    return {
-        dense_values_grad,
-        torch::autograd::Variable(), // offsets
-        torch::autograd::Variable()}; // total_L
-  }
-};
+  return output;
+}
 
 Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
     const Tensor& x_values,
@@ -1334,14 +1302,6 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
   }
 
   return output;
-}
-
-///@ingroup jagged-tensor-ops-cuda
-std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
-    const Tensor& dense,
-    const std::vector<Tensor>& offsets,
-    const c10::optional<int64_t>& total_L) {
-  return {DenseToJaggedGPUOp::apply(dense, offsets, total_L)[0], offsets};
 }
 
 class JaggedDenseAddJaggedOutputGPUOp
@@ -2822,7 +2782,9 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  DISPATCH_TO_CUDA("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
+  DISPATCH_TO_CUDA("dense_to_jagged", fbgemm_gpu::dense_to_jagged_autograd);
+  DISPATCH_TO_CUDA(
+      "dense_to_jagged_forward", fbgemm_gpu::dense_to_jagged_forward);
   DISPATCH_TO_CUDA(
       "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense_autograd);
   DISPATCH_TO_CUDA(
@@ -2836,7 +2798,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       fbgemm_gpu::jagged_dense_elementwise_add_autograd);
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
+      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_autograd);
   DISPATCH_TO_CUDA(
       "jagged_dense_dense_elementwise_add_jagged_output_forward",
       fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);
