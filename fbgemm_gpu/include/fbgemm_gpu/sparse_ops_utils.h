@@ -316,15 +316,6 @@ struct StackArray {
       case 2:                                                                 \
         INVOKE_KERNEL_WITH_DIM(2);                                            \
         break;                                                                \
-      case 3:                                                                 \
-        INVOKE_KERNEL_WITH_DIM(3);                                            \
-        break;                                                                \
-      case 4:                                                                 \
-        INVOKE_KERNEL_WITH_DIM(4);                                            \
-        break;                                                                \
-      case 5:                                                                 \
-        INVOKE_KERNEL_WITH_DIM(5);                                            \
-        break;                                                                \
       default:                                                                \
         TORCH_CHECK(                                                          \
             false, "unsupported number of jagged dim ", num_jagged_dim);      \
