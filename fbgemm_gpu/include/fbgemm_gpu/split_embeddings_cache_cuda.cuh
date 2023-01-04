@@ -67,7 +67,9 @@ void lru_cache_populate_cuda(
     at::Tensor lxu_cache_weights,
     int64_t time_stamp,
     at::Tensor lru_state,
-    bool stochastic_rounding);
+    bool stochastic_rounding,
+    bool gather_cache_stats,
+    c10::optional<at::Tensor> uvm_cache_stats);
 
 ///@ingroup table-batched-embed-cuda
 /// LRU cache: fetch the rows corresponding to `linear_cache_indices` from
