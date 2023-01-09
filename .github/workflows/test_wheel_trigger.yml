@@ -16,7 +16,7 @@ jobs:
     uses: ./.github/workflows/build_wheel.yml
     with:
       release_version: "nightly"
-      upload_pypi: false
+      upload_pypi: true
 
   test_wheel_prerelease:
     if: contains(github.event.pull_request.labels.*.name, 'test_wheel_prerelease')

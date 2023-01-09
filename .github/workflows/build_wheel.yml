@@ -148,6 +148,7 @@ jobs:
       timeout: 60
       script: |
         set -x
+        conda create -y -n build_binary
         conda run -n build_binary python -m pip install twine
         # Upload it to the official PYPI website
         FBGEMM_ARTIFACT_PATH="${RUNNER_ARTIFACT_DIR}/${{ needs.setup_wheel_jobs.outputs.fbgemm_package_name }}_${{ matrix.python-version }}_${{ matrix.cuda-tag }}"
