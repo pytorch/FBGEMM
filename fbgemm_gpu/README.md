@@ -137,6 +137,10 @@ wget https://repo.radeon.com/amdgpu-install/5.3/ubuntu/focal/amdgpu-install_5.3.
 sudo apt-get install ./amdgpu-install_5.3.50300-1_all.deb
 sudo amdgpu-install --usecase=hiplibsdk,rocm --no-dkms
 ```
+MIOpen is required and needs to be installed seperately.
+```
+sudo apt-get install miopen-hip miopen-hip-dev
+```
 Anaconda is required.
 The remaining steps are the same as "in the container" section.
 
