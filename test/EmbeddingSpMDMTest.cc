@@ -89,6 +89,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   uniform_int_distribution<> bool_dist(0, 1);
 
   bool isFp16 = bool_dist(generator);
+  bool isBf16 = bool_dist(generator);
   bool isIndex64b = bool_dist(generator);
   bool isOffset64b = bool_dist(generator);
   bool normalize_by_lengths = bool_dist(generator);
@@ -102,6 +103,11 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   tie(prefetch, weight_choice, corner_case) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
+
+  if (isFp16 && isBf16) {
+    // emb table cannot be both fp16 and bf16
+    return;
+  }
 
   if (corner_case != NONE || is_wt_positional) {
     // Check corner case only for subset of tests.
@@ -143,6 +149,15 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
           embedding_table.size());
     }
 
+    vector<bfloat16> embedding_table_bf16;
+    if (isBf16) {
+      embedding_table_bf16.resize(embedding_table.size());
+      FloatToBfloat16_simd(
+          embedding_table.data(),
+          embedding_table_bf16.data(),
+          embedding_table.size());
+    }
+
     vector<int64_t> lengths, offsets, indices;
     vector<int32_t> lengths_32, offsets_32, indices_32;
     vector<float> weights;
@@ -172,11 +187,14 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     vector<float> output_ref(output_size_wo_sentries + num_sentries);
     vector<float> output(output_ref.size());
     vector<float16> output_ref_fp16(output.size()), output_fp16(output.size());
+    vector<bfloat16> output_ref_bf16(output.size()), output_bf16(output.size());
     for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
       output_ref[i] = sentry_value;
       output[i] = sentry_value;
       output_ref_fp16[i] = cpu_float2half_rn(sentry_value);
       output_fp16[i] = cpu_float2half_rn(sentry_value);
+      FloatToBfloat16_ref(&sentry_value, &output_ref_bf16[i], 1);
+      FloatToBfloat16_ref(&sentry_value, &output_bf16[i], 1);
     }
 
     bool success, success_ref;
@@ -312,6 +330,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
 
     if (isFp16) {
       TEST_INDEX_TYPE(embedding_table_fp16, float16);
+    } else if (isBf16) {
+      TEST_INDEX_TYPE(embedding_table_bf16, bfloat16);
     } else {
       TEST_INDEX_TYPE(embedding_table, float);
     }

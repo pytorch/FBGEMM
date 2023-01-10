@@ -9,7 +9,6 @@
 
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FbgemmConvert.h"
-#include "fbgemm/Types.h"
 
 #include <algorithm>
 #include <cassert>
@@ -1180,6 +1179,42 @@ void transposeConvWeights(
   }
 }
 
+// Need these overloaded fuction to pass the compile since template with std::is_same<T, bfloat16> cannot work.
+// See https://stackoverflow.com/questions/50253286/using-stdis-same-why-my-function-still-cant-work-for-2-types
+void convert_to_float_ref(const bfloat16* src, float *dst){
+  Bfloat16ToFloat_ref(src, dst, 1);
+}
+
+void convert_to_float_ref(const float16* src, float *dst){
+  *dst = cpu_half2float(*src);
+}
+
+void convert_to_float_ref(const float* src, float *dst){
+  *dst = *src;
+}
+
+void convert_to_float_ref(const uint8_t* src, float *dst){
+  assert(false);
+  *dst = *src;
+}
+
+void convert_from_float_ref(const float* src, bfloat16 *dst){
+  FloatToBfloat16_ref(src, dst, 1);
+}
+
+void convert_from_float_ref(const float* src, float16 *dst){
+  *dst = cpu_float2half_rn(*src);
+}
+
+void convert_from_float_ref(const float* src, float *dst){
+  *dst = *src;
+}
+
+void convert_from_float_ref(const float* src, uint8_t *dst){
+  assert(false);
+  *dst = *src;
+}
+
 template <
     typename InType,
     typename IndexType,
@@ -1341,14 +1376,17 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
+          float f_value;
+          convert_to_float_ref(inptr, &f_value);
           buf[j] = std::fma(
               w,
-              is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
+              f_value,
               buf[j]);
         }
         for (int j = 0; j < block_size; ++j) {
-          out[j] = is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
-                                                    : buf[j];
+          OutType o_value;
+          convert_from_float_ref(&buf[j], &o_value);
+          out[j] = o_value;
         }
         out += output_stride;
       } // m
@@ -1377,9 +1415,11 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
+          float f_value;
+          convert_to_float_ref(inptr, &f_value);
           buf[j] = std::fma(
               w,
-              is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
+              f_value,
               buf[j]);
         }
 
@@ -1392,8 +1432,9 @@ bool EmbeddingSpMDM_ref(
         }
       }
       for (int j = 0; j < block_size; ++j) {
-        out[j] = is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
-                                                  : buf[j];
+        OutType o_value;
+        convert_from_float_ref(&buf[j], &o_value);
+        out[j] = o_value;
       }
       out += output_stride;
     }
@@ -2082,6 +2123,20 @@ INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
 INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 
+#define BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                \
+  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, float)           \
+  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, float16)         \
+  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, bfloat16)        \
+
+#define BF16_INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE)           \
+  BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int32_t)      \
+  BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int64_t)
+
+BF16_INSTANTIATE_SPMDM_OFFSET_T(std::int32_t)
+BF16_INSTANTIATE_SPMDM_OFFSET_T(std::int64_t)
+
+#undef BF16_INSTANTIATE_SPMDM_OUT_T
+#undef BF16_INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_INDEX_T
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T

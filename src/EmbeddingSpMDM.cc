@@ -21,7 +21,7 @@
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
 #include "fbgemm/SimdUtils.h"
-#include "fbgemm/Types.h"
+#include "fbgemm/FbgemmConvert.h"
 
 namespace fbgemm {
 
@@ -227,7 +227,11 @@ GenEmbeddingSpMDMLookup<
                 outType,
                 ROWWISE_SPARSE>::jit_embedding_kernel {
         bool is8bit = std::is_same<inType, uint8_t>::value;
-        bool is16bit = std::is_same<inType, float16>::value;
+        bool isfp16 = std::is_same<inType, float16>::value;
+        bool isbf16 = std::is_same<inType, bfloat16>::value;
+        bool is16bit = isfp16 || isbf16;
+        bool isfp16out = std::is_same<outType, float16>::value;
+        bool isbf16out = std::is_same<outType, bfloat16>::value;
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
@@ -241,8 +245,10 @@ GenEmbeddingSpMDMLookup<
         std::string filename = "embeddinglookup";
         if (is8bit) {
           filename += "_8bit";
-        } else if (is16bit) {
+        } else if (isfp16) {
           filename += "_fp16";
+        } else if (isbf16) {
+          filename += "_bf16";
         }
         filename += "_emd_dim_" + std::to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
@@ -264,7 +270,7 @@ GenEmbeddingSpMDMLookup<
         }
         filename += "_out_stride_" + std::to_string(output_stride);
         if (!scale_bias_last) {
-          filename += "_scale_bias_first"
+          filename += "_scale_bias_first";
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
@@ -404,6 +410,9 @@ GenEmbeddingSpMDMLookup<
         vec_reg_t src_vreg; // for holding embedding value temporarily
         x86::Ymm mask_vreg; // mask for avx2
         x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
+        vec_reg_t ones_vreg;
+        vec_reg_t bf16_bias_vreg;
+        vec_reg_t tout_vreg;
 
         if (is8bit) {
           // We need 2 vec registers for 1. scale 2. bias
@@ -411,6 +420,19 @@ GenEmbeddingSpMDMLookup<
           scale_vreg = vec_reg_t(unroll_factor);
           --unroll_factor;
           bias_vreg = vec_reg_t(unroll_factor);
+        }
+
+        if (isbf16) {
+          --unroll_factor;
+          ones_vreg = vec_reg_t(unroll_factor);
+          a->mov(scratchReg2_, 1);
+          a->vpbroadcastd(ones_vreg, scratchReg2_);
+          --unroll_factor;
+          bf16_bias_vreg = vec_reg_t(unroll_factor);
+          a->mov(scratchReg2_, 0x7fff);
+          a->vpbroadcastd(bf16_bias_vreg, scratchReg2_);
+          --unroll_factor;
+          tout_vreg = vec_reg_t(unroll_factor);
         }
 
         if (is8bit || is16bit || (remainder && instSet == inst_set_t::avx2)) {
@@ -747,14 +769,32 @@ GenEmbeddingSpMDMLookup<
                       a->vmovups(src_vreg.xmm(), x86::xmmword_ptr(x86::rsp));
                     } // remainder > 1
                   } // remainder % 2
-                  a->vcvtph2ps(src_vreg.ymm(), src_vreg.xmm());
+                  if (isfp16) {
+                    a->vcvtph2ps(src_vreg.ymm(), src_vreg.xmm());
+                  } else if (isbf16) {
+                    // bf16
+                    a->vpmovzxwd(src_vreg.ymm(), src_vreg.xmm());
+                    a->vpslld(src_vreg.ymm(), src_vreg.ymm(), 16);
+                  }
                 } else {
                   // avx512
-                  a->k(x86::k(1)).z().vcvtph2ps(src_vreg, src_addr);
+                  if (isfp16) {
+                    a->k(x86::k(1)).z().vcvtph2ps(src_vreg, src_addr);
+                  } else if(isbf16) {
+                    // bf16
+                    a->k(x86::k(1)).z().vpmovzxwd(src_vreg, src_addr);
+                    a->k(x86::k(1)).z().vpslld(src_vreg, src_vreg, 16);
+                  }
                 }
               } else {
                 // no remainder
-                a->vcvtph2ps(src_vreg, src_addr);
+                if (isfp16) {
+                  a->vcvtph2ps(src_vreg, src_addr);
+                } else if (isbf16){
+                  // bf16
+                  a->vpmovzxwd(src_vreg, src_addr);
+                  a->vpslld(src_vreg, src_vreg, 16);
+                }
               }
               if (has_weight) {
                 a->vfmadd231ps(out_vreg, w_vreg, src_vreg);
@@ -823,10 +863,19 @@ GenEmbeddingSpMDMLookup<
                 a->vmovups(dst_addr, out_vreg);
               }
             } else {
-              // fp16 output
+              // fp16/bf16 output
               if (instSet == inst_set_t::avx2) {
                 // round nearest with no exception
-                a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
+                if (isfp16out) {
+                  a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
+                } else if (isbf16out) {
+                  a->vpsrld(tout_vreg, out_vreg, 16);
+                  a->vpand(tout_vreg, tout_vreg, ones_vreg);
+                  a->vpand(tout_vreg, tout_vreg, bf16_bias_vreg);
+                  a->vpaddd(tout_vreg, tout_vreg, out_vreg);
+                  a->vpsrld(tout_vreg, tout_vreg, 16);
+                  a->vpackusdw(tout_vreg, tout_vreg, tout_vreg);
+                }
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (remainder > 1) {
                     a->vmaskmovps(dst_addr, mask_fp16_vreg, out_vreg.xmm());
@@ -849,9 +898,30 @@ GenEmbeddingSpMDMLookup<
                 }
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                  a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
+                  if (isfp16out) {
+                    a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
+                  } else if(isbf16out) {
+                    // bf16
+                    a->k(x86::k(1)).vpsrld(tout_vreg, out_vreg, 16);
+                    a->k(x86::k(1)).vpandd(tout_vreg, tout_vreg, ones_vreg);
+                    a->k(x86::k(1)).vpaddd(
+                        tout_vreg, tout_vreg, bf16_bias_vreg);
+                    a->k(x86::k(1)).vpaddd(tout_vreg, tout_vreg, out_vreg);
+                    a->k(x86::k(1)).vpsrld(tout_vreg, tout_vreg, 16);
+                    a->k(x86::k(1)).vpmovusdw(dst_addr, tout_vreg);
+                  }
                 } else {
-                  a->vcvtps2ph(dst_addr, out_vreg, 8);
+                  if (isfp16out) {
+                    a->vcvtps2ph(dst_addr, out_vreg, 8);
+                  } else if(isbf16out) {
+                    // bf16
+                    a->vpsrld(tout_vreg, out_vreg, 16);
+                    a->vpandd(tout_vreg, tout_vreg, ones_vreg);
+                    a->vpaddd(tout_vreg, tout_vreg, bf16_bias_vreg);
+                    a->vpaddd(tout_vreg, tout_vreg, out_vreg);
+                    a->vpsrld(tout_vreg, tout_vreg, 16);
+                    a->vpmovusdw(dst_addr, tout_vreg);
+                  }
                 }
               }
             }
@@ -1454,6 +1524,28 @@ INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
 INSTANTIATE_SPMDM_INDEX_T(uint8_t)
 
+#define BF16_INSTANTIATE_SPMDM_THREAD_LOCAL(                                          \
+    INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)                                                \
+  INSTANTIATE_SPMDM_NOSTRIDE_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)  \
+  INSTANTIATE_SPMDM_NOSTRIDE_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false) \
+  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)           \
+  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)
+
+#define BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)           \
+  BF16_INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)   \
+  BF16_INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float16) \
+  BF16_INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, bfloat16)
+
+#define BF16_INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
+  BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int32_t) \
+  BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int64_t)
+
+BF16_INSTANTIATE_SPMDM_OFFSET_T(int32_t)
+BF16_INSTANTIATE_SPMDM_OFFSET_T(int64_t)
+
+#undef BF16_INSTANTIATE_SPMDM_OUT_T
+#undef BF16_INSTANTIATE_SPMDM_THREAD_LOCAL
+#undef BF16_INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_INDEX_T
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T
