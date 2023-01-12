@@ -432,7 +432,9 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
                         int64_t i = shard_ids[j];
                         const auto& value = values[j];
                         if (s.ok()) {
-                          CHECK_EQ(value.size(), D * sizeof(scalar_t));
+                          if (!std::is_same<scalar_t, uint8_t>::value) {
+                            CHECK_EQ(value.size(), D * sizeof(scalar_t));
+                          }
                           std::copy(
                               reinterpret_cast<const scalar_t*>(value.data()),
                               reinterpret_cast<const scalar_t*>(

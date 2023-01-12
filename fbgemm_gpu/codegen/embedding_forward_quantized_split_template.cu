@@ -197,7 +197,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     return;
   }
   static_assert(
-    std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
+    std::is_same<output_t, float>::value || std::is_same<output_t, at::BFloat16>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
     "output_t can only be float or half or bytes now"
   );
 
@@ -331,7 +331,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
         }
         {% else %}
         const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
-        if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+        if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, at::BFloat16>::value) {
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
             // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
@@ -388,7 +388,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     const uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
     const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i]: static_cast<float>(1.0);
 
-    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value) {
+    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, at::BFloat16>::value) {
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
@@ -539,12 +539,48 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
   const int64_t index_remappings_end = index_remappings_offsets[t + 1];
   const int64_t capacity = index_remappings_end - index_remappings_start;
 
-  for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
-    int32_t idx = indices[indices_start + l];
-    dense_indices[indices_start + l] = capacity ? index_remappings[index_remappings_start + idx] : idx;
+  if (capacity > 0) {
+    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+        int32_t idx = indices[indices_start + l];
+        dense_indices[indices_start + l] = index_remappings[index_remappings_start + idx];
+    }
+  } else {
+    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+        dense_indices[indices_start + l] = indices[indices_start + l];
+    }
   }
 }
 {% endif %}
+
+{% if not weighted %}
+template <typename index_t>
+__global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_from_row_idx_kernel(
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> update_row_indices,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> update_table_indices,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> index_remappings_offsets,
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> dense_indices) {
+
+  const int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= update_row_indices.size(0)) {
+    return;
+  }
+  const int table_idx = update_table_indices[idx];
+  const auto row_idx = update_row_indices[idx];
+
+  const int64_t index_remappings_start = index_remappings_offsets[table_idx];
+  const int64_t index_remappings_end = index_remappings_offsets[table_idx + 1];
+  const int64_t capacity = index_remappings_end - index_remappings_start;
+
+  if (capacity > 0) {
+    dense_indices[idx] = index_remappings[index_remappings_start + row_idx];
+  } else {
+    dense_indices[idx] = row_idx;
+  }
+}
+{% endif %}
+
+
 
 }
 
@@ -625,7 +661,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor output;
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
-    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
     {% if not nobag %}
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
@@ -1043,5 +1079,53 @@ Tensor pruned_array_lookup_cuda(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
 }
+
+Tensor pruned_array_lookup_from_row_idx_cuda(
+    Tensor update_row_indices,
+    Tensor update_table_indices,
+    Tensor index_remappings,
+    Tensor index_remappings_offsets) {
+
+  TENSOR_ON_CUDA_GPU(update_row_indices);
+  TENSOR_ON_CUDA_GPU(update_table_indices);
+  TENSOR_ON_CUDA_GPU(index_remappings);
+  TENSOR_ON_CUDA_GPU(index_remappings_offsets);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(update_table_indices.get_device());
+  auto dense_indices = at::empty_like(update_row_indices);
+  const int32_t T = index_remappings_offsets.size(0) - 1;
+
+  const auto num_indices = update_row_indices.numel();
+  if (num_indices == 0) {
+    return dense_indices;
+  }
+
+  TORCH_CHECK(index_remappings.size(0) < std::numeric_limits<int64_t>::max());
+  TORCH_CHECK(update_row_indices.dim() == 1, "Tensor dim: ", update_row_indices.dim());
+  TORCH_CHECK(update_table_indices.dim() == 1, "Tensor dim: ", update_table_indices.dim());
+  TORCH_CHECK(index_remappings.dim() == 1, "Tensor dim: ", index_remappings.dim());
+  TORCH_CHECK(index_remappings_offsets.dim() == 1, "Tensor dim: ", index_remappings_offsets.dim());
+  TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
+  constexpr size_t kForwardMaxThreads = 256;
+
+  AT_DISPATCH_INDEX_TYPES(
+      update_row_indices.scalar_type(), "embedding_inplace_update_kernel", [&] {
+        nbit::int_nbit_split_embedding_codegen_forward_pruned_array_lookup_from_row_idx_kernel<<<
+            nbit::div_round_up(num_indices, kForwardMaxThreads),
+            kForwardMaxThreads,
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+                update_row_indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                update_table_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                index_remappings.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                index_remappings_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                dense_indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>()
+        );
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+  return dense_indices;
+}
 {% endif %}
+
                                     // clang-format on

@@ -388,7 +388,11 @@ at::Tensor jagged_to_padded_dense_forward(
   at::DimVector padded_values_shape({offsets[0].size(0) - 1});
   padded_values_shape.insert(
       padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
-  if (values.dim() > 1) {
+
+  // Canonicalize padded_values by unsqueeze the last dim if the inner dense
+  // dimension is 1 and folded.
+  const bool D_folded = values.dim() == 1;
+  if (!D_folded) {
     padded_values_shape.push_back(values.size(-1));
   }
   Tensor padded_values = at::empty(padded_values_shape, values.options());
@@ -398,7 +402,7 @@ at::Tensor jagged_to_padded_dense_forward(
     return {padded_values};
   }
   Tensor padded_values_view =
-      values.dim() == 1 ? padded_values.unsqueeze(-1) : padded_values;
+      D_folded ? padded_values.unsqueeze(-1) : padded_values;
 
   AT_DISPATCH_ALL_TYPES_AND2(
       at::ScalarType::Half,
@@ -424,7 +428,13 @@ at::Tensor jagged_to_padded_dense_backward(
     const int64_t total_L) {
   auto grad_padded_values = grad_output;
 
-  int32_t D = grad_padded_values.size(-1);
+  // Canonicalize padded_values by unsqueeze the last dim if the inner dense
+  // dimension is 1 and folded.
+  const bool D_folded =
+      static_cast<size_t>(grad_padded_values.dim()) == offsets.size() + 1;
+  Tensor grad_padded_values_view =
+      D_folded ? grad_padded_values.unsqueeze(-1) : grad_padded_values;
+  int32_t D = grad_padded_values_view.size(-1);
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
   auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
@@ -438,12 +448,12 @@ at::Tensor jagged_to_padded_dense_backward(
         jagged_dense_elementwise_jagged_output_<scalar_t>(
             grad_values, // dummy not used in the lambda function
             {offsets},
-            grad_padded_values,
+            grad_padded_values_view,
             grad_values,
             [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
       });
 
-  return grad_values;
+  return D_folded ? grad_values.squeeze(-1) : grad_values;
 }
 
 Tensor dense_to_jagged_forward(
@@ -478,73 +488,6 @@ Tensor dense_to_jagged_forward(
       });
 
   return output;
-}
-
-// TODO: Add option to pass in total_L
-class DenseToJaggedCPUOp
-    : public torch::autograd::Function<DenseToJaggedCPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& dense,
-      const std::vector<Tensor>& offsets,
-      const c10::optional<int64_t>& total_L) {
-    ctx->save_for_backward(offsets);
-
-    // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
-    ctx->saved_data["dense_shape"] = dense.sizes();
-
-    Tensor output = dense_to_jagged_forward(dense, offsets, total_L);
-
-    return {output};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    auto offsets = ctx->get_saved_variables();
-    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-    TORCH_CHECK(grad_outputs.size() == 1);
-
-    Tensor dense_values_grad = jagged_to_padded_dense_forward(
-        grad_outputs[0],
-        offsets,
-        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
-        /*padding_value=*/0);
-    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
-
-    return {
-        dense_values_grad,
-        torch::autograd::Variable(), // offsets
-        torch::autograd::Variable() // total_L
-    };
-  }
-};
-
-///@ingroup jagged-tensor-ops-cpu
-// output = x + y where x is jagged, y is dense, and output is jagged
-std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged_cpu(
-    const Tensor& dense,
-    const std::vector<Tensor>& offsets,
-    const c10::optional<int64_t>& total_L) {
-  return {DenseToJaggedCPUOp::apply(dense, offsets, total_L)[0], offsets};
-}
-
-///@ingroup jagged-tensor-ops-cpu
-/// Output = x + y where x is jagged, y is dense, and output is jagged
-std::tuple<Tensor, std::vector<Tensor>>
-jagged_dense_elementwise_add_jagged_output(
-    const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y) {
-  // Convert to jagged
-  auto jagged_values =
-      DenseToJaggedCPUOp::apply(y, x_offsets, c10::optional<int64_t>())[0];
-
-  // Add jagged_values + x_values -> sum_values
-  auto sum_values = x_values + jagged_values;
-
-  return {sum_values, x_offsets};
 }
 
 // output = x + y where x is jagged, y is dense, and output is jagged
@@ -1148,6 +1091,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "dense_to_jagged(Tensor dense, Tensor[] x_offsets, int? total_L=None) -> (Tensor, Tensor[])");
   m.def(
+      "dense_to_jagged_forward(Tensor dense, Tensor[] x_offsets, int? total_L=None) -> Tensor");
+  m.def(
       "jagged_2d_to_dense(Tensor values, Tensor offsets, int max_sequence_length) -> Tensor");
   m.def(
       "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
@@ -1200,7 +1145,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_autograd);
   DISPATCH_TO_CPU(
       "jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_autograd);
-  DISPATCH_TO_CPU("dense_to_jagged", fbgemm_gpu::dense_to_jagged_cpu);
+  DISPATCH_TO_CPU("dense_to_jagged", fbgemm_gpu::dense_to_jagged_autograd);
+  DISPATCH_TO_CPU(
+      "dense_to_jagged_forward", fbgemm_gpu::dense_to_jagged_forward);
   DISPATCH_TO_CPU(
       "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense_autograd);
   DISPATCH_TO_CPU(
@@ -1214,7 +1161,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       fbgemm_gpu::jagged_dense_elementwise_add_autograd);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
+      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_autograd);
   DISPATCH_TO_CPU(
       "jagged_dense_dense_elementwise_add_jagged_output_forward",
       fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);

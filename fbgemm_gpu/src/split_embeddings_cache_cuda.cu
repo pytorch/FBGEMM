@@ -579,6 +579,10 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
   CUDA_KERNEL_LOOP(n, N) {
     int64_t idx = linear_cache_indices[n];
     if (idx == max_indices) {
+      // Invalid or pruned row: set it to sentinel value.
+      // 32-way uses C as the sentinel value to reduce the maximum value during
+      // radix sort to make it faster but for direct_mapped we use -1
+      cache_sets[n] = -1;
       continue;
     }
     int32_t cache_set = cache_slot(idx, C);
@@ -590,7 +594,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
       // +1 because AMD doesn't have atomicMax for signed long so we should
       // initialize lxu_cache_miss_timestamp with 0 vs. -1.
       lru_state[cache_set][0] = time_stamp;
-      cache_sets[n] = -1; // default value
+      cache_sets[n] = -1; // sentinel value
     } else {
       // There is no atomicMax for int64_t...
 #ifdef __HIP_PLATFORM_HCC__
@@ -611,8 +615,9 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
         // value of cache_set is 1 at maximum
         cache_sets[n] = cache_set;
       } else {
-        // Oops, too late.
-        cache_sets[n] = -1; // default value
+        // Otherwise (too late to get this set)
+        // set it to sentinel value.
+        cache_sets[n] = -1;
       }
     }
   }
@@ -788,8 +793,13 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     const int64_t time_stamp,
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     const bool stochastic_rounding,
-    at::PhiloxCudaState stochastic_rounding_philox_args) {
+    at::PhiloxCudaState stochastic_rounding_philox_args,
+    const bool gather_cache_stats,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        uvm_cache_stats) {
   const int32_t C = lxu_cache_state.size(0);
+  int64_t n_conflict_misses = 0;
+  int64_t n_inserted = 0;
   for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
@@ -929,7 +939,14 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
         lru_state[cache_set][insert_slot] = time_stamp;
       }
+      n_inserted++;
     }
+    n_conflict_misses += (SL - n_inserted);
+  }
+  if (gather_cache_stats && n_conflict_misses > 0 && threadIdx.x == 0) {
+    atomicAdd(
+        &uvm_cache_stats[uvm_cache_stats_index::num_conflict_unique_misses],
+        n_conflict_misses);
   }
 }
 
@@ -946,7 +963,9 @@ void lru_cache_insert_cuda(
     Tensor lxu_cache_weights,
     const int64_t time_stamp,
     Tensor lru_state,
-    const bool stochastic_rounding) {
+    const bool stochastic_rounding,
+    bool gather_cache_stats,
+    Tensor uvm_cache_stats) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -958,6 +977,7 @@ void lru_cache_insert_cuda(
   TENSOR_ON_CUDA_GPU(lxu_cache_state);
   TENSOR_ON_CUDA_GPU(lxu_cache_weights);
   TENSOR_ON_CUDA_GPU(lru_state);
+  TENSOR_ON_CUDA_GPU(uvm_cache_stats);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
@@ -1004,7 +1024,10 @@ void lru_cache_insert_cuda(
                 lru_state
                     .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
-                rng_engine_inputs);
+                rng_engine_inputs,
+                gather_cache_stats,
+                uvm_cache_stats
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
       }));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
@@ -1023,7 +1046,9 @@ void lru_cache_populate_cuda(
     Tensor lxu_cache_weights,
     const int64_t time_stamp,
     Tensor lru_state,
-    const bool stochastic_rounding) {
+    const bool stochastic_rounding,
+    bool gather_cache_stats,
+    c10::optional<Tensor> uvm_cache_stats) {
   TENSOR_ON_CUDA_GPU(weights);
   TENSOR_ON_CUDA_GPU(cache_hash_size_cumsum);
   TENSOR_ON_CUDA_GPU(cache_index_table_map);
@@ -1033,6 +1058,13 @@ void lru_cache_populate_cuda(
   TENSOR_ON_CUDA_GPU(lxu_cache_state);
   TENSOR_ON_CUDA_GPU(lxu_cache_weights);
   TENSOR_ON_CUDA_GPU(lru_state);
+
+  Tensor uvm_cache_stats_ = at::empty({0}, weights.options().dtype(at::kInt));
+  if (gather_cache_stats) {
+    TORCH_CHECK(uvm_cache_stats.has_value());
+    uvm_cache_stats_ = uvm_cache_stats.value();
+    TENSOR_ON_CUDA_GPU(uvm_cache_stats_);
+  }
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
@@ -1052,9 +1084,6 @@ void lru_cache_populate_cuda(
       get_unique_indices_cuda(
           linear_cache_indices, total_cache_hash_size, false);
 
-  // Find uncached indices
-  Tensor uvm_cache_stats = at::empty({0}, weights.options().dtype(at::kInt));
-
   auto cache_sets_and_unique_indices = lru_cache_find_uncached_cuda(
       unique_indices,
       unique_indices_length,
@@ -1062,8 +1091,8 @@ void lru_cache_populate_cuda(
       lxu_cache_state,
       time_stamp,
       lru_state,
-      false, // gather_cache_stats
-      uvm_cache_stats);
+      gather_cache_stats,
+      uvm_cache_stats_);
   auto sorted_cache_sets = cache_sets_and_unique_indices.first;
   auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
 
@@ -1081,7 +1110,9 @@ void lru_cache_populate_cuda(
       lxu_cache_weights,
       time_stamp,
       lru_state,
-      stochastic_rounding);
+      stochastic_rounding,
+      gather_cache_stats,
+      uvm_cache_stats_);
 }
 
 namespace {
@@ -1231,7 +1262,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
     auto cache_set = cache_sets[pos];
 
     if (cache_set == -1) {
-      // default value
+      // Cache hit, index invalid (e.g., pruned), or too late to grab this set.
       continue;
     }
 

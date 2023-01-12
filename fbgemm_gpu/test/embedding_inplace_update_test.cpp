@@ -11,7 +11,21 @@
 using namespace ::testing;
 using namespace fbgemm_gpu;
 
-TEST(embedding_inplace_update_test, random_update) {
+int32_t get_D_bytes(
+    Tensor D_offsets,
+    Tensor weights_tys,
+    const int32_t table_idx,
+    const int64_t row_alignment) {
+  const int32_t D_start = D_offsets[table_idx].item<int32_t>();
+  const int32_t D_end = D_offsets[table_idx + 1].item<int32_t>();
+  const int32_t D = D_end - D_start;
+  SparseType weight_ty =
+      static_cast<SparseType>(weights_tys[table_idx].item<uint8_t>());
+  return nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
+}
+
+template <typename index_t>
+void test_embedding_inplace_update() {
   int T = folly::Random::rand32() % 3 + 2; // total number of tables
   std::vector<SparseType> weight_ty_list = {
       SparseType::FP32,
@@ -24,8 +38,8 @@ TEST(embedding_inplace_update_test, random_update) {
   std::vector<int64_t> weights_offsets = {};
   std::vector<uint8_t> weights_tys;
   int64_t update_size = 0;
-  std::vector<int32_t> update_tables;
-  std::vector<int32_t> update_rows;
+  std::vector<int32_t> update_table_idx;
+  std::vector<index_t> update_row_idx;
   int64_t dev_weights_offset = 0;
   int64_t uvm_weights_offset = 0;
   for (int i = 0; i < T; i++) {
@@ -51,62 +65,117 @@ TEST(embedding_inplace_update_test, random_update) {
     for (int j = 0; j < n; j++) {
       rows.insert(folly::Random::rand32() % total_rows);
     }
-    std::string update_rows_str = "";
+    std::string update_row_idx_str = "";
     for (int32_t r : rows) {
-      update_tables.push_back(i);
-      update_rows.push_back(r);
+      update_table_idx.push_back(i);
+      update_row_idx.push_back(r);
       update_size += D_bytes;
-      update_rows_str += std::to_string(r) + ",";
+      update_row_idx_str += std::to_string(r) + ",";
     }
     LOG(INFO) << "table idx: " << i << ", D: " << D
               << ", weight type: " << int(weight_ty) << ", D bytes: " << D_bytes
               << ", total rows: " << total_rows
               << ", weight placement: " << weights_placement
               << ", weight offset: " << weights_offsets.back()
-              << ", update rows: " << update_rows_str;
+              << ", update rows: " << update_row_idx_str;
   }
 
+  bool use_cpu = folly::Random::rand32() % 2;
+  auto device = use_cpu ? at::kCPU : at::kCUDA;
+  int64_t row_alignment = use_cpu ? 1L : 16L;
+
   auto dev_weight = at::randint(
-      0, 255, {dev_weights_offset}, at::device(at::kCUDA).dtype(at::kByte));
+      0, 255, {dev_weights_offset}, at::device(device).dtype(at::kByte));
   auto uvm_weight = at::randint(
-      0, 255, {uvm_weights_offset}, at::device(at::kCUDA).dtype(at::kByte));
-  auto update_weight = at::randint(
-      0, 255, {update_size}, at::device(at::kCUDA).dtype(at::kByte));
+      0, 255, {uvm_weights_offset}, at::device(device).dtype(at::kByte));
+  auto update_weight =
+      at::randint(0, 255, {update_size}, at::device(device).dtype(at::kByte));
 
-  fbgemm_gpu::embedding_inplace_update_host_weight_cuda(
-      dev_weight,
-      uvm_weight,
-      at::tensor(weights_placements, at::device(at::kCUDA).dtype(at::kInt)),
-      at::tensor(weights_offsets, at::device(at::kCUDA).dtype(at::kLong)),
-      at::tensor(weights_tys, at::device(at::kCUDA).dtype(at::kByte)),
-      at::tensor(D_offsets, at::device(at::kCUDA).dtype(at::kInt)),
-      update_weight,
-      update_tables,
-      update_rows,
-      16L /* row_alignment */);
+  auto D_offsets_tensor =
+      at::tensor(D_offsets, at::device(device).dtype(at::kInt));
+  auto weights_tys_tensor =
+      at::tensor(weights_tys, at::device(device).dtype(at::kByte));
 
+  std::vector<int64_t> update_offsets;
+  int64_t update_offset = 0;
+  update_offsets.push_back(0);
+  for (int i = 0; i < update_table_idx.size(); ++i) {
+    int32_t idx = update_table_idx[i];
+    update_offset +=
+        get_D_bytes(D_offsets_tensor, weights_tys_tensor, idx, row_alignment);
+    update_offsets.push_back(update_offset);
+  }
+
+  auto update_offsets_tensor =
+      at::tensor(update_offsets, at::device(device).dtype(at::kLong));
+  auto table_idx_tensor =
+      at::tensor(update_table_idx, at::device(device).dtype(at::kInt));
+  auto row_idx_tensor =
+      at::tensor(update_row_idx, at::device(device).dtype(at::kLong));
+
+  if (use_cpu) {
+    fbgemm_gpu::embedding_inplace_update_cpu(
+        dev_weight,
+        uvm_weight,
+        at::tensor(weights_placements, at::device(device).dtype(at::kInt)),
+        at::tensor(weights_offsets, at::device(device).dtype(at::kLong)),
+        weights_tys_tensor,
+        D_offsets_tensor,
+        update_weight,
+        table_idx_tensor,
+        row_idx_tensor,
+        update_offsets_tensor,
+        row_alignment);
+
+  } else {
+    fbgemm_gpu::embedding_inplace_update_cuda(
+        dev_weight,
+        uvm_weight,
+        at::tensor(weights_placements, at::device(device).dtype(at::kInt)),
+        at::tensor(weights_offsets, at::device(device).dtype(at::kLong)),
+        weights_tys_tensor,
+        D_offsets_tensor,
+        update_weight,
+        table_idx_tensor,
+        row_idx_tensor,
+        update_offsets_tensor,
+        row_alignment);
+  }
+
+  // Validation
+  auto dev_weight_cpu = dev_weight.cpu();
+  auto uvm_weight_cpu = uvm_weight.cpu();
+  auto update_weight_cpu = update_weight.cpu();
   int offset = 0;
-  for (int i = 0; i < update_tables.size(); i++) {
-    auto table_idx = update_tables[i];
-    auto row_idx = update_rows[i];
+  for (int i = 0; i < update_table_idx.size(); i++) {
+    auto table_idx = update_table_idx[i];
+    auto row_idx = update_row_idx[i];
     auto weight_offset = weights_offsets[table_idx];
     auto weight_placement = weights_placements[table_idx];
     auto D = D_offsets[table_idx + 1] - D_offsets[table_idx];
     SparseType ty = static_cast<SparseType>(weights_tys[table_idx]);
     int32_t D_bytes = nbit::padded_row_size_in_bytes(D, ty, 16);
+    auto dev_weight_acc = dev_weight_cpu.data_ptr<uint8_t>();
+    auto uvm_weight_acc = uvm_weight_cpu.data_ptr<uint8_t>();
+    auto update_weight_acc = update_weight_cpu.data_ptr<uint8_t>();
     if (weight_placement == 0) {
       for (int j = 0; j < D_bytes; j++) {
         ASSERT_EQ(
-            dev_weight[weight_offset + D_bytes * row_idx + j].item<uint8_t>(),
-            update_weight[offset + j].item<uint8_t>());
+            dev_weight_acc[weight_offset + D_bytes * row_idx + j],
+            update_weight_acc[offset + j]);
       }
     } else {
       for (int j = 0; j < D_bytes; j++) {
         ASSERT_EQ(
-            uvm_weight[weight_offset + D_bytes * row_idx + j].item<uint8_t>(),
-            update_weight[offset + j].item<uint8_t>());
+            uvm_weight_acc[weight_offset + D_bytes * row_idx + j],
+            update_weight_acc[offset + j]);
       }
     }
     offset += D_bytes;
   }
+}
+
+TEST(embedding_inplace_update_test, random_update) {
+  test_embedding_inplace_update<int32_t>();
+  test_embedding_inplace_update<int64_t>();
 }

@@ -741,7 +741,7 @@ def benchmark_cpu_requests(
     import time
 
     start_time = time.perf_counter()
-    for (indices, offsets, weights) in requests:
+    for indices, offsets, weights in requests:
         func(indices, offsets, weights)
     end_time = time.perf_counter()
     return (end_time - start_time) / len(requests)
@@ -1918,6 +1918,7 @@ def nbit_uvm_compare_direct_mapped(
 @click.option("--enforce-hbm", is_flag=True, default=False)
 @click.option("--record-cache-miss-counter", is_flag=True, default=False)
 @click.option("--record-tablewise-cache-miss", is_flag=True, default=False)
+@click.option("--gather-uvm-cache-stats", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 def nbit_cache(  # noqa C901
@@ -1939,6 +1940,7 @@ def nbit_cache(  # noqa C901
     enforce_hbm: bool,
     record_cache_miss_counter: bool,
     record_tablewise_cache_miss: bool,
+    gather_uvm_cache_stats: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
 ) -> None:
@@ -1991,6 +1993,7 @@ def nbit_cache(  # noqa C901
         record_cache_metrics=RecordCacheMetrics(
             record_cache_miss_counter, record_tablewise_cache_miss
         ),
+        gather_uvm_cache_stats=gather_uvm_cache_stats,
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
         output_dtype=output_dtype,
@@ -2049,6 +2052,8 @@ def nbit_cache(  # noqa C901
     # reset the cache miss counters after warmup
     if record_cache_miss_counter or record_tablewise_cache_miss:
         emb.reset_cache_miss_counter()
+    if gather_uvm_cache_stats:
+        emb.reset_uvm_cache_stats()
 
     for indices, offsets, _ in requests:
         # pyre-fixme[29]:
@@ -2098,9 +2103,15 @@ def nbit_cache(  # noqa C901
     )
     if record_cache_miss_counter or record_tablewise_cache_miss:
         emb.print_cache_miss_counter()
+    if gather_uvm_cache_stats:
+        emb.print_uvm_cache_stats()
+
     # benchmark prefetch
     if record_cache_miss_counter or record_tablewise_cache_miss:
         emb.reset_cache_states()
+    if gather_uvm_cache_stats:
+        emb.reset_uvm_cache_stats()
+
     for indices, offsets, _ in warmup_requests:
         emb.forward(indices, offsets)
 
@@ -2562,7 +2573,19 @@ def emb_inplace_update(  # noqa C901
 
 @cli.command()
 @click.option("--alpha", default=1.0)
-@click.option("--bag-size-list", type=str, default="20")
+@click.option(
+    "--bag-size-list",
+    type=str,
+    default="20",
+)
+@click.option(
+    "--bag-size-sigma-list",
+    type=str,
+    default="None",
+    help="A list of bag size standard deviations for generating bag sizes "
+    "(one std per table). If set, the benchmark will treat --bag-size-list as a "
+    "list of bag size means.",
+)
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim-list", type=str, default="128")
 @click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
@@ -2581,6 +2604,7 @@ def emb_inplace_update(  # noqa C901
 def device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
+    bag_size_sigma_list: str,
     batch_size: int,
     embedding_dim_list: str,
     weights_precision: SparseType,
@@ -2601,13 +2625,33 @@ def device_with_spec(  # noqa C901
     torch.manual_seed(42)
     B = batch_size
     Ds = [int(D) for D in embedding_dim_list.split(",")]
-    Ls = [int(L) for L in bag_size_list.split(",")]
     Es = [int(E) for E in num_embeddings_list.split(",")]
     T = len(Ds)
-    assert T == len(Ls) and T == len(
-        Es
-    ), f"Ds, Ls, Es must have the same length ({len(Ds)}, {len(Ls)}, {len(Es)})"
+
+    use_variable_bag_sizes = bag_size_sigma_list != "None"
+
+    if use_variable_bag_sizes:
+        Ls = [int(mu) for mu in bag_size_list.split(",")]
+        sigma_Ls = [int(sigma) for sigma in bag_size_sigma_list.split(",")]
+        assert T == len(Ls) and T == len(sigma_Ls), (
+            f"bag-size-list (length: {len(Ls)}) and bag-size-sigma-list "
+            f"(length: {len(sigma_Ls)}) must have the same length as "
+            f"embedding-dim-list (length: {T})"
+        )
+    else:
+        Ls = [int(L) for L in bag_size_list.split(",")]
+        assert T == len(Ls), (
+            f"bag-size-list (length: {len(Ls)}) must have the same length as "
+            f"embedding-dim-list (length: {T})"
+        )
+
+    assert T == len(Es), (
+        f"num-embeddings-list (length: {len(Es)}) must have the same length as "
+        f"embedding-dim-list (length: {T})"
+    )
+
     assert T >= 1, "There must be at least one table"
+
     feature_requires_grad = None
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
 
@@ -2666,24 +2710,6 @@ def device_with_spec(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
 
-    sum_DLs = sum([d * l for d, l in zip(Ds, Ls)])
-    if do_pooling:
-        read_write_bytes = (
-            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
-        )
-    else:
-        read_write_bytes = (
-            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
-        )
-
-    logging.info(
-        f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
-        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
-    )
-    logging.info(
-        f"Accessed weights per batch: {B * sum_DLs * param_size_multiplier / 1.0e9: .2f} GB"
-    )
-
     # Generate a request for each table then combine
     all_requests = {
         "indices": [[] for _ in range(iters)],
@@ -2691,17 +2717,19 @@ def device_with_spec(  # noqa C901
         "weights": [[] for _ in range(iters)],
     }
     # row = iter, column = tensor
-    for t, (l, e) in enumerate(zip(Ls, Es)):
+    for t, e in enumerate(Es):
         # (indices, offsets, weights)
         requests = generate_requests(
             iters,
             B,
             1,
-            l,
+            Ls[t],
             e,
             reuse=reuse,
             alpha=alpha,
             weighted=weighted,
+            sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
+            zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
         )
         for i, (indices, offsets, weights) in enumerate(requests):
             all_requests["indices"][i].append(indices)
@@ -2711,9 +2739,15 @@ def device_with_spec(  # noqa C901
             all_requests["offsets"][i].append(offsets)
             all_requests["weights"][i].append(weights)
 
+    prev_indices_len = -1
     requests = []
     for i in range(iters):
         indices = torch.concat(all_requests["indices"][i])
+        if prev_indices_len == -1:
+            prev_indices_len = indices.numel()
+        assert (
+            prev_indices_len == indices.numel()
+        ), "Number of indices for every iteration must be the same"
         offsets = torch.concat(all_requests["offsets"][i])
         if weighted:
             weights = torch.concat(all_requests["weights"][i])
@@ -2724,6 +2758,30 @@ def device_with_spec(  # noqa C901
     del all_requests
 
     assert len(requests) == iters
+
+    sum_DLs = sum([d * l for d, l in zip(Ds, Ls)])
+    if do_pooling:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
+        )
+    else:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
+        )
+
+    if use_variable_bag_sizes:
+        # pyre-ignore [61]
+        Ls_str = f"mu {Ls} sigma {sigma_Ls}"
+    else:
+        Ls_str = f"{Ls}"
+
+    logging.info(
+        f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
+        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+    logging.info(
+        f"Accessed weights per batch: {B * sum_DLs * param_size_multiplier / 1.0e9: .2f} GB"
+    )
 
     # forward
     time_per_iter = benchmark_requests(
@@ -2739,7 +2797,7 @@ def device_with_spec(  # noqa C901
     )
     logging.info(
         f"Forward, B: {B}, "
-        f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls}, W: {weighted}, "
+        f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, W: {weighted}, "
         f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
@@ -2751,8 +2809,9 @@ def device_with_spec(  # noqa C901
     if do_pooling:
         grad_output = torch.randn(B, sum(Ds)).to(get_device())
     else:
+        # Obtain B * L from indices len
         # pyre-ignore[19]
-        grad_output = torch.randn(B * sum(Ls), D).to(get_device())
+        grad_output = torch.randn(requests[0][0].numel(), D).to(get_device())
     # backward
     time_per_iter = benchmark_requests(
         requests,
@@ -2767,7 +2826,7 @@ def device_with_spec(  # noqa C901
         grad=grad_output,
     )
     logging.info(
-        f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls}, "
+        f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
