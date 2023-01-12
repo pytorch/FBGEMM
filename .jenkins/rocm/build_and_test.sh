@@ -54,6 +54,6 @@ python permute_pooled_embedding_modules_test.py --verbose
 python quantize_ops_test.py --verbose
 python sparse_ops_test.py --verbose
 python split_embedding_inference_converter_test.py --verbose
-# test_nbit_forward_fused_pooled_emb_quant is failing.  Let's skip it.
-python split_table_batched_embeddings_test.py --verbose || true
+# test_nbit_forward_fused_pooled_emb_quant is failing. It's skipped in the test code
+python split_table_batched_embeddings_test.py --verbose
 python uvm_test.py --verbose
