@@ -182,6 +182,7 @@ message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_c
 
   hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR} HEADER_INCLUDE_DIR
          ${header_include_dir})
+
 else()
   add_custom_command(
     OUTPUT ${gen_cpu_source_files} ${gen_gpu_source_files}
@@ -307,6 +308,8 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host.cpp
+    hip_kernel/split_tbe_fwd_hip.cpp
+    hip_kernel/split_tbe_bwd_hip.cpp
     src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp

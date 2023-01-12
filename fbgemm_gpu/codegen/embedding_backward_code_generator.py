@@ -45,6 +45,7 @@ env.globals["max_embedding_dim"] = 1024
 # An optimization for ROCm
 env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
 env.globals["dense"] = False
+env.globals["is_rocm"] = args.is_rocm
 
 
 def write(filename: str, s: str) -> None:

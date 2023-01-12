@@ -16,8 +16,14 @@
 
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
+#include <unistd.h>
+#include <limits.h>
 
 #define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
+
+#ifdef __HIP_PLATFORM_HCC__
+#include "hip_kernel/split_tbe_fwd.hip.hpp"
+#endif
 
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
@@ -479,6 +485,109 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     if (B == 0) {
         return output;
     }
+
+#ifdef __HIP_PLATFORM_HCC__  // HIP Optimal Kernel
+    /*
+     * current limitations
+     1. sparse, and bag
+     2. yet to support non-uniform table locations (all be on devs)
+     3. yet to support duplicate tables from some cases in exact optim (fbgemm_gpu/split_embedding_configs.py)
+     */
+    {% if not nobag %}
+    {% if not dense %}
+
+    // weight param cnt
+    int64_t wcnts = dev_weights.numel();
+    // execution guards
+    bool guard_ex = (wcnts > 0);
+
+    // all Ts on device
+    std::vector<int32_t> wplas(weights_placements.data_ptr<int32_t>(), weights_placements.data_ptr<int32_t>() + weights_placements.numel());
+    bool all_devs = std::accumulate(wplas.begin(), wplas.end(), 0) == 0;
+    // no duplicate in weight offsets (which is the case exact optim used sometimes)
+    std::vector<int64_t> woffs(weights_offsets.data_ptr<int64_t>(), weights_offsets.data_ptr<int64_t>() + weights_offsets.numel());
+    std::vector<int64_t>::iterator it = std::unique(woffs.begin(), woffs.end());
+    // not support duplicated weights table yet
+    bool no_dupt = (it == woffs.end());
+
+    if (guard_ex)  guard_ex = all_devs && no_dupt;
+
+    if (guard_ex && (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float)) {
+        constexpr uint32_t workgroup_size = 256;
+        constexpr uint32_t wave_size = 64;
+
+        uint32_t bags_per_workgroup = workgroup_size / wave_size;
+        uint32_t grids[3] = {(B + bags_per_workgroup - 1) / bags_per_workgroup, (uint32_t)T, 1};
+        uint32_t blocks[3] = {workgroup_size, 1, 1};
+        int64_t E = wcnts / T / max_D;
+
+	std::string prec = dev_weights.scalar_type() == at::ScalarType::Half  ? "fp16" : "fp32";
+
+        {
+            struct {
+                void            *output;
+                void         *emb_table;
+                const int64_t  *indices;
+                const int64_t  *offsets;
+                const int32_t* D_offsets;
+                const int64_t* weights_offsets;
+                int64_t    pooling_mode;
+                {% if weighted %}
+                float   *indice_weights;
+                {% endif %}
+                uint32_t          batch;
+                uint32_t       num_rows;
+                uint32_t     num_tables;
+            } args;
+            size_t arg_size = sizeof(args);
+            args.output = output.packed_accessor32<float, 2, at::RestrictPtrTraits>().data();
+            if (dev_weights.scalar_type() == at::ScalarType::Half)
+                args.emb_table = dev_weights.packed_accessor64<at::Half, 1, at::RestrictPtrTraits>().data();
+            else
+                args.emb_table = dev_weights.packed_accessor64<float, 1, at::RestrictPtrTraits>().data();
+            args.indices = indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.offsets = offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+	    args.D_offsets = D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>().data();
+	    args.weights_offsets = weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>().data();
+            args.pooling_mode = pooling_mode;
+            {% if weighted %}
+            args.indice_weights = indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>().data();
+            {% endif %}
+            args.batch = (uint32_t) B;
+            args.num_rows = E;
+            args.num_tables = (uint32_t) T;
+
+            {% for kDimSize in [64, 128, 192, 256, 384, 512, 640, 768, 896, 1024] %}
+            if (max_D <= {{ kDimSize }}) {
+                if (prec == "fp16") {
+                    hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp16_e{{ kDimSize }},
+                        dim3(grids[0], grids[1], grids[2]),
+                        dim3(blocks[0], blocks[1], blocks[2]),
+                        0, 0,
+                        (float *)args.output, (const half *)args.emb_table, args.indices, args.offsets, args.D_offsets, args.weights_offsets, args.pooling_mode,
+                        {% if weighted %}
+                        args.indice_weights,
+                        {% endif %}
+                        args.batch, args.num_rows, args.num_tables);
+                } else {    // only 2 emb_t: fp16, fp32 for now
+                    hipLaunchKernelGGL(split_tbe_fwd_{{ wdesc }}_hip_kernel_fp32_e{{ kDimSize }},
+                        dim3(grids[0], grids[1], grids[2]),
+                        dim3(blocks[0], blocks[1], blocks[2]),
+                        0, 0,
+                        (float *)args.output, (const float *)args.emb_table, args.indices, args.offsets, args.D_offsets, args.weights_offsets, args.pooling_mode,
+                        {% if weighted %}
+                        args.indice_weights,
+                        {% endif %}
+                        args.batch, args.num_rows, args.num_tables);
+                }
+		return output;
+            }
+            {% endfor %}
+        }
+    }
+    {% endif %}  // not dense
+    {% endif %}  // not nobag
+#endif  // HIP Optimal Kernel
 
     DISPATCH_EMB_CACHE_OUTPUT_TYPES(
         dev_weights.scalar_type(),
