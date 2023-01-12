@@ -1659,6 +1659,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_assoc: int = 32,
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cacheline_alignment: bool = True,
+        uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1681,6 +1682,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
         self.output_dtype: int = output_dtype.as_int()
+        self.uvm_host_mapped = uvm_host_mapped
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
@@ -2354,9 +2356,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 self.weights_uvm = torch.zeros(
                     uvm_size,
-                    out=torch.ops.fbgemm.new_managed_tensor(
+                    out=torch.ops.fbgemm.new_unified_tensor(
                         torch.zeros(1, device=self.D_offsets.device, dtype=torch.uint8),
                         [uvm_size],
+                        self.uvm_host_mapped,
                     ),
                 )
 
@@ -2860,6 +2863,19 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             device=self.current_device,
             dtype=torch.int64,
         )
+
+        # Only support array based pruning for now.
+        assert self.index_remapping_hash_table_cpu is None
+        assert self.index_remapping_hash_table.numel() == 0
+        assert self.index_remappings_array.numel() >= 0
+
+        if self.index_remappings_array.numel() > 0:
+            update_row_indices = torch.ops.fbgemm.pruned_array_lookup_from_row_idx(
+                update_row_indices,
+                update_table_indices,
+                self.index_remappings_array,
+                self.index_remappings_array_offsets,
+            )
 
         lxu_cache_locations = None
         # pyre-fixme[29]:

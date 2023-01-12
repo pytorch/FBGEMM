@@ -232,8 +232,10 @@ Tensor new_unified_tensor(
     const std::vector<std::int64_t>& sizes,
     bool is_host_mapped) {
   if (is_host_mapped) {
+    VLOG(2) << "Allocate the ATen Tensor with cudaHostAlloc";
     return new_host_mapped_tensor(self, sizes);
   } else {
+    VLOG(2) << "Allocate the ATen Tensor with cudaMallocManaged";
     return new_managed_tensor(self, sizes);
   }
 }
