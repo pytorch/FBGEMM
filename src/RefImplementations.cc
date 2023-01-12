@@ -1181,38 +1181,30 @@ void transposeConvWeights(
 
 // Need these overloaded fuction to pass the compile since template with std::is_same<T, bfloat16> cannot work.
 // See https://stackoverflow.com/questions/50253286/using-stdis-same-why-my-function-still-cant-work-for-2-types
-void convert_to_float_ref(const bfloat16* src, float *dst){
-  Bfloat16ToFloat_ref(src, dst, 1);
+template <typename T>
+float convert_to_float_ref(T src) {
+  float f_value;
+  if (std::is_same<T, float16>::value) {
+    f_value = cpu_half2float(src);
+  } else if (std::is_same<T, bfloat16>::value) {
+    f_value = cpu_bf162float(src);
+  } else {
+    f_value = src;
+  }
+  return f_value;
 }
 
-void convert_to_float_ref(const float16* src, float *dst){
-  *dst = cpu_half2float(*src);
-}
-
-void convert_to_float_ref(const float* src, float *dst){
-  *dst = *src;
-}
-
-void convert_to_float_ref(const uint8_t* src, float *dst){
-  assert(false);
-  *dst = *src;
-}
-
-void convert_from_float_ref(const float* src, bfloat16 *dst){
-  FloatToBfloat16_ref(src, dst, 1);
-}
-
-void convert_from_float_ref(const float* src, float16 *dst){
-  *dst = cpu_float2half_rn(*src);
-}
-
-void convert_from_float_ref(const float* src, float *dst){
-  *dst = *src;
-}
-
-void convert_from_float_ref(const float* src, uint8_t *dst){
-  assert(false);
-  *dst = *src;
+template <typename T>
+T convert_from_float_ref(float src) {
+  T o_value;
+  if (std::is_same<T, float16>::value) {
+    o_value = cpu_float2half_rn(src);
+  } else if (std::is_same<T, bfloat16>::value) {
+    o_value = cpu_float2bfloat16(src);
+  } else {
+    o_value = src;
+  }
+  return o_value;
 }
 
 template <
@@ -1376,17 +1368,10 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          float f_value;
-          convert_to_float_ref(inptr, &f_value);
-          buf[j] = std::fma(
-              w,
-              f_value,
-              buf[j]);
+          buf[j] = std::fma(w, convert_to_float_ref(*inptr), buf[j]);
         }
         for (int j = 0; j < block_size; ++j) {
-          OutType o_value;
-          convert_from_float_ref(&buf[j], &o_value);
-          out[j] = o_value;
+          out[j] = convert_from_float_ref<OutType>(buf[j]);
         }
         out += output_stride;
       } // m
@@ -1415,12 +1400,7 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          float f_value;
-          convert_to_float_ref(inptr, &f_value);
-          buf[j] = std::fma(
-              w,
-              f_value,
-              buf[j]);
+          buf[j] = std::fma(w, convert_to_float_ref(*inptr), buf[j]);
         }
 
         ++current;
@@ -1432,9 +1412,7 @@ bool EmbeddingSpMDM_ref(
         }
       }
       for (int j = 0; j < block_size; ++j) {
-        OutType o_value;
-        convert_from_float_ref(&buf[j], &o_value);
-        out[j] = o_value;
+        out[j] = convert_from_float_ref<OutType>(buf[j]);
       }
       out += output_stride;
     }
