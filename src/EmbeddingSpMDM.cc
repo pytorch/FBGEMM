@@ -250,6 +250,11 @@ GenEmbeddingSpMDMLookup<
         } else if (isbf16) {
           filename += "_bf16";
         }
+        if (isbf16out) {
+          filename += "_bf16_out";
+        } else if (isfp16out) {
+          filename += "_fp16_out";
+        }
         filename += "_emd_dim_" + std::to_string(block_size);
         filename += areIndices64b ? "_64bit" : "_32bit";
         filename += instSet == inst_set_t::avx512 ? "_avx512" : "_avx2";
@@ -410,9 +415,7 @@ GenEmbeddingSpMDMLookup<
         vec_reg_t src_vreg; // for holding embedding value temporarily
         x86::Ymm mask_vreg; // mask for avx2
         x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
-        vec_reg_t ones_vreg;
-        vec_reg_t bf16_bias_vreg;
-        vec_reg_t tout_vreg;
+        vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
 
         if (is8bit) {
           // We need 2 vec registers for 1. scale 2. bias
@@ -422,17 +425,11 @@ GenEmbeddingSpMDMLookup<
           bias_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (isbf16) {
+        if (isbf16out) {
           --unroll_factor;
           ones_vreg = vec_reg_t(unroll_factor);
-          a->mov(scratchReg2_, 1);
+          a->mov(scratchReg2_, 1 << 15);
           a->vpbroadcastd(ones_vreg, scratchReg2_);
-          --unroll_factor;
-          bf16_bias_vreg = vec_reg_t(unroll_factor);
-          a->mov(scratchReg2_, 0x7fff);
-          a->vpbroadcastd(bf16_bias_vreg, scratchReg2_);
-          --unroll_factor;
-          tout_vreg = vec_reg_t(unroll_factor);
         }
 
         if (is8bit || is16bit || (remainder && instSet == inst_set_t::avx2)) {
@@ -449,8 +446,7 @@ GenEmbeddingSpMDMLookup<
           // AVX512 doesn't need to use vector register for masking
           --unroll_factor;
           mask_vreg = x86::ymm(unroll_factor);
-          if (remainder > 1 &&
-              (is16bit || std::is_same<outType, float16>::value)) {
+          if (remainder > 1 && (is16bit || isbf16out || isfp16out)) {
             --unroll_factor;
             mask_fp16_vreg = x86::xmm(unroll_factor);
           }
@@ -467,7 +463,7 @@ GenEmbeddingSpMDMLookup<
                 mask_vreg,
                 x86::ymmword_ptr(
                     scratchReg1_, (vlen - remainder) % vlen * sizeof(int32_t)));
-            if (is16bit || std::is_same<outType, float16>::value) {
+            if (is16bit || isbf16out || isfp16out) {
               if (remainder > 1) {
                 a->vmovups(
                     mask_fp16_vreg,
@@ -869,13 +865,10 @@ GenEmbeddingSpMDMLookup<
                 if (isfp16out) {
                   a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
                 } else if (isbf16out) {
-                  a->vpsrld(tout_vreg, out_vreg, 16);
-                  a->vpand(tout_vreg, tout_vreg, ones_vreg);
-                  a->vpand(tout_vreg, tout_vreg, bf16_bias_vreg);
-                  a->vpaddd(tout_vreg, tout_vreg, out_vreg);
-                  a->vpsrld(tout_vreg, tout_vreg, 16);
-                  a->vpackusdw(tout_vreg, tout_vreg, tout_vreg);
-                  a->vpermq(out_vreg, tout_vreg, 0xd8);
+                  a->vpaddd(out_vreg, out_vreg, ones_vreg);
+                  a->vpsrld(out_vreg, out_vreg, 16);
+                  a->vpackusdw(out_vreg, out_vreg, out_vreg);
+                  a->vpermq(out_vreg, out_vreg, 0xd8);
                 }
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (remainder > 1) {
@@ -903,25 +896,18 @@ GenEmbeddingSpMDMLookup<
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
                   } else if(isbf16out) {
                     // bf16
-                    a->k(x86::k(1)).vpsrld(tout_vreg, out_vreg, 16);
-                    a->k(x86::k(1)).vpandd(tout_vreg, tout_vreg, ones_vreg);
-                    a->k(x86::k(1)).vpaddd(
-                        tout_vreg, tout_vreg, bf16_bias_vreg);
-                    a->k(x86::k(1)).vpaddd(tout_vreg, tout_vreg, out_vreg);
-                    a->k(x86::k(1)).vpsrld(tout_vreg, tout_vreg, 16);
-                    a->k(x86::k(1)).vpmovusdw(dst_addr, tout_vreg);
+                    a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
+                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
+                    a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   }
                 } else {
                   if (isfp16out) {
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
                   } else if(isbf16out) {
                     // bf16
-                    a->vpsrld(tout_vreg, out_vreg, 16);
-                    a->vpandd(tout_vreg, tout_vreg, ones_vreg);
-                    a->vpaddd(tout_vreg, tout_vreg, bf16_bias_vreg);
-                    a->vpaddd(tout_vreg, tout_vreg, out_vreg);
-                    a->vpsrld(tout_vreg, tout_vreg, 16);
-                    a->vpmovusdw(dst_addr, tout_vreg);
+                    a->vpaddd(out_vreg, out_vreg, ones_vreg);
+                    a->vpsrld(out_vreg, out_vreg, 16);
+                    a->vpmovdw(dst_addr, out_vreg);
                   }
                 }
               }
@@ -977,7 +963,7 @@ GenEmbeddingSpMDMLookup<
         a->bind(exit);
 
         if (remainder && instSet == inst_set_t::avx2 &&
-            (is16bit || std::is_same<outType, float16>::value)) {
+            (is16bit || isbf16out || isfp16out)) {
           a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
         }
 

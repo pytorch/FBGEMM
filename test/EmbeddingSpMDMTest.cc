@@ -47,7 +47,14 @@ static vector<vector<int>> GetInputs_() {
 
 namespace {
 
-class EmbeddingSpMDMTest
+class EmbeddingSpMDMTest : public testing::TestWithParam<tuple<
+                               int,
+                               EmbeddingSpMDMWeightChoice,
+                               EmbeddingSpMDMCornerCase,
+                               EmbeddingSpMDMDtypeChoice,
+                               EmbeddingSpMDMDtypeChoice>> {};
+
+class rowwiseSparseEmbeddingSpMDMTest
     : public testing::TestWithParam<
           tuple<int, EmbeddingSpMDMWeightChoice, EmbeddingSpMDMCornerCase>> {};
 
@@ -60,6 +67,23 @@ vector<int> prefetch_distances = {0, 16, 1000000};
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     EmbeddingSpMDMTest,
+    ::testing::Combine(
+        ::testing::ValuesIn(prefetch_distances),
+        ::testing::Values(
+            UNWEIGHTED,
+            WEIGHTED,
+            POSITIONAL_WEIGHTED), // use_weight
+        ::testing::Values(
+            NONE,
+            EMPTY_INDICES,
+            OUT_OF_BOUND_INDICES,
+            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
+        ::testing::Values(FLOAT, FLOAT16, BFLOAT16),
+        ::testing::Values(FLOAT, FLOAT16, BFLOAT16)));
+
+INSTANTIATE_TEST_CASE_P(
+    InstantiationName,
+    rowwiseSparseEmbeddingSpMDMTest,
     ::testing::Combine(
         ::testing::ValuesIn(prefetch_distances),
         ::testing::Values(
@@ -88,32 +112,24 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   default_random_engine generator;
   uniform_int_distribution<> bool_dist(0, 1);
 
-  bool isFp16 = bool_dist(generator);
-  bool isBf16 = bool_dist(generator);
   bool isIndex64b = bool_dist(generator);
   bool isOffset64b = bool_dist(generator);
   bool normalize_by_lengths = bool_dist(generator);
   bool use_offsets = bool_dist(generator);
   bool use_output_input_stride = bool_dist(generator);
-  bool is_output_float = bool_dist(generator);
-  bool is_output_bfloat16 = bool_dist(generator);
   bool test_thread_local = bool_dist(generator);
   int prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
-  tie(prefetch, weight_choice, corner_case) = GetParam();
+  EmbeddingSpMDMDtypeChoice in_type;
+  EmbeddingSpMDMDtypeChoice out_type;
+  tie(prefetch, weight_choice, corner_case, in_type, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
-
-  if (isFp16 && isBf16) {
-    // emb table cannot be both fp16 and bf16
-    return;
-  }
-
-  if (is_output_bfloat16 && is_output_float) {
-    // out dytpe cannot be both fp16 and fp32
-    return;
-  }
+  bool isFp16 = in_type == FLOAT16;
+  bool isBf16 = in_type == BFLOAT16;
+  bool is_output_float = out_type == FLOAT;
+  bool is_output_bfloat16 = out_type == BFLOAT16;
 
   if (corner_case != NONE || is_wt_positional) {
     // Check corner case only for subset of tests.
@@ -412,7 +428,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   } // end for input
 }
 
-TEST_P(EmbeddingSpMDMTest, rowwiseSparseTest) {
+TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
 
   default_random_engine generator;
