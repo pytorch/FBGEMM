@@ -1061,7 +1061,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   }
 
   if ((std::is_same<inType, float>::value ||
-       std::is_same<inType, float16>::value) &&
+       std::is_same<inType, float16>::value ||
+       std::is_same<inType, bfloat16>::value) &&
       block_size == 1 && isYmm(isa) && output_stride == block_size &&
       input_stride == block_size && std::is_same<outType, float>::value) {
     return

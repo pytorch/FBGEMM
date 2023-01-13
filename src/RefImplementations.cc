@@ -1179,33 +1179,12 @@ void transposeConvWeights(
   }
 }
 
-// Need these overloaded fuction to pass the compile since template with std::is_same<T, bfloat16> cannot work.
-// See https://stackoverflow.com/questions/50253286/using-stdis-same-why-my-function-still-cant-work-for-2-types
-template <typename T>
-float convert_to_float_ref(T src) {
-  float f_value;
-  if (std::is_same<T, float16>::value) {
-    f_value = cpu_half2float(src);
-  } else if (std::is_same<T, bfloat16>::value) {
-    f_value = cpu_bf162float(src);
-  } else {
-    f_value = src;
-  }
-  return f_value;
-}
-
-template <typename T>
-T convert_from_float_ref(float src) {
-  T o_value;
-  if (std::is_same<T, float16>::value) {
-    o_value = cpu_float2half_rn(src);
-  } else if (std::is_same<T, bfloat16>::value) {
-    o_value = cpu_float2bfloat16(src);
-  } else {
-    o_value = src;
-  }
-  return o_value;
-}
+template float convert_to_float_ref(float src);
+template float convert_to_float_ref(float16 src);
+template float convert_to_float_ref(bfloat16 src);
+template float convert_from_float_ref(float src);
+template float16 convert_from_float_ref(float float16);
+template bfloat16 convert_from_float_ref(float bfloat16);
 
 template <
     typename InType,

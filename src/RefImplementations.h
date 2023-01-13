@@ -406,4 +406,30 @@ FBGEMM_API void compressed_indices_remap_ref(
     IndexType* out_offsets,
     float* out_weights);
 
+template <typename T>
+float convert_to_float_ref(T src) {
+  float f_value;
+  if (std::is_same<T, float16>::value) {
+    f_value = cpu_half2float(src);
+  } else if (std::is_same<T, bfloat16>::value) {
+    f_value = cpu_bf162float(src);
+  } else {
+    f_value = src;
+  }
+  return f_value;
+}
+
+template <typename T>
+T convert_from_float_ref(float src) {
+  T o_value;
+  if (std::is_same<T, float16>::value) {
+    o_value = cpu_float2half_rn(src);
+  } else if (std::is_same<T, bfloat16>::value) {
+    o_value = cpu_float2bfloat16(src);
+  } else {
+    o_value = src;
+  }
+  return o_value;
+}
+
 } // namespace fbgemm

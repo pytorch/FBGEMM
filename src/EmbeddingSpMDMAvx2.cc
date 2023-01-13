@@ -4,10 +4,10 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "fbgemm/FbgemmEmbedding.h"
-
 #include <cassert>
 #include <cmath>
+#include "RefImplementations.h"
+#include "fbgemm/FbgemmEmbedding.h"
 
 #include "fbgemm/Types.h"
 
@@ -113,11 +113,7 @@ bool EmbeddingSpMDMBlockSize1_(
       }
 
       const InType* inptr = input + indices[current];
-      temp = std::fma(
-          w,
-          std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
-                                               : *inptr,
-          temp);
+      temp = std::fma(w, convert_to_float_ref(*inptr), temp);
 
       ++current;
     }
@@ -154,6 +150,7 @@ bool EmbeddingSpMDMBlockSize1_(
 
 INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
+INSTANTIATE_SPMDM_INDEX_T(bfloat16)
 INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 
 #undef INSTANTIATE_SPMDM_INDEX_T
