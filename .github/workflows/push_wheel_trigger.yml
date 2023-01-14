@@ -31,3 +31,4 @@ jobs:
       # if it's triggered by "schedule", nightly + true will be chosen
       release_version: ${{ inputs.release_version || 'nightly' }}
       upload_pypi: ${{ (inputs.upload_pypi || 'true') == 'true' }}
+    secrets: inherit
