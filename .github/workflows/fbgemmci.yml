@@ -382,6 +382,29 @@ jobs:
         "
         docker run $DOCKER_OPTIONS $DOCKER_IMAGE $JENKINS_REPO_DIR_DOCKER/.jenkins/rocm/build_and_test.sh $JENKINS_REPO_DIR_DOCKER
 
+  test_nvidia_gpu:
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    with:
+      job-name: cuda 11.7, A10
+      runner: linux.g5.4xlarge.nvidia.gpu # A10
+      repository: pytorch/fbgemm
+      gpu-arch-type: cuda
+      gpu-arch-version: 11.7
+      timeout: 150
+      script: |
+        set -x
+        # Checkout FBGEMM_GPU
+        git submodule update --init
+
+        # Build FBGEMM_GPU with pytorch-nightly
+        PYTORCH_CUDA_VERSION="11.7"
+        PYTHON_VERSION="3.10"
+        bash .github/scripts/build_wheel.bash -v -p "$PYTHON_VERSION" -o fbgemm_gpu_test -P pytorch-nightly -c "$PYTORCH_CUDA_VERSION" -m /opt/conda
+
+        # Test FBGEMM_GPU using a generated wheel file
+        WHEEL_PATH="$(ls fbgemm_gpu/dist/*.whl)"
+        bash .github/scripts/test_wheel.bash -v -p "$PYTHON_VERSION" -P pytorch-nightly -c "$PYTORCH_CUDA_VERSION" -w "$WHEEL_PATH" -m /opt/conda
+
   build_cpu_only:
     runs-on: ${{ matrix.os }}
     strategy:
