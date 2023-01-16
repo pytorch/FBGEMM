@@ -13,7 +13,7 @@
 namespace fbgemm {
 
 using float16 = std::uint16_t;
-using bfloat16 = int16_t;
+using bfloat16 = std::uint16_t;
 
 // Round to nearest even
 static inline float16 cpu_float2half_rn(float f) {

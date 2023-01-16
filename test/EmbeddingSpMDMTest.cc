@@ -131,6 +131,10 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   bool is_output_float = out_type == FLOAT;
   bool is_output_bfloat16 = out_type == BFLOAT16;
 
+  if (isBf16 ^ is_output_bfloat16) {
+    // only support both in and out are bf16 now
+    return;
+  }
   if (corner_case != NONE || is_wt_positional) {
     // Check corner case only for subset of tests.
     if (isFp16 || normalize_by_lengths || use_output_input_stride ||
@@ -246,7 +250,10 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       is_wt_positional,                                        \
       use_offsets,                                             \
       output_stride,                                           \
-      input_stride);                                           \
+      input_stride,                                            \
+      true,                                                    \
+      false,                                                   \
+      isBf16);                                                 \
                                                                \
   auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
       InType,                                                  \
@@ -261,7 +268,10 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       is_wt_positional,                                        \
       use_offsets,                                             \
       output_stride,                                           \
-      input_stride);                                           \
+      input_stride,                                            \
+      true,                                                    \
+      false,                                                   \
+      isBf16);                                                 \
   success = kernel(                                            \
       batch_size,                                              \
       lengths_sum,                                             \
@@ -321,7 +331,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         IndexType,                                                     \
         OffsetType,                                                    \
         float);                                                        \
-  } else if (is_output_bfloat16) {                                      \
+  } else if (is_output_bfloat16) {                                     \
     TEST_THREAD_LOCAL(                                                 \
         table,                                                         \
         indices,                                                       \

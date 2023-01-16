@@ -1179,12 +1179,10 @@ void transposeConvWeights(
   }
 }
 
-template float convert_to_float_ref(float src);
-template float convert_to_float_ref(float16 src);
-template float convert_to_float_ref(bfloat16 src);
-template float convert_from_float_ref(float src);
-template float16 convert_from_float_ref(float float16);
-template bfloat16 convert_from_float_ref(float bfloat16);
+template float convert_to_float_ref(float src, bool is_bf16);
+template float convert_to_float_ref(uint16_t src, bool is_bf16);
+template float convert_from_float_ref(float src, bool is_bf16);
+template uint16_t convert_from_float_ref(float bfloat16, bool is_bf16);
 
 template <
     typename InType,
@@ -1207,7 +1205,8 @@ bool EmbeddingSpMDM_ref(
     int64_t output_stride /*=-1*/,
     int64_t input_stride /*=-1*/,
     bool scale_bias_last,
-    bool no_bag) {
+    bool no_bag,
+    bool is_bf16 /*=false*/) {
   bool is8bit = is_same<InType, uint8_t>::value;
   if (output_stride == -1) {
     output_stride = block_size;
@@ -1347,10 +1346,10 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = std::fma(w, convert_to_float_ref(*inptr), buf[j]);
+          buf[j] = std::fma(w, convert_to_float_ref(*inptr, is_bf16), buf[j]);
         }
         for (int j = 0; j < block_size; ++j) {
-          out[j] = convert_from_float_ref<OutType>(buf[j]);
+          out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16);
         }
         out += output_stride;
       } // m
@@ -1379,7 +1378,7 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] = std::fma(w, convert_to_float_ref(*inptr), buf[j]);
+          buf[j] = std::fma(w, convert_to_float_ref(*inptr, is_bf16), buf[j]);
         }
 
         ++current;
@@ -1391,7 +1390,7 @@ bool EmbeddingSpMDM_ref(
         }
       }
       for (int j = 0; j < block_size; ++j) {
-        out[j] = convert_from_float_ref<OutType>(buf[j]);
+        out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16);
       }
       out += output_stride;
     }
@@ -2048,7 +2047,8 @@ template FBGEMM_API void transposeConvWeights(
       int64_t input_stride,                                                \
       int64_t output_stride,                                               \
       bool scale_bias_last,                                                \
-      bool no_bag);
+      bool no_bag,                                                         \
+      bool is_bf16);
 
 #define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)   \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)   \
@@ -2080,22 +2080,6 @@ INSTANTIATE_SPMDM_INDEX_T(float)
 INSTANTIATE_SPMDM_INDEX_T(float16)
 INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 
-#define BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                \
-  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, float)           \
-  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, float16)         \
-  INSTANTIATE_SPMDM_BASE(bfloat16, INDEX_TYPE, OFFSET_TYPE, bfloat16)        \
-  INSTANTIATE_SPMDM_BASE(float, INDEX_TYPE, OFFSET_TYPE, bfloat16)           \
-  INSTANTIATE_SPMDM_BASE(float16, INDEX_TYPE, OFFSET_TYPE, bfloat16)
-
-#define BF16_INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE)           \
-  BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int32_t)               \
-  BF16_INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int64_t)
-
-BF16_INSTANTIATE_SPMDM_OFFSET_T(std::int32_t)
-BF16_INSTANTIATE_SPMDM_OFFSET_T(std::int64_t)
-
-#undef BF16_INSTANTIATE_SPMDM_OUT_T
-#undef BF16_INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_INDEX_T
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T

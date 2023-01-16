@@ -227,9 +227,21 @@ void run_benchmark(
     auto kernel_fp16_i64 = GenerateEmbeddingSpMDM<float16, int64_t>(
         embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
     auto kernel_bf16_i32 = GenerateEmbeddingSpMDM<bfloat16, int32_t>(
-        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*isbf16=*/true);
     auto kernel_bf16_i64 = GenerateEmbeddingSpMDM<bfloat16, int64_t>(
-        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*is_weight_positional=*/true,
+        /*isbf16=*/true);
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
