@@ -235,7 +235,6 @@ GenEmbeddingSpMDMLookup<
         bool isbf16out = isbf16;
         bool isfp16 = is16bit && !isbf16;
         bool isfp16out = is16bitout && !isbf16out;
-        std::cout << "isfp16 " << isfp16 << " isbf16 " << isbf16 << std::endl;
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
