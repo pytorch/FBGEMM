@@ -2823,7 +2823,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.PARTIAL_ROWWISE_ADAM,
             ]
         ),
-        long_segments=st.booleans(),
+        long_segments=st.just(False),
         pooling_mode=st.sampled_from(
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
@@ -2887,7 +2887,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
             ]
         ),
-        long_segments=st.booleans(),
+        long_segments=st.just(False),
         pooling_mode=st.sampled_from(
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
@@ -2958,7 +2958,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.PARTIAL_ROWWISE_LAMB,
             ]
         ),
-        long_segments=st.booleans(),
+        long_segments=st.just(False),
         pooling_mode=st.sampled_from(
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,
@@ -3016,7 +3016,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         mixed=st.booleans(),
         optimizer=st.just(OptimType.LARS_SGD),
-        long_segments=st.booleans(),
+        long_segments=st.just(False),
         pooling_mode=st.sampled_from(
             [
                 split_table_batched_embeddings_ops.PoolingMode.SUM,

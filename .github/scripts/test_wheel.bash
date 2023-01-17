@@ -102,7 +102,7 @@ else
   # Don't run it in the fbgemm_gpu directory; fbgemm_gpu has a fbgemm_gpu directory,
   # which confuses "import" in Python.
   # conda run -n test_binary python -m pytest fbgemm_gpu -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors
-  conda run -n test_binary python -m pytest fbgemm_gpu -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors --ignore-glob=**/ssd_split_table_batched_embeddings_test.py --ignore-glob=**/split_table_batched_embeddings_test.py
+  conda run -n test_binary python -m pytest fbgemm_gpu -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors --ignore-glob=**/ssd_split_table_batched_embeddings_test.py
 fi
 
 echo "Test succeeded"
