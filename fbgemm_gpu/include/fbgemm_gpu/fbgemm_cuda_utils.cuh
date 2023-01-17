@@ -1400,8 +1400,8 @@ struct __align__(32) half16 {
 #ifdef __HIP_PLATFORM_HCC__
   using __nv_bfloat16=hip_bfloat16;
   // typedef uint16_t __nv_bfloat162 __attribute__((ext_vector_type(2)));
-  #define __BFLOAT162_TO_UI(var) *(reinterpret_cast<uint16_t *>(&(var)))
-  #define __BFLOAT162_TO_CUI(var) *(reinterpret_cast<const uint16_t *>(&(var)))
+  #define __BFLOAT162_TO_UI(var) *(reinterpret_cast<unsigned int *>(&(var)))
+  #define __BFLOAT162_TO_CUI(var) *(reinterpret_cast<const unsigned int *>(&(var)))
 
   typedef struct __align__(4) {
     uint16_t x;
