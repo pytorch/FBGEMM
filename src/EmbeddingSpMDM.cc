@@ -431,7 +431,7 @@ GenEmbeddingSpMDMLookup<
         if (isbf16out) {
           --unroll_factor;
           ones_vreg = vec_reg_t(unroll_factor);
-          a->mov(scratchReg2_, 1 << 15);
+          a->mov(scratchReg2_, static_cast<asmjit::Imm>(1 << 15));
           a->vpbroadcastd(ones_vreg, scratchReg2_);
         }
 
@@ -774,7 +774,10 @@ GenEmbeddingSpMDMLookup<
                   } else if (isbf16) {
                     // bf16
                     a->vpmovzxwd(src_vreg.ymm(), src_vreg.xmm());
-                    a->vpslld(src_vreg.ymm(), src_vreg.ymm(), 16);
+                    a->vpslld(
+                        src_vreg.ymm(),
+                        src_vreg.ymm(),
+                        static_cast<asmjit::Imm>(16));
                   }
                 } else {
                   // avx512
@@ -783,7 +786,8 @@ GenEmbeddingSpMDMLookup<
                   } else if(isbf16) {
                     // bf16
                     a->k(x86::k(1)).z().vpmovzxwd(src_vreg, src_addr);
-                    a->k(x86::k(1)).z().vpslld(src_vreg, src_vreg, 16);
+                    a->k(x86::k(1)).z().vpslld(
+                        src_vreg, src_vreg, static_cast<asmjit::Imm>(16));
                   }
                 }
               } else {
@@ -793,7 +797,7 @@ GenEmbeddingSpMDMLookup<
                 } else if (isbf16){
                   // bf16
                   a->vpmovzxwd(src_vreg, src_addr);
-                  a->vpslld(src_vreg, src_vreg, 16);
+                  a->vpslld(src_vreg, src_vreg, static_cast<asmjit::Imm>(16));
                 }
               }
               if (has_weight) {
@@ -867,12 +871,13 @@ GenEmbeddingSpMDMLookup<
               if (instSet == inst_set_t::avx2) {
                 // round nearest with no exception
                 if (isfp16out) {
-                  a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
+                  a->vcvtps2ph(
+                      out_vreg.xmm(), out_vreg, static_cast<asmjit::Imm>(8));
                 } else if (isbf16out) {
                   a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                  a->vpsrld(out_vreg, out_vreg, 16);
+                  a->vpsrld(out_vreg, out_vreg, static_cast<asmjit::Imm>(16));
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
-                  a->vpermq(out_vreg, out_vreg, 0xd8);
+                  a->vpermq(out_vreg, out_vreg, static_cast<asmjit::Imm>(0xd8));
                 }
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (remainder > 1) {
@@ -897,20 +902,23 @@ GenEmbeddingSpMDMLookup<
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (isfp16out) {
-                    a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
+                    a->k(x86::k(1)).vcvtps2ph(
+                        dst_addr, out_vreg, static_cast<asmjit::Imm>(8));
                   } else if(isbf16out) {
                     // bf16
                     a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
+                    a->k(x86::k(1)).vpsrld(
+                        out_vreg, out_vreg, static_cast<asmjit::Imm>(16));
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   }
                 } else {
                   if (isfp16out) {
-                    a->vcvtps2ph(dst_addr, out_vreg, 8);
+                    a->vcvtps2ph(
+                        dst_addr, out_vreg, static_cast<asmjit::Imm>(8));
                   } else if(isbf16out) {
                     // bf16
                     a->vpaddd(out_vreg, out_vreg, ones_vreg);
-                    a->vpsrld(out_vreg, out_vreg, 16);
+                    a->vpsrld(out_vreg, out_vreg, static_cast<asmjit::Imm>(16));
                     a->vpmovdw(dst_addr, out_vreg);
                   }
                 }
