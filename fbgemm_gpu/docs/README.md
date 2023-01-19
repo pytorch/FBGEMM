@@ -82,7 +82,6 @@ Follow these instructions to document, generate, and publish a new C++ descripti
    Here is an example of how it can look:
 
    ```
-      ```
    ///@defgroup my-group
    ///Description of my method <br>
    ///**Example:**
