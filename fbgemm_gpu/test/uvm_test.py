@@ -169,7 +169,10 @@ class UvmTest(unittest.TestCase):
         torch.cuda.synchronize(torch.device("cuda:0"))
 
     @skipIfRocm()
-    @unittest.skipIf(*gpu_unavailable or torch.cuda.device_count() < 2)
+    @unittest.skipIf(
+        not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+        "Skip unless two CUDA devices are detected",
+    )
     @given(
         sizes=st.lists(
             st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
