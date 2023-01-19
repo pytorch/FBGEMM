@@ -26,6 +26,8 @@ locale-gen en_US.UTF-8
 pip3 install click
 pip3 install jinja2
 pip3 install ninja
+# scikit-build >=0.16.5 needs a newer CMake
+pip3 install --upgrade cmake
 pip3 install scikit-build
 pip3 install --upgrade hypothesis
 pip3 install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.2/
