@@ -2511,6 +2511,8 @@ __global__ void index_select_scalar_cumsum_kernel(
   }
 }
 
+static int autograd_id = 0;
+
 class KeyedJaggedIndexSelectDim1GPUOp
     : public torch::autograd::Function<KeyedJaggedIndexSelectDim1GPUOp> {
  public:
@@ -2522,6 +2524,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const Tensor& indices, // select same indices for all batches
       const int batch_size,
       const c10::optional<Tensor>& weights) {
+    int autograd_id_local = autograd_id;
+    fprintf(stderr, "[%d] KeyedJaggedIndexSelectDim1GPUOp/forward() - 1\n", autograd_id_local); fflush(0);
     // TODO: Add weights support
     TENSOR_ON_CUDA_GPU(lengths);
     TENSOR_ON_CUDA_GPU(offsets);
@@ -2548,6 +2552,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
           pos_weights.numel() == values.numel(),
           "weights size and values size must be the same");
     }
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 2\n"); fflush(0);
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(values.get_device());
@@ -2557,6 +2562,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
     auto grid_size = cuda_calc_xblock_count(
         num_output_lengths, MAX_CUMSUM_ENTRIES_PER_BLOCK);
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 3 grid_size = %d\n", (int)grid_size); fflush(0);
 
     Tensor output_offsets =
         at::empty({num_batches * indices.numel()}, offsets.options());
@@ -2568,6 +2574,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
       block_flags = at::zeros({grid_size}, lengths.options().dtype(at::kInt));
       block_sums = at::empty({grid_size}, output_offsets.options());
     }
+
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 4\n"); fflush(0);
     // Do index select and cumsum
     AT_DISPATCH_INDEX_TYPES(
         lengths.scalar_type(), "index_select_scalar_cumsum_wrapper_1", [&] {
@@ -2581,6 +2589,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
                     indices.scalar_type(),
                     "index_select_scalar_cumsum_wrapper_3",
                     [&] {
+                      fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 5\n"); fflush(0);
                       index_select_scalar_cumsum_kernel<
                           length_t,
                           index_t,
@@ -2605,10 +2614,12 @@ class KeyedJaggedIndexSelectDim1GPUOp
                                             : nullptr,
                               grid_size > 1 ? block_sums.data_ptr<offset_t>()
                                             : nullptr);
+                      fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 6\n"); fflush(0);
                       C10_CUDA_KERNEL_LAUNCH_CHECK();
                     });
               });
         });
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 7\n"); fflush(0);
 
     // TODO: Try to not do D->H transfer
     const int64_t num_outputs =
@@ -2619,6 +2630,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
       output_weights = at::empty({num_outputs}, weights.value().options());
     }
     grid_size = cuda_calc_xblock_count(num_outputs, kMaxThreads);
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 8 grid_size = %d, num_outputs = %d, kMaxThreads=%d\n", (int)grid_size, (int)num_outputs, (int)kMaxThreads); fflush(0);
 
 #define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS)      \
   {                                                                        \
@@ -2642,6 +2654,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
             num_outputs);                                                  \
   }
 
+  if (grid_size != 0) {
     AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
         at::ScalarType::BFloat16,
@@ -2659,6 +2672,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
                     "keyed_jagged_index_select_dim1_warpper_3",
                     [&] {
                       if (weights.has_value()) {
+                        fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 9a\n"); fflush(0);
                         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
                             weights.value().scalar_type(),
                             "keyed_jagged_index_select_dim1_warpper_4",
@@ -2671,12 +2685,16 @@ class KeyedJaggedIndexSelectDim1GPUOp
                                   weights.value().data_ptr<weight_t>())
                             });
                       } else {
+                        fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 9b\n"); fflush(0);
                         LAUNCH_KERNEL(false, scalar_t, nullptr, nullptr)
                       }
+                      fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 10\n"); fflush(0);
                       C10_CUDA_KERNEL_LAUNCH_CHECK();
                     });
               });
         });
+  }
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/forward() - 11\n"); fflush(0);
 
 #undef LAUNCH_KERNEL
 
@@ -2687,6 +2705,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     ctx->saved_data["num_batches"] = num_batches;
     ctx->saved_data["has_weights"] = weights.has_value();
 
+    fprintf(stderr, "[%d] KeyedJaggedIndexSelectDim1GPUOp/forward() - Completion\n", autograd_id_local); fflush(0);
     if (weights.has_value()) {
       return {output, output_lengths, output_weights};
     }
@@ -2697,6 +2716,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     bool has_weights = ctx->saved_data["has_weights"].toBool();
+    int autograd_id_local = autograd_id++;
+    fprintf(stderr, "[%d] KeyedJaggedIndexSelectDim1GPUOp/backward() - 1\n", autograd_id_local); fflush(0);
     TORCH_CHECK(
         (has_weights && grad_outputs.size() == 3) || grad_outputs.size() == 2);
 
@@ -2720,8 +2741,11 @@ class KeyedJaggedIndexSelectDim1GPUOp
     device_guard.set_index(grad.get_device());
 
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/backward() - 2\n"); fflush(0);
     auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);
+    fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/backward() - 3, grid_size = %d\n", (int)grid_size); fflush(0);
 
+if (grid_size != 0) {
     AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
         at::ScalarType::BFloat16,
@@ -2737,6 +2761,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
                     indices.scalar_type(),
                     "keyed_jagged_index_add_dim1_wrapper_3",
                     [&] {
+                      fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/backward() - 4\n"); fflush(0);
                       keyed_jagged_index_add_dim1_kernel<<<
                           grid_size,
                           kMaxThreads,
@@ -2752,10 +2777,13 @@ class KeyedJaggedIndexSelectDim1GPUOp
                           indices.numel(),
                           output_batch_size,
                           grad.numel());
+                      fprintf(stderr, "KeyedJaggedIndexSelectDim1GPUOp/backward() - 5\n"); fflush(0);
                       C10_CUDA_KERNEL_LAUNCH_CHECK();
                     });
               });
         });
+  }
+    fprintf(stderr, "[%d] KeyedJaggedIndexSelectDim1GPUOp/backward() - Completion\n", autograd_id_local); fflush(0);
 
     return {
         grad_input,
@@ -2775,8 +2803,12 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
     const Tensor& indices,
     const int64_t batch_size,
     const c10::optional<Tensor>& weights) {
-  return KeyedJaggedIndexSelectDim1GPUOp::apply(
+  int autograd_id_local = ++autograd_id;
+  fprintf(stderr, "[%d, %d] keyed_jagged_index_select_dim_1_gpu - start\n", autograd_id_local, autograd_id); fflush(0);
+  auto ret = KeyedJaggedIndexSelectDim1GPUOp::apply(
       values, lengths, offsets, indices, batch_size, weights);
+  fprintf(stderr, "[%d, %d] keyed_jagged_index_select_dim_1_gpu - completion\n", autograd_id_local, autograd_id); fflush(0);
+  return ret;
 }
 
 } // namespace fbgemm_gpu

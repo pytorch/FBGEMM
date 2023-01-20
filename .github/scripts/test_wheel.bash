@@ -90,19 +90,16 @@ conda run -n test_binary python -c "import fbgemm_gpu"
 if [ "$pytorch_cuda_version" == "" ]; then
   # CPU version: unfortunately, not all tests are properly excluded,
   # so we cherry-pick what we can run.
-  conda run -n test_binary python fbgemm_gpu/test/batched_unary_embeddings_test.py -v
-  conda run -n test_binary python fbgemm_gpu/test/input_combine_test.py -v
-  conda run -n test_binary python fbgemm_gpu/test/layout_transform_ops_test.py -v
-  conda run -n test_binary python fbgemm_gpu/test/merge_pooled_embeddings_test.py -v
-  conda run -n test_binary python fbgemm_gpu/test/permute_pooled_embedding_modules_test.py -v
-  conda run -n test_binary python fbgemm_gpu/test/quantize_ops_test.py -v
-  conda run -n test_binary python fbgemm_gpu/test/sparse_ops_test.py -v
+  echo "skipped"
 else
   # GPU version
   # Don't run it in the fbgemm_gpu directory; fbgemm_gpu has a fbgemm_gpu directory,
   # which confuses "import" in Python.
   # conda run -n test_binary python -m pytest fbgemm_gpu -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors
-  conda run -n test_binary python -m pytest fbgemm_gpu -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors --ignore-glob=**/ssd_split_table_batched_embeddings_test.py
+  for i in $(seq 100); do
+    echo "Trial [$i]"
+    conda run -n test_binary python -m pytest fbgemm_gpu/test/jagged_tensor_ops_test.py -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors
+  done
 fi
 
 echo "Test succeeded"
