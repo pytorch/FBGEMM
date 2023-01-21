@@ -2620,6 +2620,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     }
     grid_size = cuda_calc_xblock_count(num_outputs, kMaxThreads);
 
+    if (grid_size != 0) {
 #define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS)      \
   {                                                                        \
     keyed_jagged_index_select_dim1_kernel<                                 \
@@ -2641,42 +2642,42 @@ class KeyedJaggedIndexSelectDim1GPUOp
             indices.numel(),                                               \
             num_outputs);                                                  \
   }
-
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        values.scalar_type(),
-        "keyed_jagged_index_select_dim1_warpper_1",
-        [&] {
-          using value_t = scalar_t;
-          AT_DISPATCH_INDEX_TYPES(
-              offsets.scalar_type(),
-              "keyed_jagged_index_select_dim1_warpper_2",
-              [&] {
-                using offset_t = index_t;
-                AT_DISPATCH_INDEX_TYPES(
-                    indices.scalar_type(),
-                    "keyed_jagged_index_select_dim1_warpper_3",
-                    [&] {
-                      if (weights.has_value()) {
-                        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-                            weights.value().scalar_type(),
-                            "keyed_jagged_index_select_dim1_warpper_4",
-                            [&] {
-                              using weight_t = scalar_t;
-                              LAUNCH_KERNEL(
-                                  true,
-                                  weight_t,
-                                  output_weights.data_ptr<weight_t>(),
-                                  weights.value().data_ptr<weight_t>())
-                            });
-                      } else {
-                        LAUNCH_KERNEL(false, scalar_t, nullptr, nullptr)
-                      }
-                      C10_CUDA_KERNEL_LAUNCH_CHECK();
-                    });
-              });
-        });
+      AT_DISPATCH_ALL_TYPES_AND2(
+          at::ScalarType::Half,
+          at::ScalarType::BFloat16,
+          values.scalar_type(),
+          "keyed_jagged_index_select_dim1_warpper_1",
+          [&] {
+            using value_t = scalar_t;
+            AT_DISPATCH_INDEX_TYPES(
+                offsets.scalar_type(),
+                "keyed_jagged_index_select_dim1_warpper_2",
+                [&] {
+                  using offset_t = index_t;
+                  AT_DISPATCH_INDEX_TYPES(
+                      indices.scalar_type(),
+                      "keyed_jagged_index_select_dim1_warpper_3",
+                      [&] {
+                        if (weights.has_value()) {
+                          AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+                              weights.value().scalar_type(),
+                              "keyed_jagged_index_select_dim1_warpper_4",
+                              [&] {
+                                using weight_t = scalar_t;
+                                LAUNCH_KERNEL(
+                                    true,
+                                    weight_t,
+                                    output_weights.data_ptr<weight_t>(),
+                                    weights.value().data_ptr<weight_t>())
+                              });
+                        } else {
+                          LAUNCH_KERNEL(false, scalar_t, nullptr, nullptr)
+                        }
+                        C10_CUDA_KERNEL_LAUNCH_CHECK();
+                      });
+                });
+          });
+    }
 
 #undef LAUNCH_KERNEL
 
@@ -2722,40 +2723,42 @@ class KeyedJaggedIndexSelectDim1GPUOp
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
     auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);
 
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        grad.scalar_type(),
-        "keyed_jagged_index_add_dim1_wrapper_1",
-        [&] {
-          AT_DISPATCH_INDEX_TYPES(
-              grad_offsets.scalar_type(),
-              "keyed_jagged_index_add_dim1_wrapper_2",
-              [&] {
-                using offset_t = index_t;
-                AT_DISPATCH_INDEX_TYPES(
-                    indices.scalar_type(),
-                    "keyed_jagged_index_add_dim1_wrapper_3",
-                    [&] {
-                      keyed_jagged_index_add_dim1_kernel<<<
-                          grid_size,
-                          kMaxThreads,
-                          0,
-                          at::cuda::getCurrentCUDAStream()>>>(
-                          grad_input.data_ptr<scalar_t>(),
-                          grad.data_ptr<scalar_t>(),
-                          grad_offsets.data_ptr<offset_t>(),
-                          indices.data_ptr<index_t>(),
-                          output_offsets.data_ptr<offset_t>() +
-                              1, // shift it to make it inclusive cumsum
-                          num_batches,
-                          indices.numel(),
-                          output_batch_size,
-                          grad.numel());
-                      C10_CUDA_KERNEL_LAUNCH_CHECK();
-                    });
-              });
-        });
+    if (grid_size != 0) {
+      AT_DISPATCH_ALL_TYPES_AND2(
+          at::ScalarType::Half,
+          at::ScalarType::BFloat16,
+          grad.scalar_type(),
+          "keyed_jagged_index_add_dim1_wrapper_1",
+          [&] {
+            AT_DISPATCH_INDEX_TYPES(
+                grad_offsets.scalar_type(),
+                "keyed_jagged_index_add_dim1_wrapper_2",
+                [&] {
+                  using offset_t = index_t;
+                  AT_DISPATCH_INDEX_TYPES(
+                      indices.scalar_type(),
+                      "keyed_jagged_index_add_dim1_wrapper_3",
+                      [&] {
+                        keyed_jagged_index_add_dim1_kernel<<<
+                            grid_size,
+                            kMaxThreads,
+                            0,
+                            at::cuda::getCurrentCUDAStream()>>>(
+                            grad_input.data_ptr<scalar_t>(),
+                            grad.data_ptr<scalar_t>(),
+                            grad_offsets.data_ptr<offset_t>(),
+                            indices.data_ptr<index_t>(),
+                            output_offsets.data_ptr<offset_t>() +
+                                1, // shift it to make it inclusive cumsum
+                            num_batches,
+                            indices.numel(),
+                            output_batch_size,
+                            grad.numel());
+                        C10_CUDA_KERNEL_LAUNCH_CHECK();
+                      });
+                });
+          });
+    }
 
     return {
         grad_input,
