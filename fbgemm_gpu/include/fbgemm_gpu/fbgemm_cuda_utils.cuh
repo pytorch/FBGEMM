@@ -1517,11 +1517,13 @@ DEVICE_INLINE __nv_bfloat162 to_bfloat16_2(float2 v) {
 #else
   union {
     __nv_bfloat162 raw;
-    __nv_bfloat16 x;
-    __nv_bfloat16 y;
+    struct {
+      __nv_bfloat16 x;
+      __nv_bfloat16 y;
+    } split;
   } t;
-  t.x = __float2bfloat16_rn(v.x);
-  t.y = __float2bfloat16_rn(v.y);
+  t.split.x = __float2bfloat16_rn(v.x);
+  t.split.y = __float2bfloat16_rn(v.y);
   return t.raw;
 #endif
 }
