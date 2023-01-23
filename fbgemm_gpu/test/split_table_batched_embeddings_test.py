@@ -162,9 +162,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed momory allocation is under development
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
@@ -836,7 +834,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
                 # SparseType.INT4,
             ]
-        ) if not TEST_WITH_ROCM else st.sampled_from(
+        ) 
+        if not TEST_WITH_ROCM 
+        else st.sampled_from(
             [
                 SparseType.FP16,
                 # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
@@ -1346,12 +1346,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         # ROCm managed momory allocation is under development
         if TEST_WITH_ROCM:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         else:
             if use_cpu:
-                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                managed = [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.HOST
+                ] * T
                 compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
             elif use_cache:
                 managed = [
@@ -1697,12 +1697,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         # ROCm managed momory allocation is under development
         if TEST_WITH_ROCM:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         else:
             if use_cpu:
-                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                managed = [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.HOST
+                ] * T
                 compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
             elif use_cache:
                 managed = [
@@ -2518,12 +2518,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         # ROCm managed momory allocation is under development
         if TEST_WITH_ROCM:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         else:
             if use_cpu:
-                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+                managed = [
+                    split_table_batched_embeddings_ops.EmbeddingLocation.HOST
+                ] * T
                 compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
             else:
                 managed = [
