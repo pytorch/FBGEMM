@@ -834,8 +834,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
                 # SparseType.INT4,
             ]
-        ) 
-        if not TEST_WITH_ROCM 
+        )
+        if not TEST_WITH_ROCM
         else st.sampled_from(
             [
                 SparseType.FP16,
