@@ -1343,7 +1343,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA        
+        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.HOST
@@ -2514,7 +2514,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        
         if use_cpu:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.HOST
