@@ -95,7 +95,7 @@ python split_table_batched_embeddings_benchmark.py uvm
 ```
 ## Build on ROCm
 
-FBGEMM_GPU supports running on AMD (ROCm) devices. A Docker container is recommand for setting up the ROCm environment. The installation on bare metal is also available. ROCm5.3 is used as an example of the installation below.
+FBGEMM_GPU supports running on AMD (ROCm) devices. A Docker container is recommended for setting up the ROCm environment. The installation on bare metal is also available. ROCm5.3 is used as an example of the installation below.
 
 ##### Build in a Docker container
 Pull Docker container and run
@@ -137,15 +137,14 @@ wget https://repo.radeon.com/amdgpu-install/5.3/ubuntu/focal/amdgpu-install_5.3.
 sudo apt-get install ./amdgpu-install_5.3.50300-1_all.deb
 sudo amdgpu-install --usecase=hiplibsdk,rocm --no-dkms
 ```
-MIOpen is required and needs to be installed seperately.
+MIOpen is required and needs to be installed separately.
 ```
 sudo apt-get install miopen-hip miopen-hip-dev
 ```
-Anaconda is required.
-The remaining steps are the same as "in the container" section.
+The remaining steps are the same as the "in the container" section.
 
 ##### Run the tests on ROCm
-Please add `FBGEMM_TEST_WITH_ROCM=1` flag when running tests on ROCm
+Please add `FBGEMM_TEST_WITH_ROCM=1` flag when running tests on ROCm.
 ```
 cd test
 FBGEMM_TEST_WITH_ROCM=1 python split_table_batched_embeddings_test.py
@@ -160,7 +159,7 @@ and using
 ```bash
 python setup.py clean
 ```
-to remove stale cached state can be helpfull.
+to remove stale cached state can be helpful.
 
 ## Examples
 
@@ -225,7 +224,7 @@ For a high-level overview, design philosophy and brief descriptions of various
 parts of FBGEMM_GPU please see our Wiki (work in progress).
 
 ## Full documentation
-We have extensively used comments in our source files. The best and up-do-date
+We have extensively used comments in our source files. The best and up-to-date
 documentation is available in the source files.
 
 # Building API Documentation
