@@ -148,6 +148,23 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         d_weight = unary_emb.weight.grad
         torch.testing.assert_close(d_weight_ref, d_weight)
 
+        # Testing the case where we add permute operation, which produces
+        # in contiguous grad tensor, this should also work
+        unary_embedding_module = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+            num_tasks=2,
+            hash_sizes=[100, 100],
+            long_index=True,
+        ).to(device)
+        offsets = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.long).to(device)
+        values = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8], dtype=torch.long).to(device)
+        for _ in range(10):
+            output = unary_embedding_module(offsets, values).transpose(1, 0)
+            # this magical statement is needed to create the illegal memory access
+            # that would be triggered if non-contiguous grad input is not
+            # well handled. I don't understand why
+            output.__repr__()
+            output.sum().backward()
+
     @unittest.skipIf(*gpu_unavailable)
     def test_gpu(self) -> None:
         self._test_main(gpu_infer=True)
