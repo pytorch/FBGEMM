@@ -1345,9 +1345,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed memory allocation is under development
@@ -1695,9 +1693,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed memory allocation is under development
@@ -2515,9 +2511,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
         if use_cpu:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            ] * T
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed memory allocation is under development
