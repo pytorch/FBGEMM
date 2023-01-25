@@ -2785,11 +2785,11 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  DISPATCH_TO_CUDA("dense_to_jagged", fbgemm_gpu::dense_to_jagged_autograd);
+  DISPATCH_TO_CUDA("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
   DISPATCH_TO_CUDA(
       "dense_to_jagged_forward", fbgemm_gpu::dense_to_jagged_forward);
   DISPATCH_TO_CUDA(
-      "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense_autograd);
+      "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
   DISPATCH_TO_CUDA(
       "jagged_to_padded_dense_forward",
       fbgemm_gpu::jagged_to_padded_dense_forward);
@@ -2797,17 +2797,18 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "jagged_to_padded_dense_backward",
       fbgemm_gpu::jagged_to_padded_dense_backward);
   DISPATCH_TO_CUDA(
-      "jagged_dense_elementwise_add",
-      fbgemm_gpu::jagged_dense_elementwise_add_autograd);
+      "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_autograd);
+      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CUDA(
       "jagged_dense_dense_elementwise_add_jagged_output_forward",
       fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);
   DISPATCH_TO_CUDA(
       "jagged_dense_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_autograd);
+      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output);
+  DISPATCH_TO_CUDA(
+      "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
   DISPATCH_TO_CUDA(
       "jagged_dense_elementwise_mul_forward",
       fbgemm_gpu::jagged_dense_elementwise_mul_forward);
@@ -2815,8 +2816,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "jagged_dense_elementwise_mul_backward",
       fbgemm_gpu::jagged_dense_elementwise_mul_backward);
   DISPATCH_TO_CUDA(
-      "jagged_dense_elementwise_mul",
-      fbgemm_gpu::jagged_dense_elementwise_mul_autograd);
+      "batched_dense_vec_jagged_2d_mul",
+      fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
   DISPATCH_TO_CUDA(
       "batched_dense_vec_jagged_2d_mul_forward",
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul_forward);
@@ -2824,14 +2825,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "batched_dense_vec_jagged_2d_mul_backward",
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul_backward);
   DISPATCH_TO_CUDA(
-      "batched_dense_vec_jagged_2d_mul",
-      fbgemm_gpu::batched_dense_vec_jagged_2d_mul_autograd);
-  DISPATCH_TO_CUDA(
       "jagged_index_select", fbgemm_gpu::jagged_index_select_2d_gpu);
-  DISPATCH_TO_CUDA(
-      "jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_autograd);
-  DISPATCH_TO_CUDA(
-      "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_autograd);
+  DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense);
+  DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense);
   DISPATCH_TO_CUDA(
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_gpu);
   DISPATCH_TO_CUDA(
