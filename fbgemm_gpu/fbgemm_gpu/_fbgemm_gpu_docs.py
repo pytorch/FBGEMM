@@ -355,13 +355,29 @@ Example:
 )
 
 
-# add_docs(
-#    torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
-#    """Args:
-#                {input}
-#            Keyword args:
-#                {out}""",
-# )
+add_docs(
+    torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
+    """
+batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor
+
+Batched vector matrix multiplication of a batched dense vector with a jagged tensor, dense vector is in
+size (B * H, max_N) and jagged tensor is in size (B, max_N, H * D) where max_N is the maximum size of
+jagged dimension. B * H is the batch size and each multiplies is max_N with [max_N, D]
+
+Args:
+    v (Tensor): dense vector tensor
+
+    a_values (Tensor): Jagged tensor values
+
+    a_offsets (Tensor []): A list of jagged offset tensors, one for each jagged dimension.
+
+Returns:
+    Tensor: output of batch matmul in size (B * H, D)
+
+""",
+)
+
+
 #
 #
 # add_docs(
