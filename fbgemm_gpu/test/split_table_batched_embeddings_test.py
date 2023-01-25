@@ -809,26 +809,26 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        T=st.integers(min_value=1, max_value=1),
-        D=st.integers(min_value=10, max_value=10),
-        B=st.integers(min_value=1, max_value=1),
-        log_E=st.integers(min_value=1, max_value=1),
-        L=st.integers(min_value=1, max_value=1),
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
         weights_ty=st.sampled_from(
             [
-                # SparseType.FP32,
+                SparseType.FP32,
                 SparseType.FP16,
-                # SparseType.INT8,
-                # SparseType.INT4,
+                SparseType.INT8,
+                SparseType.INT4,
                 # FIXME: INT2 caused big numerical error for this test
                 # SparseType.INT2,
             ]
         ),
         output_dtype=st.sampled_from(
             [
-                # SparseType.FP16,
+                SparseType.FP16,
                 SparseType.BF16,
-                # SparseType.INT8,
+                SparseType.INT8,
                 # SparseType.INT4,
             ]
         ),
@@ -929,16 +929,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 ref_scale_shift.copy_(rand_scale_shift)
                 scale_shift.copy_(ref_scale_shift)
 
-        split_weights = op.split_embedding_weights()
-        ref_split_weights = op_ref.split_embedding_weights()
-        print("===============split_weights", split_weights)
-        print("===============ref_split_weights", ref_split_weights)
-
         requests = generate_requests(1, B, T, L, min(Es), reuse=0.1)
-
         for indices, offsets, _ in requests:
-            print("===============indices", indices)
-            print("===============offsets", offsets)
             lowp_pooled_output = op(
                 indices=indices.int(),
                 offsets=offsets.int(),
@@ -976,9 +968,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cat_dq_fp32_pooled_output = torch.cat(
                 dq_fp32_pooled_output_per_table, dim=1
             )
-            print("======== cat_deq_lowp_pooled_output: \n", cat_deq_lowp_pooled_output)
-            print("======== cat_dq_fp32_pooled_output: \n", cat_dq_fp32_pooled_output)
-
             torch.testing.assert_close(
                 cat_deq_lowp_pooled_output,
                 cat_dq_fp32_pooled_output,

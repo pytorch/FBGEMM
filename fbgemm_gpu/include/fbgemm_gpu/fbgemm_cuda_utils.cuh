@@ -1399,9 +1399,6 @@ struct __align__(32) half16 {
 
 #ifdef __HIP_PLATFORM_HCC__
   using __nv_bfloat16=hip_bfloat16;
-  // typedef uint16_t __nv_bfloat162 __attribute__((ext_vector_type(2)));
-  #define __BFLOAT162_TO_UI(var) *(reinterpret_cast<unsigned int *>(&(var)))
-  #define __BFLOAT162_TO_CUI(var) *(reinterpret_cast<const unsigned int *>(&(var)))
 
   typedef struct __align__(4) {
     uint16_t x;
@@ -1411,17 +1408,6 @@ struct __align__(32) half16 {
   struct __align__(4) __nv_bfloat162 {
     __nv_bfloat16 x;
     __nv_bfloat16 y;
-  public:
-    __nv_bfloat162() = default;
-    __host__ __device__ __nv_bfloat162(__nv_bfloat162 &&src) { __BFLOAT162_TO_UI(*this) = std::move(__BFLOAT162_TO_CUI(src)); }
-    __host__ __device__ __nv_bfloat162 &operator=(__nv_bfloat162 &&src) { __BFLOAT162_TO_UI(*this) = std::move(__BFLOAT162_TO_CUI(src)); return *this; }
-    __host__ __device__ __nv_bfloat162(const __nv_bfloat16 &a, const __nv_bfloat16 &b) : x(a), y(b) { }
-    __host__ __device__ __nv_bfloat162(const __nv_bfloat162 &src) { __BFLOAT162_TO_UI(*this) = __BFLOAT162_TO_CUI(src); }
-    __host__ __device__ __nv_bfloat162 &operator=(const __nv_bfloat162 &src) { __BFLOAT162_TO_UI(*this) = __BFLOAT162_TO_CUI(src); return *this; }
-
-    __host__ __device__ __nv_bfloat162(const __nv_bfloat162_raw &h2r ) { __BFLOAT162_TO_UI(*this) = __BFLOAT162_TO_CUI(h2r); }
-    __host__ __device__ __nv_bfloat162 &operator=(const __nv_bfloat162_raw &h2r) { __BFLOAT162_TO_UI(*this) = __BFLOAT162_TO_CUI(h2r); return *this; }
-    __host__ __device__ operator __nv_bfloat162_raw() const { __nv_bfloat162_raw ret; ret.x = 0U; ret.y = 0U; __BFLOAT162_TO_UI(ret) = __BFLOAT162_TO_CUI(*this); return ret; }
   };
 #endif
 
