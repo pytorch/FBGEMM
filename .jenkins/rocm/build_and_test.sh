@@ -30,7 +30,7 @@ pip3 install ninja
 pip3 install --upgrade cmake
 pip3 install scikit-build
 pip3 install --upgrade hypothesis
-pip3 install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.2/
+pip3 install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
 
 pip3 list
 
@@ -56,6 +56,6 @@ python permute_pooled_embedding_modules_test.py --verbose
 python quantize_ops_test.py --verbose
 python sparse_ops_test.py --verbose
 python split_embedding_inference_converter_test.py --verbose
-# test_nbit_forward_fused_pooled_emb_quant is failing.  Let's skip it.
-python split_table_batched_embeddings_test.py --verbose || true
+# test_nbit_forward_fused_pooled_emb_quant is failing. It's skipped in the test code
+python split_table_batched_embeddings_test.py --verbose
 python uvm_test.py --verbose

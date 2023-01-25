@@ -160,6 +160,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
@@ -831,6 +834,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
                 # SparseType.INT4,
             ]
+        )
+        if not TEST_WITH_ROCM
+        else st.sampled_from(
+            [
+                SparseType.FP16,
+                # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
+                SparseType.INT8,
+                # SparseType.INT4,
+            ]
         ),
     )
     @settings(
@@ -1335,6 +1347,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
@@ -1680,6 +1695,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
@@ -2495,6 +2513,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         else:
             managed = [
                 np.random.choice(
