@@ -493,8 +493,19 @@ tensor input will be padded with zeros for the purposes of the addition.</p>
 
 <dl class="py function">
 <dt id="torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">batched_dense_vec_jagged_2d_mul</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">batched_dense_vec_jagged_2d_mul</code><span class="sig-paren">(</span><em class="sig-param">Tensor v</em>, <em class="sig-param">Tensor a_values</em>, <em class="sig-param">Tensor a_offsets</em><span class="sig-paren">)</span> &#x2192; Tensor<a class="headerlink" href="#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul" title="Permalink to this definition">¶</a></dt>
+<dd><p>Batched vector matrix multiplication of a batched dense vector with a jagged tensor, dense vector is in
+size (B * H, max_N) and jagged tensor is in size (B, max_N, H * D) where max_N is the maximum size of
+jagged dimension. B * H is the batch size and each multiplies is max_N with [max_N, D]</p>
+<dl>
+<dt>Args:</dt><dd><p>v (Tensor): dense vector tensor</p>
+<p>a_values (Tensor): Jagged tensor values</p>
+<p>a_offsets (Tensor []): A list of jagged offset tensors, one for each jagged dimension.</p>
+</dd>
+<dt>Returns:</dt><dd><p>Tensor: output of batch matmul in size (B * H, D)</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="py function">
 <dt id="torch.ops.fbgemm.stacked_jagged_1d_to_dense">
