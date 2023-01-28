@@ -17,7 +17,7 @@ usage () {
   echo "Usage: bash test_wheel.bash -p PYTHON_VERSION -P PYTORCH_CHANNEL_NAME -c PYTORCH_CUDA_VERSION -w FBGEMM_WHEEL_PATH [-m MINICONDA_PREFIX] [-v] [-h]"
   echo "-v                  : verbose"
   echo "-h                  : help"
-  echo "PYTHON_VERSION      : Python version (e.g., 3.7, 3.8, 3.10)"
+  echo "PYTHON_VERSION      : Python version (e.g., 3.8, 3.9, 3.10)"
   echo "PYTORCH_CHANNEL_NAME: PyTorch's channel name (e.g., pytorch-nightly, pytorch-test (=pre-release), pytorch (=stable release))"
   echo "PYTORCH_CUDA_VERSION: PyTorch's CUDA version (e.g., 11.6, 11.7)"
   echo "FBGEMM_WHEEL_PATH   : path to FBGEMM_GPU's wheel file"
