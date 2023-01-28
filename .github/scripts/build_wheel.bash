@@ -18,7 +18,7 @@ usage () {
   echo "-v                  : verbose"
   echo "-h                  : help"
   echo "PACKAGE_NAME        : output package name (e.g., fbgemm_gpu_nightly)"
-  echo "PYTHON_VERSION      : Python version (e.g., 3.7, 3.8, 3.10)"
+  echo "PYTHON_VERSION      : Python version (e.g., 3.8, 3.9, 3.10)"
   echo "PYTORCH_CHANNEL_NAME: PyTorch's channel name (e.g., pytorch-nightly, pytorch-test (=pre-release), pytorch (=stable release))"
   echo "PYTORCH_CUDA_VERSION: PyTorch's CUDA version (e.g., 11.6, 11.7)"
   echo "MINICONDA_PREFIX    : path to install Miniconda (default: \$HOME/miniconda)"
