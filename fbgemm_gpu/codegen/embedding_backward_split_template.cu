@@ -55,14 +55,17 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
   for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x; run_id < num_runs; run_id += blockDim.x * gridDim.x) {
     if (sorted_linear_indices_run_lengths[run_id] >= max_segment_length_per_warp) {
         // A segment with length > max_segment_length_per_cta is handled by more than 1 thread block.
-        int num_ctas_for_run =
+        const int num_ctas_for_run =
             use_deterministic_algorithms ? 1 : div_round_up(sorted_linear_indices_run_lengths[run_id], max_segment_length_per_cta);
-        auto long_run_idx = gpuAtomicAdd(&num_long_run_ids[0], num_ctas_for_run);
-        for (int i = 0; i < num_ctas_for_run; ++i) {
-            long_run_ids[long_run_idx + i] = run_id;
+        const auto long_run_idx = gpuAtomicAdd(&num_long_run_ids[0], num_ctas_for_run);
+        // The first thread block in the really long run gets run_id in long_run_ids
+        // and the rest get the negative of its offset.
+        long_run_ids[long_run_idx] = run_id;
+        for (int i = 1; i < num_ctas_for_run; ++i) {
+            long_run_ids[long_run_idx + i] = -i;
         }
         if (num_ctas_for_run > 1) {
-            auto really_long_run_idx = gpuAtomicAdd(&num_really_long_run_ids[0], 1);
+            const auto really_long_run_idx = gpuAtomicAdd(&num_really_long_run_ids[0], 1);
             grad_accum_counter[really_long_run_idx] = num_ctas_for_run;
             for (int i = 0; i < num_ctas_for_run; ++i) {
                 long_run_id_to_really_long_run_ids[long_run_idx + i] = really_long_run_idx;
@@ -186,21 +189,22 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
   {% endif %}
   const int32_t num_long_runs = num_long_run_ids[0];
   for (int32_t long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
+        // The first thread block in the really long run has run_id in long_run_ids
+        // and the rest have the negative of its offset (see find_long_segments kernel).
+        int32_t cta_rank_on_current_run = 0;
         int32_t current_run_id = long_run_ids[long_run_id];
+        if (current_run_id < 0) {
+            cta_rank_on_current_run = -long_run_ids[long_run_id];
+            current_run_id = long_run_ids[long_run_id - cta_rank_on_current_run];
+        }
+        const int32_t run_length =
+            sorted_linear_indices_cumulative_run_lengths[current_run_id + 1] -
+            sorted_linear_indices_cumulative_run_lengths[current_run_id];
+        // This computation must agree with how we compute num_ctas_for_run in
+        // find_long_segments kernel!
+        const int32_t num_ctas_on_current_run =
+            use_deterministic_algorithms ? 1 : div_round_up(run_length, max_segment_length_per_cta);
 
-        // Count the number of thread blocks working on the current run
-        int cta_rank_on_current_run = 0;
-        if (!use_deterministic_algorithms) {
-            for (int i = long_run_id - 1;
-                i >= 0 && current_run_id == long_run_ids[i];
-                --i, ++cta_rank_on_current_run);
-        }
-        int num_ctas_on_current_run = cta_rank_on_current_run + 1;
-        if (!use_deterministic_algorithms) {
-            for (int i = long_run_id + 1;
-                i < num_long_runs && current_run_id == long_run_ids[i];
-                ++i, ++num_ctas_on_current_run);
-        }
 
         const int64_t linear_index = sorted_linear_indices_run[current_run_id];
         const int32_t segment_start =
@@ -409,6 +413,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
             int counter;
             if (threadIdx.x == 0) {
+                __threadfence();
                 counter = gpuAtomicAdd(&grad_accum_counter[really_long_run_id], -1);
             }
             counter = SHFL_SYNC(counter, 0);
