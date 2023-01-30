@@ -61,7 +61,7 @@ jobs:
       run: |
         set -e
         cd build_static
-        ctest
+        ctest --rerun-failed --output-on-failure
 
     - name: Build shared FBGEMM lib
       run: |
@@ -76,7 +76,7 @@ jobs:
       run: |
         set -e
         cd build_shared
-        ctest
+        ctest --rerun-failed --output-on-failure
 
   build-windows:
     runs-on: ${{ matrix.os }}
@@ -117,7 +117,7 @@ jobs:
       run: |
         echo %cd%
         cd build_static
-        ctest
+        ctest --rerun-failed --output-on-failure
         if errorlevel 1 exit /b 1
 
     - name: Build shared FBGEMM lib
@@ -141,7 +141,7 @@ jobs:
         cd build_shared
         set PATH=%PATH%;%cd%;%cd%\asmjit
         echo %PATH%
-        ctest
+        ctest --rerun-failed --output-on-failure
         if errorlevel 1 exit /b 1
 
   build-bazel:
@@ -190,7 +190,7 @@ jobs:
     - name: Test FBGEMM bazel build
       run: |
         set -e
-        ./bazel test --compilation_mode opt :*
+        ./bazel test --test_output=all --verbose_explanations --verbose_failures --compilation_mode opt :*
 
 
   build_nvidia_gpu:
