@@ -1201,6 +1201,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           output_stride,
           input_stride,
           scale_bias_last,
+          no_bag,
           isbf16);
     };
   }
