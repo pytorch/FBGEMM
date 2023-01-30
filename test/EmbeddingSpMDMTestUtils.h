@@ -24,6 +24,12 @@ enum EmbeddingSpMDMWeightChoice {
   POSITIONAL_WEIGHTED,
 };
 
+enum EmbeddingSpMDMDtypeChoice {
+  FLOAT,
+  FLOAT16,
+  BFLOAT16,
+};
+
 /**
  * @return lengths_sum
  */
