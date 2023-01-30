@@ -39,15 +39,15 @@ Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
 # Release GPU
-conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install pytorch cuda -c pytorch -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu
 
 # Release CPU-only
-conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install pytorch cuda -c pytorch -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu-cpu
 
 # Nightly GPU
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
+conda install pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu-nightly
 
 # Nightly CPU-only
@@ -63,7 +63,7 @@ Please [download][4] and follow instructions [here][5] to install cuDNN.
 
 ```
 # Requires PyTorch 1.13 or later
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
+conda install pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-11.7.1"
 git clone --recursive https://github.com/pytorch/FBGEMM.git
 cd FBGEMM/fbgemm_gpu
 # if you are updating an existing checkout

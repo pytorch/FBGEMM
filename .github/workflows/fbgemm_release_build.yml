@@ -66,7 +66,7 @@ jobs:
     - name: Install PyTorch and CUDA
       shell: bash
       run: |
-        conda install -n build_binary -y pytorch pytorch-cuda=11.7 -c pytorch-test -c nvidia
+        conda install -n build_binary -y pytorch cuda -c pytorch-test -c "nvidia/label/cuda-11.7.1"
         #conda run -n build_binary \
         #  python -m pip install --pre torch -f https://download.pytorch.org/whl/test/cu117/torch_test.html
     - name: Install Other Dependencies
@@ -215,7 +215,7 @@ jobs:
     - name: Install PyTorch using Conda
       shell: bash
       run: |
-        conda install -n build_binary -y pytorch pytorch-cuda=11.7 -c pytorch-test -c nvidia
+        conda install -n build_binary -y pytorch cuda -c pytorch-test -c "nvidia/label/cuda-11.7.1"
         #conda run -n build_binary \
         #  python -m pip install --pre torch -f https://download.pytorch.org/whl/test/cu117/torch_test.html
     # download wheel from GHA
