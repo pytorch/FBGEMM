@@ -100,11 +100,11 @@ FBGEMM_GPU supports running on AMD (ROCm) devices. A Docker container is recomme
 ##### Build in a Docker container
 Pull Docker container and run
 ```
-docker pull rocm/pytorch:rocm5.3_ubuntu20.04_py3.7_pytorch_staging_base
+docker pull rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
 sudo docker run -it --network=host --shm-size 16G --device=/dev/kfd --device=/dev/dri \
                 --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
                 --ipc=host --env PYTORCH_ROCM_ARCH="gfx906;gfx908;gfx90a" -u 0 \
-                rocm/pytorch:rocm5.3_ubuntu20.04_py3.7_pytorch_staging_base
+                rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
 ```
 In the container
 ```

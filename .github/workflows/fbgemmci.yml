@@ -363,7 +363,7 @@ jobs:
         set -eux
         env
         ls -l
-        DOCKER_IMAGE=rocm/pytorch:rocm5.3_ubuntu20.04_py3.7_pytorch_staging_base
+        DOCKER_IMAGE=rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
         docker pull $DOCKER_IMAGE
         JENKINS_REPO_DIR=fbgemm-private-jenkins
         JENKINS_REPO_DIR_BAREMETAL=$PWD

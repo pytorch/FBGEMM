@@ -43,7 +43,7 @@ jobs:
     strategy:
       matrix:
         os: [linux.4xlarge]
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.8", "3.9", "3.10"]
         cuda-tag: ["cpu", "cu11"]
 
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
@@ -79,7 +79,7 @@ jobs:
     strategy:
       matrix:
         os: [linux.g5.4xlarge.nvidia.gpu]
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.8", "3.9", "3.10"]
         cuda-tag: ["cu11"]
 
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
@@ -108,7 +108,7 @@ jobs:
     strategy:
       matrix:
         os: [linux.4xlarge]
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.8", "3.9", "3.10"]
         cuda-tag: ["cpu"]
 
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
@@ -135,7 +135,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
+        python-version: ["3.8", "3.9", "3.10"]
         cuda-tag: ["cu11", "cpu"]
     runs-on: ${{ matrix.os }}
 
