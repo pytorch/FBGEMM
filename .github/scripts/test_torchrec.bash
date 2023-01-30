@@ -20,7 +20,7 @@ usage () {
   echo "PACKAGE_NAME        : output package name of TorchRec (e.g., torchrec_nightly)"
   echo "                      Note: TorchRec is sensitive to its package name"
   echo "                      e.g., torchrec needs fbgemm-gpu while torchrec_nightly needs fbgemm-gpu-nightly"
-  echo "PYTHON_VERSION      : Python version (e.g., 3.7, 3.8, 3.10)"
+  echo "PYTHON_VERSION      : Python version (e.g., 3.8, 3.9, 3.10)"
   echo "PYTORCH_CHANNEL_NAME: PyTorch's channel name (e.g., pytorch-nightly, pytorch-test (=pre-release), pytorch (=stable release))"
   echo "PYTORCH_CUDA_VERSION: PyTorch's CUDA version (e.g., 11.6, 11.7)"
   echo "FBGEMM_WHEEL_PATH   : path to FBGEMM_GPU's wheel file"
