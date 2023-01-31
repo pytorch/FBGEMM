@@ -4,10 +4,10 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "fbgemm/FbgemmEmbedding.h"
-
 #include <cassert>
 #include <cmath>
+#include "RefImplementations.h"
+#include "fbgemm/FbgemmEmbedding.h"
 
 #include "fbgemm/Types.h"
 
@@ -26,7 +26,8 @@ bool EmbeddingSpMDMBlockSize1_(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional,
-    bool use_offsets) {
+    bool use_offsets,
+    bool is_bf16) {
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
     out[m] = 0;
@@ -113,11 +114,7 @@ bool EmbeddingSpMDMBlockSize1_(
       }
 
       const InType* inptr = input + indices[current];
-      temp = std::fma(
-          w,
-          std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
-                                               : *inptr,
-          temp);
+      temp = std::fma(w, convert_to_float_ref(*inptr, is_bf16), temp);
 
       ++current;
     }
@@ -142,7 +139,8 @@ bool EmbeddingSpMDMBlockSize1_(
       bool normalize_by_lengths,                                 \
       float* out,                                                \
       bool is_weight_positional,                                 \
-      bool use_offsets);
+      bool use_offsets,                                          \
+      bool is_bf16);
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)     \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, std::int32_t) \
