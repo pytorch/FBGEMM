@@ -9,17 +9,17 @@ set -e
 
 verbose=0
 python_version=""
-pytorch_cuda_version="x"
+cuda_version="x"
 fbgemm_wheel_path="x"
 miniconda_prefix="${HOME}/miniconda"
 
 usage () {
-  echo "Usage: bash test_wheel.bash -p PYTHON_VERSION -P PYTORCH_CHANNEL_NAME -c PYTORCH_CUDA_VERSION -w FBGEMM_WHEEL_PATH [-m MINICONDA_PREFIX] [-v] [-h]"
+  echo "Usage: bash test_wheel.bash -p PYTHON_VERSION -P PYTORCH_CHANNEL_NAME -c CUDA_VERSION -w FBGEMM_WHEEL_PATH [-m MINICONDA_PREFIX] [-v] [-h]"
   echo "-v                  : verbose"
   echo "-h                  : help"
   echo "PYTHON_VERSION      : Python version (e.g., 3.8, 3.9, 3.10)"
   echo "PYTORCH_CHANNEL_NAME: PyTorch's channel name (e.g., pytorch-nightly, pytorch-test (=pre-release), pytorch (=stable release))"
-  echo "PYTORCH_CUDA_VERSION: PyTorch's CUDA version (e.g., 11.6, 11.7)"
+  echo "CUDA_VERSION        : PyTorch's CUDA version (e.g., 11.6, 11.7)"
   echo "FBGEMM_WHEEL_PATH   : path to FBGEMM_GPU's wheel file"
   echo "MINICONDA_PREFIX    : path to install Miniconda (default: \$HOME/miniconda)"
   echo "Example 1: Python 3.10 + PyTorch nightly (CUDA 11.7), install miniconda at /home/user/tmp/miniconda, using dist/fbgemm_gpu.whl"
@@ -34,7 +34,7 @@ do
         v) verbose="1";;
         p) python_version="${OPTARG}";;
         P) pytorch_channel_name="${OPTARG}";;
-        c) pytorch_cuda_version="${OPTARG}";;
+        c) cuda_version="${OPTARG}";;
         m) miniconda_prefix="${OPTARG}";;
         w) fbgemm_wheel_path="${OPTARG}";;
         h) usage
@@ -44,7 +44,7 @@ do
     esac
 done
 
-if [ "$python_version" == "" ] || [ "$pytorch_cuda_version" == "x" ] || [ "$miniconda_prefix" == "" ] || [ "$pytorch_channel_name" == "" ] || [ "$fbgemm_wheel_path" == "" ]; then
+if [ "$python_version" == "" ] || [ "$cuda_version" == "x" ] || [ "$miniconda_prefix" == "" ] || [ "$pytorch_channel_name" == "" ] || [ "$fbgemm_wheel_path" == "" ]; then
   usage
   exit 1
 fi
@@ -73,7 +73,7 @@ setup_miniconda "$miniconda_prefix"
 echo "## 2. Create test_binary environment"
 ################################################################################
 
-create_conda_environment test_binary "$python_version" "$pytorch_channel_name" "$pytorch_cuda_version"
+create_conda_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 conda install -n test_binary -y pytest
 
 cd fbgemm_gpu
@@ -87,7 +87,7 @@ echo "## 3. Install and test FBGEMM_GPU"
 conda run -n test_binary python -m pip install "$fbgemm_wheel_path"
 conda run -n test_binary python -c "import fbgemm_gpu"
 
-if [ "$pytorch_cuda_version" == "" ]; then
+if [ "$cuda_version" == "" ]; then
   # CPU version: unfortunately, not all tests are properly excluded,
   # so we cherry-pick what we can run.
   conda run -n test_binary python fbgemm_gpu/test/batched_unary_embeddings_test.py -v

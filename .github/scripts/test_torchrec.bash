@@ -9,12 +9,12 @@ set -e
 verbose=0
 torchrec_package_name=""
 python_version=""
-pytorch_cuda_version="x"
+cuda_version="x"
 fbgemm_wheel_path="x"
 miniconda_prefix="${HOME}/miniconda"
 
 usage () {
-  echo "Usage: bash test_torchrec.bash -o PACKAGE_NAME -p PYTHON_VERSION -P PYTORCH_CHANNEL_NAME -c PYTORCH_CUDA_VERSION -w FBGEMM_WHEEL_PATH [-m MINICONDA_PREFIX] [-v] [-h]"
+  echo "Usage: bash test_torchrec.bash -o PACKAGE_NAME -p PYTHON_VERSION -P PYTORCH_CHANNEL_NAME -c CUDA_VERSION -w FBGEMM_WHEEL_PATH [-m MINICONDA_PREFIX] [-v] [-h]"
   echo "-v                  : verbose"
   echo "-h                  : help"
   echo "PACKAGE_NAME        : output package name of TorchRec (e.g., torchrec_nightly)"
@@ -22,7 +22,7 @@ usage () {
   echo "                      e.g., torchrec needs fbgemm-gpu while torchrec_nightly needs fbgemm-gpu-nightly"
   echo "PYTHON_VERSION      : Python version (e.g., 3.8, 3.9, 3.10)"
   echo "PYTORCH_CHANNEL_NAME: PyTorch's channel name (e.g., pytorch-nightly, pytorch-test (=pre-release), pytorch (=stable release))"
-  echo "PYTORCH_CUDA_VERSION: PyTorch's CUDA version (e.g., 11.6, 11.7)"
+  echo "CUDA_VERSION        : PyTorch's CUDA version (e.g., 11.6, 11.7)"
   echo "FBGEMM_WHEEL_PATH   : path to FBGEMM_GPU's wheel file"
   echo "MINICONDA_PREFIX    : path to install Miniconda (default: \$HOME/miniconda)"
   echo "Example: Python 3.10 + PyTorch nightly (CUDA 11.7), install miniconda at \$HOME/miniconda, using dist/fbgemm_gpu_nightly.whl"
@@ -36,7 +36,7 @@ do
         o) torchrec_package_name="${OPTARG}";;
         p) python_version="${OPTARG}";;
         P) pytorch_channel_name="${OPTARG}";;
-        c) pytorch_cuda_version="${OPTARG}";;
+        c) cuda_version="${OPTARG}";;
         m) miniconda_prefix="${OPTARG}";;
         w) fbgemm_wheel_path="${OPTARG}";;
         h) usage
@@ -46,7 +46,7 @@ do
     esac
 done
 
-if [ "$torchrec_package_name" == "" ] || [ "$python_version" == "" ] || [ "$pytorch_cuda_version" == "x" ] || [ "$miniconda_prefix" == "" ] || [ "$pytorch_channel_name" == "" ] || [ "$fbgemm_wheel_path" == "" ]; then
+if [ "$torchrec_package_name" == "" ] || [ "$python_version" == "" ] || [ "$cuda_version" == "x" ] || [ "$miniconda_prefix" == "" ] || [ "$pytorch_channel_name" == "" ] || [ "$fbgemm_wheel_path" == "" ]; then
   usage
   exit 1
 fi
@@ -76,7 +76,7 @@ setup_miniconda "$miniconda_prefix"
 echo "## 2. Create test_binary environment"
 ################################################################################
 
-create_conda_environment test_binary "$python_version" "$pytorch_channel_name" "$pytorch_cuda_version"
+create_conda_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 
 # Comment out FBGEMM_GPU since we will install it from "$fbgemm_wheel_path"
 sed -i 's/fbgemm-gpu/#fbgemm-gpu/g' requirements.txt

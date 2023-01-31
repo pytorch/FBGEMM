@@ -23,21 +23,21 @@ create_conda_environment () {
   env_name="$1"
   python_version="$2"
   pytorch_channel_name="$3"
-  pytorch_cuda_version="$4"
+  cuda_version="$4"
   if [ "$python_version" == "" ]; then
-    echo "Usage: create_conda_environment ENV_NAME PYTHON_VERSION PYTORCH_CHANNEL_NAME PYTORCH_CUDA_VERSION"
+    echo "Usage: create_conda_environment ENV_NAME PYTHON_VERSION PYTORCH_CHANNEL_NAME CUDA_VERSION"
     echo "Example:"
-    echo "    create_conda_environment build_binary 3.10 pytorch-nightly 11.7"
+    echo "    create_conda_environment build_binary 3.10 pytorch-nightly 11.7.1"
     exit 1
   fi
   # -y removes existing environment
   conda create -y --name "$env_name" python="$python_version"
-  if [ "$pytorch_cuda_version" == "" ]; then
+  if [ "$cuda_version" == "" ]; then
     # CPU version
     conda install -n "$env_name" -y pytorch cpuonly -c "$pytorch_channel_name"
   else
     # GPU version
-    conda install -n "$env_name" -y pytorch pytorch-cuda="$pytorch_cuda_version" -c "$pytorch_channel_name" -c nvidia
+    conda install -n "$env_name" -y pytorch cuda -c "$pytorch_channel_name" -c "nvidia/label/cuda-${cuda_version}"
   fi
 }
 
