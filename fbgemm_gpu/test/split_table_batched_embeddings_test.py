@@ -1561,9 +1561,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         D=st.integers(min_value=2, max_value=10),
-        # 128 * 1024 is to exercise a case num_ctas_for_run needs to be capped at
-        # the number of SMs (H100 has 114 SMs and the default seglen per CTA is 1024)
-        B=st.sampled_from([1152, 128 * 1024]),
+        # 128 * 1024 is to exercise a case num_ctas_for_run needs to be capped
+        # at the number of SMs (H100 SXM5 has 132 SMs and the default seglen
+        # per CTA is 1024)
+        B=st.sampled_from([1152, 256 * 1024]),
         L=st.integers(min_value=1, max_value=4),
         weighted=st.booleans(),
         mixed=st.booleans(),
