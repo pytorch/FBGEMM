@@ -39,15 +39,15 @@ Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
 # Release GPU
-conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install pytorch cuda -c pytorch -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu
 
 # Release CPU-only
-conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install pytorch cuda -c pytorch -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu-cpu
 
 # Nightly GPU
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
+conda install pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu-nightly
 
 # Nightly CPU-only
@@ -63,7 +63,7 @@ Please [download][4] and follow instructions [here][5] to install cuDNN.
 
 ```
 # Requires PyTorch 1.13 or later
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
+conda install pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-11.7.1"
 git clone --recursive https://github.com/pytorch/FBGEMM.git
 cd FBGEMM/fbgemm_gpu
 # if you are updating an existing checkout
@@ -100,11 +100,11 @@ FBGEMM_GPU supports running on AMD (ROCm) devices. A Docker container is recomme
 ##### Build in a Docker container
 Pull Docker container and run
 ```
-docker pull rocm/pytorch:rocm5.3_ubuntu20.04_py3.7_pytorch_staging_base
+docker pull rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
 sudo docker run -it --network=host --shm-size 16G --device=/dev/kfd --device=/dev/dri \
                 --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
                 --ipc=host --env PYTORCH_ROCM_ARCH="gfx906;gfx908;gfx90a" -u 0 \
-                rocm/pytorch:rocm5.3_ubuntu20.04_py3.7_pytorch_staging_base
+                rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
 ```
 In the container
 ```
