@@ -209,7 +209,7 @@ def main(argv: List[str]) -> None:
             "Intended Audience :: Science/Research",
             "License :: OSI Approved :: BSD License",
             "Programming Language :: Python :: 3",
-            "Programming Language :: Python :: 3.7",
+            "Programming Language :: Python :: 3.8",
             "Topic :: Scientific/Engineering :: Artificial Intelligence",
         ],
     )
