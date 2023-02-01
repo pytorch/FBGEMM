@@ -77,7 +77,8 @@ GenerateEmbeddingSpMDM(
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false,
-    bool use_offsets = true);
+    bool use_offsets = true,
+    bool isbf16 = false);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
@@ -108,7 +109,8 @@ GenerateEmbeddingSpMDMWithStrides(
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
     bool scale_bias_last = true,
-    bool no_bag = false);
+    bool no_bag = false,
+    bool isbf16 = false);
 
 /**
  * @tparam IndexType can be int32_t or int64_t
@@ -336,7 +338,8 @@ FBGEMM_API bool EmbeddingSpMDMBlockSize1_(
     bool normalize_by_lengths,
     float* out,
     bool is_weight_positional = false,
-    bool use_offsets = true);
+    bool use_offsets = true,
+    bool is_bf16 = false);
 
 template <typename IndexType, bool HAS_WEIGHTS>
 void compressed_indices_remap_avx512(

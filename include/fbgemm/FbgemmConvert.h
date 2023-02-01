@@ -12,8 +12,6 @@
 
 namespace fbgemm {
 
-typedef uint16_t bfloat16;
-
 /**
  * @ Transform all entries in a matrix from fp32 to bfloat16: reference
  * implementation.
