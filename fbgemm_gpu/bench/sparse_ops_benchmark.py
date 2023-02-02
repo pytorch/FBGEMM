@@ -312,5 +312,46 @@ def group_index_select_2d_bench(
     )
 
 
+@cli.command()
+@click.option("--num-vecs", default=2048)
+@click.option("--num-entries-per-vec", default=1024)
+@click.option("--dtype", type=str, default="long")
+def asynchronous_complete_cumsum_2d_bench(
+    num_vecs: int,
+    num_entries_per_vec: int,
+    dtype: str,
+) -> None:
+    # Reference code from TorchRec https://github.com/pytorch/torchrec/pull/332
+    @torch.jit.script
+    def asynchronous_complete_cumsum_2d_ref(lengths: torch.Tensor) -> torch.Tensor:
+        (f, b) = lengths.shape
+        offsets_0 = lengths.new_zeros((f, 1))
+        offsets_1 = torch.cumsum(lengths, dim=-1).to(lengths.dtype)
+        offsets = torch.cat([offsets_0, offsets_1], dim=-1)
+        return offsets
+
+    assert dtype == "int" or dtype == "long", "Only int and long are supported"
+    index_dtype = torch.int64 if dtype == "long" else torch.int32
+
+    x = torch.randint(low=0, high=100, size=(num_vecs, num_entries_per_vec)).type(
+        index_dtype
+    )
+    x = x.cuda()
+
+    time_ref, _ = benchmark_torch_function(
+        asynchronous_complete_cumsum_2d_ref, (x,), num_warmups=100, iters=1000
+    )
+
+    time, _ = benchmark_torch_function(
+        torch.ops.fbgemm.asynchronous_complete_cumsum, (x,), num_warmups=100, iters=1000
+    )
+
+    logging.info(
+        f"asynchronous_complete_cumsum_2d_bench: input shape {x.shape}, dtype {dtype}"
+    )
+    logging.info(f"ref time: {time_ref:.5f} sec")
+    logging.info(f"fbgemm_gpu time: {time:.5f} sec")
+
+
 if __name__ == "__main__":
     cli()

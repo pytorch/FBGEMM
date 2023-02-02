@@ -1090,18 +1090,35 @@ Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
 
 Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
   TENSOR_ON_CPU(t_in);
-  TORCH_CHECK(t_in.dim() == 1);
+  const auto num_dims = t_in.dim();
+  TORCH_CHECK(num_dims == 1 || num_dims == 2);
 
   const auto t_in_contig = t_in.expect_contiguous();
-  auto output = at::zeros({t_in.numel() + 1}, t_in.options());
+  auto output = num_dims == 1
+      ? at::zeros({t_in.numel() + 1}, t_in.options())
+      : at::zeros({t_in.size(0), t_in.size(1) + 1}, t_in.options());
+
   AT_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
       "asynchronous_complete_cumsum_cpu_kernel",
       [&] {
-        const auto N = t_in_contig->numel();
-        const auto last_sum = exclusive_scan_ptrs_cpu(
-            N, t_in_contig->data_ptr<scalar_t>(), output.data_ptr<scalar_t>());
-        output.data_ptr<scalar_t>()[N] = last_sum;
+        if (num_dims == 1) {
+          const auto N = t_in_contig->numel();
+          output.data_ptr<scalar_t>()[N] = exclusive_scan_ptrs_cpu(
+              N,
+              t_in_contig->data_ptr<scalar_t>(),
+              output.data_ptr<scalar_t>());
+        } else {
+          const auto num_vecs = t_in_contig->size(0);
+          const auto N = t_in_contig->size(1);
+          at::parallel_for(0, num_vecs, 1, [&](int64_t start, int64_t end) {
+            for (auto i = start; i < end; i++) {
+              scalar_t* out_ptr = output.data_ptr<scalar_t>() + i * (N + 1);
+              out_ptr[N] = exclusive_scan_ptrs_cpu(
+                  N, t_in_contig->data_ptr<scalar_t>() + i * N, out_ptr);
+            }
+          });
+        }
       });
   return output;
 }
