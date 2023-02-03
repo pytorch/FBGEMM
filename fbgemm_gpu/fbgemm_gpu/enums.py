@@ -17,7 +17,8 @@ def create_enums(
 ) -> None:
     for enum_name, items in query_op():
         # Create matching python enumeration
-        # pyre-fixme[19]: Expected 1 positional argument.
+        # pyre-fixme[6]: For 2nd argument expected `None` but got `List[Tuple[str,
+        #  int]]`.
         new_enum = enum.Enum(enum_name, items)
         # and store it in the module
         namespace[enum_name] = new_enum
