@@ -1905,6 +1905,91 @@ Tensor jagged_softmax_forward(
   return output;
 }
 
+template <typename index_t, typename scalar_t>
+__global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
+    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
+    const at::PackedTensorAccessor32<scalar_t, 2> y_values,
+    const at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor32<scalar_t, 3> output,
+    const int max_L) {
+  const int B = offsets.size(0) - 1;
+  const int M = x_values.size(1);
+  const int N = y_values.size(1);
+
+  const int b_m_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const int b_m_step = gridDim.x * blockDim.y;
+  for (int b_m = b_m_begin; b_m < B * M; b_m += b_m_step) {
+    const int b = b_m / M;
+    const int m = b_m % M;
+
+    const int row_start = offsets[b];
+    const int row_end = offsets[b + 1];
+    const int length = min(row_end - row_start, max_L);
+    if (length == 0) {
+      for (int n = threadIdx.x; n < N; n += blockDim.x) {
+        output[b][m][n] = 0;
+      }
+    } else {
+      // TODO: use shared memory and better reduction
+      for (int n = threadIdx.x; n < N; n += blockDim.x) {
+        at::acc_type<scalar_t, true> acc =
+            x_values[row_start][m] * y_values[row_start][n];
+        for (int l = 1; l < length; ++l) {
+          acc += x_values[row_start + l][m] * y_values[row_start + l][n];
+        }
+        output[b][m][n] = acc;
+      }
+    }
+  }
+}
+
+Tensor jagged_jagged_bmm_forward(
+    const Tensor& x_values,
+    const Tensor& y_values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  TENSOR_ON_CUDA_GPU(x_values);
+  TENSOR_ON_CUDA_GPU(y_values);
+  TENSOR_ON_CUDA_GPU(offsets);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(x_values.get_device());
+
+  const int B = offsets.numel() - 1;
+  const int M = x_values.size(-1);
+  const int N = y_values.size(-1);
+  auto output = at::zeros({B, M, N}, x_values.options());
+
+  if (B > 0 && M > 0 && N > 0) {
+    const int block_dim_x =
+        std::min(div_round_up(N, kWarpSize) * kWarpSize, kMaxThreads);
+    const int block_dim_y = kMaxThreads / block_dim_x;
+
+    AT_DISPATCH_INDEX_TYPES(
+        offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              x_values.scalar_type(),
+              "jagged_jagged_bmm_kernel_2",
+              [&] {
+                jagged_jagged_bmm_kernel<index_t, scalar_t>
+                    <<<div_round_up(B * M, block_dim_y),
+                       dim3(block_dim_x, block_dim_y),
+                       0,
+                       at::cuda::getCurrentCUDAStream()>>>(
+                        x_values.packed_accessor32<scalar_t, 2>(),
+                        y_values.packed_accessor32<scalar_t, 2>(),
+                        offsets.packed_accessor32<index_t, 1>(),
+                        output.packed_accessor32<scalar_t, 3>(),
+                        (int)max_L);
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
+              });
+        });
+  }
+  return output;
+}
+
 } // namespace
 
 Tensor jagged_2d_to_dense_gpu_forward(
@@ -2931,4 +3016,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("jagged_softmax", fbgemm_gpu::jagged_softmax);
   DISPATCH_TO_CUDA(
       "jagged_softmax_forward", fbgemm_gpu::jagged_softmax_forward);
+  DISPATCH_TO_CUDA("jagged_jagged_bmm", fbgemm_gpu::jagged_jagged_bmm);
+  DISPATCH_TO_CUDA(
+      "jagged_jagged_bmm_forward", fbgemm_gpu::jagged_jagged_bmm_forward);
 }
