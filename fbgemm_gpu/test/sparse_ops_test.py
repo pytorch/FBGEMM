@@ -560,6 +560,38 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
+        n=st.integers(min_value=1, max_value=600),
+        b=st.integers(min_value=1, max_value=10),
+        long_index=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_asynchronous_complete_cumsum_2d(
+        self, n: int, b: int, long_index: bool
+    ) -> None:
+        index_dtype = torch.int64 if long_index else torch.int32
+
+        def test_asynchronous_complete_cumsum_2d_helper(x: torch.Tensor) -> None:
+            np_index_dtype = np.int64 if long_index else np.int32
+            zc = torch.ops.fbgemm.asynchronous_complete_cumsum(x)
+            zeros = torch.zeros(b, 1)
+            torch.testing.assert_close(
+                torch.from_numpy(
+                    np.cumsum(
+                        torch.concat([zeros, x.cpu()], dim=1).numpy(), axis=1
+                    ).astype(np_index_dtype)
+                ),
+                zc.cpu(),
+            )
+
+        x = torch.randint(low=0, high=100, size=(b, n)).type(index_dtype)
+        # cpu test
+        test_asynchronous_complete_cumsum_2d_helper(x)
+        if gpu_available:
+            # gpu test
+            test_asynchronous_complete_cumsum_2d_helper(x.cuda())
+
+    # pyre-ignore [56]
+    @given(
         N=st.integers(min_value=1, max_value=20),
         offsets_type=st.sampled_from([torch.int32, torch.int64]),
     )
