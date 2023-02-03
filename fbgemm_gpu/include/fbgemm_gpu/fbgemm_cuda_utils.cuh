@@ -3054,14 +3054,44 @@ class FixedDivisor {
   int shift_;
 };
 
+/**
+ * inclusive_sum_scan_kernel performs intra- and inter-thread block sum scan
+ * (i.e., prefix sum scan). We use cub::BlockScan to do inclusive sum within
+ * thread block and use a waterfall sync method to perform prefix sum across
+ * thread block.
+ *
+ * @param arr an array of input values. Its length must be fixed to
+ *            ITEMS_PER_THREAD
+ * @param temp_storage a shared memory struct for cub::BlockScan
+ * @param block_flags a global flag buffer for inter-block sync (must be
+ *                    initialized with zeros)
+ * @param block_sums a global sum buffer for inter-block sync
+ * @param block_prev a shared memory pointer for sharing sum from the previous
+ *                   block within a block
+ * @param num_entries_per_block a number of input entries for this block
+ * @param block_id a relative thread block ID (the first block that contains
+ *                 the first set of input entries has block_id = 0)
+ * @param is_multi_block a boolean to indicate if inter-block sum scan has to
+ *                       be performed
+ * @param signal If the value of block_flags of the previous block is equal to
+ *               signal, it means that the previous block has written its sum
+ *               to block_sums. We have thread blocks increment the value of
+ *               block_flags by one after they write their sums to block_sums.
+ *               We increment the flag instead of setting the flag to a single
+ *               value to support multiple sequential inclusive_sum_scan_kernel
+ *               calls (e.g., in the AUC kernel). signal is the order that
+ *               inclusive_sum_scan_kernel is called. Since we intialize
+ *               block_flags with zeros, the signal of the first call should be
+ *               one.
+ */
 template <typename scalar_t, int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK>
 __inline__ __device__ void inclusive_sum_scan_kernel(
     scalar_t (&arr)[ITEMS_PER_THREAD],
     typename cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>::TempStorage&
         temp_storage,
-    int* block_flags, // global flags for inter-block sync
-    scalar_t* block_sums, // global sums for inter-block sync
-    scalar_t* block_prev, // shared memory for previous sum sync within a block
+    int* block_flags,
+    scalar_t* block_sums,
+    scalar_t* block_prev,
     const int num_entries_per_block,
     const int block_id,
     const bool is_multi_block,
