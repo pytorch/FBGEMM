@@ -452,6 +452,12 @@ at::Tensor jagged_jagged_bmm(
     const at::Tensor& offsets,
     const int64_t max_L);
 
+std::tuple<at::Tensor, at::Tensor> jagged_dense_bmm(
+    const at::Tensor& x_values,
+    const at::Tensor& x_offsets,
+    const at::Tensor& y,
+    const int64_t max_L);
+
 #endif
 
 ///@ingroup sparse-data-cpu

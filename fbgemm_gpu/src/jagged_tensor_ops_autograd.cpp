@@ -446,6 +446,25 @@ Tensor jagged_jagged_bmm(
   return output;
 }
 
+std::tuple<Tensor, Tensor> jagged_dense_bmm(
+    const Tensor& x_values,
+    const Tensor& x_offsets,
+    const Tensor& y,
+    const int64_t max_L) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_dense_bmm_forward", "")
+          .typed<Tensor(
+              const Tensor& x_values,
+              const Tensor& x_offsets,
+              const Tensor& y,
+              int64_t max_L)>();
+
+  auto output = op.call(x_values, x_offsets, y, max_L);
+
+  return {output, x_offsets};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
@@ -465,4 +484,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
   m.impl("jagged_softmax", TORCH_FN(fbgemm_gpu::jagged_softmax));
   m.impl("jagged_jagged_bmm", TORCH_FN(fbgemm_gpu::jagged_jagged_bmm));
+  m.impl("jagged_dense_bmm", TORCH_FN(fbgemm_gpu::jagged_dense_bmm));
 }
