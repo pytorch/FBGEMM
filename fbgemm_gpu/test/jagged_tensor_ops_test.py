@@ -1759,6 +1759,51 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(0, 32),
+        max_L=st.integers(1, 32),
+        D=st.integers(0, 32),
+        dtype=st.sampled_from([torch.float, torch.double]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_softmax(
+        self,
+        B: int,
+        max_L: int,
+        D: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        assume(B != 0)
+        device = torch.device(device_type)
+        torch.backends.cuda.matmul.allow_tf32 = False
+        lengths = torch.randint(max_L + 1, size=(B,), device=device)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        values = torch.rand((offsets[-1], D), dtype=dtype, device=device)
+        output, _ = torch.ops.fbgemm.jagged_softmax(
+            values,
+            offsets,
+            max_L,
+        )
+        dense = torch.ops.fbgemm.jagged_to_padded_dense(
+            values,
+            [offsets],
+            max_lengths=[max_L],
+            padding_value=-5e7,
+        )
+        dense_softmax = torch.nn.functional.softmax(
+            dense.transpose(1, 2), dim=-1
+        ).permute(0, 2, 1)
+        output_ref, _ = torch.ops.fbgemm.dense_to_jagged(
+            dense_softmax, [offsets], offsets[-1]
+        )
+
+        torch.testing.assert_close(output, output_ref)
+
 
 if __name__ == "__main__":
     unittest.main()
