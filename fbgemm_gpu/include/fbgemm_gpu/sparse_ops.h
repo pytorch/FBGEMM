@@ -441,6 +441,11 @@ at::Tensor jagged_2d_to_dense_gpu_backward(
     at::Tensor offsets,
     int64_t max_lengths);
 
+std::tuple<at::Tensor, at::Tensor> jagged_softmax(
+    const at::Tensor& values,
+    const at::Tensor& offsets,
+    const int64_t max_L);
+
 #endif
 
 ///@ingroup sparse-data-cpu

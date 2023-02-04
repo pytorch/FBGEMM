@@ -412,6 +412,21 @@ jagged_2d_to_dense(Tensor values, Tensor offsets, int64_t max_sequence_length) {
       /*padding_value=*/0);
 }
 
+std::tuple<Tensor, Tensor> jagged_softmax(
+    const Tensor& values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_softmax_forward", "")
+          .typed<Tensor(
+              const Tensor& values, const Tensor& offsets, int64_t max_L)>();
+
+  auto output = op.call(values, offsets, max_L);
+
+  return {output, offsets};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
@@ -429,4 +444,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
       "batched_dense_vec_jagged_2d_mul",
       TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul));
   m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
+  m.impl("jagged_softmax", TORCH_FN(fbgemm_gpu::jagged_softmax));
 }
