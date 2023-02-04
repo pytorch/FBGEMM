@@ -446,6 +446,12 @@ std::tuple<at::Tensor, at::Tensor> jagged_softmax(
     const at::Tensor& offsets,
     const int64_t max_L);
 
+at::Tensor jagged_jagged_bmm(
+    const at::Tensor& x_values,
+    const at::Tensor& y_values,
+    const at::Tensor& offsets,
+    const int64_t max_L);
+
 #endif
 
 ///@ingroup sparse-data-cpu
