@@ -1398,12 +1398,13 @@ struct __align__(32) half16 {
 };
 
 #ifdef __HIP_PLATFORM_HCC__
-using __nv_bfloat16=hip_bfloat16;
+using __nv_bfloat16 = hip_bfloat16;
 
 typedef struct __align__(4) {
   uint16_t x;
   uint16_t y;
-} __nv_bfloat162_raw;
+}
+__nv_bfloat162_raw;
 
 struct __align__(4) __nv_bfloat162 {
   __nv_bfloat16 x;
@@ -1479,12 +1480,12 @@ DEVICE_INLINE half16 to_half16(float_16 v) {
 #ifdef __HIP_PLATFORM_HCC__
 // the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
 // https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
-static __host__ __device__ __nv_bfloat16 __float2bfloat16(float f){
+static __host__ __device__ __nv_bfloat16 __float2bfloat16(float f) {
   __nv_bfloat16 output;
   return output.round_to_bfloat16(f);
 }
 
-static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f){
+static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
   __nv_bfloat16 output;
   return output.round_to_bfloat16(f);
 }
