@@ -39,15 +39,15 @@ Currently only built with sm70/80 (V100/A100 GPU) wheel supports:
 
 ```
 # Release GPU
-conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install pytorch cuda -c pytorch -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu
 
 # Release CPU-only
-conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
+conda install pytorch cuda -c pytorch -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu-cpu
 
 # Nightly GPU
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
+conda install pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-11.7.1"
 pip install fbgemm-gpu-nightly
 
 # Nightly CPU-only
@@ -63,7 +63,7 @@ Please [download][4] and follow instructions [here][5] to install cuDNN.
 
 ```
 # Requires PyTorch 1.13 or later
-conda install pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
+conda install pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-11.7.1"
 git clone --recursive https://github.com/pytorch/FBGEMM.git
 cd FBGEMM/fbgemm_gpu
 # if you are updating an existing checkout
@@ -93,6 +93,62 @@ python setup.py install -DTORCH_CUDA_ARCH_LIST="7.0;8.0"
 cd bench
 python split_table_batched_embeddings_benchmark.py uvm
 ```
+## Build on ROCm
+
+FBGEMM_GPU supports running on AMD (ROCm) devices. A Docker container is recommended for setting up the ROCm environment. The installation on bare metal is also available. ROCm5.3 is used as an example of the installation below.
+
+##### Build in a Docker container
+Pull Docker container and run
+```
+docker pull rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
+sudo docker run -it --network=host --shm-size 16G --device=/dev/kfd --device=/dev/dri \
+                --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+                --ipc=host --env PYTORCH_ROCM_ARCH="gfx906;gfx908;gfx90a" -u 0 \
+                rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
+```
+In the container
+```
+pip3 install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
+cd ~
+git clone https://github.com/pytorch/FBGEMM.git
+cd FBGEMM/fbgemm_gpu
+# if you are updating an existing checkout
+git submodule sync
+git submodule update --init --recursive
+pip install -r requirements.txt
+pip install update hypothesis
+
+# in fbgemm_gpu folder
+# build for the current ROCm architecture
+gpu_arch="$(/opt/rocm/bin/rocminfo | grep -o -m 1 'gfx.*')"
+export PYTORCH_ROCM_ARCH=$gpu_arch
+python setup.py install develop
+# or build for specific ROCm architectures
+export PYTORCH_ROCM_ARCH="gfx906;gfx908"
+python setup.py install develop
+# otherwise the build will be for the default architectures gfx906;gfx908;gfx90a
+```
+
+##### Build on bare metal
+Please refer to the installation instructions of ROCm5.3 [here][6]. Take the installation on Ubuntu20.04 as an example
+```
+sudo apt-get update
+wget https://repo.radeon.com/amdgpu-install/5.3/ubuntu/focal/amdgpu-install_5.3.50300-1_all.deb
+sudo apt-get install ./amdgpu-install_5.3.50300-1_all.deb
+sudo amdgpu-install --usecase=hiplibsdk,rocm --no-dkms
+```
+MIOpen is required and needs to be installed separately.
+```
+sudo apt-get install miopen-hip miopen-hip-dev
+```
+The remaining steps are the same as the "in the container" section.
+
+##### Run the tests on ROCm
+Please add `FBGEMM_TEST_WITH_ROCM=1` flag when running tests on ROCm.
+```
+cd test
+FBGEMM_TEST_WITH_ROCM=1 python split_table_batched_embeddings_test.py
+```
 
 ## Issues
 
@@ -103,7 +159,7 @@ and using
 ```bash
 python setup.py clean
 ```
-to remove stale cached state can be helpfull.
+to remove stale cached state can be helpful.
 
 ## Examples
 
@@ -168,7 +224,7 @@ For a high-level overview, design philosophy and brief descriptions of various
 parts of FBGEMM_GPU please see our Wiki (work in progress).
 
 ## Full documentation
-We have extensively used comments in our source files. The best and up-do-date
+We have extensively used comments in our source files. The best and up-to-date
 documentation is available in the source files.
 
 # Building API Documentation
@@ -187,3 +243,4 @@ FBGEMM is BSD licensed, as found in the [`LICENSE`](../LICENSE) file.
 [3]:https://jinja.palletsprojects.com/en/2.11.x/
 [4]:https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#download
 [5]:https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#installlinux-tar
+[6]:https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.3/page/How_to_Install_ROCm.html#_How_to_Install

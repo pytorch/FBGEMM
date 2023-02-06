@@ -61,7 +61,7 @@ jobs:
       run: |
         set -e
         cd build_static
-        ctest
+        ctest --rerun-failed --output-on-failure
 
     - name: Build shared FBGEMM lib
       run: |
@@ -76,7 +76,7 @@ jobs:
       run: |
         set -e
         cd build_shared
-        ctest
+        ctest --rerun-failed --output-on-failure
 
   build-windows:
     runs-on: ${{ matrix.os }}
@@ -117,7 +117,7 @@ jobs:
       run: |
         echo %cd%
         cd build_static
-        ctest
+        ctest --rerun-failed --output-on-failure
         if errorlevel 1 exit /b 1
 
     - name: Build shared FBGEMM lib
@@ -141,7 +141,7 @@ jobs:
         cd build_shared
         set PATH=%PATH%;%cd%;%cd%\asmjit
         echo %PATH%
-        ctest
+        ctest --rerun-failed --output-on-failure
         if errorlevel 1 exit /b 1
 
   build-bazel:
@@ -190,7 +190,7 @@ jobs:
     - name: Test FBGEMM bazel build
       run: |
         set -e
-        ./bazel test --compilation_mode opt :*
+        ./bazel test --test_output=all --verbose_explanations --verbose_failures --compilation_mode opt :*
 
 
   build_nvidia_gpu:
@@ -198,7 +198,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-20.04]
-        config: [[pip, 11.3], [pip, 11.5], [pip, 11.6], [pip, 11.7], [conda, 11.7]]
+        config: [[pip, 11.3], [pip, 11.5], [pip, 11.6], [pip, 11.7], [conda, 11.7.1]]
 
     steps:
     - uses: actions/checkout@v2
@@ -236,7 +236,7 @@ jobs:
           bash ~/miniconda.sh -b -p $HOME/miniconda -u
           eval "$($HOME/miniconda/bin/conda shell.bash hook)"
           cuda_version="${{ matrix.config[1] }}"
-          conda install -y pytorch pytorch-cuda="$cuda_version" -c pytorch-nightly -c nvidia
+          conda install -y pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-${cuda_version}"
           conda install -y -c conda-forge cudnn
           conda install -y numpy scikit-build jinja2 ninja cmake hypothesis
         fi
@@ -278,7 +278,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-20.04]
-        config: [[pip, 5.2]]
+        config: [[pip, 5.3]]
 
     steps:
     - name: Free space
@@ -290,11 +290,11 @@ jobs:
       shell: bash
       run: |
         sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
-        wget https://repo.radeon.com/amdgpu-install/22.20.5/ubuntu/focal/amdgpu-install_22.20.50205-1_all.deb
+        wget https://repo.radeon.com/amdgpu-install/5.3/ubuntu/focal/amdgpu-install_5.3.50300-1_all.deb
         export DEBIAN_FRONTEND=noninteractive
-        sudo apt install -y ./amdgpu-install_22.20.50205-1_all.deb
+        sudo apt install -y ./amdgpu-install_5.3.50300-1_all.deb
         amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
-        sudo rm amdgpu-install_22.20.50205-1_all.deb
+        sudo rm amdgpu-install_5.3.50300-1_all.deb
 
     - name: Install dependencies
       shell: bash
@@ -302,11 +302,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y git pip python3-dev mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
         sudo apt-get install -y hipify-clang || true
-        sudo apt-get install -y miopen-hip
+        sudo apt-get install -y miopen-hip miopen-hip-dev
         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
         sudo apt-get clean
         # Install PyTorch (nightly) as required by fbgemm_gpu
-        sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.2/
+        sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
 
     - name: Checkout submodules
       shell: bash
@@ -363,7 +363,7 @@ jobs:
         set -eux
         env
         ls -l
-        DOCKER_IMAGE=rocm/pytorch:rocm5.2_ubuntu20.04_py3.7_pytorch_staging_base
+        DOCKER_IMAGE=rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
         docker pull $DOCKER_IMAGE
         JENKINS_REPO_DIR=fbgemm-private-jenkins
         JENKINS_REPO_DIR_BAREMETAL=$PWD
@@ -397,13 +397,13 @@ jobs:
         git submodule update --init
 
         # Build FBGEMM_GPU with pytorch-nightly
-        PYTORCH_CUDA_VERSION="11.7"
+        CUDA_VERSION="11.7.1"
         PYTHON_VERSION="3.10"
-        bash .github/scripts/build_wheel.bash -v -p "$PYTHON_VERSION" -o fbgemm_gpu_test -P pytorch-nightly -c "$PYTORCH_CUDA_VERSION" -m /opt/conda
+        bash .github/scripts/build_wheel.bash -v -p "$PYTHON_VERSION" -o fbgemm_gpu_test -P pytorch-nightly -c "$CUDA_VERSION" -m /opt/conda
 
         # Test FBGEMM_GPU using a generated wheel file
         WHEEL_PATH="$(ls fbgemm_gpu/dist/*.whl)"
-        bash .github/scripts/test_wheel.bash -v -p "$PYTHON_VERSION" -P pytorch-nightly -c "$PYTORCH_CUDA_VERSION" -w "$WHEEL_PATH" -m /opt/conda
+        bash .github/scripts/test_wheel.bash -v -p "$PYTHON_VERSION" -P pytorch-nightly -c "$CUDA_VERSION" -w "$WHEEL_PATH" -m /opt/conda
 
   build_cpu_only:
     runs-on: ${{ matrix.os }}

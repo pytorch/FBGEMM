@@ -299,7 +299,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
-Tensor jagged_to_padded_dense_autograd(
+Tensor jagged_to_padded_dense(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
     const std::vector<int64_t>& max_lengths,
@@ -310,7 +310,7 @@ Tensor jagged_to_padded_dense_autograd(
 
 ///@ingroup jagged-tensor-ops-cpu
 /// Output = x + y where x is jagged, y and output are dense
-Tensor jagged_dense_elementwise_add_autograd(
+Tensor jagged_dense_elementwise_add(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
@@ -333,7 +333,7 @@ Tensor jagged_dense_elementwise_add_autograd(
 // output = x + y_0 + y_1 where x is jagged, y_0 and y_1 are dense, and output
 // is jagged
 std::tuple<Tensor, std::vector<Tensor>>
-jagged_dense_dense_elementwise_add_jagged_output_autograd(
+jagged_dense_dense_elementwise_add_jagged_output(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y_0,
@@ -345,7 +345,7 @@ jagged_dense_dense_elementwise_add_jagged_output_autograd(
 }
 
 ///@ingroup jagged-tensor-ops-cpu
-std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul_autograd(
+std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
@@ -356,7 +356,7 @@ std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul_autograd(
 }
 
 ///@ingroup jagged-tensor-ops-cpu
-Tensor batched_dense_vec_jagged_2d_mul_autograd(
+Tensor batched_dense_vec_jagged_2d_mul(
     const Tensor& v,
     const Tensor& a_values,
     const Tensor& a_offsets) {
@@ -365,7 +365,7 @@ Tensor batched_dense_vec_jagged_2d_mul_autograd(
 
 ///@ingroup jagged-tensor-ops-cpu
 // output = x + y where x is jagged, y is dense, and output is jagged
-std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged_autograd(
+std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
     const c10::optional<int64_t>& total_L) {
@@ -375,7 +375,7 @@ std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged_autograd(
 ///@ingroup jagged-tensor-ops-cpu
 /// Output = x + y where x is jagged, y is dense, and output is jagged
 std::tuple<Tensor, std::vector<Tensor>>
-jagged_dense_elementwise_add_jagged_output_autograd(
+jagged_dense_elementwise_add_jagged_output(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
@@ -389,25 +389,100 @@ jagged_dense_elementwise_add_jagged_output_autograd(
   return {sum_values, x_offsets};
 }
 
+///@ingroup jagged-tensor-ops-cpu
+Tensor jagged_1d_to_dense(
+    Tensor values,
+    Tensor offsets,
+    int64_t max_L,
+    int64_t padding_value) {
+  TORCH_CHECK(values.dim() == 1);
+  TORCH_CHECK(offsets.dim() == 1);
+  TORCH_CHECK(max_L > 0);
+
+  return jagged_to_padded_dense(values, {offsets}, {max_L}, padding_value);
+}
+
+///@ingroup jagged-tensor-ops-cpu
+Tensor
+jagged_2d_to_dense(Tensor values, Tensor offsets, int64_t max_sequence_length) {
+  return jagged_to_padded_dense(
+      values,
+      {offsets},
+      {max_sequence_length},
+      /*padding_value=*/0);
+}
+
+std::tuple<Tensor, Tensor> jagged_softmax(
+    const Tensor& values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_softmax_forward", "")
+          .typed<Tensor(
+              const Tensor& values, const Tensor& offsets, int64_t max_L)>();
+
+  auto output = op.call(values, offsets, max_L);
+
+  return {output, offsets};
+}
+
+Tensor jagged_jagged_bmm(
+    const Tensor& x_values,
+    const Tensor& y_values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_jagged_bmm_forward", "")
+          .typed<Tensor(
+              const Tensor& x_values,
+              const Tensor& y_values,
+              const Tensor& offsets,
+              int64_t max_L)>();
+
+  auto output = op.call(x_values, y_values, offsets, max_L);
+
+  return output;
+}
+
+std::tuple<Tensor, Tensor> jagged_dense_bmm(
+    const Tensor& x_values,
+    const Tensor& x_offsets,
+    const Tensor& y,
+    const int64_t max_L) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_dense_bmm_forward", "")
+          .typed<Tensor(
+              const Tensor& x_values,
+              const Tensor& x_offsets,
+              const Tensor& y,
+              int64_t max_L)>();
+
+  auto output = op.call(x_values, x_offsets, y, max_L);
+
+  return {output, x_offsets};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl(
-      "jagged_to_padded_dense",
-      TORCH_FN(fbgemm_gpu::jagged_to_padded_dense_autograd));
-  m.impl(
-      "jagged_2d_to_dense", TORCH_FN(fbgemm_gpu::jagged_2d_to_dense_autograd));
-  m.impl(
-      "jagged_1d_to_dense", TORCH_FN(fbgemm_gpu::jagged_1d_to_dense_autograd));
+      "jagged_to_padded_dense", TORCH_FN(fbgemm_gpu::jagged_to_padded_dense));
+  m.impl("jagged_2d_to_dense", TORCH_FN(fbgemm_gpu::jagged_2d_to_dense));
+  m.impl("jagged_1d_to_dense", TORCH_FN(fbgemm_gpu::jagged_1d_to_dense));
   m.impl(
       "jagged_dense_dense_elementwise_add_jagged_output",
-      TORCH_FN(fbgemm_gpu::
-                   jagged_dense_dense_elementwise_add_jagged_output_autograd));
+      TORCH_FN(fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output));
   m.impl(
       "jagged_dense_elementwise_mul",
-      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul_autograd));
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul));
   m.impl(
       "batched_dense_vec_jagged_2d_mul",
-      TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul_autograd));
-  m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged_autograd));
+      TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul));
+  m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
+  m.impl("jagged_softmax", TORCH_FN(fbgemm_gpu::jagged_softmax));
+  m.impl("jagged_jagged_bmm", TORCH_FN(fbgemm_gpu::jagged_jagged_bmm));
+  m.impl("jagged_dense_bmm", TORCH_FN(fbgemm_gpu::jagged_dense_bmm));
 }

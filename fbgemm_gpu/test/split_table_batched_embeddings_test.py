@@ -160,6 +160,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
@@ -831,6 +834,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
                 # SparseType.INT4,
             ]
+        )
+        if not TEST_WITH_ROCM
+        else st.sampled_from(
+            [
+                SparseType.FP16,
+                # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
+                SparseType.INT8,
+                # SparseType.INT4,
+            ]
         ),
     )
     @settings(
@@ -1335,6 +1347,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
@@ -1546,7 +1561,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         D=st.integers(min_value=2, max_value=10),
-        B=st.sampled_from([1152, 2048]),
+        # 128 * 1024 is to exercise a case num_ctas_for_run needs to be capped
+        # at the number of SMs (H100 SXM5 has 132 SMs and the default seglen
+        # per CTA is 1024)
+        B=st.sampled_from([1152, 256 * 1024]),
         L=st.integers(min_value=1, max_value=4),
         weighted=st.booleans(),
         mixed=st.booleans(),
@@ -1680,6 +1698,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
@@ -2495,6 +2516,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if use_cpu:
             managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
             compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         else:
             managed = [
                 np.random.choice(

@@ -10,17 +10,17 @@ verbose=0
 package_name=""
 python_version=""
 pytorch_channel_name=""
-pytorch_cuda_version="x"
+cuda_version="x"
 miniconda_prefix="${HOME}/miniconda"
 
 usage () {
-  echo "Usage: bash build_wheel.bash -o PACKAGE_NAME -p PYTHON_VERSION -P PYTORCH_CHANNEL_NAME -c PYTORCH_CUDA_VERSION [-m MINICONDA_PREFIX] [-v] [-h]"
+  echo "Usage: bash build_wheel.bash -o PACKAGE_NAME -p PYTHON_VERSION -P PYTORCH_CHANNEL_NAME -c CUDA_VERSION [-m MINICONDA_PREFIX] [-v] [-h]"
   echo "-v                  : verbose"
   echo "-h                  : help"
   echo "PACKAGE_NAME        : output package name (e.g., fbgemm_gpu_nightly)"
-  echo "PYTHON_VERSION      : Python version (e.g., 3.7, 3.8, 3.10)"
+  echo "PYTHON_VERSION      : Python version (e.g., 3.8, 3.9, 3.10)"
   echo "PYTORCH_CHANNEL_NAME: PyTorch's channel name (e.g., pytorch-nightly, pytorch-test (=pre-release), pytorch (=stable release))"
-  echo "PYTORCH_CUDA_VERSION: PyTorch's CUDA version (e.g., 11.6, 11.7)"
+  echo "CUDA_VERSION        : PyTorch's CUDA version (e.g., 11.6, 11.7)"
   echo "MINICONDA_PREFIX    : path to install Miniconda (default: \$HOME/miniconda)"
   echo "Example 1: Python 3.10 + PyTorch nightly (CUDA 11.7), install miniconda at /home/user/tmp/miniconda"
   echo "       bash build_wheel.bash -v -P pytorch-nightly -p 3.10 -c 11.7 -m /home/user/tmp/miniconda"
@@ -35,7 +35,7 @@ do
         o) package_name="${OPTARG}";;
         p) python_version="${OPTARG}";;
         P) pytorch_channel_name="${OPTARG}";;
-        c) pytorch_cuda_version="${OPTARG}";;
+        c) cuda_version="${OPTARG}";;
         m) miniconda_prefix="${OPTARG}";;
         h) usage
            exit 0;;
@@ -44,7 +44,7 @@ do
     esac
 done
 
-if [ "$python_version" == "" ] || [ "$pytorch_cuda_version" == "x" ] || [ "$miniconda_prefix" == "" ] || [ "$pytorch_channel_name" == "" ] || [ "$package_name" == "" ]; then
+if [ "$python_version" == "" ] || [ "$cuda_version" == "x" ] || [ "$miniconda_prefix" == "" ] || [ "$pytorch_channel_name" == "" ] || [ "$package_name" == "" ]; then
   usage
   exit 1
 fi
@@ -77,7 +77,7 @@ setup_miniconda "$miniconda_prefix"
 echo "## 2. Create build_binary environment"
 ################################################################################
 
-create_conda_environment build_binary "$python_version" "$pytorch_channel_name" "$pytorch_cuda_version"
+create_conda_environment build_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 
 cd fbgemm_gpu
 
@@ -104,7 +104,7 @@ echo "## 3. Build FBGEMM_GPU"
 
 cd fbgemm_gpu
 rm -rf dist _skbuild
-if [ "$pytorch_cuda_version" == "" ]; then
+if [ "$cuda_version" == "" ]; then
   # CPU version
   build_arg="--cpu_only"
   package_name="${package_name}_cpu"

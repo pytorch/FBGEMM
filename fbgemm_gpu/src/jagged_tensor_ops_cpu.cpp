@@ -335,7 +335,6 @@ void jagged_dense_elementwise_jagged_output_kernel_(
   } // for each oidx
 }
 
-/// @ingroup jagged-tensor-ops-cpu
 template <typename scalar_t, typename F>
 void jagged_dense_elementwise_jagged_output_(
     const Tensor& x_values,
@@ -364,7 +363,6 @@ void jagged_dense_elementwise_jagged_output_(
 #undef INVOKE_KERNEL_WITH_DIM
 }
 
-///@ingroup jagged-tensor-ops-cpu
 at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
@@ -868,7 +866,6 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
   return {v_grad, a_values_grad};
 }
 
-///@ingroup jagged-tensor-ops-cpu
 Tensor jagged_1d_to_truncated_values_cpu(
     Tensor values,
     Tensor lengths,
@@ -913,7 +910,6 @@ Tensor jagged_1d_to_truncated_values_cpu(
   return truncated_values;
 }
 
-///@ingroup jagged-tensor-ops-cpu
 std::tuple<Tensor, Tensor> masked_select_jagged_1d(
     const Tensor& values,
     const Tensor& lengths,
@@ -970,7 +966,6 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
 
 } // namespace
 
-///@ingroup jagged-tensor-ops-cpu
 Tensor
 jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
   TORCH_CHECK(values.dim() == 2);
@@ -979,31 +974,6 @@ jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
 
   return jagged_to_padded_dense_forward(
       values, {offsets}, {max_L}, /*padding_value=*/0);
-}
-
-///@ingroup jagged-tensor-ops-cpu
-Tensor jagged_1d_to_dense_autograd(
-    Tensor values,
-    Tensor offsets,
-    int64_t max_L,
-    int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(max_L > 0);
-
-  return jagged_to_padded_dense_autograd(
-      values, {offsets}, {max_L}, padding_value);
-}
-
-Tensor jagged_2d_to_dense_autograd(
-    Tensor values,
-    Tensor offsets,
-    int64_t max_sequence_length) {
-  return jagged_to_padded_dense_autograd(
-      values,
-      {offsets},
-      {max_sequence_length},
-      /*padding_value=*/0);
 }
 
 std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
@@ -1033,7 +1003,7 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
             output_ptr[i] = cumsum;
           }
         });
-    padded_values_per_key.push_back(jagged_to_padded_dense_autograd(
+    padded_values_per_key.push_back(jagged_to_padded_dense(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
@@ -1074,7 +1044,7 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
         });
     offsets_tensor_per_key.push_back(offsets);
 
-    padded_values_per_key.push_back(jagged_to_padded_dense_autograd(
+    padded_values_per_key.push_back(jagged_to_padded_dense(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
         {max_L},
@@ -1082,6 +1052,194 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
   }
 
   return padded_values_per_key;
+}
+
+template <typename index_t, typename scalar_t>
+void jagged_softmax_kernel(
+    const at::TensorAccessor<scalar_t, 2>& values,
+    const at::TensorAccessor<index_t, 1>& offsets,
+    at::TensorAccessor<scalar_t, 2> output,
+    const int64_t max_L) {
+  const int B = offsets.size(0) - 1;
+  const int D = values.size(1);
+
+  for (int b = 0; b < B; ++b) {
+    const int row_start = offsets[b];
+    const int row_end = offsets[b + 1];
+    const int length = std::min(row_end - row_start, (int)max_L);
+
+    for (int d = 0; d < D; ++d) {
+      // use is_cuda=true because acc_type<float, false> = double is too
+      // conservative
+      scalar_t max_value = values[row_start][d];
+      for (int l = 1; l < length; ++l) {
+        max_value = std::max(max_value, values[row_start + l][d]);
+      }
+      at::acc_type<scalar_t, true> acc =
+          std::exp(values[row_start][d] - max_value);
+      for (int l = 1; l < length; ++l) {
+        acc += std::exp(values[row_start + l][d] - max_value);
+      }
+      for (int l = 0; l < length; ++l) {
+        output[row_start + l][d] =
+            std::exp(values[row_start + l][d] - max_value) / acc;
+      }
+    } // for each d
+  } // for each b
+}
+
+Tensor jagged_softmax_forward(
+    const Tensor& values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  TENSOR_ON_CPU(values);
+  const int B = offsets.numel() - 1;
+  const int D = values.size(-1);
+  auto output = at::empty_like(values);
+
+  if (B > 0 && D > 0) {
+    AT_DISPATCH_INDEX_TYPES(
+        offsets.scalar_type(), "jagged_softmax_kernel_1", [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              values.scalar_type(),
+              "jagged_softmax_kernel_2",
+              [&] {
+                jagged_softmax_kernel<index_t, scalar_t>(
+                    values.accessor<scalar_t, 2>(),
+                    offsets.accessor<index_t, 1>(),
+                    output.accessor<scalar_t, 2>(),
+                    max_L);
+              });
+        });
+  }
+  return output;
+}
+
+template <typename index_t, typename scalar_t>
+void jagged_jagged_bmm_kernel(
+    const at::TensorAccessor<scalar_t, 2>& x_values,
+    const at::TensorAccessor<scalar_t, 2>& y_values,
+    const at::TensorAccessor<index_t, 1>& offsets,
+    at::TensorAccessor<scalar_t, 3> output,
+    const int64_t max_L) {
+  const int B = offsets.size(0) - 1;
+  const int M = x_values.size(1);
+  const int N = y_values.size(1);
+
+  for (int b = 0; b < B; ++b) {
+    const int row_start = offsets[b];
+    const int row_end = offsets[b + 1];
+    const int length = std::min(row_end - row_start, (int)max_L);
+
+    for (int m = 0; m < M; ++m) {
+      for (int n = 0; n < N; ++n) {
+        at::acc_type<scalar_t, true> acc = 0;
+        for (int l = 0; l < length; ++l) {
+          acc += x_values[row_start + l][m] * y_values[row_start + l][n];
+        }
+        output[b][m][n] = acc;
+      }
+    }
+  } // for each b
+}
+
+Tensor jagged_jagged_bmm_forward(
+    const Tensor& x_values,
+    const Tensor& y_values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  TENSOR_ON_CPU(x_values);
+  TENSOR_ON_CPU(y_values);
+  TENSOR_ON_CPU(offsets);
+  const int B = offsets.size(0) - 1;
+  const int M = x_values.size(-1);
+  const int N = y_values.size(-1);
+  auto output = at::zeros({B, M, N}, x_values.options());
+  if (B > 0 && M > 0 && N > 0) {
+    AT_DISPATCH_INDEX_TYPES(
+        offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              x_values.scalar_type(),
+              "jagged_jagged_bmm_kernel_2",
+              [&] {
+                jagged_jagged_bmm_kernel<index_t, scalar_t>(
+                    x_values.accessor<scalar_t, 2>(),
+                    y_values.accessor<scalar_t, 2>(),
+                    offsets.accessor<index_t, 1>(),
+                    output.accessor<scalar_t, 3>(),
+                    max_L);
+              });
+        });
+  }
+
+  return output;
+}
+
+template <typename index_t, typename scalar_t>
+void jagged_dense_bmm_kernel(
+    const at::TensorAccessor<scalar_t, 2>& x_values,
+    const at::TensorAccessor<index_t, 1>& x_offsets,
+    const at::TensorAccessor<scalar_t, 3>& y,
+    at::TensorAccessor<scalar_t, 2> output,
+    const int64_t max_L) {
+  // [sum_B, K] x [B, K, N] -> [B, L, N] -> [sum_B, N]
+  const int B = x_offsets.size(0) - 1;
+  const int K = x_values.size(1);
+  const int N = y.size(2);
+
+  for (int b = 0; b < B; ++b) {
+    const int row_start = x_offsets[b];
+    const int row_end = x_offsets[b + 1];
+    const int length = std::min(row_end - row_start, (int)max_L);
+    for (int l = 0; l < length; ++l) {
+      for (int n = 0; n < N; ++n) {
+        at::acc_type<scalar_t, true> acc = 0;
+        for (int k = 0; k < K; ++k) {
+          acc += x_values[row_start + l][k] * y[b][k][n];
+        }
+        output[row_start + l][n] = acc;
+      }
+    }
+  } // for each b
+}
+
+Tensor jagged_dense_bmm_forward(
+    const Tensor& x_values,
+    const Tensor& x_offsets,
+    const Tensor& y,
+    const int64_t max_L) {
+  TENSOR_ON_CPU(x_values);
+  TENSOR_ON_CPU(x_offsets);
+  TENSOR_ON_CPU(y);
+  const int B = x_offsets.size(0) - 1;
+  const int M = x_values.size(-1);
+  const int N = y.size(-1);
+  const int total_L = x_values.size(0);
+  auto output = at::zeros({total_L, N}, x_values.options());
+  if (B > 0 && M > 0 && N > 0) {
+    AT_DISPATCH_INDEX_TYPES(
+        x_offsets.scalar_type(), "jagged_dense_bmm_kernel_1", [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              x_values.scalar_type(),
+              "jagged_dense_bmm_kernel_2",
+              [&] {
+                jagged_dense_bmm_kernel<index_t, scalar_t>(
+                    x_values.accessor<scalar_t, 2>(),
+                    x_offsets.accessor<index_t, 1>(),
+                    y.accessor<scalar_t, 3>(),
+                    output.accessor<scalar_t, 2>(),
+                    (int)max_L);
+              });
+        });
+  }
+
+  return output;
 }
 
 } // namespace fbgemm_gpu
@@ -1138,18 +1296,27 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
   m.def(
       "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)");
+  m.def(
+      "jagged_softmax(Tensor values, Tensor x_offsets, int max_L) -> (Tensor, Tensor)");
+  m.def(
+      "jagged_softmax_forward(Tensor values, Tensor x_offsets, int max_L) -> Tensor");
+  m.def(
+      "jagged_jagged_bmm(Tensor x_values, Tensor y_values, Tensor x_offsets, int max_L) -> Tensor");
+  m.def(
+      "jagged_jagged_bmm_forward(Tensor x_values, Tensor y_values, Tensor x_offsets, int max_L) -> Tensor");
+  m.def(
+      "jagged_dense_bmm(Tensor x_values, Tensor x_offsets, Tensor y, int max_L) -> (Tensor, Tensor)");
+  m.def(
+      "jagged_dense_bmm_forward(Tensor x_values, Tensor x_offsets, Tensor y, int max_L) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  DISPATCH_TO_CPU(
-      "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense_autograd);
-  DISPATCH_TO_CPU(
-      "jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense_autograd);
-  DISPATCH_TO_CPU("dense_to_jagged", fbgemm_gpu::dense_to_jagged_autograd);
+  DISPATCH_TO_CPU("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense);
+  DISPATCH_TO_CPU("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense);
+  DISPATCH_TO_CPU("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
   DISPATCH_TO_CPU(
       "dense_to_jagged_forward", fbgemm_gpu::dense_to_jagged_forward);
-  DISPATCH_TO_CPU(
-      "jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense_autograd);
+  DISPATCH_TO_CPU("jagged_to_padded_dense", fbgemm_gpu::jagged_to_padded_dense);
   DISPATCH_TO_CPU(
       "jagged_to_padded_dense_forward",
       fbgemm_gpu::jagged_to_padded_dense_forward);
@@ -1157,20 +1324,18 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_to_padded_dense_backward",
       fbgemm_gpu::jagged_to_padded_dense_backward);
   DISPATCH_TO_CPU(
-      "jagged_dense_elementwise_add",
-      fbgemm_gpu::jagged_dense_elementwise_add_autograd);
+      "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_autograd);
+      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CPU(
       "jagged_dense_dense_elementwise_add_jagged_output_forward",
       fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);
   DISPATCH_TO_CPU(
       "jagged_dense_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_autograd);
+      fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output);
   DISPATCH_TO_CPU(
-      "jagged_dense_elementwise_mul",
-      fbgemm_gpu::jagged_dense_elementwise_mul_autograd);
+      "jagged_dense_elementwise_mul", fbgemm_gpu::jagged_dense_elementwise_mul);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_mul_forward",
       fbgemm_gpu::jagged_dense_elementwise_mul_forward);
@@ -1179,7 +1344,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       fbgemm_gpu::jagged_dense_elementwise_mul_backward);
   DISPATCH_TO_CPU(
       "batched_dense_vec_jagged_2d_mul",
-      fbgemm_gpu::batched_dense_vec_jagged_2d_mul_autograd);
+      fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
   DISPATCH_TO_CPU(
       "batched_dense_vec_jagged_2d_mul_forward",
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul_forward);
@@ -1195,4 +1360,12 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       fbgemm_gpu::jagged_1d_to_truncated_values_cpu);
   DISPATCH_TO_CPU(
       "masked_select_jagged_1d", fbgemm_gpu::masked_select_jagged_1d);
+  DISPATCH_TO_CPU("jagged_softmax", fbgemm_gpu::jagged_softmax);
+  DISPATCH_TO_CPU("jagged_softmax_forward", fbgemm_gpu::jagged_softmax_forward);
+  DISPATCH_TO_CPU("jagged_jagged_bmm", fbgemm_gpu::jagged_jagged_bmm);
+  DISPATCH_TO_CPU(
+      "jagged_jagged_bmm_forward", fbgemm_gpu::jagged_jagged_bmm_forward);
+  DISPATCH_TO_CPU("jagged_dense_bmm", fbgemm_gpu::jagged_dense_bmm);
+  DISPATCH_TO_CPU(
+      "jagged_dense_bmm_forward", fbgemm_gpu::jagged_dense_bmm_forward);
 }
