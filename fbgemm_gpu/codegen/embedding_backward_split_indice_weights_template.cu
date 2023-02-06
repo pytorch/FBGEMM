@@ -17,7 +17,15 @@ constexpr int32_t kCacheLocationMissing = -1;
 constexpr size_t kForwardMaxThreads = 512;
 
 // TODO: optimization to use multiple warps per row.
-template <typename emb_t, typename grad_t, typename cache_t, size_t kMaxVecsPerThread>
+template <
+  typename emb_t,
+  typename grad_t,
+  typename cache_t,
+  {% if not dense %}
+  bool var_batch_size,
+  {% endif %}
+  size_t kMaxVecsPerThread
+>
 __global__
 __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel(
     // [\sum_t E_t x D_t]
@@ -31,6 +39,9 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
         weights_placements,
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {% if not dense %}
+    const int32_t* __restrict__ var_B_metadata,
+    {% endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         indices, // [N = \sum_{b,t} L_{b,t} total indices, i.e. flattened
@@ -46,21 +57,44 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
     at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>
         grad_indice_weights
     ) {
-    int32_t B = grad_output.size(0);
     int32_t T = D_offsets.size(0) - 1;
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    int32_t t = b_t / B;
-    int32_t b = b_t % B;
-
-    if (b_t >= B * T) {
+    if (b_t >= offsets.size(0) - 1) {
         return;
     }
+
+    int32_t t, b, grad_offset;
+    {% if not dense %}
+    if (var_batch_size) {
+        // Compute t and b from var_B_metadata
+        if (threadIdx.x == 0) {
+            // binary_search_range takes inclusive sumscan array
+            binary_search_range(&t, var_B_metadata + 1, b_t, T);
+            b = b_t - var_B_metadata[t];
+            // TODO: check output offset for INT8 and nobag
+            grad_offset = var_B_metadata[T + 1 + t];
+        }
+        t = shfl_sync(t, 0);
+        b = shfl_sync(b, 0);
+        {% if not nobag %}
+        grad_offset = shfl_sync(grad_offset, 0);
+        {% endif %}
+    }
+    else {
+    {% endif %}
+      int32_t B = grad_output.size(0);
+      t = b_t / B;
+      b = b_t % B;
+    {% if not dense %}
+    } // if (var_batch_size)
+    {% endif %}
+
     int64_t weights_offset = weights_offsets[t];
     int32_t D_start = D_offsets[t];
     int32_t D_end = D_offsets[t + 1];
     int32_t D = D_end - D_start;
-    int64_t indices_start = offsets[t * B + b];
-    int64_t indices_end = offsets[t * B + b + 1];
+    int64_t indices_start = offsets[b_t];
+    int64_t indices_end = offsets[b_t + 1];
     int32_t L = indices_end - indices_start;
     if (feature_requires_grad.size(0) > 0 && !feature_requires_grad[t]) {
         // If the table does not require gradient computation, we set the gradient to zero.
@@ -85,6 +119,8 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
     weights = &dev_weights[weights_offset];
     {% endif %}
 
+    const grad_t* grad_output_ptr = {% if not dense %} var_batch_size ? &grad_output[0][grad_offset] : {% endif %}
+        &grad_output[b][D_start];
 
     Vec4T<at::acc_type<cache_t, true>> grad_out[kMaxVecsPerThread];
     #pragma unroll kMaxVecsPerThread
@@ -92,7 +128,7 @@ __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_e
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
         int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-        Vec4T<at::acc_type<grad_t, true>> go((&grad_output[b][0]) + D_start + d);
+        Vec4T<at::acc_type<grad_t, true>> go(grad_output_ptr + d);
         grad_out[i] = go;
     }
 
@@ -186,13 +222,18 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     {% if not dense %}
     Tensor lxu_cache_locations,
     {% endif %}
-    Tensor feature_requires_grad) {
+    Tensor feature_requires_grad{% if not dense %},
+    const c10::optional<Tensor>& var_B_metadata
+    {% endif %}) {
     TENSOR_ON_CUDA_GPU(grad_output);
     TENSOR_ON_CUDA_GPU(dev_weights);
     {% if not dense %}
     TENSOR_ON_CUDA_GPU(uvm_weights);
     TENSOR_ON_CUDA_GPU(lxu_cache_weights);
     TENSOR_ON_CUDA_GPU(weights_placements);
+    if (var_B_metadata.has_value()) {
+        TENSOR_ON_CUDA_GPU(var_B_metadata.value());
+    }
     {% endif %}
     TENSOR_ON_CUDA_GPU(weights_offsets);
     TENSOR_ON_CUDA_GPU(D_offsets);
@@ -210,11 +251,11 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     const auto T = D_offsets.size(0) - 1;
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
-    const auto B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B >= 0);
+    const auto total_B = offsets.size(0) - 1;
+    TORCH_CHECK(total_B >= 0);
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
     auto grad_indice_weights = empty_like(indices, indices.options().dtype(at::toAccumulateType(grad_output.scalar_type(), true)));
-    if (B == 0) {
+    if (total_B == 0) {
       return grad_indice_weights;
     }
     feature_requires_grad = feature_requires_grad.defined() ? feature_requires_grad : at::empty({0}, indices.options().dtype(at::kInt));
@@ -228,14 +269,26 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
         {% endif %}
         "split_embedding_codegen_grad_indice_weights_kernel",
         [&] {
+            {% for var_batch_size in ["true", "false"] %}
+            {% if not dense or var_batch_size == "true" %}
+            {% if not dense %}
+            if (var_B_metadata.has_value() == {{ var_batch_size }}) {
+            {% if var_batch_size == "true" %}
+            grad_output = grad_output.reshape({1, -1});
+            {% endif %}
+            {% endif %}
+
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
             if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
             {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights_kernel<
                 emb_t,
                 grad_t,
                 cache_t,
+                {% if not dense %}
+                {{ var_batch_size }},
+                {% endif %}
                 {{ kMaxVecsPerThread }}><<<
-                div_round_up((B * T), kForwardMaxThreads / kWarpSize),
+                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
@@ -247,6 +300,13 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 {% endif %}
                 weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                {% if not dense %}
+                {% if var_batch_size == "true" %}
+                var_B_metadata.value().data_ptr<int32_t>(),
+                {% else %}
+                nullptr,
+                {% endif %}
+                {% endif %}
                 D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                 offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -259,6 +319,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
             return;
             }
             {% endfor %}
+
+            {% if not dense %}
+            } // if (var_B_metadata.has_value() == {{ var_batch_size }})
+            {% endif %}
+            {% endif %} // if not dense or var_batch_size == "true"
+            {% endfor %} // for var_batch_size in ["true", "false"]
         });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
