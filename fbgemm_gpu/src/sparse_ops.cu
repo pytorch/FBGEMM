@@ -1943,7 +1943,8 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     const int32_t* __restrict__ sorted_linear_indices_cumulative_run_lengths,
     const int32_t* __restrict__ sorted_infos,
     const int32_t* __restrict__ sorted_linear_indices_num_runs,
-    FixedDivisor fd) {
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask) {
   int32_t run_id = blockIdx.x * blockDim.x + threadIdx.x;
   int32_t n = blockIdx.y;
   if (n >= N) {
@@ -1967,12 +1968,15 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
 
   // now, each segment corresponds to exactly one table `t` and row in
   // that table (`idx`). Thus, we can hoist out some of the book-keeping.
-  auto info = sorted_infos[segment_start];
-  int t = fd.Div(info);
+  uint32_t info =
+      reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start];
+  int t = info >> info_B_num_bits;
 
   at::acc_type<scalar_t, true> grad_sum = 0.0;
   for (int32_t sl = 0; sl < SL; ++sl) {
-    int32_t b = fd.Mod(sorted_infos[segment_start + sl]);
+    int32_t b =
+        reinterpret_cast<const uint32_t*>(sorted_infos)[segment_start + sl] &
+        info_B_mask;
     grad_sum += grad_output[(n * B + b) * T + t];
   }
 
@@ -2005,6 +2009,10 @@ Tensor batched_unary_embeddings_backward_cuda(
   TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
 
+  int32_t info_B_num_bits;
+  uint32_t info_B_mask;
+  std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(B, T);
+
   // weight: [N, sum_E]
   // total_hash_size_bits = log2(sum_E)
   int64_t total_hash_size_bits = log2(weight.numel() / N) + 1;
@@ -2023,7 +2031,13 @@ Tensor batched_unary_embeddings_backward_cuda(
       sorted_linear_indices_num_runs,
       sorted_linear_indices_cumulative_run_lengths) =
       transpose_embedding_input(
-          table_offsets, total_hash_size_bits, indices, offsets);
+          table_offsets,
+          total_hash_size_bits,
+          indices,
+          offsets,
+          c10::optional<Tensor>(),
+          false, // nobag
+          info_B_num_bits);
 
   int threads = std::min<int32_t>(sorted_linear_indices_run.numel(), 512);
   dim3 blocks(
@@ -2051,7 +2065,8 @@ Tensor batched_unary_embeddings_backward_cuda(
                           .data_ptr<int32_t>(),
                       infos_sorted.data_ptr<int32_t>(),
                       sorted_linear_indices_num_runs.data_ptr<int32_t>(),
-                      FixedDivisor(B));
+                      info_B_num_bits,
+                      info_B_mask);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
