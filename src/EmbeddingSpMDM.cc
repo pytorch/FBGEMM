@@ -431,14 +431,9 @@ GenEmbeddingSpMDMLookup<
         if (isbf16out) {
           --unroll_factor;
           ones_vreg = vec_reg_t(unroll_factor);
-          // Cannot find a broadcast instruction for int from GP/VEC to VEC with
-          // AVX2. We use lengths address to perform the broadcast and
-          // write it back
-          auto temp_addr = x86::dword_ptr(lengths, 0);
-          a->mov(scratchReg2_, temp_addr);
-          a->mov(temp_addr, 1 << 15);
-          a->vpbroadcastd(ones_vreg, temp_addr);
-          a->mov(temp_addr, scratchReg2_);
+          a->mov(scratchReg2_, 1 << 15);
+          a->vpinsrd(ones_vreg.xmm(), ones_vreg.xmm(), scratchReg2_, 0);
+          a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
         }
 
         if (is8bit || is16bit || (remainder && instSet == inst_set_t::avx2)) {
