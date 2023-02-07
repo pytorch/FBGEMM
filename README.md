@@ -65,14 +65,22 @@ not found, the benchmarks are not built.
 
 General build instructions are as follows:
 
-```
+```sh
+# Clone the repo
 git clone --recursive https://github.com/pytorch/FBGEMM.git
 cd FBGEMM
-# if you are updating an existing checkout
+
+# If you are updating an existing checkout
 git submodule sync
 git submodule update --init --recursive
+
+# Build the library
 cmake -B build
 make -C build
+
+# Run the tests
+cd build
+make test
 ```
 
 To run the tests after building FBGEMM (if tests are built), use the following

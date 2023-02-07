@@ -260,8 +260,12 @@ else()
 endif()
 
 set(cpp_fbgemm_files_include_directories
-    ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${FBGEMM}/include ${THIRDPARTY}/asmjit/src ${THIRDPARTY}/cpuinfo/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${FBGEMM}/include
+    ${THIRDPARTY}/asmjit/src
+    ${THIRDPARTY}/cpuinfo/include
+    ${THIRDPARTY}/cutlass/include)
 
 set_source_files_properties(
   ${cpp_fbgemm_files} PROPERTIES INCLUDE_DIRECTORIES
@@ -298,7 +302,8 @@ set(fbgemm_gpu_sources_cpu
     src/layout_transform_ops_cpu.cpp
     src/quantize_ops_cpu.cpp
     src/sparse_ops_cpu.cpp
-    src/embedding_inplace_update_cpu.cpp)
+    src/embedding_inplace_update_cpu.cpp
+    src/group_gemm_ops_cpu.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(
@@ -346,7 +351,10 @@ if(NOT FBGEMM_CPU_ONLY)
       src/split_embeddings_cache_cuda.cu
       src/split_embeddings_utils.cu
       src/metric_ops.cu
-      src/embedding_inplace_update.cu)
+      src/embedding_inplace_update.cu
+      src/group_gemm_ops_gpu.cu
+      src/group_gemm_ops_sm70.cu
+      src/group_gemm_ops_sm80.cu)
 
   set_source_files_properties(
     ${fbgemm_gpu_sources_gpu} PROPERTIES COMPILE_OPTIONS
