@@ -26,6 +26,8 @@
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 #include <cuda_bf16.h>
+#elif (defined(USE_ROCM))
+#include <hip/hip_bfloat16.h>
 #endif
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -1395,8 +1397,22 @@ struct __align__(32) half16 {
   half2 vals[8];
 };
 
+#ifdef __HIP_PLATFORM_HCC__
+using __nv_bfloat16 = hip_bfloat16;
+
+typedef struct __align__(4) {
+  uint16_t x;
+  uint16_t y;
+}
+__nv_bfloat162_raw;
+
+struct __align__(4) __nv_bfloat162 {
+  __nv_bfloat16 x;
+  __nv_bfloat16 y;
+};
+#endif
+
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 struct __align__(8) bfloat16_4 {
@@ -1461,8 +1477,21 @@ DEVICE_INLINE half16 to_half16(float_16 v) {
   return t;
 }
 
+#ifdef __HIP_PLATFORM_HCC__
+// the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
+// https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
+static __host__ __device__ __nv_bfloat16 __float2bfloat16(float f) {
+  __nv_bfloat16 output;
+  return output.round_to_bfloat16(f);
+}
+
+static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
+  __nv_bfloat16 output;
+  return output.round_to_bfloat16(f);
+}
+#endif
+
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 DEVICE_INLINE __nv_bfloat16 to_bfloat16(float v) {
@@ -1475,11 +1504,13 @@ DEVICE_INLINE __nv_bfloat162 to_bfloat16_2(float2 v) {
 #else
   union {
     __nv_bfloat162 raw;
-    __nv_bfloat16 x;
-    __nv_bfloat16 y;
+    struct {
+      __nv_bfloat16 x;
+      __nv_bfloat16 y;
+    } split;
   } t;
-  t.x = __float2bfloat16_rn(v.x);
-  t.y = __float2bfloat16_rn(v.y);
+  t.split.x = __float2bfloat16_rn(v.x);
+  t.split.y = __float2bfloat16_rn(v.y);
   return t.raw;
 #endif
 }
@@ -2039,7 +2070,6 @@ struct VecNT<1, PrimitiveType::FP> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2133,7 +2163,6 @@ struct VecNT<2, PrimitiveType::FP> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2272,7 +2301,6 @@ struct VecNT<4, PrimitiveType::FP> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2428,7 +2456,6 @@ struct VecNT<4, PrimitiveType::INT> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2599,7 +2626,6 @@ struct VecNT<8, PrimitiveType::INT> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2787,7 +2813,6 @@ struct VecNT<16, PrimitiveType::INT> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -3131,51 +3156,6 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
       }
     }
   }
-}
-
-template <typename scalar_t>
-__device__ __forceinline__ void binary_search_range(
-    int* found,
-    const scalar_t* arr,
-    const scalar_t target,
-    const int num_entries) {
-  const int last_entry = num_entries - 1;
-  int start = 0, end = last_entry;
-  int found_ = -1;
-  while (start <= end) {
-    int mid = start + (end - start) / 2;
-    scalar_t mid_offset = arr[mid];
-    if (target == mid_offset) {
-      if (mid != last_entry && target != arr[last_entry]) {
-        // Do linear scan in case of duplicate data (We assume that the
-        // number of duplicates is small.  This can we very bad if the
-        // number of duplicates is large)
-        for (int i = mid + 1; i < num_entries; i++) {
-          if (target != arr[i]) {
-            found_ = i;
-            break;
-          }
-        }
-      }
-      break;
-    } else if (target < mid_offset) {
-      if (mid == 0) {
-        found_ = 0;
-        break;
-      } else if (mid - 1 >= 0 && target > arr[mid - 1]) {
-        found_ = mid;
-        break;
-      }
-      end = mid - 1;
-    } else {
-      if (mid + 1 <= last_entry && target < arr[mid + 1]) {
-        found_ = mid + 1;
-        break;
-      }
-      start = mid + 1;
-    }
-  }
-  *found = found_;
 }
 
 } // namespace fbgemm_gpu

@@ -59,7 +59,6 @@ def transpose_embedding_input_ref(
     hash_size_cumsum: torch.Tensor,
     indices: torch.Tensor,
     offsets: torch.Tensor,
-    info_B_num_bits: int,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -79,12 +78,11 @@ def transpose_embedding_input_ref(
     infos = torch.zeros_like(indices)
     for b_t in range(B * T):
         t = b_t // B
-        b = b_t % B
         start = int(offsets[b_t].item())
         end = int(offsets[b_t + 1].item())
         for i in range(start, end):
             linear_indices[i] = indices[i] + hash_size_cumsum[t]
-            infos[i] = (t << info_B_num_bits) | b
+            infos[i] = b_t
 
     linear_indices_sorted, sorted_idx = torch.sort(linear_indices, stable=True)
     infos_sorted = infos[sorted_idx]
@@ -133,11 +131,6 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         )
 
         indices, offsets = gen_inputs(hash_sizes, batch_size, max_len)
-        hash_size_cumsum_cuda = hash_size_cumsum.cuda()
-
-        info_B_num_bits, _ = torch.ops.fbgemm.get_infos_metadata(
-            hash_size_cumsum_cuda, B, T
-        )
 
         (
             linear_indices,
@@ -148,11 +141,10 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             sorted_linear_indices_num_runs,
             sorted_linear_indices_cumulative_run_lengths,
         ) = torch.ops.fbgemm.transpose_embedding_input(
-            hash_size_cumsum_cuda,
+            hash_size_cumsum.cuda(),
             total_hash_size_bits,
             indices.cuda(),
             offsets.cuda(),
-            info_B_num_bits=info_B_num_bits,
         )
 
         (
@@ -164,7 +156,9 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             sorted_linear_indices_num_runs_ref,
             sorted_linear_indices_cumulative_run_lengths_ref,
         ) = transpose_embedding_input_ref(
-            hash_size_cumsum, indices, offsets, info_B_num_bits
+            hash_size_cumsum,
+            indices,
+            offsets,
         )
 
         self.assertTrue(torch.equal(linear_indices.cpu(), linear_indices_ref))
