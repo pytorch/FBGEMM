@@ -81,76 +81,34 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean_kernel(
         grad_output,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    {% if not dense %}
-    const int32_t* __restrict__ var_B_metadata,
-    {% endif %}
     at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean) {
+  int32_t B = grad_output.size(0);
   int32_t T = D_offsets.size(0) - 1;
   int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t b, t;
-  const auto total_B = offsets.size(0) - 1;
+  int32_t b = b_t % B;
+  int32_t t = b_t / B;
 
-  if (b_t >= total_B) {
+  if (b_t >= B * T) {
     return;
   }
-
-  {% if not dense %}
-  // Use variable batch size
-  if (var_B_metadata != nullptr) {
-    if (threadIdx.x == 0) {
-      binary_search_range(&t, var_B_metadata + 1, b_t, T);
-      b = b_t - var_B_metadata[t];
-    }
-    t = shfl_sync(t, 0);
-    b = shfl_sync(b, 0);
-  }
-  else {
-  {% endif %}
-    const int32_t B = grad_output.size(0);
-    b = b_t % B;
-    t = b_t / B;
-  {% if not dense %}
-  } // if (var_B_metadata != nullptr)
-  {% endif %}
-
   int32_t D_start = D_offsets[t];
   int32_t D_end = D_offsets[t + 1];
   int32_t D = D_end - D_start;
-  int64_t indices_start = offsets[b_t];
-  int64_t indices_end = offsets[b_t + 1];
+  int64_t indices_start = offsets[t * B + b];
+  int64_t indices_end = offsets[t * B + b + 1];
   int32_t L = indices_end - indices_start;
-
-  {% if not dense %}
-  int32_t grad_offset;
-  if (var_B_metadata != nullptr) {
-    if (threadIdx.x == 0) {
-      grad_offset = var_B_metadata[T + 1 + t] + b * D;
-    }
-    grad_offset = shfl_sync(grad_offset, 0);
-  }
-  else {
-    grad_offset = D_start;
-  }
-  const int32_t grad_outer_offset = var_B_metadata != nullptr ? 0 : b;
-  {% else %}
-  const int32_t grad_offset = D_start;
-  const int32_t grad_outer_offset = b;
-  {% endif %}
-
-  const grad_t* shifted_grad_output = &grad_output[grad_outer_offset][grad_offset];
-  grad_t* shifted_grad_output_mean = &grad_output_mean[grad_outer_offset][grad_offset];
 
   if (L != 0) {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
+      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
       grad_out_vec.mul_(1.0 / L);
-      grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
+      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
     }
   } else {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
-      grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
+      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
+      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
     }
   }
 }
@@ -161,7 +119,6 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
-    bool var_batch_size,
     size_t kMaxVecsPerThread,
     int32_t kThreadGroupSize = kWarpSize>
 __global__ __launch_bounds__(kMaxThreads) void
@@ -178,6 +135,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
+    int32_t B,
     int64_t D,
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -208,12 +166,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% else %}
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {% endif %}
-    {% if not nobag and not dense %}
-    const int32_t* var_B_metadata,
-    {% endif %}
     {% if not nobag %}
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
+    FixedDivisor fd,
     {% endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
     at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
@@ -230,6 +184,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 #endif
   constexpr int VEC_WIDTH = 4;
   int32_t T = weights_offsets.size(0);
+  {% if not nobag %}
+  const int32_t B = grad_output.size(0);
+  {% endif %}
   const int32_t num_long_runs = num_long_run_ids[0];
   for (int32_t long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
         // The first thread block in the really long run has run_id in long_run_ids
@@ -263,11 +220,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         // Note that with shared embedding tables we can have multiple tables
         // (i.e. different values of `t` sharing the same segment).
         //
-        {% if not nobag %}
-        const uint32_t info_0 = reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start];
-        int32_t t_0 = info_0 >> info_B_num_bits;
-        {% else %}
         const auto info_0 = sorted_infos[segment_start];
+
+        {% if not nobag %}
+        int32_t t_0 = fd.Div(info_0); //info_0 / B;
+        {% else %}
         int32_t t_0 = info_0 % T;
         {% endif %}
 
@@ -284,13 +241,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
             int32_t sl_j = sl + threadIdx.x;
             {% if not nobag %}
-            uint32_t b_t = sl_j < sl_end ? reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start + sl_j] : 0;
-            int32_t b = b_t & info_B_mask;
-            int32_t t = b_t >> info_B_num_bits;
+            int32_t b_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
+            int32_t b; //= b_t % B;
+            int32_t t; //= b_t / B;
+            fd.DivMod(b_t, &t, &b);
             int32_t D_start = sl_j < sl_end ? D_offsets[t] : 0;
-            {% if not dense %}
-            int32_t grad_offset = var_batch_size ? var_B_metadata[T + 1 + t] : 0;
-            {% endif %}
             {% else %}
             int64_t l_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
             int32_t l = l_t / T;
@@ -302,9 +257,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 {% if not nobag %}
                 int32_t b_j = SHFL_SYNC(b, j);
                 int32_t D_start_j = SHFL_SYNC(D_start, j);
-                {% if not dense %}
-                int32_t grad_offset_j = var_batch_size ? SHFL_SYNC(grad_offset, j) : 0;
-                {% endif %}
                 {% else %}
                 int32_t l_j = SHFL_SYNC(l, j);
                 {% endif %}
@@ -320,12 +272,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
                     {% if not nobag %}
                     Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
-                        {% if not dense %}
-                        var_batch_size ?
-                        &grad_output[0][grad_offset_j + b_j * D + d] :
-                        {% endif %}
-                        &grad_output[b_j][0] + D_start_j + d
-                    );
+                        &grad_output[b_j][0] + D_start_j + d);
                     {% else %}
                     Vec4T<at::acc_type<grad_t, true>> grad_out_vec(&grad_output[l_j][d]);
                     {% endif %}
@@ -585,7 +532,6 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
-    bool var_batch_size,
     size_t kMaxVecsPerThread,
     int32_t kThreadGroupSize = kWarpSize>
 __global__
@@ -605,6 +551,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
+    int32_t B,
     int64_t D,
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -634,17 +581,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% else %}
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {% endif %}
-    {% if not nobag and not dense %}
-    const int32_t* var_B_metadata,
-    {% endif %}
     {% if not nobag %}
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
+    FixedDivisor fd,
     {% endif %}
     {{ args.split_kernel_args | join(", ") }}) {
 
     {% if not nobag %}
     int32_t T = D_offsets.size(0) - 1;
+    const int32_t B = grad_output.size(0);
     {% else %}
     int32_t T = weights_offsets.size(0);
     {% endif %}
@@ -676,11 +620,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
     // now, each segment corresponds to exactly one table `t` and row in
     // that table (`idx`). Thus, we can hoist out some of the book-keeping.
-    {% if not nobag %}
-    const uint32_t info_0 = reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start];
-    int32_t t_0 = info_0 >> info_B_num_bits;
-    {% else %}
     const auto info_0 = sorted_infos[segment_start];
+
+    {% if not nobag %}
+    int32_t t_0 = fd.Div(info_0); // info_0 / B;
+    {% else %}
     int32_t t_0 = info_0 % T;
     {% endif %}
 
@@ -697,13 +641,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
         int32_t sl_j = sl + threadIdx.x;
         {% if not nobag %}
-        uint32_t b_t = sl_j < sl_end ? reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start + sl_j] : 0;
-        int32_t b = b_t & info_B_mask;
-        int32_t t = b_t >> info_B_num_bits;
+        int32_t b_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
+        int32_t b; //= b_t % B;
+        int32_t t; //= b_t / B;
+        fd.DivMod(b_t, &t, &b);
         int32_t D_start = D_offsets[t];
-        {% if not dense %}
-        int32_t grad_offset = var_batch_size ? var_B_metadata[T + 1 + t] : 0;
-        {% endif %}
         {% else %}
         int64_t l_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
         int32_t l = l_t / T;
@@ -716,9 +658,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             {% if not nobag %}
             int32_t b_j = SHFL_SYNC(b, j);
             int32_t D_start_j = SHFL_SYNC(D_start, j);
-            {% if not dense %}
-            int32_t grad_offset_j = var_batch_size ? SHFL_SYNC(grad_offset, j) : 0;
-            {% endif %}
             {% else %}
             int32_t l_j = SHFL_SYNC(l, j);
             {% endif %}
@@ -733,10 +672,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
                 {% if not nobag %}
                 Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
-                    {% if not dense %}
-                    var_batch_size ?
-                    &grad_output[0][grad_offset_j + b_j * D + d] :
-                    {% endif %}
                     &grad_output[b_j][0] + D_start_j + d);
                 {% else %}
                 Vec4T<at::acc_type<grad_t, true>> grad_out_vec(&grad_output[l_j][d]);
@@ -878,10 +813,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int64_t max_segment_length_per_warp,
     {% if not dense %}
     bool stochastic_rounding,
-    const c10::optional<Tensor>& var_B_metadata,
-    {% if not nobag %}
-    const c10::optional<std::vector<int64_t>>& var_B_metadata_vec,
-    {% endif %}
     {% endif %}
     {{ args.split_function_args | join(", ") }}) {
 
@@ -891,9 +822,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     TENSOR_ON_CUDA_GPU(uvm_weights);
     TENSOR_ON_CUDA_GPU(lxu_cache_weights);
     TENSOR_ON_CUDA_GPU(weights_placements);
-    if (var_B_metadata.has_value()) {
-        TENSOR_ON_CUDA_GPU(var_B_metadata.value());
-    }
     {% endif %}
     TENSOR_ON_CUDA_GPU(weights_offsets);
     {% if not nobag %}
@@ -929,45 +857,14 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
-    const auto total_B = offsets.size(0) - 1;
-    TORCH_CHECK(total_B > 0);
+    const auto B = (offsets.size(0) - 1) / T;
+    TORCH_CHECK(B > 0);
     auto BT_block_size = kMaxThreads / kWarpSize;
     TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
     {% if nobag %}
     auto max_D = D;
     {% endif %}
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
-
-    {% if not nobag %}
-    int32_t max_B = 0;
-    {% if not dense %}
-    if (var_B_metadata.has_value()) {
-      TORCH_CHECK(
-          var_B_metadata_vec.has_value(),
-          "Variable batch size TBE requires var_B_metadata_vec"
-      );
-      TORCH_CHECK(var_B_metadata.value().numel() == 2 * (T + 1));
-      TORCH_CHECK(var_B_metadata_vec.value().size() == var_B_metadata.value().numel());
-
-      const std::vector<int64_t>& var_B_metadata_v = var_B_metadata_vec.value();
-      for (int32_t i = 0; i < T; i++) {
-        int32_t B_t = var_B_metadata_v[i + 1] - var_B_metadata_v[i];
-        if (max_B < B_t) {
-          max_B = B_t;
-        }
-      }
-    }
-    else {
-    {% endif %}
-      max_B = total_B / T;
-    {% if not dense %}
-    } // if (var_B_metadata.has_value())
-    {% endif %}
-
-    int32_t info_B_num_bits;
-    uint32_t info_B_mask;
-    std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(max_B, T);
-    {% endif %}
 
     // V100: 96 KB; A100: 160 KB.
     int max_shared_bytes = 0;
@@ -1008,9 +905,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             total_hash_size_bits,
             indices,
             offsets,
-            {{"var_B_metadata" if not dense else "c10::optional<Tensor>()"}},
-            {{"true" if nobag else "false"}},
-            {{"0" if nobag else "info_B_num_bits"}});
+            {{"true" if nobag else "false"}});
 
     {% if not dense %}
     auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
@@ -1094,16 +989,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             linear_indices.reset();
             linear_indices_sorted.reset();
 
-            {% if not dense and not nobag %}
-            grad_output = var_B_metadata.has_value() ? grad_output.reshape({1, -1}) : grad_output;
-            {% endif %}
             auto grad_output_accessor = grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>();
             {% if not nobag %}
             Tensor grad_output_mean;
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
               grad_output_mean = at::empty_like(grad_output);
               grad_mean_kernel<grad_t>
-                  <<<div_round_up(total_B, kMaxThreads / kWarpSize),
+                  <<<div_round_up((B * T), kMaxThreads / kWarpSize),
                      dim3(kWarpSize, kMaxThreads / kWarpSize),
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
@@ -1112,9 +1004,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                           .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                       offsets
                           .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                      {% if not dense %}
-                      var_B_metadata.has_value() ? var_B_metadata.value().data_ptr<int32_t>() : nullptr,
-                      {% endif %}
                       grad_output_mean.packed_accessor64<
                           grad_t, 2, at::RestrictPtrTraits>());
               C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -1209,18 +1098,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             // must use dynamic shared memory (rather than statically sized
             // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
 
-            {% for var_batch_size in ["true", "false"] %}
-            {% if not dense or var_batch_size == "true" %}
-            {% if not dense %}
-            if (var_B_metadata.has_value() == {{ var_batch_size }}) {
-            {% endif %}
 #ifndef __HIP_PLATFORM_HCC__
             cudaFuncSetAttribute(
                 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1<
                 emb_t,
                 grad_t,
                 cache_t,
-                {{ var_batch_size }},
                 kMaxVecsPerThread,
                 kThreadGroupSize>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -1232,7 +1115,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 emb_t,
                 grad_t,
                 cache_t,
-                {{ var_batch_size }},
                 kMaxVecsPerThread,
                 kThreadGroupSize>
                 <<<grid_size,
@@ -1253,6 +1135,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if not nobag %}
                     D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% else %}
+                    B,
                     D,
                     {% endif %}
                     hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -1279,12 +1162,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% else %}
                     grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
                     {% endif %}
-                    {% if not nobag and not dense %}
-                    var_B_metadata.has_value() ? var_B_metadata.value().data_ptr<int32_t>() : nullptr,
-                    {% endif %}
                     {% if not nobag %}
-                    info_B_num_bits,
-                    info_B_mask,
+                    FixedDivisor(B),
                     {% endif %}
                     long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
@@ -1292,7 +1171,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     max_segment_length_per_cta,
                     use_deterministic_algorithms,
                     {{ args.split_kernel_arg_constructors | join(", ") }});
-
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             grid_size = std::min(
                 div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
@@ -1309,7 +1187,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     emb_t,
                     grad_t,
                     cache_t,
-                    {{ var_batch_size }},
                     kMaxVecsPerThread,
                     kThreadGroupSize>,
                     cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -1322,7 +1199,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 emb_t,
                 grad_t,
                 cache_t,
-                {{ var_batch_size }},
                 kMaxVecsPerThread,
                 kThreadGroupSize>
                 <<<grid_size,
@@ -1342,6 +1218,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if not nobag %}
                     D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% else %}
+                    B,
                     D,
                     {% endif %}
                     hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -1369,23 +1246,12 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% else %}
                     grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
                     {% endif %}
-                    {% if not nobag and not dense %}
-                    var_B_metadata.has_value() ? var_B_metadata.value().data_ptr<int32_t>() : nullptr,
-                    {% endif %}
                     {% if not nobag %}
-                    info_B_num_bits,
-                    info_B_mask,
+                    FixedDivisor(B),
                     {% endif %}
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
-
-            {% if not dense %}
-            } // if (var_B_metadata.has_value() == {{ var_batch_size }})
-            {% endif %}
-
-            {% endif %} // if not dense or var_batch_size == "true"
-            {% endfor %} // for var_batch_size in ["true", "false"]
         }
         {% endif %}
         {% endfor %}

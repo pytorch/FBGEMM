@@ -13,8 +13,6 @@
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "transpose_embedding_input(Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, Tensor? var_B_metadata=None, bool nobag=False, int info_B_num_bits=26) -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
-  m.def("get_infos_metadata(Tensor unused, int B, int T) -> (int, int)");
+      "transpose_embedding_input(Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, bool nobag=False) -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
   DISPATCH_TO_CUDA("transpose_embedding_input", transpose_embedding_input);
-  DISPATCH_TO_CUDA("get_infos_metadata", get_infos_metadata);
 }
