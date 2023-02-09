@@ -4150,6 +4150,54 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 for i in range(len(tablewise_cache_miss)):
                     self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
 
+    @given(N=st.integers(min_value=1, max_value=2))
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_stb_uvm_cache_stats(self, N: int) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+        cc = emb_op(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            gather_uvm_cache_stats=True,
+        )
+
+        x = torch.Tensor([[[1], [1]], [[3], [4]]])
+        x = to_device(torch.tensor(x, dtype=torch.int64), use_cpu=False)
+
+        for _ in range(N):
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            cc.reset_cache_states()
+            cc.reset_uvm_cache_stats()
+            cc(indices, offsets)
+            (
+                n_calls,
+                n_requested_indices,
+                n_unique_indices,
+                n_unique_misses,
+                n_conflict_unique_misses,
+                n_conflict_misses,
+            ) = cc.get_uvm_cache_stats()
+            self.assertEqual(n_calls, 1)
+            self.assertEqual(n_requested_indices, len(indices))
+            self.assertEqual(n_unique_indices, len(set(indices.tolist())))
+            self.assertEqual(n_unique_misses, len(set(indices.tolist())))
+            self.assertEqual(n_conflict_unique_misses, 0)
+            self.assertEqual(n_conflict_misses, 0)
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         L=st.integers(min_value=0, max_value=16),
