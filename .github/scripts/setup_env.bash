@@ -11,9 +11,9 @@
 ################################################################################
 
 print_exec () {
-    echo "+ $@"
-    echo ""
-    $@
+  echo "+ $@"
+  echo ""
+  $@
 }
 
 test_python_import () {
@@ -54,6 +54,25 @@ test_binpath () {
   fi
 }
 
+test_filepath () {
+  env_name="$1"
+  file_name="$2"
+  if [ "$file_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME FILE_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_binary cuda_runtime.h"
+    return 1
+  fi
+
+  conda_prefix=`conda run -n "${env_name}" printenv CONDA_PREFIX`
+  if [ "$(find ${conda_prefix} -type f -name ${file_name})" != '' ]; then
+    echo "[CHECK] ${file_name} found in path"
+  else
+    echo "[CHECK] ${file_name} not found in path!"
+    return 1
+  fi
+}
+
 test_env_var () {
   env_name="$1"
   env_key="$2"
@@ -79,16 +98,16 @@ print_system_info () {
   echo "################################################################################"
   echo ""
 
-  echo "Check ldd version"
+  echo "[INFO] Check ldd version"
   print_exec ldd --version
 
-  echo "Check CPU info"
+  echo "[INFO] Check CPU info"
   print_exec cat /proc/cpuinfo
 
-  echo "Check Linux distribution info"
+  echo "[INFO] Check Linux distribution info"
   print_exec cat /proc/version
 
-  echo "Check GPU info"
+  echo "[INFO] Check GPU info"
   print_exec sudo yum install -y lshw
   print_exec sudo lshw -C display
 }
@@ -106,7 +125,6 @@ print_ec2_info () {
     curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
   }
 
-  set -euo pipefail
   echo "ami-id: $(get_ec2_metadata ami-id)"
   echo "instance-id: $(get_ec2_metadata instance-id)"
   echo "instance-type: $(get_ec2_metadata instance-type)"
@@ -136,16 +154,16 @@ setup_miniconda () {
     print_exec mkdir -p "$miniconda_prefix"
 
     echo "[SETUP] Downloading the Miniconda installer ..."
-    print_exec wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+    print_exec wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
 
     echo "[SETUP] Installing Miniconda ..."
     print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
     print_exec rm -f miniconda.sh
-
-    echo "[SETUP] Reloading the bash configuration ..."
-    print_exec ${miniconda_prefix}/bin/conda init bash
-    print_exec . ~/.bashrc
   fi
+
+  echo "[SETUP] Reloading the bash configuration ..."
+  print_exec ${miniconda_prefix}/bin/conda init bash
+  print_exec . ~/.bashrc
 
   echo "[SETUP] Updating Miniconda base packages ..."
   print_exec conda update -n base -c defaults -y conda
@@ -221,7 +239,7 @@ install_pytorch_conda () {
   fi
 
   # Install PyTorch packages
-  echo "[INSTALL] Installing ${pytorch_package} (${pytorch_version}, CPU=${pytorch_cpu}) through Conda using channel ${pytorch_channel} ..."
+  echo "[INSTALL] Installing package '${pytorch_package}' (${pytorch_version}, CPU=${pytorch_cpu:-0}) through Conda using channel '${pytorch_channel}' ..."
   print_exec conda install -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}"
 
   # Run check for GPU variant
@@ -235,6 +253,9 @@ install_pytorch_conda () {
       echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be the CPU-only version as it is missing references to cuDNN!"
       return 1
     fi
+
+    # Ensure that the PyTorch-CUDA headers are properly installed
+    test_filepath "${env_name}" cuda_cmake_macros.h || return 1
   fi
 
   # Check that PyTorch is importable
@@ -314,15 +335,57 @@ install_cuda () {
   test_binpath $env_name nvcc || return 1
 
   # Ensure that the CUDA headers are properly installed
-  conda run -n "${env_name}" test -n "$(find ${CONDA_PREFIX} -name cuda_runtime.h)"
-  if [ $? -eq 0 ]; then
-    echo "[CHECK] cuda_runtime.h found in path"
-  else
-    echo "[CHECK] cuda_runtime.h not found in path!"
-    return 1
-  fi
+  test_filepath "${env_name}" cuda_runtime.h || return 1
 
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
+}
+
+install_cxx_compiler () {
+  env_name="$1"
+  use_yum="$2"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME [USE_YUM]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_binary     # Install C/C++ compilers through Conda"
+    echo "    ${FUNCNAME[0]} build_binary 1   # Install C/C++ compilers through yum"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install C/C++ Compilers"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  if [ "$use_yum" != "" ]; then
+    echo "[INSTALL] Installing C/C++ compilers through Yum ..."
+    print_exec sudo yum update -y
+    print_exec sudo yum install -y gcc gcc-c++
+  else
+    # Install gxx_linux-64 from main instead of cxx-compiler from conda-forge, as
+    # the latter breaks builds:
+    #   https://root-forum.cern.ch/t/error-timespec-get-has-not-been-declared-with-conda-root-package/45712/6
+    echo "[INSTALL] Installing C/C++ compilers through Conda ..."
+    print_exec conda install -n "${env_name}" -y gxx_linux-64
+
+    # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
+    # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
+    echo "[INSTALL] Setting the C/C++ compiler symlinks ..."
+    cc_path=`conda run -n "${env_name}" printenv CC`
+    cxx_path=`conda run -n "${env_name}" printenv CXX`
+
+    print_exec ln -s $cc_path $(dirname $cc_path)/cc
+    print_exec ln -s $cc_path $(dirname $cc_path)/gcc
+    print_exec ln -s $cxx_path $(dirname $cxx_path)/c++
+    print_exec ln -s $cxx_path $(dirname $cxx_path)/g++
+  fi
+
+  # Check C/C++ compilers are visible
+  test_binpath $env_name cc || return 1
+  test_binpath $env_name gcc || return 1
+  test_binpath $env_name c++ || return 1
+  test_binpath $env_name g++ || return 1
+
+  echo "[INSTALL] Successfully installed C/C++ compilers"
 }
 
 install_build_tools () {
@@ -340,10 +403,14 @@ install_build_tools () {
   fi
 
   echo "[INSTALL] Installing build tools ..."
-  print_exec conda install -n "${env_name}" -y cmake hypothesis jinja2 ninja numpy scikit-build wheel
-
-  # https://root-forum.cern.ch/t/error-timespec-get-has-not-been-declared-with-conda-root-package/45712/6
-  # binutils_linux-64 gxx_linux-64 make
+  print_exec conda install -n "${env_name}" -y \
+    cmake \
+    hypothesis \
+    jinja2 \
+    ninja \
+    numpy \
+    scikit-build \
+    wheel
 
   # Check binaries are visible in the PAATH
   test_binpath $env_name cmake || return 1
@@ -384,8 +451,7 @@ install_cudnn () {
     ["118"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz"
   )
 
-  # Remove the dot, e.g. 11.7 => 117
-  # Split version string by dot into array
+  # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
   cuda_version_arr=(${cuda_version//./ })
   # Fetch the major and minor version to concat
   cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
@@ -406,7 +472,7 @@ install_cudnn () {
 
   # Download cuDNN
   echo "[INSTALL] Downloading cuDNN to ${tmp_dir} ..."
-  print_exec wget "$cudnn_url" -O cudnn.tar.xz
+  print_exec wget -q "$cudnn_url" -O cudnn.tar.xz
 
   # Unpack the tarball
   echo "[INSTALL] Unpacking cuDNN ..."
@@ -495,6 +561,9 @@ prepare_fbgemm_build () {
   echo "[BUILD] Installing other build dependencies ..."
   print_exec conda run -n "${env_name}" python -m pip install -r requirements.txt
 
+  test_python_import $env_name numpy || return 1
+  test_python_import $env_name skbuild || return 1
+
   echo "[BUILD] Successfully ran git submodules update"
 }
 
@@ -506,7 +575,7 @@ build_fbgemm_package () {
     echo "Usage: ${FUNCNAME[0]} PACKAGE_NAME [CPU_ONLY]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_binary fbgemm_gpu_nightly    # Build the full package"
-    echo "    ${FUNCNAME[0]} build_binary fbgemm_gpu 1          # Build the CPU-only variant of the package"
+    echo "    ${FUNCNAME[0]} build_binary fbgemm_gpu_nightly 1  # Build the CPU-only variant of the package"
     return 1
   else
     echo "################################################################################"
@@ -515,9 +584,30 @@ build_fbgemm_package () {
     echo ""
   fi
 
-  # Check that cuDNN environment variables are available
-  test_env_var "${env_name}" CUDNN_INCLUDE_DIR || return 1
-  test_env_var "${env_name}" CUDNN_LIBRARY || return 1
+  # Check C/C++ compilers are visible (the build scripts look specifically for `gcc`)
+  test_binpath $env_name cc || return 1
+  test_binpath $env_name gcc || return 1
+  test_binpath $env_name c++ || return 1
+  test_binpath $env_name g++ || return 1
+
+  if [ "$cpu_only" != "" ]; then
+    # Update the package name and build args depending on if CUDA is specified
+    echo "[BUILD] Applying CPU-only build args ..."
+    cpu_only=1
+    build_args="--cpu_only"
+    package_name="${package_name}-cpu"
+  else
+    # Check nvcc is visible
+    test_binpath $env_name nvcc || return 1
+
+    # Check that cuDNN environment variables are available
+    test_env_var "${env_name}" CUDNN_INCLUDE_DIR || return 1
+    test_env_var "${env_name}" CUDNN_LIBRARY || return 1
+
+    # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
+    echo "[BUILD] Applying GPU build args ..."
+    build_args="-DTORCH_CUDA_ARCH_LIST=7.0;8.0"
+  fi
 
   # Extract the Python tag
   python_version=(`conda run -n "${env_name}" python --version`)
@@ -525,26 +615,13 @@ build_fbgemm_package () {
   python_tag="py${python_version_arr[0]}${python_version_arr[1]}"
   echo "[BUILD] Extracted Python tag: ${python_tag}"
 
-  # Update the package name and build args depending on if CUDA is specified
-  if [ "$cpu_only" != "" ]; then
-    echo "[BUILD] Applying CPU-only build args ..."
-    # CPU version
-    build_args="--cpu_only"
-    package_name="${package_name}-cpu"
-  else
-    echo "[BUILD] Applying GPU build args ..."
-    # GPU version
-    # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
-    build_args="-DTORCH_CUDA_ARCH_LIST=7.0;8.0"
-  fi
-
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
   print_exec conda run -n "${env_name}" python setup.py clean
 
   # manylinux1_x86_64 is specified for PyPI upload
   # Distribute Python extensions as wheels on Linux
-  echo "[BUILD] Building FBGEMM ..."
+  echo "[BUILD] Building FBGEMM (CPU=${cpu_only:-0}) ..."
   print_exec conda run -n "${env_name}" \
     python setup.py bdist_wheel \
       --package_name="${package_name}" \
