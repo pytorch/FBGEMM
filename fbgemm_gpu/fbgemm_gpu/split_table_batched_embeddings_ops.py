@@ -187,6 +187,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     T:  number of logical tables
     T_: number of physical tables
     T >= T_
+
+    For supported optimizer hyperparams, see inline comments below
     """
 
     embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]
@@ -220,10 +222,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
         learning_rate: float = 0.01,
-        eps: float = 1.0e-8,  # used by Adagrad, LAMB, and Adam
+        # used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, ROWWISE_ADAGRAD, EXACT_ROWWISE_WEIGHTED_ADAGRAD, LAMB, and ADAM only
+        # NOTE that default is different from nn.optim.Adagrad default of 1e-10
+        eps: float = 1.0e-8,
         momentum: float = 0.9,  # used by LARS-SGD
-        weight_decay: float = 0.0,  # used by LARS-SGD, LAMB, ADAM, and Rowwise Adagrad
-        # used by Rowwise Adagrad. LARS-SGD, LAMB and ADAM only supports decoupled weight decay
+        # EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay
+        # LAMB, ADAM, PARTIAL_ROWWISE_ADAM, PARTIAL_ROWWISE_LAMB, LARS_SGD support decoupled weight decay
+        # EXACT_ROWWISE_WEIGHTED_ADAGRAD supports L2 weight decay
+        # ROWWISE_ADAGRAD support both L2 and decoupled weight decay (via weight_decay_mode)
+        weight_decay: float = 0.0,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
