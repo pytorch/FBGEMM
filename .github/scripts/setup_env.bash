@@ -22,12 +22,11 @@ test_python_import () {
   if [ "$python_import" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_IMPORT"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary numpy"
+    echo "    ${FUNCNAME[0]} build_env numpy"
     return 1
   fi
 
-  conda run -n "${env_name}" python -c "import ${python_import}"
-  if [ $? -eq 0 ]; then
+  if conda run -n "${env_name}" python -c "import ${python_import}"; then
     echo "[CHECK] Python package ${python_import} found"
   else
     echo "[CHECK] Python package ${python_import} not found!"
@@ -41,12 +40,11 @@ test_binpath () {
   if [ "$bin_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME BIN_NAME"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary nvcc"
+    echo "    ${FUNCNAME[0]} build_env nvcc"
     return 1
   fi
 
-  conda run -n "${env_name}" which $bin_name
-  if [ $? -eq 0 ]; then
+  if conda run -n "${env_name}" which $bin_name; then
     echo "[CHECK] Binary ${bin_name} found in PATH"
   else
     echo "[CHECK] Binary ${bin_name} not found in PATH!"
@@ -60,15 +58,16 @@ test_filepath () {
   if [ "$file_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME FILE_NAME"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary cuda_runtime.h"
+    echo "    ${FUNCNAME[0]} build_env cuda_runtime.h"
     return 1
   fi
 
   conda_prefix=`conda run -n "${env_name}" printenv CONDA_PREFIX`
-  if [ "$(find ${conda_prefix} -type f -name ${file_name})" != '' ]; then
-    echo "[CHECK] ${file_name} found in path"
+  file_path=`find ${conda_prefix} -type f -name ${file_name}`
+  if [ "${file_path}" != "" ]; then
+    echo "[CHECK] ${file_name} found in CONDA_PREFIX PATH: ${file_path}"
   else
-    echo "[CHECK] ${file_name} not found in path!"
+    echo "[CHECK] ${file_name} not found in CONDA_PREFIX PATH!"
     return 1
   fi
 }
@@ -79,12 +78,11 @@ test_env_var () {
   if [ "$env_key" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME ENV_KEY"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary CUDNN_INCLUDE_DIR"
+    echo "    ${FUNCNAME[0]} build_env CUDNN_INCLUDE_DIR"
     return 1
   fi
 
-  conda run -n "${env_name}" printenv "${env_key}"
-  if [ $? -eq 0 ]; then
+  if conda run -n "${env_name}" printenv "${env_key}"; then
     echo "[CHECK] Environment variable ${env_key} is defined in the Conda environment"
   else
     echo "[CHECK] Environment variable ${env_key} is not defined in the Conda environment!"
@@ -95,6 +93,8 @@ test_env_var () {
 print_system_info () {
   echo "################################################################################"
   echo "# Print System Info"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
   echo "################################################################################"
   echo ""
 
@@ -106,15 +106,23 @@ print_system_info () {
 
   echo "[INFO] Check Linux distribution info"
   print_exec cat /proc/version
+  print_exec cat /etc/os-release
 
   echo "[INFO] Check GPU info"
-  print_exec sudo yum install -y lshw
+  if which apt-get; then
+    print_exec sudo apt-get install -y lshw
+  else
+    print_exec sudo yum install -y lshw
+  fi
+
   print_exec sudo lshw -C display
 }
 
 print_ec2_info () {
   echo "################################################################################"
   echo "# Print EC2 Instance Info"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
   echo "################################################################################"
   echo ""
 
@@ -145,6 +153,8 @@ setup_miniconda () {
   else
     echo "################################################################################"
     echo "# Setup Miniconda"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
@@ -184,11 +194,13 @@ create_conda_environment () {
   if [ "$python_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION"
     echo "Example:"
-    echo "    ${FUNCNAME[0]} build_binary 3.10"
+    echo "    ${FUNCNAME[0]} build_env 3.10"
     return 1
   else
     echo "################################################################################"
     echo "# Create Conda Environment"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
@@ -208,49 +220,52 @@ install_pytorch_conda () {
   if [ "$pytorch_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VERSION [CPU]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary 1.11.0      # Install a specific version"
-    echo "    ${FUNCNAME[0]} build_binary latest      # Install the latest stable release"
-    echo "    ${FUNCNAME[0]} build_binary test        # Install the pre-release"
-    echo "    ${FUNCNAME[0]} build_binary nightly 1   # Install the CPU variant of the nightly"
+    echo "    ${FUNCNAME[0]} build_env 1.11.0      # Install a specific version"
+    echo "    ${FUNCNAME[0]} build_env latest      # Install the latest stable release"
+    echo "    ${FUNCNAME[0]} build_env test        # Install the pre-release"
+    echo "    ${FUNCNAME[0]} build_env nightly 1   # Install the CPU variant of the nightly"
     return 1
   else
     echo "################################################################################"
     echo "# Install PyTorch (Conda)"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
-  fi
-
-  # Set package name and installation channel
-  if [ "$pytorch_version" == "nightly" ] || [ "$pytorch_version" == "test" ]; then
-    pytorch_package="pytorch"
-    pytorch_channel="pytorch-${pytorch_version}"
-  elif [ "$pytorch_version" == "latest" ]; then
-    pytorch_package="pytorch"
-    pytorch_channel="pytorch"
-  else
-    pytorch_package="pytorch==${pytorch_version}"
-    pytorch_channel="pytorch"
   fi
 
   # Install cpuonly if needed
   if [ "$pytorch_cpu" != "" ]; then
     pytorch_cpu=1
-    pytorch_package="${pytorch_package} cpuonly"
+    pytorch_package="cpuonly pytorch"
+  else
+    pytorch_package="pytorch"
+  fi
+
+  # Set package name and installation channel
+  if [ "$pytorch_version" == "nightly" ] || [ "$pytorch_version" == "test" ]; then
+    pytorch_channel="pytorch-${pytorch_version}"
+  elif [ "$pytorch_version" == "latest" ]; then
+    pytorch_channel="pytorch"
+  else
+    pytorch_package="${pytorch_package}==${pytorch_version}"
+    pytorch_channel="pytorch"
   fi
 
   # Install PyTorch packages
-  echo "[INSTALL] Installing package '${pytorch_package}' (${pytorch_version}, CPU=${pytorch_cpu:-0}) through Conda using channel '${pytorch_channel}' ..."
+  echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, CPU=${pytorch_cpu:-0}) through Conda using channel '${pytorch_channel}' ..."
   print_exec conda install -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}"
 
   # Run check for GPU variant
   if [ "$pytorch_cpu" == "" ]; then
     # Ensure that the PyTorch build is the GPU variant (i.e. contains cuDNN reference)
     # This test usually applies to the PyTorch nightly builds
-    conda list -n "${env_name}" pytorch | grep cudnn
-    if [ $? -eq 0 ]; then
+    if conda list -n "${env_name}" pytorch | grep cudnn; then
       echo "[CHECK] The installed PyTorch ${pytorch_version} contains references to cuDNN"
     else
       echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be the CPU-only version as it is missing references to cuDNN!"
+      echo "[CHECK] This can happen if the GPU variant of PyTorch nightly (for the MAJOR.MINOR version of CUDA already installed on the system) has not been published yet."
+      echo "[CHECK] Please verify using the logged timestamp, the installed CUDA version, and the version of PyTorch that was attempted for installation."
       return 1
     fi
 
@@ -261,29 +276,52 @@ install_pytorch_conda () {
   # Check that PyTorch is importable
   test_python_import $env_name torch.distributed || return 1
 
-  echo "[INSTALL] Successfully installed PyTorch ${pytorch_version} through Conda"
+  # Print out the actual installed PyTorch version
+  installed_pytorch_version=`conda run -n "${env_name}" python -c "import torch; print(torch.__version__)"`
+  echo "[INSTALL] Installed PyTorch through Conda"
+  echo "[INSTALL] NOTE: The installed version is: ${installed_pytorch_version}"
 }
 
 install_pytorch_pip () {
   env_name="$1"
   pytorch_version="$2"
-  pytorch_variant="$3"
-  if [ "$pytorch_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VERSION PYTORCH_VARIANT"
+  pytorch_variant_type="$3"
+  pytorch_variant_version="$4"
+  if [ "$pytorch_variant_type" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VERSION PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary 1.11.0 cpu        # Install the CPU variant a specific version"
-    echo "    ${FUNCNAME[0]} build_binary latest cpu        # Install the CPU variant of the latest stable version"
-    echo "    ${FUNCNAME[0]} build_binary test cu117        # Install the variant for CUDA 11.7"
-    echo "    ${FUNCNAME[0]} build_binary nightly rocm5.3   # Install the variant for ROCM 5.3"
+    echo "    ${FUNCNAME[0]} build_env 1.11.0 cpu         # Install the CPU variant a specific version"
+    echo "    ${FUNCNAME[0]} build_env latest cpu         # Install the CPU variant of the latest stable version"
+    echo "    ${FUNCNAME[0]} build_env test cuda 11.7.1   # Install the variant for CUDA 11.7"
+    echo "    ${FUNCNAME[0]} build_env nightly rocm 5.3   # Install the variant for ROCM 5.3"
     return 1
   else
     echo "################################################################################"
     echo "# Install PyTorch (PIP)"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
 
-  # Set package name and installation channel
+  # Set the package variant
+  if [ "$pytorch_variant_type" == "cuda" ]; then
+    # Extract the CUDA version or default to 11.7.1
+    cuda_version="${pytorch_variant_version:-11.7.1}"
+    cuda_version_arr=(${cuda_version//./ })
+    # Convert, i.e. cuda 11.7.1 => cu117
+    pytorch_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
+  elif [ "$pytorch_variant_type" == "rocm" ]; then
+    # Extract the ROCM version or default to 5.3
+    rocm_version="${pytorch_variant_version:-5.3}"
+    pytorch_variant="rocm${rocm_version}"
+  else
+    pytorch_variant_type="cpu"
+    pytorch_variant="cpu"
+  fi
+  echo "[INSTALL] Extracted PyTorch variant: ${pytorch_variant}"
+
+  # Set the package name and installation channel
   if [ "$pytorch_version" == "nightly" ] || [ "$pytorch_version" == "test" ]; then
     pytorch_package="--pre torch"
     pytorch_channel="https://download.pytorch.org/whl/${pytorch_version}/${pytorch_variant}/"
@@ -295,13 +333,21 @@ install_pytorch_pip () {
     pytorch_channel="https://download.pytorch.org/whl/${pytorch_variant}/"
   fi
 
-  echo "[INSTALL] Installing PyTorch ${pytorch_version}+${pytorch_variant} through PIP using channel ${pytorch_channel} ..."
+  echo "[INSTALL] Attempting to install PyTorch ${pytorch_version}+${pytorch_variant} through PIP using channel ${pytorch_channel} ..."
   print_exec conda run -n "${env_name}" pip install ${pytorch_package} --extra-index-url ${pytorch_channel}
+
+  if [ "$pytorch_variant_type" == "cuda" ]; then
+    # Ensure that the PyTorch-CUDA headers are properly installed
+    test_filepath "${env_name}" cuda_cmake_macros.h || return 1
+  fi
 
   # Check that PyTorch is importable
   test_python_import $env_name torch.distributed || return 1
 
-  echo "[INSTALL] Successfully installed PyTorch ${pytorch_version} through PIP"
+  # Print out the actual installed PyTorch version
+  installed_pytorch_version=`conda run -n "${env_name}" python -c "import torch; print(torch.__version__)"`
+  echo "[INSTALL] Installed PyTorch through PIP"
+  echo "[INSTALL] NOTE: The installed version is: ${installed_pytorch_version}"
 }
 
 install_cuda () {
@@ -311,11 +357,13 @@ install_cuda () {
   if [ "$cuda_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME CUDA_VERSION"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary 11.7.1"
+    echo "    ${FUNCNAME[0]} build_env 11.7.1"
     return 1
   else
     echo "################################################################################"
     echo "# Install CUDA"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
@@ -323,7 +371,7 @@ install_cuda () {
   # Check CUDA version formatting
   cuda_version_arr=(${cuda_version//./ })
   if [ ${#cuda_version_arr[@]} -lt 3 ]; then
-    echo "[ERROR] CUDA minor version number must be specified (i.e. x.y.z)"
+    echo "[ERROR] CUDA minor version number must be specified (i.e. X.Y.Z)"
     return 1
   fi
 
@@ -337,6 +385,8 @@ install_cuda () {
   # Ensure that the CUDA headers are properly installed
   test_filepath "${env_name}" cuda_runtime.h || return 1
 
+  # Print nvcc version
+  print_exec conda run -n "${env_name}" nvcc --version
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
 }
 
@@ -346,12 +396,14 @@ install_cxx_compiler () {
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME [USE_YUM]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary     # Install C/C++ compilers through Conda"
-    echo "    ${FUNCNAME[0]} build_binary 1   # Install C/C++ compilers through yum"
+    echo "    ${FUNCNAME[0]} build_env     # Install C/C++ compilers through Conda"
+    echo "    ${FUNCNAME[0]} build_env 1   # Install C/C++ compilers through yum"
     return 1
   else
     echo "################################################################################"
     echo "# Install C/C++ Compilers"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
@@ -385,6 +437,8 @@ install_cxx_compiler () {
   test_binpath $env_name c++ || return 1
   test_binpath $env_name g++ || return 1
 
+  # Print out the C++ version
+  print_exec conda run -n "${env_name}" c++ --version
   echo "[INSTALL] Successfully installed C/C++ compilers"
 }
 
@@ -393,11 +447,13 @@ install_build_tools () {
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary"
+    echo "    ${FUNCNAME[0]} build_env"
     return 1
   else
     echo "################################################################################"
     echo "# Install Build Tools"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
@@ -433,11 +489,13 @@ install_cudnn () {
   if [ "$cuda_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME INSTALL_PATH CUDA_VERSION"
     echo "Example:"
-    echo "    ${FUNCNAME[0]} build_binary \$(pwd)/cudnn_install 11.7"
+    echo "    ${FUNCNAME[0]} build_env \$(pwd)/cudnn_install 11.7"
     return 1
   else
     echo "################################################################################"
     echo "# Install cuDNN"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
@@ -459,6 +517,8 @@ install_cudnn () {
   # Get the URL
   cudnn_url="${cudnn_packages[cuda_concat_version]}"
   if [ "$cudnn_url" == "" ]; then
+    # Default to cuDNN for 11.7 if no CUDA version fits
+    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.7"
     cudnn_url="${cudnn_packages[117]}"
   fi
 
@@ -509,7 +569,7 @@ create_conda_pytorch_environment () {
   if [ "$python_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION PYTORCH_CHANNEL_NAME CUDA_VERSION"
     echo "Example:"
-    echo "    ${FUNCNAME[0]} build_binary 3.10 pytorch-nightly 11.7.1"
+    echo "    ${FUNCNAME[0]} build_env 3.10 pytorch-nightly 11.7.1"
     return 1
   fi
 
@@ -540,16 +600,18 @@ create_conda_pytorch_environment () {
 # Build Functions
 ################################################################################
 
-prepare_fbgemm_build () {
+prepare_fbgemm_gpu_build () {
   env_name="$1"
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary"
+    echo "    ${FUNCNAME[0]} build_env"
     return 1
   else
     echo "################################################################################"
-    echo "# Prepare FBGEMM Build"
+    echo "# Prepare FBGEMM-GPU Build"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
@@ -567,22 +629,8 @@ prepare_fbgemm_build () {
   echo "[BUILD] Successfully ran git submodules update"
 }
 
-build_fbgemm_package () {
-  env_name="$1"
-  package_name="$2"
-  cpu_only="$3"
-  if [ "$package_name" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} PACKAGE_NAME [CPU_ONLY]"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary fbgemm_gpu_nightly    # Build the full package"
-    echo "    ${FUNCNAME[0]} build_binary fbgemm_gpu_nightly 1  # Build the CPU-only variant of the package"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Build FBGEMM Package"
-    echo "################################################################################"
-    echo ""
-  fi
+__build_fbgemm_gpu_common_pre_steps () {
+  # Private function that uses variables instantiated by its caller
 
   # Check C/C++ compilers are visible (the build scripts look specifically for `gcc`)
   test_binpath $env_name cc || return 1
@@ -618,10 +666,33 @@ build_fbgemm_package () {
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
   print_exec conda run -n "${env_name}" python setup.py clean
+}
+
+build_fbgemm_gpu_package () {
+  env_name="$1"
+  package_name="$2"
+  cpu_only="$3"
+  if [ "$package_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME [CPU_ONLY]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly    # Build the full wheel package"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly 1  # Build the CPU-only variant of the wheel package"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Build FBGEMM-GPU Package (Wheel)"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # Run all the common FBGEMM-GPU build pre-steps (set up variables)
+  __build_fbgemm_gpu_common_pre_steps
 
   # manylinux1_x86_64 is specified for PyPI upload
   # Distribute Python extensions as wheels on Linux
-  echo "[BUILD] Building FBGEMM (CPU=${cpu_only:-0}) ..."
+  echo "[BUILD] Building FBGEMM-GPU (CPU=${cpu_only:-0}) wheel ..."
   print_exec conda run -n "${env_name}" \
     python setup.py bdist_wheel \
       --package_name="${package_name}" \
@@ -632,7 +703,37 @@ build_fbgemm_package () {
   echo "[BUILD] Enumerating the built wheels ..."
   print_exec ls -lth dist/*.whl
 
-  echo "[BUILD] FBGEMM build completed"
+  echo "[BUILD] FBGEMM-GPU build wheel completed"
+}
+
+build_fbgemm_gpu_install () {
+  env_name="$1"
+  cpu_only="$2"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME [CPU_ONLY]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env      # Build + install the package"
+    echo "    ${FUNCNAME[0]} build_env 1    # Build + Install the CPU-only variant of the package"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Build + Install FBGEMM-GPU Package"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # Run all the common FBGEMM-GPU build pre-steps (set up variables)
+  __build_fbgemm_gpu_common_pre_steps
+
+  # Parallelism may need to be limited to prevent the build from being
+  # canceled for going over ulimits
+  echo "[BUILD] Building and installing FBGEMM-GPU (CPU=${cpu_only:-0}) ..."
+  print_exec conda run -n "${env_name}" \
+    python setup.py install ${build_args}
+
+  echo "[BUILD] FBGEMM-GPU build + install completed"
 }
 
 ################################################################################
@@ -644,13 +745,17 @@ publish_to_pypi () {
   package_name="$2"
   pypi_token="$3"
   if [ "$pypi_token" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PYPI_TOKEN"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_binary 11.7.1"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly-*.whl MY_TOKEN"
+    echo ""
+    echo "PYPI_TOKEN is missing!"
     return 1
   else
     echo "################################################################################"
     echo "# Publish to PyPI"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
   fi
