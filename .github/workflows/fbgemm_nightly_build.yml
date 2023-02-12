@@ -3,20 +3,23 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-name: Push Binary Nightly
+name: Push FBGEMM_GPU Nightly
 
 on:
   # PR Trigger (enable only for debugging)
-  [ push, pull_request ]
+  #
+   [ push, pull_request ]
 
   # Cron Trigger
   #
   # Based on the Conda page for PyTorch-nightly, the GPU nightly releases appear
   # around 02:30 every day (roughly 2 hours after the CPU releases)
+  #
   # schedule:
   #   - cron:  '45 03 * * *'
 
   # Manual trigger
+  #
   # workflow_dispatch:
 
 jobs:
@@ -36,6 +39,7 @@ jobs:
         os: [ linux.2xlarge ]
         python-version: [ "3.8", "3.9", "3.10" ]
         cuda-version: [ "11.7.1" ]
+
     steps:
     - name: Checkout the Repository
       uses: actions/checkout@v3
@@ -122,24 +126,6 @@ jobs:
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
-    # - name: Install CUDA 11.3
-    #   shell: bash
-    #   run: |
-    #     sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-    #     sudo yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel7/x86_64/cuda-rhel7.repo
-    #     sudo yum clean expire-cache
-    #     sudo yum install -y nvidia-driver-latest-dkms
-    #     sudo yum install -y cuda-11-3
-    #     sudo yum install -y cuda-drivers
-    #     sudo yum install -y libcudnn8-devel
-    # - name: setup Path
-    #   run: |
-    #     echo /usr/local/cuda-11.3/bin >> $GITHUB_PATH
-    #     echo /usr/local/bin >> $GITHUB_PATH
-    # - name: nvcc check
-    #   run: |
-    #     nvcc --version
-
     - name: Install PyTorch Nightly
       run: . $PRELUDE; install_pytorch_conda $BUILD_ENV nightly
 
@@ -166,7 +152,7 @@ jobs:
         conda run -n $BUILD_ENV \
           python -c "import fbgemm_gpu"
 
-    - name: Test with pytest
+    - name: Test with PyTest
       # Remove this line when we fixed all the unit tests
       continue-on-error: true
       run: |
