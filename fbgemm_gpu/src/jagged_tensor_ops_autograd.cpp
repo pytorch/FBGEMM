@@ -296,6 +296,56 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
   }
 };
 
+class JaggedSoftmaxOp : public torch::autograd::Function<JaggedSoftmaxOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& values,
+      const Tensor& offsets,
+      const int64_t max_L) {
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_softmax_forward", "")
+            .typed<Tensor(
+                const Tensor& values, const Tensor& offsets, int64_t max_L)>();
+
+    auto output = op.call(values, offsets, max_L);
+
+    ctx->save_for_backward({output, offsets});
+    ctx->saved_data["max_L"] = max_L;
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    Tensor output = *savedItr++;
+    Tensor offsets = *savedItr++;
+    int64_t max_L = ctx->saved_data["max_L"].toInt();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_softmax_backward", "")
+            .typed<Tensor(
+                const Tensor& grad_output,
+                const Tensor& output,
+                const Tensor& offsets,
+                int64_t max_L)>();
+
+    auto grad_input = op.call(grad_outputs[0], output, offsets, max_L);
+
+    return {
+        grad_input,
+        torch::autograd::Variable(), // offsets
+        torch::autograd::Variable() // max_L
+    };
+  }
+};
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -416,15 +466,7 @@ std::tuple<Tensor, Tensor> jagged_softmax(
     const Tensor& values,
     const Tensor& offsets,
     const int64_t max_L) {
-  static auto op =
-      c10::Dispatcher::singleton()
-          .findSchemaOrThrow("fbgemm::jagged_softmax_forward", "")
-          .typed<Tensor(
-              const Tensor& values, const Tensor& offsets, int64_t max_L)>();
-
-  auto output = op.call(values, offsets, max_L);
-
-  return {output, offsets};
+  return {JaggedSoftmaxOp::apply(values, offsets, max_L)[0], offsets};
 }
 
 Tensor jagged_jagged_bmm(
