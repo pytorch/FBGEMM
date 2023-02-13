@@ -72,13 +72,13 @@ fi
 echo "## 1. Set up Miniconda"
 ################################################################################
 
-setup_miniconda "$miniconda_prefix" || exit 1
+setup_miniconda "$miniconda_prefix"
 
 ################################################################################
 echo "## 2. Create test_binary environment"
 ################################################################################
 
-create_conda_pytorch_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version" || exit 1
+create_conda_pytorch_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 conda install -n test_binary -y pytest
 
 cd fbgemm_gpu

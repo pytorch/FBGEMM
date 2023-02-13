@@ -82,12 +82,12 @@ setup_miniconda "$miniconda_prefix"
 echo "## 2. Create build_binary environment"
 ################################################################################
 
-create_conda_pytorch_environment build_binary "$python_version" "$pytorch_channel_name" "$cuda_version" || exit 1
+create_conda_pytorch_environment build_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 
 cd fbgemm_gpu
 
 # cuDNN is needed to "build" FBGEMM
-install_cudnn build_binary "$miniconda_prefix/build_only/cudnn" "$cuda_version" || exit 1
+install_cudnn build_binary "$miniconda_prefix/build_only/cudnn" "$cuda_version"
 
 conda run -n build_binary python -m pip install -r requirements.txt
 

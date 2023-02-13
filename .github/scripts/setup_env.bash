@@ -102,9 +102,11 @@ print_system_info () {
   print_exec ldd --version
 
   echo "[INFO] Check CPU info"
+  print_exec nproc
   print_exec cat /proc/cpuinfo
 
   echo "[INFO] Check Linux distribution info"
+  print_exec uname -a
   print_exec cat /proc/version
   print_exec cat /etc/os-release
 

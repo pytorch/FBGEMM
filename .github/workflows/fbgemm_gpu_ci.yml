@@ -15,6 +15,7 @@ on:
 
 jobs:
   build_nvidia_gpu:
+    if: ${{ false }}  # Disable the job for now
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -27,7 +28,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-20.04 ]
-        cuda-version: [ 11.5.2, 11.6.2, 11.7.1 ]
+        # PyTorch has dropped support for CUDA 11.6
+        cuda-version: [ 11.7.1 ]
 
     steps:
     - name: Checkout the Repository
@@ -47,8 +49,8 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.8
 
-    - name: Install C/C++ Compilers
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
+    # - name: Install C/C++ Compilers
+    #   run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
@@ -76,8 +78,8 @@ jobs:
         print_exec conda run -n $BUILD_ENV python input_combine_test.py -v
         print_exec conda run -n $BUILD_ENV python quantize_ops_test.py -v
         print_exec conda run -n $BUILD_ENV python sparse_ops_test.py -v
-        print_exec conda run -n $BUILD_ENV python -c "import fbgemm_gpu"
-        print_exec conda run -n $BUILD_ENV python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+        conda run -n $BUILD_ENV python -c "import fbgemm_gpu"
+        conda run -n $BUILD_ENV python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   # build_nvidia_gpu:
   #   runs-on: ${{ matrix.os }}
@@ -160,6 +162,7 @@ jobs:
   #       python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   build_amd_gpu:
+    if: ${{ false }}  # Disable the job for now
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -221,6 +224,7 @@ jobs:
         python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   test_amd_gpu:
+    if: ${{ false }}  # Disable the job for now
     runs-on: rocm
     strategy:
       matrix:

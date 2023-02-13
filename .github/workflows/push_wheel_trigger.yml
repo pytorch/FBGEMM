@@ -3,8 +3,8 @@ name: Push Wheel
 on:
   # For debugging, please use test_wheel_*.yml
   # run every day at 10:30 AM
-  schedule:
-    - cron:  '30 10 * * *'
+  # schedule:
+  #   - cron:  '30 10 * * *'
   # or manually trigger it
   workflow_dispatch:
     inputs:

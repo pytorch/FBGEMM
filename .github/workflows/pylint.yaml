@@ -1,4 +1,4 @@
-name: Lint
+name: FBGEMM_GPU Lint
 
 on:
   push:

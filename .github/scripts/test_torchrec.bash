@@ -75,13 +75,13 @@ fi
 echo "## 1. Set up Miniconda"
 ################################################################################
 
-setup_miniconda "$miniconda_prefix" || exit 1
+setup_miniconda "$miniconda_prefix"
 
 ################################################################################
 echo "## 2. Create test_binary environment"
 ################################################################################
 
-create_conda_pytorch_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version" || exit 1
+create_conda_pytorch_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 
 # Comment out FBGEMM_GPU since we will install it from "$fbgemm_wheel_path"
 sed -i 's/fbgemm-gpu/#fbgemm-gpu/g' requirements.txt
