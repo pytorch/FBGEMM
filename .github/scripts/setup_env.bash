@@ -11,9 +11,9 @@
 ################################################################################
 
 print_exec () {
-  echo "+ $@"
+  echo "+ $*"
   echo ""
-  $@
+  "$@"
 }
 
 test_python_import () {
@@ -44,7 +44,7 @@ test_binpath () {
     return 1
   fi
 
-  if conda run -n "${env_name}" which $bin_name; then
+  if conda run -n "${env_name}" which "${bin_name}"; then
     echo "[CHECK] Binary ${bin_name} found in PATH"
   else
     echo "[CHECK] Binary ${bin_name} not found in PATH!"
@@ -62,10 +62,13 @@ test_filepath () {
     return 1
   fi
 
-  conda_prefix=`conda run -n "${env_name}" printenv CONDA_PREFIX`
-  file_path=`find ${conda_prefix} -type f -name ${file_name}`
+  conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  file_path=$(find "${conda_prefix}" -type f -name "${file_name}")
+  link_path=$(find "${conda_prefix}" -type l -name "${file_name}")
   if [ "${file_path}" != "" ]; then
-    echo "[CHECK] ${file_name} found in CONDA_PREFIX PATH: ${file_path}"
+    echo "[CHECK] ${file_name} found in CONDA_PREFIX PATH (file): ${file_path}"
+  elif [ "${link_path}" != "" ]; then
+    echo "[CHECK] ${file_name} found in CONDA_PREFIX PATH (symbolic link): ${link_path}"
   else
     echo "[CHECK] ${file_name} not found in CONDA_PREFIX PATH!"
     return 1
@@ -174,14 +177,14 @@ setup_miniconda () {
   fi
 
   echo "[SETUP] Reloading the bash configuration ..."
-  print_exec ${miniconda_prefix}/bin/conda init bash
+  print_exec "${miniconda_prefix}/bin/conda" init bash
   print_exec . ~/.bashrc
 
   echo "[SETUP] Updating Miniconda base packages ..."
   print_exec conda update -n base -c defaults -y conda
 
-  # Print conda info
-  conda info
+  # Print Conda info
+  print_exec conda info
 
   # These variables will be exported outside
   export PATH="${miniconda_prefix}/bin:${PATH}"
@@ -211,7 +214,7 @@ create_conda_environment () {
   echo "[SETUP] Creating new Conda environment (Python ${python_version}) ..."
   print_exec conda create -y --name "${env_name}" python="${python_version}"
 
-  echo "[SETUP] Installed Python version: " `conda run -n "${env_name}" python --version`
+  echo "[SETUP] Installed Python version: $(conda run -n "${env_name}" python --version)"
   echo "[SETUP] Successfully created Conda environment: ${env_name}"
 }
 
@@ -256,6 +259,7 @@ install_pytorch_conda () {
 
   # Install PyTorch packages
   echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, CPU=${pytorch_cpu:-0}) through Conda using channel '${pytorch_channel}' ..."
+  # shellcheck disable=SC2086
   print_exec conda install -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}"
 
   # Run check for GPU variant
@@ -266,8 +270,11 @@ install_pytorch_conda () {
       echo "[CHECK] The installed PyTorch ${pytorch_version} contains references to cuDNN"
     else
       echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be the CPU-only version as it is missing references to cuDNN!"
-      echo "[CHECK] This can happen if the GPU variant of PyTorch nightly (for the MAJOR.MINOR version of CUDA already installed on the system) has not been published yet."
-      echo "[CHECK] Please verify using the logged timestamp, the installed CUDA version, and the version of PyTorch that was attempted for installation."
+      echo "[CHECK] This can happen if the variant of PyTorch (e.g. GPU, nightly) for the MAJOR.MINOR version of CUDA presently installed on the system has not been published yet."
+      echo "[CHECK] Please verify in Conda using the logged timestamp, the installed CUDA version, and the version of PyTorch that was attempted for installation:"
+      echo "[CHECK]     * https://anaconda.org/pytorch-nightly/pytorch/files"
+      echo "[CHECK]     * https://anaconda.org/pytorch-test/pytorch/files"
+      echo "[CHECK]     * https://anaconda.org/pytorch/pytorch/files"
       return 1
     fi
 
@@ -276,10 +283,10 @@ install_pytorch_conda () {
   fi
 
   # Check that PyTorch is importable
-  test_python_import $env_name torch.distributed || return 1
+  test_python_import "${env_name}" torch.distributed || return 1
 
   # Print out the actual installed PyTorch version
-  installed_pytorch_version=`conda run -n "${env_name}" python -c "import torch; print(torch.__version__)"`
+  installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
   echo "[INSTALL] Installed PyTorch through Conda"
   echo "[INSTALL] NOTE: The installed version is: ${installed_pytorch_version}"
 }
@@ -310,6 +317,7 @@ install_pytorch_pip () {
   if [ "$pytorch_variant_type" == "cuda" ]; then
     # Extract the CUDA version or default to 11.7.1
     cuda_version="${pytorch_variant_version:-11.7.1}"
+    # shellcheck disable=SC2206
     cuda_version_arr=(${cuda_version//./ })
     # Convert, i.e. cuda 11.7.1 => cu117
     pytorch_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
@@ -336,18 +344,31 @@ install_pytorch_pip () {
   fi
 
   echo "[INSTALL] Attempting to install PyTorch ${pytorch_version}+${pytorch_variant} through PIP using channel ${pytorch_channel} ..."
+  # shellcheck disable=SC2086
   print_exec conda run -n "${env_name}" pip install ${pytorch_package} --extra-index-url ${pytorch_channel}
 
-  if [ "$pytorch_variant_type" == "cuda" ]; then
-    # Ensure that the PyTorch-CUDA headers are properly installed
-    test_filepath "${env_name}" cuda_cmake_macros.h || return 1
+  if [ "$pytorch_variant_type" != "cpu" ]; then
+    if [ "$pytorch_variant_type" == "cuda" ]; then
+      # Ensure that the PyTorch-CUDA headers are properly installed
+      test_filepath "${env_name}" cuda_cmake_macros.h || return 1
+    fi
+
+    # Ensure that the PyTorch build is of the correct variant
+    # This test usually applies to the PyTorch nightly builds
+    if conda run -n build_binary pip list torch | grep torch | grep "${pytorch_variant}"; then
+      echo "[CHECK] The installed PyTorch ${pytorch_version} is the correct variant (${pytorch_variant})"
+    else
+      echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be an incorrect variant as it is missing references to ${pytorch_variant}!"
+      echo "[CHECK] This can happen if the variant of PyTorch (e.g. GPU, nightly) for the MAJOR.MINOR version of CUDA presently installed on the system has not been published yet."
+      return 1
+    fi
   fi
 
   # Check that PyTorch is importable
-  test_python_import $env_name torch.distributed || return 1
+  test_python_import "${env_name}" torch.distributed || return 1
 
   # Print out the actual installed PyTorch version
-  installed_pytorch_version=`conda run -n "${env_name}" python -c "import torch; print(torch.__version__)"`
+  installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
   echo "[INSTALL] Installed PyTorch through PIP"
   echo "[INSTALL] NOTE: The installed version is: ${installed_pytorch_version}"
 }
@@ -371,6 +392,7 @@ install_cuda () {
   fi
 
   # Check CUDA version formatting
+  # shellcheck disable=SC2206
   cuda_version_arr=(${cuda_version//./ })
   if [ ${#cuda_version_arr[@]} -lt 3 ]; then
     echo "[ERROR] CUDA minor version number must be specified (i.e. X.Y.Z)"
@@ -382,10 +404,17 @@ install_cuda () {
   print_exec conda install -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}"
 
   # Ensure that nvcc is properly installed
-  test_binpath $env_name nvcc || return 1
+  test_binpath "${env_name}" nvcc || return 1
 
   # Ensure that the CUDA headers are properly installed
   test_filepath "${env_name}" cuda_runtime.h || return 1
+
+  # Ensure that the libraries are properly installed
+  test_filepath "${env_name}" libnvToolsExt.so || return 1
+
+  # LIBNVTOOLSEXT
+  # CUDA_TOOLKIT_ROOT_DIR
+  # print_exec conda env config vars set -n "${env_name}" CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
 
   # Print nvcc version
   print_exec conda run -n "${env_name}" nvcc --version
@@ -424,20 +453,20 @@ install_cxx_compiler () {
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
     echo "[INSTALL] Setting the C/C++ compiler symlinks ..."
-    cc_path=`conda run -n "${env_name}" printenv CC`
-    cxx_path=`conda run -n "${env_name}" printenv CXX`
+    cc_path=$(conda run -n "${env_name}" printenv CC)
+    cxx_path=$(conda run -n "${env_name}" printenv CXX)
 
-    print_exec ln -s $cc_path $(dirname $cc_path)/cc
-    print_exec ln -s $cc_path $(dirname $cc_path)/gcc
-    print_exec ln -s $cxx_path $(dirname $cxx_path)/c++
-    print_exec ln -s $cxx_path $(dirname $cxx_path)/g++
+    print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/cc"
+    print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/gcc"
+    print_exec ln -s "${cxx_path}" "$(dirname "$cxx_path")/c++"
+    print_exec ln -s "${cxx_path}" "$(dirname "$cxx_path")/g++"
   fi
 
   # Check C/C++ compilers are visible
-  test_binpath $env_name cc || return 1
-  test_binpath $env_name gcc || return 1
-  test_binpath $env_name c++ || return 1
-  test_binpath $env_name g++ || return 1
+  test_binpath "${env_name}" cc || return 1
+  test_binpath "${env_name}" gcc || return 1
+  test_binpath "${env_name}" c++ || return 1
+  test_binpath "${env_name}" g++ || return 1
 
   # Print out the C++ version
   print_exec conda run -n "${env_name}" c++ --version
@@ -471,15 +500,15 @@ install_build_tools () {
     wheel
 
   # Check binaries are visible in the PAATH
-  test_binpath $env_name cmake || return 1
-  test_binpath $env_name ninja || return 1
+  test_binpath "${env_name}" cmake || return 1
+  test_binpath "${env_name}" ninja || return 1
 
   # Check Python packages are importable
-  test_python_import $env_name hypothesis || return 1
-  test_python_import $env_name jinja2 || return 1
-  test_python_import $env_name numpy || return 1
-  test_python_import $env_name skbuild || return 1
-  test_python_import $env_name wheel || return 1
+  test_python_import "${env_name}" hypothesis || return 1
+  test_python_import "${env_name}" jinja2 || return 1
+  test_python_import "${env_name}" numpy || return 1
+  test_python_import "${env_name}" skbuild || return 1
+  test_python_import "${env_name}" wheel || return 1
 
   echo "[INSTALL] Successfully installed all the build tools"
 }
@@ -512,6 +541,7 @@ install_cudnn () {
   )
 
   # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
+  # shellcheck disable=SC2206
   cuda_version_arr=(${cuda_version//./ })
   # Fetch the major and minor version to concat
   cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
@@ -529,7 +559,7 @@ install_cudnn () {
   mkdir -p "$install_path"
 
   # Create temporary directory
-  tmp_dir=`mktemp -d`
+  tmp_dir=$(mktemp -d)
   cd "$tmp_dir" || return 1
 
   # Download cuDNN
@@ -548,7 +578,7 @@ install_cudnn () {
   mv cudnn-linux-*/lib "$install_path"
 
   # Delete the temporary directory
-  cd -
+  cd - || return 1
   rm -rf "$tmp_dir"
 
   # Export the environment variables to the Conda environment
@@ -625,8 +655,8 @@ prepare_fbgemm_gpu_build () {
   echo "[BUILD] Installing other build dependencies ..."
   print_exec conda run -n "${env_name}" python -m pip install -r requirements.txt
 
-  test_python_import $env_name numpy || return 1
-  test_python_import $env_name skbuild || return 1
+  test_python_import "${env_name}" numpy || return 1
+  test_python_import "${env_name}" skbuild || return 1
 
   echo "[BUILD] Successfully ran git submodules update"
 }
@@ -635,10 +665,10 @@ __build_fbgemm_gpu_common_pre_steps () {
   # Private function that uses variables instantiated by its caller
 
   # Check C/C++ compilers are visible (the build scripts look specifically for `gcc`)
-  test_binpath $env_name cc || return 1
-  test_binpath $env_name gcc || return 1
-  test_binpath $env_name c++ || return 1
-  test_binpath $env_name g++ || return 1
+  test_binpath "${env_name}" cc || return 1
+  test_binpath "${env_name}" gcc || return 1
+  test_binpath "${env_name}" c++ || return 1
+  test_binpath "${env_name}" g++ || return 1
 
   if [ "$cpu_only" != "" ]; then
     # Update the package name and build args depending on if CUDA is specified
@@ -648,7 +678,7 @@ __build_fbgemm_gpu_common_pre_steps () {
     package_name="${package_name}-cpu"
   else
     # Check nvcc is visible
-    test_binpath $env_name nvcc || return 1
+    test_binpath "${env_name}" nvcc || return 1
 
     # Check that cuDNN environment variables are available
     test_env_var "${env_name}" CUDNN_INCLUDE_DIR || return 1
@@ -656,11 +686,13 @@ __build_fbgemm_gpu_common_pre_steps () {
 
     # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
     echo "[BUILD] Applying GPU build args ..."
-    build_args="-DTORCH_CUDA_ARCH_LIST=7.0;8.0"
+    build_args="-DTORCH_CUDA_ARCH_LIST='7.0;8.0'"
   fi
 
   # Extract the Python tag
-  python_version=(`conda run -n "${env_name}" python --version`)
+  # shellcheck disable=SC2207
+  python_version=($(conda run -n "${env_name}" python --version))
+  # shellcheck disable=SC2206
   python_version_arr=(${python_version[1]//./ })
   python_tag="py${python_version_arr[0]}${python_version_arr[1]}"
   echo "[BUILD] Extracted Python tag: ${python_tag}"
@@ -699,8 +731,8 @@ build_fbgemm_gpu_package () {
     python setup.py bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
-      ${build_args} \
-      --plat-name=manylinux1_x86_64
+      --plat-name=manylinux1_x86_64 \
+      "${build_args}"
 
   echo "[BUILD] Enumerating the built wheels ..."
   print_exec ls -lth dist/*.whl
@@ -733,7 +765,7 @@ build_fbgemm_gpu_install () {
   # canceled for going over ulimits
   echo "[BUILD] Building and installing FBGEMM-GPU (CPU=${cpu_only:-0}) ..."
   print_exec conda run -n "${env_name}" \
-    python setup.py install ${build_args}
+    python setup.py install "${build_args}"
 
   echo "[BUILD] FBGEMM-GPU build + install completed"
 }
@@ -764,7 +796,7 @@ publish_to_pypi () {
 
   echo "[INSTALL] Installing twine ..."
   print_exec conda install -n "${env_name}" -y twine
-  test_python_import $env_name twine || return 1
+  test_python_import "${env_name}" twine || return 1
 
   echo "[PUBLISH] Uploading package(s) to PyPI: ${package_name} ..."
   conda run -n "${env_name}" \
@@ -773,7 +805,7 @@ publish_to_pypi () {
       --password "${pypi_token}" \
       --skip-existing \
       --verbose \
-      ${package_name}
+      "${package_name}"
 
   echo "[PUBLISH] Successfully published package(s) to PyPI: ${package_name}"
 }

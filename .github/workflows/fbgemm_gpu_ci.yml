@@ -28,7 +28,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-20.04 ]
-        # PyTorch has dropped support for CUDA 11.6
+        python-version: [ "3.8" ]
+        # As of version 2.0, PyTorch has dropped support for CUDA 11.6
         cuda-version: [ 11.7.1 ]
 
     steps:
@@ -47,7 +48,14 @@ jobs:
         echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
 
     - name: Create Conda Environment
-      run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.8
+      run: |
+        . $PRELUDE
+        create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+        # This hack is needed to get builds running properly on Ubuntu 20.04
+        echo "[SETUP] Creating symlink \$CONDA_PREFIX/lib64 -> \$CONDA_PREFIX/lib ..."
+        conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+        ln -s "${conda_prefix}/lib" "${conda_prefix}/lib64"
 
     # - name: Install C/C++ Compilers
     #   run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
@@ -80,86 +88,6 @@ jobs:
         print_exec conda run -n $BUILD_ENV python sparse_ops_test.py -v
         conda run -n $BUILD_ENV python -c "import fbgemm_gpu"
         conda run -n $BUILD_ENV python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
-
-  # build_nvidia_gpu:
-  #   runs-on: ${{ matrix.os }}
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-20.04]
-  #       config: [[pip, 11.3], [pip, 11.5], [pip, 11.6], [pip, 11.7], [conda, 11.7.1]]
-
-  #   steps:
-  #   - uses: actions/checkout@v3
-
-  #   - name: Install CUDA
-  #     shell: bash
-  #     if: matrix.config[0] == 'pip'
-  #     run: |
-  #       wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
-  #       sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
-  #       # https://forums.developer.nvidia.com/t/notice-cuda-linux-repository-key-rotation/212772
-  #       wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb
-  #       sudo dpkg -i cuda-keyring_1.0-1_all.deb
-  #       # sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/3bf863cc.pub
-  #       sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
-  #       sudo apt-get update
-  #       # "11.5 -> 11-5"
-  #       cuda_apt_version=$(echo "${{ matrix.config[1] }}" | sed "s/\./-/")
-  #       sudo apt-get -y install cuda-minimal-build-${cuda_apt_version} cuda-nvrtc-dev-${cuda_apt_version} cuda-nvtx-${cuda_apt_version} cuda-libraries-dev-${cuda_apt_version}
-  #       sudo apt-get -y install libcudnn8-dev
-
-  #   - name: Install dependencies
-  #     shell: bash
-  #     run: |
-  #       if [ x"${{ matrix.config[0] }}" == x"pip" ]; then
-  #         # pip-based installation
-  #         sudo apt-get update
-  #         sudo apt-get -y install git pip python3-dev
-  #         sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-  #         # Install pytorch built with CUDA 11.3 in all cases
-  #         sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu113/torch_nightly.html
-  #       else
-  #         # conda-based installation
-  #         wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
-  #         bash ~/miniconda.sh -b -p $HOME/miniconda -u
-  #         eval "$($HOME/miniconda/bin/conda shell.bash hook)"
-  #         cuda_version="${{ matrix.config[1] }}"
-  #         conda install -y pytorch cuda -c pytorch-nightly -c "nvidia/label/cuda-${cuda_version}"
-  #         conda install -y -c conda-forge cudnn
-  #         conda install -y numpy scikit-build jinja2 ninja cmake hypothesis
-  #       fi
-  #   - name: Checkout submodules
-  #     shell: bash
-  #     run: |
-  #       cd fbgemm_gpu
-  #       git submodule sync
-  #       git submodule update --init --recursive
-
-  #   - name: Build fbgemm_gpu
-  #     shell: bash
-  #     run: |
-  #       cd fbgemm_gpu
-  #       if [ x"${{ matrix.config[0] }}" == x"pip" ]; then
-  #         CUDA_PATH="/usr/local/cuda-${{ matrix.config[1] }}"
-  #         sudo CUDACXX="${CUDA_PATH}/bin/nvcc" python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
-  #       else
-  #         eval "$($HOME/miniconda/bin/conda shell.bash hook)"
-  #         python setup.py install -DTORCH_CUDA_ARCH_LIST="6.0"
-  #       fi
-
-  #   - name: Test fbgemm_gpu installation
-  #     shell: bash
-  #     run: |
-  #       if [ x"${{ matrix.config[0] }}" == x"conda" ]; then
-  #         eval "$($HOME/miniconda/bin/conda shell.bash hook)"
-  #       fi
-  #       cd fbgemm_gpu
-  #       cd test
-  #       python input_combine_test.py -v
-  #       python quantize_ops_test.py -v
-  #       python sparse_ops_test.py -v
-  #       python -c "import fbgemm_gpu"
-  #       python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   build_amd_gpu:
     if: ${{ false }}  # Disable the job for now
