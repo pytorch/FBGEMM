@@ -346,6 +346,132 @@ class JaggedSoftmaxOp : public torch::autograd::Function<JaggedSoftmaxOp> {
   }
 };
 
+class JaggedJaggedBmmOp : public torch::autograd::Function<JaggedJaggedBmmOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const Tensor& y_values,
+      const Tensor& offsets,
+      const int64_t max_L) {
+    ctx->save_for_backward({x_values, y_values, offsets});
+    ctx->saved_data["max_L"] = max_L;
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_jagged_bmm_forward", "")
+            .typed<Tensor(
+                const Tensor& x_values,
+                const Tensor& y_values,
+                const Tensor& offsets,
+                int64_t max_L)>();
+
+    auto output = op.call(x_values, y_values, offsets, max_L);
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    Tensor x_values = *savedItr++;
+    Tensor y_values = *savedItr++;
+    Tensor offsets = *savedItr++;
+    int64_t max_L = ctx->saved_data["max_L"].toInt();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_dense_bmm_forward", "")
+            .typed<Tensor(
+                const Tensor& grad_output,
+                const Tensor& offsets,
+                const Tensor& y,
+                int64_t max_L)>();
+
+    auto grad_input_x =
+        op.call(y_values, offsets, at::transpose(grad_outputs[0], 2, 1), max_L);
+    auto grad_input_y = op.call(x_values, offsets, grad_outputs[0], max_L);
+
+    return {
+        grad_input_x,
+        grad_input_y,
+        torch::autograd::Variable(), // offsets
+        torch::autograd::Variable() // max_L
+    };
+  }
+};
+
+class JaggedDenseBmmOp : public torch::autograd::Function<JaggedDenseBmmOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& x_values,
+      const Tensor& x_offsets,
+      const Tensor& y,
+      const int64_t max_L) {
+    ctx->save_for_backward({x_values, x_offsets, y});
+    ctx->saved_data["max_L"] = max_L;
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_dense_bmm_forward", "")
+            .typed<Tensor(
+                const Tensor& x_values,
+                const Tensor& x_offsets,
+                const Tensor& y,
+                int64_t max_L)>();
+
+    auto output = op.call(x_values, x_offsets, y, max_L);
+
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    Tensor x_values = *savedItr++;
+    Tensor offsets = *savedItr++;
+    Tensor y = *savedItr++;
+    int64_t max_L = ctx->saved_data["max_L"].toInt();
+    TORCH_CHECK(grad_outputs.size() == 1);
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_dense_bmm_forward", "")
+            .typed<Tensor(
+                const Tensor& grad_output,
+                const Tensor& offsets,
+                const Tensor& y,
+                int64_t max_L)>();
+
+    auto grad_input_x =
+        op.call(grad_outputs[0], offsets, at::transpose(y, 2, 1), max_L);
+
+    static auto op2 =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_jagged_bmm_forward", "")
+            .typed<Tensor(
+                const Tensor& grad_output,
+                const Tensor& x_values,
+                const Tensor& offsets,
+                int64_t max_L)>();
+
+    auto grad_input_y = op2.call(x_values, grad_outputs[0], offsets, max_L);
+
+    return {
+        grad_input_x,
+        torch::autograd::Variable(), // x_offsets
+        grad_input_y,
+        torch::autograd::Variable() // max_L
+    };
+  }
+};
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -474,18 +600,7 @@ Tensor jagged_jagged_bmm(
     const Tensor& y_values,
     const Tensor& offsets,
     const int64_t max_L) {
-  static auto op =
-      c10::Dispatcher::singleton()
-          .findSchemaOrThrow("fbgemm::jagged_jagged_bmm_forward", "")
-          .typed<Tensor(
-              const Tensor& x_values,
-              const Tensor& y_values,
-              const Tensor& offsets,
-              int64_t max_L)>();
-
-  auto output = op.call(x_values, y_values, offsets, max_L);
-
-  return output;
+  return JaggedJaggedBmmOp::apply(x_values, y_values, offsets, max_L)[0];
 }
 
 std::tuple<Tensor, Tensor> jagged_dense_bmm(
@@ -493,18 +608,7 @@ std::tuple<Tensor, Tensor> jagged_dense_bmm(
     const Tensor& x_offsets,
     const Tensor& y,
     const int64_t max_L) {
-  static auto op =
-      c10::Dispatcher::singleton()
-          .findSchemaOrThrow("fbgemm::jagged_dense_bmm_forward", "")
-          .typed<Tensor(
-              const Tensor& x_values,
-              const Tensor& x_offsets,
-              const Tensor& y,
-              int64_t max_L)>();
-
-  auto output = op.call(x_values, x_offsets, y, max_L);
-
-  return {output, x_offsets};
+  return {JaggedDenseBmmOp::apply(x_values, x_offsets, y, max_L)[0], x_offsets};
 }
 
 } // namespace fbgemm_gpu
