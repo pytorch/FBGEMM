@@ -1761,9 +1761,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]
     @given(
-        B=st.integers(0, 32),
-        max_L=st.integers(1, 32),
-        D=st.integers(0, 32),
+        B=st.integers(1, 512),
+        max_L=st.integers(1, 1000),
+        D=st.integers(1, 32),
         dtype=st.sampled_from([torch.float, torch.double]),
         device_type=st.sampled_from(["cpu", "cuda"])
         if gpu_available
@@ -1778,31 +1778,44 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
-        assume(B != 0)
         device = torch.device(device_type)
         torch.backends.cuda.matmul.allow_tf32 = False
         lengths = torch.randint(max_L + 1, size=(B,), device=device)
+        total_length = int(lengths.sum().item())
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-        values = torch.rand((offsets[-1], D), dtype=dtype, device=device)
+        values = torch.rand(
+            (total_length, D), requires_grad=True, dtype=dtype, device=device
+        )
         output, _ = torch.ops.fbgemm.jagged_softmax(
             values,
             offsets,
             max_L,
         )
-        dense = torch.ops.fbgemm.jagged_to_padded_dense(
-            values,
-            [offsets],
-            max_lengths=[max_L],
-            padding_value=-5e7,
-        )
-        dense_softmax = torch.nn.functional.softmax(
-            dense.transpose(1, 2), dim=-1
-        ).permute(0, 2, 1)
+        values_ref = values.detach().clone().requires_grad_(True)
         output_ref, _ = torch.ops.fbgemm.dense_to_jagged(
-            dense_softmax, [offsets], offsets[-1]
+            torch.nn.functional.softmax(
+                torch.ops.fbgemm.jagged_to_padded_dense(
+                    values_ref,
+                    [offsets],
+                    max_lengths=[max_L],
+                    padding_value=-5e7,
+                ).transpose(1, 2),
+                dim=-1,
+            ).permute(0, 2, 1),
+            [offsets],
+            total_length,
         )
 
+        # verify forward
         torch.testing.assert_close(output, output_ref)
+
+        # verify backward
+        grad_output = output.detach().clone().requires_grad_(True)
+
+        output.backward(grad_output)
+        output_ref.backward(grad_output)
+
+        torch.testing.assert_close(values.grad, values_ref.grad)
 
     # pyre-ignore [56]
     @given(
