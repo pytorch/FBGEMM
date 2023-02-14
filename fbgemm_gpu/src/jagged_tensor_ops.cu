@@ -1834,11 +1834,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_kernel(
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
     const int length = min(row_end - row_start, max_L);
-    if (length == 0) {
-      for (int d = threadIdx.x; d < D; d += blockDim.x) {
-        output[b][d] = 0;
-      }
-    } else {
+    if (length != 0) {
       // TODO: use shared memory and better reduction
       for (int d = threadIdx.x; d < D; d += blockDim.x) {
         scalar_t max_value = values[row_start][d];
@@ -1872,7 +1868,7 @@ Tensor jagged_softmax_forward(
   device_guard.set_index(values.get_device());
 
   const int B = offsets.numel() - 1;
-  const int D = values.size(-1);
+  const int D = values.size(1);
   auto output = at::empty_like(values);
 
   if (B > 0 && D > 0) {
@@ -1903,6 +1899,86 @@ Tensor jagged_softmax_forward(
   }
 
   return output;
+}
+
+template <typename index_t, typename scalar_t>
+__global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
+    const at::PackedTensorAccessor32<scalar_t, 2> grad_output,
+    const at::PackedTensorAccessor32<scalar_t, 2> output,
+    const at::PackedTensorAccessor32<index_t, 1> offsets,
+    at::PackedTensorAccessor32<scalar_t, 2> grad_input,
+    const int max_L) {
+  const int B = offsets.size(0) - 1;
+  const int D = grad_output.size(1);
+
+  const int b_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const int b_step = gridDim.x * blockDim.y;
+  for (int b = b_begin; b < B; b += b_step) {
+    const int row_start = offsets[b];
+    const int row_end = offsets[b + 1];
+    const int length = min(row_end - row_start, max_L);
+    if (length != 0) {
+      // TODO: use shared memory and better reduction
+      for (int d = threadIdx.x; d < D; d += blockDim.x) {
+        scalar_t sum_value = grad_output[row_start][d] * output[row_start][d];
+        for (int l = 1; l < length; ++l) {
+          sum_value += grad_output[row_start + l][d] * output[row_start + l][d];
+        }
+
+        for (int l = 0; l < length; ++l) {
+          grad_input[row_start + l][d] =
+              (grad_output[row_start + l][d] - sum_value) *
+              output[row_start + l][d];
+        }
+      }
+    }
+  }
+}
+
+Tensor jagged_softmax_backward(
+    const Tensor& grad_output,
+    const Tensor& output,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  TENSOR_ON_CUDA_GPU(grad_output);
+  TENSOR_ON_CUDA_GPU(output);
+  TENSOR_ON_CUDA_GPU(offsets);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(grad_output.get_device());
+
+  const int B = offsets.numel() - 1;
+  const int D = grad_output.size(1);
+  auto grad_input = at::empty_like(grad_output);
+
+  if (B > 0 && D > 0) {
+    const int block_dim_x =
+        std::min(div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
+    const int block_dim_y = kMaxThreads / block_dim_x;
+
+    AT_DISPATCH_INDEX_TYPES(
+        offsets.scalar_type(), "jagged_softmax_backward_kernel_1", [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              grad_output.scalar_type(),
+              "jagged_softmax_backward_kernel_2",
+              [&] {
+                jagged_softmax_backward_kernel<index_t, scalar_t>
+                    <<<div_round_up(B, block_dim_y),
+                       dim3(block_dim_x, block_dim_y),
+                       0,
+                       at::cuda::getCurrentCUDAStream()>>>(
+                        grad_output.packed_accessor32<scalar_t, 2>(),
+                        output.packed_accessor32<scalar_t, 2>(),
+                        offsets.packed_accessor32<index_t, 1>(),
+                        grad_input.packed_accessor32<scalar_t, 2>(),
+                        (int)max_L);
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
+              });
+        });
+  }
+  return grad_input;
 }
 
 template <typename index_t, typename scalar_t>
@@ -3099,6 +3175,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("jagged_softmax", fbgemm_gpu::jagged_softmax);
   DISPATCH_TO_CUDA(
       "jagged_softmax_forward", fbgemm_gpu::jagged_softmax_forward);
+  DISPATCH_TO_CUDA(
+      "jagged_softmax_backward", fbgemm_gpu::jagged_softmax_backward);
   DISPATCH_TO_CUDA("jagged_jagged_bmm", fbgemm_gpu::jagged_jagged_bmm);
   DISPATCH_TO_CUDA(
       "jagged_jagged_bmm_forward", fbgemm_gpu::jagged_jagged_bmm_forward);
