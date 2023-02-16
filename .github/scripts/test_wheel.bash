@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
 # Exit on failure
 set -e
 
@@ -73,7 +78,7 @@ setup_miniconda "$miniconda_prefix"
 echo "## 2. Create test_binary environment"
 ################################################################################
 
-create_conda_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
+create_conda_pytorch_environment test_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 conda install -n test_binary -y pytest
 
 cd fbgemm_gpu

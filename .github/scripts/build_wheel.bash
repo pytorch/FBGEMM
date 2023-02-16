@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
 # Exit on failure
 set -e
 
@@ -77,14 +82,12 @@ setup_miniconda "$miniconda_prefix"
 echo "## 2. Create build_binary environment"
 ################################################################################
 
-create_conda_environment build_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
+create_conda_pytorch_environment build_binary "$python_version" "$pytorch_channel_name" "$cuda_version"
 
 cd fbgemm_gpu
 
 # cuDNN is needed to "build" FBGEMM
-install_cudnn "$miniconda_prefix/build_only/cudnn"
-export CUDNN_INCLUDE_DIR="$miniconda_prefix/build_only/cudnn/include"
-export CUDNN_LIBRARY="$miniconda_prefix/build_only/cudnn/lib"
+install_cudnn build_binary "$miniconda_prefix/build_only/cudnn" "$cuda_version"
 
 conda run -n build_binary python -m pip install -r requirements.txt
 
