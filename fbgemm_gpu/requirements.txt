@@ -1,6 +1,6 @@
 cmake
 hypothesis
-Jinja2
+jinja2
 ninja
 numpy
 scikit-build
