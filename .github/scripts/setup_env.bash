@@ -770,6 +770,114 @@ build_fbgemm_gpu_install () {
   echo "[BUILD] FBGEMM-GPU build + install completed"
 }
 
+install_fbgemm_gpu_package () {
+  env_name="$1"
+  package_name="$2"
+  if [ "$package_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME WHEEL_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu.whl     # Install the package (wheel)"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install FBGEMM-GPU Package (Wheel)"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  echo "[BUILD] Installing FBGEMM-GPU wheel: ${package_name} ..."
+  conda run -n "${env_name}" python -m pip install "${package_name}"
+
+  echo "[BUILD] Checking imports ..."
+  test_python_import "${env_name}" fbgemm_gpu || return 1
+  test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers || return 1
+
+  echo "[BUILD] Wheel installation completed ..."
+}
+
+run_python_test () {
+  env_name="$1"
+  python_test_file="$2"
+  if [ "$python_test_file" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_TEST_FILE"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env quantize_ops_test.py"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# [$(date --utc +%FT%T.%3NZ)] Run Python Test Suite:"
+    echo "#   ${python_test_file}"
+    echo "################################################################################"
+  fi
+
+  if conda run -n "${env_name}" python -m pytest -v -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
+    echo "[TEST] Python test suite PASSED: ${python_test_file}"
+  else
+    echo "[TEST] Python test suite FAILED: ${python_test_file}"
+    return 1
+  fi
+}
+
+################################################################################
+# Publish Functions
+################################################################################
+
+run_fbgemm_gpu_tests () {
+  env_name="$1"
+  cpu_only="$2"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME [CPU_ONLY]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env    # Run all tests"
+    echo "    ${FUNCNAME[0]} build_env 1  # Skip tests known to be broken in CPU-only mode"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Run FBGEMM-GPU Tests"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
+  files_to_skip=(
+    split_table_batched_embeddings_test.py
+    test_utils.py
+    ssd_split_table_batched_embeddings_test.py
+  )
+
+  if [ "$cpu_only" != "" ]; then
+    # These are tests that are currently broken in FBGEMM_GPU-CPU
+    unstable_tests=(
+      jagged_tensor_ops_test.py
+      uvm_test.py
+    )
+  else
+    unstable_tests=()
+  fi
+
+  echo "[INSTALL] Installing pytest ..."
+  print_exec conda install -n "${env_name}" -y pytest
+
+  # NOTE: These tests running on single CPU core with a less powerful testing
+  # GPU in GHA can take up to 5 hours.
+  for test_file in *.py; do
+    if echo "${files_to_skip[@]}" | grep "${test_file}"; then
+      echo "[TEST] Skipping test file known to be broken: ${test_file}"
+    elif echo "${unstable_tests[@]}" | grep "${test_file}"; then
+      echo "[TEST] Skipping test file: ${test_file}"
+    elif run_python_test "${env_name}" "${test_file}"; then
+      echo ""
+    else
+      return 1
+    fi
+  done
+}
+
+
 ################################################################################
 # Publish Functions
 ################################################################################
