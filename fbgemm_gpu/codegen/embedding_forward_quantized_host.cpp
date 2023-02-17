@@ -241,7 +241,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
         fp8_exponent_bias ? *fp8_exponent_bias : -1);
   }
-  if (!indice_weights) {
+  if (!indice_weights || indice_weights->numel() == 0) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cuda(
         dev_weights,
         uvm_weights,
