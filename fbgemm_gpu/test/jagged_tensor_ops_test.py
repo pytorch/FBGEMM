@@ -709,6 +709,56 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
+        device_type=st.sampled_from(["meta"]),
+        precompute_total_L=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_dense_to_jagged_meta_backend(
+        self,
+        num_jagged_dim: int,
+        outer_dense_size: int,
+        inner_dense_size: int,
+        dtype: torch.dtype,
+        device_type: str,
+        precompute_total_L: bool,
+    ) -> None:
+        device = torch.device("cpu")
+        values_2d, offsets, max_lengths = self._generate_jagged_tensor(
+            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+        )
+        values_2d = values_2d.clone().detach().requires_grad_(True)
+
+        # jagged -> dense
+        dense = torch.ops.fbgemm.jagged_to_padded_dense(values_2d, offsets, max_lengths)
+
+        # dense -> jagged (op which is being tested)
+        if precompute_total_L:
+            total_L = values_2d.size(0)
+            dense.to(device_type)
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
+                dense, offsets, total_L
+            )
+        else:
+            dense.to(device_type)
+            jagged_values, jagged_offsets = torch.ops.fbgemm.dense_to_jagged(
+                dense, offsets
+            )
+
+        jagged_values.to(device_type)
+        # jagged -> dense
+        dense2 = torch.ops.fbgemm.jagged_to_padded_dense(
+            jagged_values, jagged_offsets, max_lengths
+        )
+
+        # verify forward
+        assert dense.size() == dense2.size()
+
+    # pyre-ignore [56]
+    @given(
+        num_jagged_dim=st.integers(1, 5),
+        outer_dense_size=st.integers(0, 5),
+        inner_dense_size=st.integers(0, 5),
         fold_inner_dense=st.booleans(),
         padding_value=st.sampled_from([0, -1e-8]),
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
@@ -973,7 +1023,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
-        operation=st.just("mul"),
+        operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
         dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
         device_type=st.just("meta"),
     )
@@ -999,7 +1049,39 @@ class JaggedTensorOpsTest(unittest.TestCase):
         ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
 
         x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
-        if operation == "mul":
+        if operation == "add":
+            output_ref = x_padded + y
+            x_values.to(device_type)
+            y.to(device_type)
+            output = torch.ops.fbgemm.jagged_dense_elementwise_add(
+                x_values, x_offsets, y
+            )
+        elif operation == "add_jagged_output":
+            # create a jagged tensor and then densify
+            y = self._to_padded_dense(
+                torch.rand(
+                    (
+                        max(outer_dense_size * np.prod(max_lengths), x_values.size(0)),
+                        inner_dense_size,
+                    ),
+                    dtype=dtype,
+                    device=device,
+                ),
+                x_offsets,
+                max_lengths,
+            )
+            output_ref = x_padded + y
+            x_values.to(device_type)
+            y.to(device_type)
+            (
+                output,
+                output_offsets,
+            ) = torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
+                x_values, x_offsets, y
+            )
+            output.to("cpu")
+            output = self._to_padded_dense(output, output_offsets, max_lengths)
+        elif operation == "mul":
             output_ref = x_padded * y
             x_values.to(device_type)
             y.to(device_type)
@@ -1676,6 +1758,193 @@ class JaggedTensorOpsTest(unittest.TestCase):
             rtol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
+
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(1, 512),
+        max_L=st.integers(1, 1000),
+        D=st.integers(1, 32),
+        dtype=st.sampled_from([torch.float, torch.double]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_softmax(
+        self,
+        B: int,
+        max_L: int,
+        D: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        device = torch.device(device_type)
+        torch.backends.cuda.matmul.allow_tf32 = False
+        lengths = torch.randint(max_L + 1, size=(B,), device=device)
+        total_length = int(lengths.sum().item())
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        values = torch.rand(
+            (total_length, D), requires_grad=True, dtype=dtype, device=device
+        )
+        output, _ = torch.ops.fbgemm.jagged_softmax(
+            values,
+            offsets,
+            max_L,
+        )
+        values_ref = values.detach().clone().requires_grad_(True)
+        output_ref, _ = torch.ops.fbgemm.dense_to_jagged(
+            torch.nn.functional.softmax(
+                torch.ops.fbgemm.jagged_to_padded_dense(
+                    values_ref,
+                    [offsets],
+                    max_lengths=[max_L],
+                    padding_value=-5e7,
+                ).transpose(1, 2),
+                dim=-1,
+            ).permute(0, 2, 1),
+            [offsets],
+            total_length,
+        )
+
+        # verify forward
+        torch.testing.assert_close(output, output_ref)
+
+        # verify backward
+        grad_output = output.detach().clone().requires_grad_(True)
+
+        output.backward(grad_output)
+        output_ref.backward(grad_output)
+
+        torch.testing.assert_close(values.grad, values_ref.grad)
+
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(10, 512),
+        M=st.integers(1, 32),
+        N=st.integers(1, 32),
+        max_L=st.integers(1, 32),
+        dtype=st.sampled_from([torch.float, torch.double]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_jagged_bmm(
+        self,
+        B: int,
+        M: int,
+        N: int,
+        max_L: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        assume(B != 0)
+        device = torch.device(device_type)
+        torch.backends.cuda.matmul.allow_tf32 = False
+        lengths = torch.randint(max_L + 1, size=(B,), device=device)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        total_length = int(lengths.sum().item())
+        x_values = torch.rand(
+            (total_length, M), requires_grad=True, dtype=dtype, device=device
+        )
+        y_values = torch.rand(
+            (total_length, N), requires_grad=True, dtype=dtype, device=device
+        )
+        output = torch.ops.fbgemm.jagged_jagged_bmm(
+            x_values,
+            y_values,
+            offsets,
+            max_L,
+        )
+
+        x_values_ref = x_values.detach().clone().requires_grad_(True)
+        y_values_ref = y_values.detach().clone().requires_grad_(True)
+        x_dense_ref = torch.ops.fbgemm.jagged_to_padded_dense(
+            x_values_ref,
+            [offsets],
+            max_lengths=[max_L],
+        )
+        y_dense_ref = torch.ops.fbgemm.jagged_to_padded_dense(
+            y_values_ref,
+            [offsets],
+            max_lengths=[max_L],
+        )
+        output_ref = torch.bmm(x_dense_ref.transpose(2, 1), y_dense_ref)
+
+        # verify forward
+        torch.testing.assert_close(output, output_ref)
+
+        # verify backward
+        grad_output = output.detach().clone().requires_grad_(True)
+
+        output.backward(grad_output)
+        output_ref.backward(grad_output)
+
+        torch.testing.assert_close(x_values.grad, x_values_ref.grad)
+        torch.testing.assert_close(y_values.grad, y_values_ref.grad)
+
+    # pyre-ignore [56]
+    @given(
+        B=st.integers(10, 512),
+        M=st.integers(1, 32),
+        N=st.integers(1, 32),
+        max_L=st.integers(1, 32),
+        dtype=st.sampled_from([torch.float, torch.double]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_dense_bmm(
+        self,
+        B: int,
+        M: int,
+        N: int,
+        max_L: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        assume(B != 0)
+        device = torch.device(device_type)
+        torch.backends.cuda.matmul.allow_tf32 = False
+        lengths = torch.randint(max_L + 1, size=(B,), device=device)
+        total_length = int(lengths.sum().item())
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        x_values = torch.rand(
+            (total_length, M), requires_grad=True, dtype=dtype, device=device
+        )
+        y = torch.rand((B, M, N), requires_grad=True, dtype=dtype, device=device)
+
+        output, _ = torch.ops.fbgemm.jagged_dense_bmm(
+            x_values,
+            offsets,
+            y,
+            max_L,
+        )
+
+        x_values_ref = x_values.detach().clone().requires_grad_(True)
+        x_dense_ref = torch.ops.fbgemm.jagged_to_padded_dense(
+            x_values_ref,
+            [offsets],
+            max_lengths=[max_L],
+        )
+        y_ref = y.detach().clone().requires_grad_(True)
+        output_dense = torch.bmm(x_dense_ref, y_ref)
+
+        output_ref, _ = torch.ops.fbgemm.dense_to_jagged(
+            output_dense, [offsets], total_length
+        )
+
+        # verify forward
+        torch.testing.assert_close(output, output_ref)
+        # verify backward
+        grad_output = output.detach().clone().requires_grad_(True)
+
+        output.backward(grad_output)
+        output_ref.backward(grad_output)
+
+        torch.testing.assert_close(x_values.grad, x_values_ref.grad)
+        torch.testing.assert_close(y.grad, y_ref.grad)
 
 
 if __name__ == "__main__":

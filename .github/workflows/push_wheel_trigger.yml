@@ -1,0 +1,34 @@
+name: Push Wheel
+
+on:
+  # For debugging, please use test_wheel_*.yml
+  # run every day at 10:30 AM
+  # schedule:
+  #   - cron:  '30 10 * * *'
+  # or manually trigger it
+  workflow_dispatch:
+    inputs:
+      release_version:
+        type: choice
+        required: true
+        default: 'nightly'
+        options:
+        - nightly
+        - prerelease
+        - release
+      upload_pypi:
+        type: choice
+        required: true
+        default: true
+        options:
+        - true
+        - false
+
+jobs:
+  push_wheel:
+    uses: ./.github/workflows/build_wheel.yml
+    with:
+      # if it's triggered by "schedule", nightly + true will be chosen
+      release_version: ${{ inputs.release_version || 'nightly' }}
+      upload_pypi: ${{ (inputs.upload_pypi || 'true') == 'true' }}
+    secrets: inherit

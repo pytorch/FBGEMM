@@ -26,6 +26,8 @@
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 #include <cuda_bf16.h>
+#elif (defined(USE_ROCM))
+#include <hip/hip_bfloat16.h>
 #endif
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -1395,8 +1397,22 @@ struct __align__(32) half16 {
   half2 vals[8];
 };
 
+#ifdef __HIP_PLATFORM_HCC__
+using __nv_bfloat16 = hip_bfloat16;
+
+typedef struct __align__(4) {
+  uint16_t x;
+  uint16_t y;
+}
+__nv_bfloat162_raw;
+
+struct __align__(4) __nv_bfloat162 {
+  __nv_bfloat16 x;
+  __nv_bfloat16 y;
+};
+#endif
+
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 struct __align__(8) bfloat16_4 {
@@ -1461,8 +1477,21 @@ DEVICE_INLINE half16 to_half16(float_16 v) {
   return t;
 }
 
+#ifdef __HIP_PLATFORM_HCC__
+// the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
+// https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
+static __host__ __device__ __nv_bfloat16 __float2bfloat16(float f) {
+  __nv_bfloat16 output;
+  return output.round_to_bfloat16(f);
+}
+
+static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
+  __nv_bfloat16 output;
+  return output.round_to_bfloat16(f);
+}
+#endif
+
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 DEVICE_INLINE __nv_bfloat16 to_bfloat16(float v) {
@@ -1475,11 +1504,13 @@ DEVICE_INLINE __nv_bfloat162 to_bfloat16_2(float2 v) {
 #else
   union {
     __nv_bfloat162 raw;
-    __nv_bfloat16 x;
-    __nv_bfloat16 y;
+    struct {
+      __nv_bfloat16 x;
+      __nv_bfloat16 y;
+    } split;
   } t;
-  t.x = __float2bfloat16_rn(v.x);
-  t.y = __float2bfloat16_rn(v.y);
+  t.split.x = __float2bfloat16_rn(v.x);
+  t.split.y = __float2bfloat16_rn(v.y);
   return t.raw;
 #endif
 }
@@ -2039,7 +2070,6 @@ struct VecNT<1, PrimitiveType::FP> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2133,7 +2163,6 @@ struct VecNT<2, PrimitiveType::FP> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2272,7 +2301,6 @@ struct VecNT<4, PrimitiveType::FP> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2428,7 +2456,6 @@ struct VecNT<4, PrimitiveType::INT> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2599,7 +2626,6 @@ struct VecNT<8, PrimitiveType::INT> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -2787,7 +2813,6 @@ struct VecNT<16, PrimitiveType::INT> {
   }
 
 #if !(                                                  \
-    defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
@@ -3054,14 +3079,44 @@ class FixedDivisor {
   int shift_;
 };
 
+/**
+ * inclusive_sum_scan_kernel performs intra- and inter-thread block sum scan
+ * (i.e., prefix sum scan). We use cub::BlockScan to do inclusive sum within
+ * thread block and use a waterfall sync method to perform prefix sum across
+ * thread block.
+ *
+ * @param arr an array of input values. Its length must be fixed to
+ *            ITEMS_PER_THREAD
+ * @param temp_storage a shared memory struct for cub::BlockScan
+ * @param block_flags a global flag buffer for inter-block sync (must be
+ *                    initialized with zeros)
+ * @param block_sums a global sum buffer for inter-block sync
+ * @param block_prev a shared memory pointer for sharing sum from the previous
+ *                   block within a block
+ * @param num_entries_per_block a number of input entries for this block
+ * @param block_id a relative thread block ID (the first block that contains
+ *                 the first set of input entries has block_id = 0)
+ * @param is_multi_block a boolean to indicate if inter-block sum scan has to
+ *                       be performed
+ * @param signal If the value of block_flags of the previous block is equal to
+ *               signal, it means that the previous block has written its sum
+ *               to block_sums. We have thread blocks increment the value of
+ *               block_flags by one after they write their sums to block_sums.
+ *               We increment the flag instead of setting the flag to a single
+ *               value to support multiple sequential inclusive_sum_scan_kernel
+ *               calls (e.g., in the AUC kernel). signal is the order that
+ *               inclusive_sum_scan_kernel is called. Since we intialize
+ *               block_flags with zeros, the signal of the first call should be
+ *               one.
+ */
 template <typename scalar_t, int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK>
 __inline__ __device__ void inclusive_sum_scan_kernel(
     scalar_t (&arr)[ITEMS_PER_THREAD],
     typename cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>::TempStorage&
         temp_storage,
-    int* block_flags, // global flags for inter-block sync
-    scalar_t* block_sums, // global sums for inter-block sync
-    scalar_t* block_prev, // shared memory for previous sum sync within a block
+    int* block_flags,
+    scalar_t* block_sums,
+    scalar_t* block_prev,
     const int num_entries_per_block,
     const int block_id,
     const bool is_multi_block,

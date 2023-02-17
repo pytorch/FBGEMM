@@ -373,42 +373,52 @@ std::vector<at::Tensor> stacked_jagged_2d_to_dense_cpu(
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value);
 
-at::Tensor jagged_to_padded_dense_autograd(
+at::Tensor jagged_to_padded_dense(
     const at::Tensor& values,
     const std::vector<at::Tensor>& offsets,
     const std::vector<std::int64_t>& max_lengths,
     const double padding_value);
 
-at::Tensor jagged_dense_elementwise_add_autograd(
+at::Tensor jagged_dense_elementwise_add(
     const at::Tensor& x_values,
     const std::vector<at::Tensor>& x_offsets,
     const at::Tensor& y);
 
-at::Tensor jagged_1d_to_dense_autograd(
+at::Tensor jagged_1d_to_dense(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_L,
     int64_t padding_value);
 
-at::Tensor jagged_2d_to_dense_autograd(
+at::Tensor jagged_2d_to_dense(
     at::Tensor values,
     at::Tensor offsets,
     int64_t max_sequence_length);
 
 std::tuple<at::Tensor, std::vector<at::Tensor>>
-jagged_dense_dense_elementwise_add_jagged_output_autograd(
+jagged_dense_dense_elementwise_add_jagged_output(
     const at::Tensor& x_values,
     const std::vector<at::Tensor>& x_offsets,
     const at::Tensor& y_0,
     const at::Tensor& y_1);
 
-at::Tensor batched_dense_vec_jagged_2d_mul_autograd(
+at::Tensor batched_dense_vec_jagged_2d_mul(
     const at::Tensor& v,
     const at::Tensor& a_values,
     const at::Tensor& a_offsets);
 
+std::tuple<at::Tensor, std::vector<at::Tensor>> jagged_dense_elementwise_mul(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y);
+
+std::tuple<at::Tensor, std::vector<at::Tensor>> dense_to_jagged(
+    const at::Tensor& dense,
+    const std::vector<at::Tensor>& offsets,
+    const c10::optional<int64_t>& total_L);
+
 std::tuple<at::Tensor, std::vector<at::Tensor>>
-jagged_dense_elementwise_mul_autograd(
+jagged_dense_elementwise_add_jagged_output(
     const at::Tensor& x_values,
     const std::vector<at::Tensor>& x_offsets,
     const at::Tensor& y);
@@ -430,6 +440,23 @@ at::Tensor jagged_2d_to_dense_gpu_backward(
     at::Tensor grad_output,
     at::Tensor offsets,
     int64_t max_lengths);
+
+std::tuple<at::Tensor, at::Tensor> jagged_softmax(
+    const at::Tensor& values,
+    const at::Tensor& offsets,
+    const int64_t max_L);
+
+at::Tensor jagged_jagged_bmm(
+    const at::Tensor& x_values,
+    const at::Tensor& y_values,
+    const at::Tensor& offsets,
+    const int64_t max_L);
+
+std::tuple<at::Tensor, at::Tensor> jagged_dense_bmm(
+    const at::Tensor& x_values,
+    const at::Tensor& x_offsets,
+    const at::Tensor& y,
+    const int64_t max_L);
 
 #endif
 

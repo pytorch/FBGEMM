@@ -64,6 +64,38 @@ at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
   return at::empty_like(x_values);
 }
 
+Tensor jagged_dense_elementwise_add_forward_meta(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  return at::empty_like(x_values);
+}
+
+std::tuple<Tensor, Tensor> jagged_dense_elementwise_add_backward_meta(
+    const Tensor& grad_output,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y,
+    const Tensor& x_values) {
+  Tensor x_values_grad = at::empty_like(grad_output);
+  Tensor y_grad = at::empty_like(y);
+
+  return {x_values_grad, y_grad};
+}
+
+Tensor dense_to_jagged_forward_meta(
+    const Tensor& dense,
+    const std::vector<Tensor>& offsets,
+    const c10::optional<int64_t>& total_L) {
+  auto dense_values = dense;
+  int32_t D = dense_values.size(-1);
+  TORCH_CHECK(total_L.has_value(), "total_L is required for meta backend");
+  int64_t total_L_computed = total_L.value();
+  auto values = at::zeros({total_L_computed, D}, dense_values.options());
+
+  TORCH_CHECK(values.is_meta());
+  return values;
+}
+
 Tensor jagged_dense_elementwise_mul_forward_meta(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
@@ -80,6 +112,14 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward_meta(
   Tensor y_grad = at::empty_like(y);
 
   return {x_values_grad, y_grad};
+}
+
+Tensor jagged_dense_elementwise_add_jagged_output_meta(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y_0,
+    const at::Tensor& y_1) {
+  return at::empty_like(x_values);
 }
 
 Tensor batched_dense_vec_jagged_2d_mul_forward_meta(
@@ -108,6 +148,43 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward_meta(
   return {v_grad, a_values_grad};
 }
 
+Tensor jagged_dense_bmm_forward_meta(
+    const Tensor& x_values,
+    const Tensor& x_offsets,
+    const Tensor& y,
+    const int64_t max_L) {
+  const int N = y.size(-1);
+  const int total_L = x_values.size(0);
+  return at::zeros({total_L, N}, x_values.options());
+}
+
+Tensor jagged_softmax_forward_meta(
+    const Tensor& values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  return at::empty_like(values);
+}
+
+Tensor jagged_jagged_bmm_forward_meta(
+    const Tensor& x_values,
+    const Tensor& y_values,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  const int B = offsets.size(0) - 1;
+  const int M = x_values.size(-1);
+  const int N = y_values.size(-1);
+  auto output = at::zeros({B, M, N}, x_values.options());
+  return output;
+}
+
+Tensor jagged_softmax_backward_meta(
+    const Tensor& grad_output,
+    const Tensor& output,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  return at::empty_like(grad_output);
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
@@ -118,10 +195,19 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
       "jagged_to_padded_dense_backward",
       TORCH_FN(fbgemm_gpu::jagged_to_padded_dense_backward_meta));
   m.impl(
+      "dense_to_jagged_forward",
+      TORCH_FN(fbgemm_gpu::dense_to_jagged_forward_meta));
+  m.impl(
       "jagged_dense_dense_elementwise_add_jagged_output_forward",
       TORCH_FN(
           fbgemm_gpu::
               jagged_dense_dense_elementwise_add_jagged_output_forward_meta));
+  m.impl(
+      "jagged_dense_elementwise_add_forward",
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_forward_meta));
+  m.impl(
+      "jagged_dense_elementwise_add_backward",
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_backward_meta));
   m.impl(
       "jagged_dense_elementwise_mul_forward",
       TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul_forward_meta));
@@ -134,4 +220,19 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "batched_dense_vec_jagged_2d_mul_backward",
       TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul_backward_meta));
+  m.impl(
+      "jagged_dense_bmm_forward",
+      TORCH_FN(fbgemm_gpu::jagged_dense_bmm_forward_meta));
+  m.impl(
+      "jagged_softmax_forward",
+      TORCH_FN(fbgemm_gpu::jagged_softmax_forward_meta));
+  m.impl(
+      "jagged_jagged_bmm_forward",
+      TORCH_FN(fbgemm_gpu::jagged_jagged_bmm_forward_meta));
+  m.impl(
+      "jagged_softmax_backward",
+      TORCH_FN(fbgemm_gpu::jagged_softmax_backward_meta));
+  m.impl(
+      "jagged_jagged_bmm",
+      TORCH_FN(fbgemm_gpu::jagged_jagged_bmm_forward_meta));
 }

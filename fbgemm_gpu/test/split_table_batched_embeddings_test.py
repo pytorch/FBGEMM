@@ -157,15 +157,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        # ROCm managed momory allocation is under development
-        if TEST_WITH_ROCM:
-            if use_cpu:
-                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
-            else:
-                managed = [
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                ] * T
+        if use_cpu:
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+        elif use_cache:
+            managed = [
+                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
+            ] * T
+            if mixed:
+                average_D = sum(Ds) // T
+                for t, d in enumerate(Ds):
+                    managed[t] = (
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
+                        if d < average_D
+                        else managed[t]
+                    )
         else:
             if use_cpu:
                 managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
@@ -841,7 +850,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
                 # SparseType.INT4,
             ]
-        ) if not TEST_WITH_ROCM else st.sampled_from(
+        )
+        if not TEST_WITH_ROCM
+        else st.sampled_from(
             [
                 SparseType.FP16,
                 # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
@@ -1349,8 +1360,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        # ROCm managed momory allocation is under development
-        if TEST_WITH_ROCM:
+        if use_cpu:
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+        elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
             ] * T
@@ -1569,7 +1585,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         D=st.integers(min_value=2, max_value=10),
-        B=st.sampled_from([1152, 2048]),
+        # 128 * 1024 is to exercise a case num_ctas_for_run needs to be capped
+        # at the number of SMs (H100 SXM5 has 132 SMs and the default seglen
+        # per CTA is 1024)
+        B=st.sampled_from([1152, 256 * 1024]),
         L=st.integers(min_value=1, max_value=4),
         weighted=st.booleans(),
         mixed=st.booleans(),
@@ -1700,8 +1719,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        # ROCm managed momory allocation is under development
-        if TEST_WITH_ROCM:
+        if use_cpu:
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+        elif use_cache:
             managed = [
                 split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
             ] * T
@@ -2521,25 +2545,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
         compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        # ROCm managed momory allocation is under development
-        if TEST_WITH_ROCM:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-            ] * T
+        if use_cpu:
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+        elif TEST_WITH_ROCM:
+            # ROCm managed memory allocation is under development
+            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
         else:
-            if use_cpu:
-                managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-                compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
-            else:
-                managed = [
-                    np.random.choice(
-                        [
-                            split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
-                        ]
-                    )
-                    for _ in range(T)
-                ]
+            managed = [
+                np.random.choice(
+                    [
+                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                    ]
+                )
+                for _ in range(T)
+            ]
         if do_pooling:
             bs = [
                 to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=True), use_cpu)
@@ -4160,6 +4181,54 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 self.assertEqual(unique_cache_miss_count, t_counter[1])
                 for i in range(len(tablewise_cache_miss)):
                     self.assertEqual(tablewise_cache_miss[i], t_tablewise_cache_miss[i])
+
+    @given(N=st.integers(min_value=1, max_value=2))
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_stb_uvm_cache_stats(self, N: int) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        emb_op = (
+            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+        )
+        cc = emb_op(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            gather_uvm_cache_stats=True,
+        )
+
+        x = torch.Tensor([[[1], [1]], [[3], [4]]])
+        x = to_device(torch.tensor(x, dtype=torch.int64), use_cpu=False)
+
+        for _ in range(N):
+            indices, offsets = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            cc.reset_cache_states()
+            cc.reset_uvm_cache_stats()
+            cc(indices, offsets)
+            (
+                n_calls,
+                n_requested_indices,
+                n_unique_indices,
+                n_unique_misses,
+                n_conflict_unique_misses,
+                n_conflict_misses,
+            ) = cc.get_uvm_cache_stats()
+            self.assertEqual(n_calls, 1)
+            self.assertEqual(n_requested_indices, len(indices))
+            self.assertEqual(n_unique_indices, len(set(indices.tolist())))
+            self.assertEqual(n_unique_misses, len(set(indices.tolist())))
+            self.assertEqual(n_conflict_unique_misses, 0)
+            self.assertEqual(n_conflict_misses, 0)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(

@@ -138,8 +138,19 @@ class LookupFunctionBatchedUnaryEmbeddingOp
     auto offsets = *savedItr++;
     auto indices = *savedItr++;
     TORCH_CHECK(grad_outputs.size() == 1);
+    // .contiguous() is called on the gradient inputs because
+    // the batched_unary_embeddings_backward_cuda assumes contiguous inputs.
+    // may cause illegal memory access when it is not
+    auto grad_output = grad_outputs[0];
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
+        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0) {
+      grad_output = grad_output.contiguous();
+    }
+    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+      grad_output = at::empty_like(grad_output).copy_(grad_output);
+    }
     auto grad_weight = batched_unary_embeddings_backward_cuda(
-        grad_outputs[0], weight, table_offsets, offsets, indices);
+        grad_output, weight, table_offsets, offsets, indices);
     return {grad_weight, Tensor(), Tensor(), Tensor()};
   }
 };

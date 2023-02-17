@@ -1,275 +1,178 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
 
-name: Push Binary Nightly
+name: FBGEMM_GPU Nightly Build
 
 on:
-  # For debugging, enable push/pull_request
-  # [push, pull_request]
-  # run every day at 10:45 AM
+  # PR Trigger (enabled only for debugging)
+  #
+  pull_request:
+    branches:
+      - main
+
+  # Push Trigger (enable to catch errors coming out of multiple merges)
+  #
+  push:
+    branches:
+      - main
+
+  # Cron Trigger
+  #
+  # Based on the Conda page for PyTorch-nightly, the GPU nightly releases appear
+  # around 02:30 every day (roughly 2 hours after the CPU releases)
+  #
   schedule:
-    - cron:  '45 10 * * *'
-  # or manually trigger it
+    - cron:  '45 04 * * *'
+
+  # Manual trigger
+  #
   workflow_dispatch:
 
 jobs:
-  # build on cpu hosts and upload to GHA
+  # Build on CPU hosts and upload to GHA
   build_on_cpu:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
     strategy:
+      # Don't fast-fail all the other builds if one of the them fails
+      fail-fast: false
       matrix:
-        include:
-         - os: linux.2xlarge
-           python-version: "3.7"
-           python-tag: "py37"
-           cuda-tag: "cu11"
-         - os: linux.2xlarge
-           python-version: "3.8"
-           python-tag: "py38"
-           cuda-tag: "cu11"
-         - os: linux.2xlarge
-           python-version: "3.9"
-           python-tag: "py39"
-           cuda-tag: "cu11"
-         - os: linux.2xlarge
-           python-version: "3.10"
-           python-tag: "py310"
-           cuda-tag: "cu11"
+        os: [ linux.12xlarge ]
+        python-version: [ "3.8", "3.9", "3.10" ]
+        cuda-version: [ "11.7.1" ]
+
     steps:
-    # Checkout the repository to the GitHub Actions runner
-    - name: Check ldd --version
-      run: ldd --version
-    - name: Checkout
-      uses: actions/checkout@v2
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
       with:
         submodules: true
-    # Update references
-    - name: Git Submodule Update
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Setup Miniconda
       run: |
-        cd fbgemm_gpu/
-        git submodule sync
-        git submodule update --init --recursive
-    - name: Setup conda
-      run: |
-        wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
-        bash ~/miniconda.sh -b -p $HOME/miniconda -u
-    - name: Setup PATH with conda
-      run: |
+        . $PRELUDE; setup_miniconda $HOME/miniconda
         echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
         echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
-    - name: Create conda env
-      run: |
-        conda create --name build_binary python=${{ matrix.python-version }}
-        conda info
-    - name: check python version
-      run: |
-        conda run -n build_binary python --version
-    - name: Install C/C++ compilers
-      run: |
-        sudo yum install -y gcc gcc-c++
-    - name: Install PyTorch and CUDA
-      shell: bash
-      run: |
-        conda install -n build_binary -y pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-    - name: Install Other Dependencies
-      shell: bash
-      run: |
-        cd fbgemm_gpu/
-        conda run -n build_binary python -m pip install -r requirements.txt
-    - name: Test Installation of Dependencies
-      run: |
-        cd fbgemm_gpu/
-        conda run -n build_binary python -c "import torch.distributed"
-        echo "torch.distributed succeeded"
-        conda run -n build_binary python -c "import skbuild"
-        echo "skbuild succeeded"
-        conda run -n build_binary python -c "import numpy"
-        echo "numpy succeeded"
-    # for the conda run with quotes, we have to use "\" and double quotes
-    # here is the issue: https://github.com/conda/conda/issues/10972
-    - name: Build FBGEMM_GPU Nightly
-      run: |
-        # Install cuDNN. This is needed to build FBGEMM but not for execution.
-        # See https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
-        tmp_cudnn_path="$(pwd)/build_only/cudnn"
-        mkdir -p tmp_cudnn
-        cd tmp_cudnn
-        wget -q https://ossci-linux.s3.amazonaws.com/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz -O cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz
-        tar xf cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz
-        mkdir -p "${tmp_cudnn_path}"
-        mv cudnn-linux-x86_64-8.5.0.96_cuda11-archive/include "${tmp_cudnn_path}"
-        mv cudnn-linux-x86_64-8.5.0.96_cuda11-archive/lib "${tmp_cudnn_path}"
-        cd ../
-        rm -rf tmp_cudnn
 
-        export CUDNN_INCLUDE_DIR="${tmp_cudnn_path}/include"
-        export CUDNN_LIBRARY="${tmp_cudnn_path}/lib"
-        cd fbgemm_gpu/
-        rm -rf dist
-        # build cuda7.0;8.0 for v100/a100 arch:
-        # Couldn't build more cuda arch due to 300 MB binary size limit from
-        # pypi website.
-        # manylinux1_x86_64 is specified for pypi upload:
-        # distribute python extensions as wheels on Linux
-        conda run -n build_binary \
-          python setup.py bdist_wheel \
-          --package_name=fbgemm_gpu_nightly \
-          --python-tag=${{ matrix.python-tag }} \
-          -DTORCH_CUDA_ARCH_LIST="'7.0;8.0'" \
-          --plat-name=manylinux1_x86_64
-        ls -lt dist/*.whl
-    - name: Upload wheel as GHA artifact
-      uses: actions/upload-artifact@v2
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install CUDA
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+
+    - name: Install PyTorch Nightly
+      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV nightly
+
+    - name: Install cuDNN
+      run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
+
+    - name: Prepare FBGEMM Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build FBGEMM_GPU Nightly
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV fbgemm_gpu_nightly
+
+    - name: Upload Built Wheel as GHA Artifact
+      uses: actions/upload-artifact@v3
       with:
-        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_${{ matrix.cuda-tag }}.whl
+        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
         path: fbgemm_gpu/dist/fbgemm_gpu_nightly-*.whl
 
-  # download from GHA, test on gpu and push to pypi
+
+  # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_on_gpu:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
     strategy:
+      fail-fast: false
       matrix:
-        os: [linux.g5.4xlarge.nvidia.gpu]
-        python-version: ["3.7", "3.8", "3.9", "3.10"]
-        cuda-tag: ["cu11"]
+        os: [ linux.g5.4xlarge.nvidia.gpu ]
+        python-version: [ "3.8", "3.9", "3.10" ]
+        cuda-version: [ "11.7.1" ]
     needs: build_on_cpu
     steps:
-    - name: Check ldd --version
-      run: ldd --version
-    - name: check cpu info
-      shell: bash
-      run: |
-        cat /proc/cpuinfo
-    - name: check distribution info
-      shell: bash
-      run: |
-        cat /proc/version
-    - name: Display EC2 information
-      shell: bash
-      run: |
-        set -euo pipefail
-        function get_ec2_metadata() {
-          # Pulled from instance metadata endpoint for EC2
-          # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-          category=$1
-          curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-        }
-        echo "ami-id: $(get_ec2_metadata ami-id)"
-        echo "instance-id: $(get_ec2_metadata instance-id)"
-        echo "instance-type: $(get_ec2_metadata instance-type)"
-    - name: check gpu info
-      shell: bash
-      run: |
-        sudo yum install lshw -y
-        sudo lshw -C display
-    # Checkout the repository to the GitHub Actions runner
-    - name: Checkout
-      uses: actions/checkout@v2
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
       with:
         submodules: true
-    # Update references
-    - name: Git Sumbodule Update
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display EC2 Info
+      run: . $PRELUDE; print_ec2_info
+
+    - name: Setup Miniconda
       run: |
-        cd fbgemm_gpu/
-        git submodule sync
-        git submodule update --init --recursive
-        git log
-    - name: Update pip
-      run: |
-        sudo yum update -y
-        sudo yum -y install git python3-pip
-        sudo pip3 install --upgrade pip
-    - name: Setup conda
-      run: |
-        wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
-        bash ~/miniconda.sh -b -p $HOME/miniconda -u
-    - name: setup Path
-      run: |
-        echo "$HOME/miniconda/bin" >> $GITHUB_PATH
-        echo "CONDA=$HOME/miniconda" >> $GITHUB_PATH
-    - name: create conda env
-      run: |
-        conda create --name build_binary python=${{ matrix.python-version }}
-        conda info
-    - name: check python version without Conda
-      run: |
-        python --version
-    - name: check python version with Conda
-      run: |
-        conda run -n build_binary python --version
-    - name: Install CUDA 11.3
-      shell: bash
-      run: |
-        sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-        sudo yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel7/x86_64/cuda-rhel7.repo
-        sudo yum clean expire-cache
-        sudo yum install -y nvidia-driver-latest-dkms
-        sudo yum install -y cuda-11-3
-        sudo yum install -y cuda-drivers
-        sudo yum install -y libcudnn8-devel
-    - name: setup Path
-      run: |
-        echo /usr/local/cuda-11.3/bin >> $GITHUB_PATH
-        echo /usr/local/bin >> $GITHUB_PATH
-    - name: nvcc check
-      run: |
-        nvcc --version
-    - name: Install PyTorch using Conda
-      shell: bash
-      run: |
-        conda install -n build_binary -y pytorch pytorch-cuda=11.7 -c pytorch-nightly -c nvidia
-    # download wheel from GHA
-    - name: Download wheel
-      uses: actions/download-artifact@v2
+        . $PRELUDE; setup_miniconda $HOME/miniconda
+        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
+        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install CUDA
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+
+    - name: Install PyTorch Nightly
+      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV nightly
+
+    - name: Prepare FBGEMM Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Download Wheel Artifact from GHA
+      uses: actions/download-artifact@v3
       with:
-        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_${{ matrix.cuda-tag }}.whl
+        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+
     - name: Display structure of downloaded files
       run: ls -R
-    - name: Install Dependencies
-      shell: bash
-      run: |
-        cd fbgemm_gpu/
-        conda run -n build_binary python -m pip install -r requirements.txt
-    - name: Test Installation of dependencies
-      run: |
-        cd fbgemm_gpu/
-        conda run -n build_binary python -c "import torch.distributed"
-        echo "torch.distributed succeeded"
-        conda run -n build_binary python -c "import skbuild"
-        echo "skbuild succeeded"
-        conda run -n build_binary python -c "import numpy"
-        echo "numpy succeeded"
+
     - name: Install FBGEMM_GPU Nightly
       run: |
         rm -rf dist
-        conda run -n build_binary \
+        conda run -n $BUILD_ENV \
           python -m pip install *.whl
-    - name: Test fbgemm_gpu installation
+
+    - name: Test FBGEMM_GPU Installation
       shell: bash
       run: |
-        conda run -n build_binary \
+        conda run -n $BUILD_ENV \
           python -c "import fbgemm_gpu"
-    - name: Test with pytest
-      # remove this line when we fixed all the unit tests
+
+    - name: Test with PyTest
+      # Remove this line when we fixed all the unit tests
       continue-on-error: true
       run: |
-        conda run -n build_binary \
+        conda run -n $BUILD_ENV \
           python -m pip install pytest
         # The tests with single CPU core on a less powerful testing GPU in GHA
         # can take 5 hours.
-        timeout 600s conda run -n build_binary \
+        timeout 600s conda run -n $BUILD_ENV \
           python -m pytest -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors
-    # Push to Pypi
+
     - name: Push FBGEMM_GPU Binary to PYPI
+      if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: |
-        conda run -n build_binary python -m pip install twine
-        # Official PYPI website
-        conda run -n build_binary \
-          python -m twine upload \
-            --username __token__ \
-            --password "$PYPI_TOKEN" \
-            --skip-existing \
-            --verbose \
-            fbgemm_gpu_nightly-*.whl
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_nightly-*.whl "$PYPI_TOKEN"
