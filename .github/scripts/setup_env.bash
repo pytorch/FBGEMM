@@ -93,6 +93,66 @@ test_env_var () {
   fi
 }
 
+install_system_packages () {
+  if [ $# -le 0 ]; then
+    echo "Usage: ${FUNCNAME[0]} PACKAGE_NAME ... "
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} miopen-hip miopen-hip-dev"
+    return 1
+  fi
+
+  if which sudo; then
+    update_cmd=("sudo")
+    install_cmd=("sudo")
+  else
+    update_cmd=()
+    install_cmd=()
+  fi
+
+  if which apt-get; then
+    update_cmd+=(apt update -y)
+    install_cmd+=(apt install -y "$@")
+  elif which yum; then
+    update_cmd+=(yum update -y)
+    install_cmd+=(yum install -y "$@")
+  else
+    echo "[INSTALL] Could not find a system package installer to install packages!"
+    return 1
+  fi
+
+  echo "[INSTALL] Updating system repositories ..."
+  # shellcheck disable=SC2068
+  print_exec ${update_cmd[@]}
+
+  # shellcheck disable=SC2145
+  echo "[INSTALL] Installing system package(s): $@ ..."
+  # shellcheck disable=SC2068
+  print_exec ${install_cmd[@]}
+}
+
+run_python_test () {
+  env_name="$1"
+  python_test_file="$2"
+  if [ "$python_test_file" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_TEST_FILE"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env quantize_ops_test.py"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# [$(date --utc +%FT%T.%3NZ)] Run Python Test Suite:"
+    echo "#   ${python_test_file}"
+    echo "################################################################################"
+  fi
+
+  if conda run -n "${env_name}" python -m pytest -v -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
+    echo "[TEST] Python test suite PASSED: ${python_test_file}"
+  else
+    echo "[TEST] Python test suite FAILED: ${python_test_file}"
+    return 1
+  fi
+}
+
 print_system_info () {
   echo "################################################################################"
   echo "# Print System Info"
@@ -114,12 +174,7 @@ print_system_info () {
   print_exec cat /etc/os-release
 
   echo "[INFO] Check GPU info"
-  if which apt-get; then
-    print_exec sudo apt-get install -y lshw
-  else
-    print_exec sudo yum install -y lshw
-  fi
-
+  install_system_packages lshw
   print_exec sudo lshw -C display
 }
 
@@ -412,10 +467,6 @@ install_cuda () {
   # Ensure that the libraries are properly installed
   test_filepath "${env_name}" libnvToolsExt.so || return 1
 
-  # LIBNVTOOLSEXT
-  # CUDA_TOOLKIT_ROOT_DIR
-  # print_exec conda env config vars set -n "${env_name}" CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
-
   # Print nvcc version
   print_exec conda run -n "${env_name}" nvcc --version
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
@@ -440,9 +491,8 @@ install_cxx_compiler () {
   fi
 
   if [ "$use_yum" != "" ]; then
-    echo "[INSTALL] Installing C/C++ compilers through Yum ..."
-    print_exec sudo yum update -y
-    print_exec sudo yum install -y gcc gcc-c++
+    echo "[INSTALL] Installing C/C++ compilers through yum ..."
+    install_system_packages gcc gcc-c++
   else
     # Install gxx_linux-64 from main instead of cxx-compiler from conda-forge, as
     # the latter breaks builds:
@@ -797,28 +847,6 @@ install_fbgemm_gpu_package () {
   echo "[BUILD] Wheel installation completed ..."
 }
 
-run_python_test () {
-  env_name="$1"
-  python_test_file="$2"
-  if [ "$python_test_file" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_TEST_FILE"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env quantize_ops_test.py"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# [$(date --utc +%FT%T.%3NZ)] Run Python Test Suite:"
-    echo "#   ${python_test_file}"
-    echo "################################################################################"
-  fi
-
-  if conda run -n "${env_name}" python -m pytest -v -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
-    echo "[TEST] Python test suite PASSED: ${python_test_file}"
-  else
-    echo "[TEST] Python test suite FAILED: ${python_test_file}"
-    return 1
-  fi
-}
 
 ################################################################################
 # Publish Functions
@@ -859,8 +887,11 @@ run_fbgemm_gpu_tests () {
     unstable_tests=()
   fi
 
-  echo "[INSTALL] Installing pytest ..."
+  echo "[TEST] Installing pytest ..."
   print_exec conda install -n "${env_name}" -y pytest
+
+  echo "[BUILD] Checking imports ..."
+  test_python_import "${env_name}" fbgemm_gpu || return 1
 
   # NOTE: These tests running on single CPU core with a less powerful testing
   # GPU in GHA can take up to 5 hours.
