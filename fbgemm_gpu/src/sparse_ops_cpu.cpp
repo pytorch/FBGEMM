@@ -2520,8 +2520,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0, bool? skip_indices_sorting_fwd=None) -> Tensor");
   m.def(
       "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]");
-  m.def(
-      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
   // This is an one-off op to be used in split_embedding_utils.py for zipf
   // generation w/o replacement along dim=-1. If requires_unique=True, find
   // smallest unique k.  If the number of unique elements is less than k,
