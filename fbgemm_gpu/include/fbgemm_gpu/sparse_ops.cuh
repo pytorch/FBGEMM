@@ -16,6 +16,6 @@
 
 // clang-format off
 #include "./cub_namespace_prefix.cuh"
-#include "cub/block/block_reduce.cuh"
+#include <cub/block/block_reduce.cuh>
 #include "./cub_namespace_postfix.cuh"
 // clang-format on
