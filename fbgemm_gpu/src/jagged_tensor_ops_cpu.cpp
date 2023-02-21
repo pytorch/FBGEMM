@@ -1068,6 +1068,9 @@ void jagged_softmax_kernel(
     const int row_end = offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
 
+    if (length == 0)
+      continue;
+
     for (int d = 0; d < D; ++d) {
       // use is_cuda=true because acc_type<float, false> = double is too
       // conservative
@@ -1093,8 +1096,9 @@ Tensor jagged_softmax_forward(
     const Tensor& offsets,
     const int64_t max_L) {
   TENSOR_ON_CPU(values);
+  TENSOR_ON_CPU(offsets);
   const int B = offsets.numel() - 1;
-  const int D = values.size(-1);
+  const int D = values.size(1);
   auto output = at::empty_like(values);
 
   if (B > 0 && D > 0) {
@@ -1115,6 +1119,69 @@ Tensor jagged_softmax_forward(
         });
   }
   return output;
+}
+
+template <typename index_t, typename scalar_t>
+void jagged_softmax_backward_kernel(
+    const at::TensorAccessor<scalar_t, 2>& grad_output,
+    const at::TensorAccessor<scalar_t, 2>& output,
+    const at::TensorAccessor<index_t, 1>& offsets,
+    at::TensorAccessor<scalar_t, 2> grad_input,
+    const int64_t max_L) {
+  const int B = offsets.size(0) - 1;
+  const int D = grad_output.size(1);
+  for (int b = 0; b < B; ++b) {
+    const int row_start = offsets[b];
+    const int row_end = offsets[b + 1];
+    const int length = std::min(row_end - row_start, (int)max_L);
+    if (length == 0)
+      continue;
+    for (int d = 0; d < D; ++d) {
+      at::acc_type<scalar_t, true> sum_value =
+          grad_output[row_start][d] * output[row_start][d];
+      for (int l = 1; l < length; ++l) {
+        sum_value += grad_output[row_start + l][d] * output[row_start + l][d];
+      }
+      for (int l = 0; l < length; ++l) {
+        grad_input[row_start + l][d] =
+            (grad_output[row_start + l][d] - sum_value) *
+            output[row_start + l][d];
+      }
+    }
+  }
+}
+
+Tensor jagged_softmax_backward(
+    const Tensor& grad_output,
+    const Tensor& output,
+    const Tensor& offsets,
+    const int64_t max_L) {
+  TENSOR_ON_CPU(grad_output);
+  TENSOR_ON_CPU(output);
+  TENSOR_ON_CPU(offsets);
+  const int B = offsets.numel() - 1;
+  const int D = grad_output.size(1);
+  auto grad_input = at::empty_like(grad_output);
+
+  if (B > 0 && D > 0) {
+    AT_DISPATCH_INDEX_TYPES(
+        offsets.scalar_type(), "jagged_backward_kernel_1", [&] {
+          AT_DISPATCH_FLOATING_TYPES_AND2(
+              at::ScalarType::Half,
+              at::ScalarType::BFloat16,
+              grad_output.scalar_type(),
+              "jagged_softmax_backward_kernel_2",
+              [&] {
+                jagged_softmax_backward_kernel<index_t, scalar_t>(
+                    grad_output.accessor<scalar_t, 2>(),
+                    output.accessor<scalar_t, 2>(),
+                    offsets.accessor<index_t, 1>(),
+                    grad_input.accessor<scalar_t, 2>(),
+                    max_L);
+              });
+        });
+  }
+  return grad_input;
 }
 
 template <typename index_t, typename scalar_t>
@@ -1301,6 +1368,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_softmax_forward(Tensor values, Tensor x_offsets, int max_L) -> Tensor");
   m.def(
+      "jagged_softmax_backward(Tensor grad_output, Tensor output, Tensor x_offsets, int max_L) -> Tensor");
+  m.def(
       "jagged_jagged_bmm(Tensor x_values, Tensor y_values, Tensor x_offsets, int max_L) -> Tensor");
   m.def(
       "jagged_jagged_bmm_forward(Tensor x_values, Tensor y_values, Tensor x_offsets, int max_L) -> Tensor");
@@ -1362,6 +1431,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "masked_select_jagged_1d", fbgemm_gpu::masked_select_jagged_1d);
   DISPATCH_TO_CPU("jagged_softmax", fbgemm_gpu::jagged_softmax);
   DISPATCH_TO_CPU("jagged_softmax_forward", fbgemm_gpu::jagged_softmax_forward);
+  DISPATCH_TO_CPU(
+      "jagged_softmax_backward", fbgemm_gpu::jagged_softmax_backward);
   DISPATCH_TO_CPU("jagged_jagged_bmm", fbgemm_gpu::jagged_jagged_bmm);
   DISPATCH_TO_CPU(
       "jagged_jagged_bmm_forward", fbgemm_gpu::jagged_jagged_bmm_forward);
