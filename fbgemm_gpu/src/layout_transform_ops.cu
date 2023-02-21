@@ -7,7 +7,7 @@
 
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
-#include "cub/device/device_scan.cuh"
+#include <cub/device/device_scan.cuh>
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
