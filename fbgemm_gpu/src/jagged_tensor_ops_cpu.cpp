@@ -10,6 +10,7 @@
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
+#include "ATen/Parallel.h"
 
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -1054,6 +1055,177 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
   return padded_values_per_key;
 }
 
+template <typename index_t, typename offset_t, typename scalar_t>
+void jagged_index_select_2d_kernel(
+    at::TensorAccessor<scalar_t, 2> output,
+    const at::TensorAccessor<scalar_t, 2>& input,
+    const at::TensorAccessor<offset_t, 1>& input_offsets,
+    const at::TensorAccessor<index_t, 1>& indices,
+    const at::TensorAccessor<offset_t, 1>& output_offsets) {
+  const auto num_output_rows = output_offsets.size(0);
+  const auto num_dense_output_rows = output.size(0);
+  const auto num_cols = input.size(1);
+  at::parallel_for(
+      0, num_dense_output_rows, 0, [&](int64_t start, int64_t end) {
+        for (auto dense_output_offset = start; dense_output_offset < end;
+             dense_output_offset++) {
+          int index_pos;
+          binary_search_range_cpu(
+              &index_pos,
+              reinterpret_cast<const offset_t*>(&output_offsets[0]),
+              static_cast<offset_t>(dense_output_offset),
+              num_output_rows);
+          const offset_t rel_index = dense_output_offset -
+              (index_pos == 0 ? 0 : output_offsets[index_pos - 1]);
+          const index_t index = indices[index_pos];
+          const offset_t input_offset =
+              (index == 0 ? 0 : input_offsets[index - 1]) + rel_index;
+
+          for (int i = 0; i < num_cols; i++) {
+            output[dense_output_offset][i] = input[input_offset][i];
+          }
+        }
+      });
+}
+
+/// Copy sequences from input jagged tensor based on indices specified in the
+/// indices tensor to output jagged tensor (this function invokes
+/// jagged_index_select_2d_kernel)
+/// @param values                2D dense value tensor of input jagged tensor
+/// @param indices               1D tensor that contains indices to be selected
+///                              from input jagged tensor
+/// @param input_offsets         1D tensor that contains offsets of input
+///                              jagged tensor
+/// @param output_offsets        1D tensor that contains offsets of output
+///                              jagged tensor
+/// @param num_dense_output_rows The total number of rows in the 2D dense value
+///                              tensor of output jagged tensor
+Tensor jagged_index_select_2d_forward_cpu(
+    const Tensor& values,
+    const Tensor& indices,
+    const Tensor& input_offsets,
+    const Tensor& output_offsets,
+    const int64_t num_dense_output_rows) {
+  TORCH_CHECK(
+      values.dim() == 2,
+      "jagged_index_select_2d_forward_cpu supports only 2D inputs");
+  auto num_cols = values.size(1);
+  Tensor output =
+      at::empty({num_dense_output_rows, num_cols}, values.options());
+
+  if (num_dense_output_rows > 0) {
+    AT_DISPATCH_ALL_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        values.scalar_type(),
+        "jagged_index_select_2d_kernel_wrapper_1",
+        [&] {
+          AT_DISPATCH_INDEX_TYPES(
+              indices.scalar_type(),
+              "jagged_index_select_2d_kernel_wrapper_2",
+              [&] {
+                jagged_index_select_2d_kernel(
+                    output.accessor<scalar_t, 2>(),
+                    values.accessor<scalar_t, 2>(),
+                    input_offsets.accessor<int64_t, 1>(),
+                    indices.accessor<index_t, 1>(),
+                    output_offsets.accessor<int64_t, 1>());
+              });
+        });
+  }
+
+  return output;
+}
+
+template <typename index_t, typename offset_t, typename scalar_t>
+void jagged_index_add_2d_kernel(
+    at::TensorAccessor<scalar_t, 2> output,
+    const at::TensorAccessor<scalar_t, 2>& input,
+    const at::TensorAccessor<offset_t, 1>& input_offsets,
+    const at::TensorAccessor<index_t, 1>& indices,
+    const at::TensorAccessor<offset_t, 1>& output_offsets) {
+  const auto num_input_rows = input_offsets.size(0);
+  const auto num_dense_input_rows = input.size(0);
+  const auto num_cols = input.size(1);
+  // Allocate one lock per row
+  std::atomic_flag* locks = new std::atomic_flag[output.size(0)];
+  at::parallel_for(0, num_dense_input_rows, 0, [&](int64_t start, int64_t end) {
+    for (auto dense_input_offset = start; dense_input_offset < end;
+         dense_input_offset++) {
+      int index_pos;
+      binary_search_range_cpu(
+          &index_pos,
+          reinterpret_cast<const offset_t*>(&input_offsets[0]),
+          static_cast<offset_t>(dense_input_offset),
+          num_input_rows);
+      const offset_t rel_index = dense_input_offset -
+          (index_pos == 0 ? 0 : input_offsets[index_pos - 1]);
+      const index_t index = indices[index_pos];
+      const offset_t output_offset =
+          (index == 0 ? 0 : output_offsets[index - 1]) + rel_index;
+
+      // Spin lock
+      auto& lock = locks[output_offset];
+      while (lock.test_and_set(std::memory_order_acquire)) {
+        // For C++20
+#if defined(__cpp_lib_atomic_flag_test)
+        while (lock.test(std::memory_order_relaxed))
+#endif
+          ;
+      }
+      for (int i = 0; i < num_cols; i++) {
+        output[output_offset][i] += input[dense_input_offset][i];
+      }
+      // Release lock
+      lock.clear(std::memory_order_release);
+    }
+  });
+}
+
+/// Add sequences from input jagged tensor to output jagged tensor based on
+/// indices specified in the indices tensor (this function invokes
+/// jagged_index_add_2d_kernel)
+/// @param values               2D dense value tensor of input jagged tensor
+/// @param indices              1D tensor that contains indices to be added in
+///                             output jagged tensor
+/// @param input_offsets        1D tensor that contains offsets of input
+///                             jagged tensor
+/// @param output_offsets       1D tensor that contains offsets of output
+///                             jagged tensor
+/// @param num_dense_input_rows The total number of rows in the 2D dense value
+///                             tensor of input jagged tensor
+/// @param num_output_rows      The number of sequences in jagged output tensor
+Tensor jagged_index_add_2d_forward_cpu(
+    const Tensor& values,
+    const Tensor& indices,
+    const Tensor& input_offsets,
+    const Tensor& output_offsets,
+    const int64_t num_dense_input_rows,
+    const int64_t num_output_rows) {
+  TORCH_CHECK(
+      values.dim() == 2,
+      "jagged_index_add_2d_forward_cpu supports only 2D inputs");
+  auto num_cols = values.size(1);
+  Tensor output = at::zeros({num_output_rows, num_cols}, values.options());
+  AT_DISPATCH_ALL_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      values.scalar_type(),
+      "jagged_index_add_2d_kernel_wrapper_1",
+      [&] {
+        AT_DISPATCH_INDEX_TYPES(
+            indices.scalar_type(), "jagged_index_add_2d_kernel_wrapper_2", [&] {
+              jagged_index_add_2d_kernel(
+                  output.accessor<scalar_t, 2>(),
+                  values.accessor<scalar_t, 2>(),
+                  input_offsets.accessor<int64_t, 1>(),
+                  indices.accessor<index_t, 1>(),
+                  output_offsets.accessor<int64_t, 1>());
+            });
+      });
+  return output;
+}
+
 template <typename index_t, typename scalar_t>
 void jagged_softmax_kernel(
     const at::TensorAccessor<scalar_t, 2>& values,
@@ -1360,6 +1532,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "batched_dense_vec_jagged_2d_mul_backward(Tensor grad_output, Tensor v, Tensor a_values, Tensor a_offsets) -> (Tensor, Tensor)");
   m.def(
+      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
+  m.def(
+      "jagged_index_select_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_output_rows) -> Tensor");
+  m.def(
+      "jagged_index_add_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_input_rows, int num_output_rows) -> Tensor");
+  m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
   m.def(
       "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)");
@@ -1424,6 +1602,12 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "stacked_jagged_1d_to_dense", fbgemm_gpu::stacked_jagged_1d_to_dense_cpu);
   DISPATCH_TO_CPU(
       "stacked_jagged_2d_to_dense", fbgemm_gpu::stacked_jagged_2d_to_dense_cpu);
+  DISPATCH_TO_CPU(
+      "jagged_index_select_2d_forward",
+      fbgemm_gpu::jagged_index_select_2d_forward_cpu);
+  DISPATCH_TO_CPU(
+      "jagged_index_add_2d_forward",
+      fbgemm_gpu::jagged_index_add_2d_forward_cpu);
   DISPATCH_TO_CPU(
       "jagged_1d_to_truncated_values",
       fbgemm_gpu::jagged_1d_to_truncated_values_cpu);

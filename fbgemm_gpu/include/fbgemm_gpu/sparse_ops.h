@@ -739,5 +739,26 @@ std::vector<at::Tensor> group_index_add_cuda(
     const int num_output_rows,
     const int num_cols,
     const int num_groups);
+
+std::vector<at::Tensor> jagged_index_select_2d(
+    const at::Tensor& values,
+    const at::Tensor& lengths,
+    const at::Tensor& indices);
+
+at::Tensor jagged_index_select_2d_forward_cpu(
+    const at::Tensor& values,
+    const at::Tensor& indices,
+    const at::Tensor& input_offsets,
+    const at::Tensor& output_offsets,
+    const int64_t num_dense_output_rows);
+
+at::Tensor jagged_index_add_2d_forward_cpu(
+    const at::Tensor& grad,
+    const at::Tensor& indices,
+    const at::Tensor& grad_offsets,
+    const at::Tensor& output_offsets,
+    const int64_t num_dense_grad_rows,
+    const int64_t num_output_rows);
+
 #endif
 } // namespace fbgemm_gpu

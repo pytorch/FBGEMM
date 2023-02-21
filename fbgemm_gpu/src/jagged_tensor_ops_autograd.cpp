@@ -472,6 +472,93 @@ class JaggedDenseBmmOp : public torch::autograd::Function<JaggedDenseBmmOp> {
   }
 };
 
+class JaggedIndexSelect2dOp
+    : public torch::autograd::Function<JaggedIndexSelect2dOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& values,
+      const Tensor& lengths,
+      const Tensor& indices) {
+    TORCH_CHECK(
+        values.dim() == 2, "jagged_index_select supports only 2D inputs")
+    TENSORS_ON_SAME_DEVICE(lengths, indices);
+    TENSORS_ON_SAME_DEVICE(values, indices);
+
+    Tensor output_lengths = at::index_select(lengths, 0, indices);
+    Tensor output_offsets = output_lengths.cumsum(0);
+    Tensor input_offsets = lengths.cumsum(0);
+
+    int64_t num_dense_output_rows =
+        output_offsets[output_offsets.numel() - 1].item<int64_t>();
+
+    ctx->save_for_backward({indices, output_offsets, input_offsets});
+    ctx->saved_data["num_dense_grad_rows"] = num_dense_output_rows;
+    ctx->saved_data["num_input_rows"] = values.size(0);
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_index_select_2d_forward", "")
+            .typed<at::Tensor(
+                const Tensor& values,
+                const Tensor& indices,
+                const Tensor& input_offsets,
+                const Tensor& output_offsets,
+                const int64_t num_dense_output_rows)>();
+
+    return {
+        op.call(
+            values,
+            indices,
+            input_offsets,
+            output_offsets,
+            num_dense_output_rows),
+        output_lengths};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    TORCH_CHECK(grad_outputs.size() == 2);
+
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    Tensor indices = *savedItr++;
+    Tensor grad_offsets = *savedItr++;
+    Tensor output_offsets = *savedItr++;
+    Tensor grad = grad_outputs[0];
+
+    TENSORS_ON_SAME_DEVICE(grad, indices);
+
+    int64_t num_dense_grad_rows =
+        ctx->saved_data["num_dense_grad_rows"].toInt();
+    int64_t num_output_rows = ctx->saved_data["num_input_rows"].toInt();
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_index_add_2d_forward", "")
+            .typed<at::Tensor(
+                const Tensor& values,
+                const Tensor& indices,
+                const Tensor& input_offsets,
+                const Tensor& output_offsets,
+                const int64_t num_dense_input_rows,
+                const int64_t num_output_rows)>();
+
+    return {
+        op.call(
+            grad,
+            indices,
+            grad_offsets,
+            output_offsets,
+            num_dense_grad_rows,
+            num_output_rows),
+        torch::autograd::Variable(), // lengths
+        torch::autograd::Variable() // indices
+    };
+  }
+};
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -611,6 +698,27 @@ std::tuple<Tensor, Tensor> jagged_dense_bmm(
   return {JaggedDenseBmmOp::apply(x_values, x_offsets, y, max_L)[0], x_offsets};
 }
 
+/// Call the autograd function of jagged_index_select_2d
+///
+/// Forward: Copy sequences from input jagged tensor based on indices specified
+///          in the indices tensor to output jagged tensor
+///
+/// Backward: Add sequences from output gradient jagged tensor to input
+///           gradient jagged tensor based on indices specified in the indices
+///           tensor
+///
+/// @param values  2D dense value of input jagged tensor
+/// @param lengths 1D tensor that contains sequence lengths of input jagged
+///                tensor
+/// @param indices 1D tensor that contains indices to be selected from input
+///                jagged tensor
+std::vector<Tensor> jagged_index_select_2d(
+    const Tensor& values,
+    const Tensor& lengths,
+    const Tensor& indices) {
+  return JaggedIndexSelect2dOp::apply(values, lengths, indices);
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
@@ -631,4 +739,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl("jagged_softmax", TORCH_FN(fbgemm_gpu::jagged_softmax));
   m.impl("jagged_jagged_bmm", TORCH_FN(fbgemm_gpu::jagged_jagged_bmm));
   m.impl("jagged_dense_bmm", TORCH_FN(fbgemm_gpu::jagged_dense_bmm));
+  m.impl("jagged_index_select", TORCH_FN(fbgemm_gpu::jagged_index_select_2d));
 }

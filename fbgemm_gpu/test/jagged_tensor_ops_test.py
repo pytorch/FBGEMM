@@ -1408,7 +1408,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
     @staticmethod
     def jagged_index_select_2d_ref(
-        values: torch.Tensor, lengths: torch.Tensor, inverse_lookup: torch.Tensor
+        values: torch.Tensor,
+        lengths: torch.Tensor,
+        inverse_lookup: torch.Tensor,
+        device: torch.device,
     ) -> torch.Tensor:
         offsets = torch.ops.fbgemm.asynchronous_exclusive_cumsum(lengths)
         end_offsets = offsets + lengths
@@ -1420,12 +1423,11 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         to_be_merged_tensors = []
         for row in index_ranges:
-            to_be_merged_tensors.append(torch.arange(row[0], row[1], device="cuda"))
+            to_be_merged_tensors.append(torch.arange(row[0], row[1], device=device))
         all_indices = torch.cat(to_be_merged_tensors, dim=0)
         new_embeddings = torch.index_select(values, 0, all_indices)
         return new_embeddings
 
-    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]
     @given(
         max_seq_length=st.integers(5, 10),
@@ -1441,6 +1443,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 torch.long,
             ]  # Disable torch.bfloat16 due to large error bound
         ),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
     )
     @settings(max_examples=20, deadline=None)
     def test_jagged_index_select_2d(
@@ -1451,14 +1454,16 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_tensor_rows: int,
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
+        use_cpu: bool,
     ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
             low=0,
             high=max_seq_length,
             size=(num_jagged_tensor_rows,),
             dtype=index_dtype,
-            device="cuda",
+            device=device,
         )
         indices, _ = torch.sort(
             torch.randint(
@@ -1466,7 +1471,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 high=num_jagged_tensor_rows,
                 size=(batch_size,),
                 dtype=index_dtype,
-                device="cuda",
+                device=device,
             )
         )
         if is_float:
@@ -1474,14 +1479,14 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 int(lengths.sum().item()),
                 num_cols,
                 dtype=jagged_tensor_dtype,
-                device="cuda",
+                device=device,
             )
         else:
             values = torch.randint(
                 2**16,
                 (int(lengths.sum().item()), num_cols),
                 dtype=jagged_tensor_dtype,
-                device="cuda",
+                device=device,
             )
         values_ref = values.detach().clone()
 
@@ -1491,7 +1496,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
             values_ref.requires_grad = True
 
         output, _ = torch.ops.fbgemm.jagged_index_select(values, lengths, indices)
-        output_ref = self.jagged_index_select_2d_ref(values_ref, lengths, indices)
+        output_ref = self.jagged_index_select_2d_ref(
+            values_ref, lengths, indices, device
+        )
 
         assert torch.equal(output, output_ref)
 

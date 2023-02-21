@@ -2408,12 +2408,29 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_index_select_2d_kernel(
   }
 }
 
-Tensor jagged_index_select_2d_cuda(
+/// Copy sequences from input jagged tensor based on indices specified in the
+/// indices tensor to an output jagged tensor (host function for dispatching
+/// jagged_index_select_2d_kernel to GPU)
+/// @param values                2D dense value tensor of input jagged tensor
+/// @param indices               1D tensor that contains indices to be selected
+///                              from output jagged tensor
+/// @param input_offsets         1D tensor that contains offsets of input
+///                              jagged tensor
+/// @param output_offsets        1D tensor that contains offsets of output
+///                              jagged tensor
+/// @param num_dense_output_rows The total number of rows in the 2D dense value
+///                              tensor of output jagged tensor
+Tensor jagged_index_select_2d_forward_cuda(
     const Tensor& values,
     const Tensor& indices,
     const Tensor& input_offsets,
     const Tensor& output_offsets,
     const int64_t num_dense_output_rows) {
+  TENSOR_ON_CUDA_GPU(values);
+  TENSOR_ON_CUDA_GPU(indices);
+  TENSOR_ON_CUDA_GPU(input_offsets);
+  TENSOR_ON_CUDA_GPU(output_offsets);
+
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(values.get_device());
 
@@ -2462,21 +2479,22 @@ Tensor jagged_index_select_2d_cuda(
 template <typename index_t, typename offset_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_index_add_2d_kernel(
     scalar_t* output,
-    const scalar_t* grad,
-    const offset_t* grad_offsets,
+    const scalar_t* values,
+    const offset_t* input_offsets,
     const index_t* indices,
     const offset_t* output_offsets,
-    const int64_t num_grad_rows,
-    const int64_t num_dense_grad_rows,
+    const int64_t num_input_rows,
+    const int64_t num_dense_input_rows,
     const int64_t num_cols) {
   __shared__ int smem[1];
-  for (offset_t dense_grad_offset = blockIdx.x;
-       dense_grad_offset < num_dense_grad_rows;
-       dense_grad_offset += gridDim.x) {
+  for (offset_t dense_input_offset = blockIdx.x;
+       dense_input_offset < num_dense_input_rows;
+       dense_input_offset += gridDim.x) {
     // Binary search
     // TODO: use multiple threads to do bin search to reduce number of steps
     if (threadIdx.x == 0) {
-      binary_search_range(smem, grad_offsets, dense_grad_offset, num_grad_rows);
+      binary_search_range(
+          smem, input_offsets, dense_input_offset, num_input_rows);
     }
     __syncthreads();
 
@@ -2486,48 +2504,66 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_index_add_2d_kernel(
 
     // TODO: Can also be obtained during the binary search
     // Relative index position
-    const offset_t rel_index =
-        dense_grad_offset - (index_pos == 0 ? 0 : grad_offsets[index_pos - 1]);
+    const offset_t rel_index = dense_input_offset -
+        (index_pos == 0 ? 0 : input_offsets[index_pos - 1]);
     const index_t index = indices[index_pos];
     const offset_t output_offset =
         (index == 0 ? 0 : output_offsets[index - 1]) + rel_index;
 
     // Shift buffers
-    const scalar_t* grad_ = grad + dense_grad_offset * num_cols;
+    const scalar_t* values_ = values + dense_input_offset * num_cols;
     scalar_t* output_ = output + output_offset * num_cols;
 
     // TODO: Avoid using atoimcAdd (because it could lead to the numerical
     // indeterminism issue)
     for (int i = threadIdx.x; i < num_cols; i += blockDim.x) {
-      gpuAtomicAdd(&output_[i], grad_[i]);
+      gpuAtomicAdd(&output_[i], values_[i]);
     }
   }
 }
 
-Tensor jagged_index_add_2d_cuda(
-    const Tensor& grad,
+/// Add sequences from input jagged tensor to output jagged tensor based on
+/// indices specified in the indices tensor (host function for dispatching
+/// jagged_index_add_2d_kernel to GPU)
+/// @param values               2D dense value tensor of input jagged tensor
+/// @param indices              1D tensor that contains indices to be added in
+///                             output jagged tensor
+/// @param input_offsets        1D tensor that contains offsets of input
+///                             jagged tensor
+/// @param output_offsets       1D tensor that contains offsets of output
+///                             jagged tensor
+/// @param num_dense_input_rows The total number of rows in the 2D dense value
+///                             tensor of input jagged tensor
+/// @param num_output_rows      The number of sequences in jagged output tensor
+Tensor jagged_index_add_2d_forward_cuda(
+    const Tensor& values,
     const Tensor& indices,
-    const Tensor& grad_offsets,
+    const Tensor& input_offsets,
     const Tensor& output_offsets,
-    const int64_t num_dense_grad_rows,
+    const int64_t num_dense_input_rows,
     const int64_t num_output_rows) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad.get_device());
+  TENSOR_ON_CUDA_GPU(values);
+  TENSOR_ON_CUDA_GPU(indices);
+  TENSOR_ON_CUDA_GPU(input_offsets);
+  TENSOR_ON_CUDA_GPU(output_offsets);
 
-  auto num_cols = grad.size(1);
-  const int64_t num_grad_rows = indices.numel();
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(values.get_device());
+
+  auto num_cols = values.size(1);
+  const int64_t num_input_rows = indices.numel();
 
   const int64_t max_num_blocks = 1024; // Arbitrarily set to this number of now
   const int64_t max_num_threads = kMaxThreads;
-  const int64_t num_blocks = std::min(max_num_blocks, num_dense_grad_rows);
+  const int64_t num_blocks = std::min(max_num_blocks, num_dense_input_rows);
   const int64_t num_threads = std::min(max_num_threads, num_cols);
-  Tensor output = at::zeros({num_output_rows, num_cols}, grad.options());
+  Tensor output = at::zeros({num_output_rows, num_cols}, values.options());
 
   if (num_blocks > 0) {
     AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
         at::ScalarType::BFloat16,
-        grad.scalar_type(),
+        values.scalar_type(),
         "jagged_index_add_2d_kernel_wrapper_1",
         [&] {
           AT_DISPATCH_INDEX_TYPES(
@@ -2540,12 +2576,12 @@ Tensor jagged_index_add_2d_cuda(
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
                     output.data_ptr<scalar_t>(),
-                    grad.data_ptr<scalar_t>(),
-                    grad_offsets.data_ptr<int64_t>(),
+                    values.data_ptr<scalar_t>(),
+                    input_offsets.data_ptr<int64_t>(),
                     indices.data_ptr<index_t>(),
                     output_offsets.data_ptr<int64_t>(),
-                    num_grad_rows,
-                    num_dense_grad_rows,
+                    num_input_rows,
+                    num_dense_input_rows,
                     num_cols);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
@@ -2553,84 +2589,6 @@ Tensor jagged_index_add_2d_cuda(
   }
 
   return output;
-}
-
-class JaggedIndexSelect2dGPUOp
-    : public torch::autograd::Function<JaggedIndexSelect2dGPUOp> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& values,
-      const Tensor& lengths,
-      const Tensor& indices) {
-    TENSOR_ON_CUDA_GPU(lengths);
-    TENSOR_ON_CUDA_GPU(values);
-    TENSOR_ON_CUDA_GPU(indices);
-    TENSORS_ON_SAME_DEVICE(lengths, indices);
-    TENSORS_ON_SAME_DEVICE(values, indices);
-
-    Tensor output_lengths = at::index_select(lengths, 0, indices);
-    Tensor output_offsets = output_lengths.cumsum(0);
-    Tensor input_offsets = lengths.cumsum(0);
-
-    // TODO: Try to not do D->H transfer
-    // The challenge here is num_dense_output_rows is needed for allocating the
-    // output buffer
-    int64_t num_dense_output_rows =
-        output_offsets[output_offsets.numel() - 1].item<int64_t>();
-
-    ctx->save_for_backward({indices, output_offsets, input_offsets});
-    ctx->saved_data["num_dense_grad_rows"] = num_dense_output_rows;
-    ctx->saved_data["num_input_rows"] = values.size(0);
-
-    return {
-        jagged_index_select_2d_cuda(
-            values,
-            indices,
-            input_offsets,
-            output_offsets,
-            num_dense_output_rows),
-        output_lengths};
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    TORCH_CHECK(grad_outputs.size() == 2);
-    TENSOR_ON_CUDA_GPU(grad_outputs[0]);
-
-    const auto saved = ctx->get_saved_variables();
-    auto savedItr = std::begin(saved);
-    Tensor indices = *savedItr++;
-    Tensor grad_offsets = *savedItr++;
-    Tensor output_offsets = *savedItr++;
-
-    Tensor grad = grad_outputs[0];
-    TENSORS_ON_SAME_DEVICE(grad, indices);
-
-    int64_t num_dense_grad_rows =
-        ctx->saved_data["num_dense_grad_rows"].toInt();
-    int64_t num_output_rows = ctx->saved_data["num_input_rows"].toInt();
-
-    return {
-        jagged_index_add_2d_cuda(
-            grad,
-            indices,
-            grad_offsets,
-            output_offsets,
-            num_dense_grad_rows,
-            num_output_rows),
-        torch::autograd::Variable(), // lengths
-        torch::autograd::Variable() // indices
-    };
-  }
-};
-
-std::vector<Tensor> jagged_index_select_2d_gpu(
-    const Tensor& values,
-    const Tensor& lengths,
-    const Tensor& indices) {
-  return JaggedIndexSelect2dGPUOp::apply(values, lengths, indices);
 }
 
 class StackedJagged2DToDenseGPUOp
@@ -3155,7 +3113,11 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "batched_dense_vec_jagged_2d_mul_backward",
       fbgemm_gpu::batched_dense_vec_jagged_2d_mul_backward);
   DISPATCH_TO_CUDA(
-      "jagged_index_select", fbgemm_gpu::jagged_index_select_2d_gpu);
+      "jagged_index_select_2d_forward",
+      fbgemm_gpu::jagged_index_select_2d_forward_cuda);
+  DISPATCH_TO_CUDA(
+      "jagged_index_add_2d_forward",
+      fbgemm_gpu::jagged_index_add_2d_forward_cuda);
   DISPATCH_TO_CUDA("jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense);
   DISPATCH_TO_CUDA("jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense);
   DISPATCH_TO_CUDA(
