@@ -18,21 +18,21 @@ on:
     branches:
       - main
 
-  # Cron Trigger
+  # Cron Trigger (UTC)
   #
   # Based on the Conda page for PyTorch-nightly, the GPU nightly releases appear
-  # around 02:30 every day (roughly 2 hours after the CPU releases)
+  # around 02:30 PST every day (roughly 2 hours after the CPU releases)
   #
   schedule:
-    - cron:  '45 04 * * *'
+    - cron:  '45 12 * * *'
 
-  # Manual trigger
+  # Manual Trigger
   #
   workflow_dispatch:
 
 jobs:
   # Build on CPU hosts and upload to GHA
-  build_on_cpu:
+  build_artifact:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -95,7 +95,7 @@ jobs:
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
-  test_on_gpu:
+  test_and_publish_artifact:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -109,7 +109,8 @@ jobs:
         os: [ linux.g5.4xlarge.nvidia.gpu ]
         python-version: [ "3.8", "3.9", "3.10" ]
         cuda-version: [ "11.7.1" ]
-    needs: build_on_cpu
+    needs: build_artifact
+
     steps:
     - name: Checkout the Repository
       uses: actions/checkout@v3
@@ -145,33 +146,18 @@ jobs:
       with:
         name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
 
-    - name: Display structure of downloaded files
+    - name: Display Structure of the Downloaded Files
       run: ls -R
 
     - name: Install FBGEMM_GPU Nightly
-      run: |
-        rm -rf dist
-        conda run -n $BUILD_ENV \
-          python -m pip install *.whl
-
-    - name: Test FBGEMM_GPU Installation
-      shell: bash
-      run: |
-        conda run -n $BUILD_ENV \
-          python -c "import fbgemm_gpu"
+      run: . $PRELUDE; install_fbgemm_gpu_package $BUILD_ENV *.whl
 
     - name: Test with PyTest
       # Remove this line when we fixed all the unit tests
       continue-on-error: true
-      run: |
-        conda run -n $BUILD_ENV \
-          python -m pip install pytest
-        # The tests with single CPU core on a less powerful testing GPU in GHA
-        # can take 5 hours.
-        timeout 600s conda run -n $BUILD_ENV \
-          python -m pytest -v -s -W ignore::pytest.PytestCollectionWarning --continue-on-collection-errors
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV
 
-    - name: Push FBGEMM_GPU Binary to PYPI
+    - name: Push FBGEMM_GPU Nightly Binary to PYPI
       if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}

@@ -14,81 +14,6 @@ on:
       - main
 
 jobs:
-  build_nvidia_gpu:
-    if: ${{ false }}  # Disable the job for now
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-    env:
-      PRELUDE: .github/scripts/setup_env.bash
-      BUILD_ENV: build_binary
-    strategy:
-      # Don't fast-fail all the other builds if one of the them fails
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-20.04 ]
-        python-version: [ "3.8" ]
-        # As of version 2.0, PyTorch has dropped support for CUDA 11.6
-        cuda-version: [ 11.7.1 ]
-
-    steps:
-    - name: Checkout the Repository
-      uses: actions/checkout@v3
-      with:
-        submodules: true
-
-    - name: Display System Info
-      run: . $PRELUDE; print_system_info
-
-    - name: Setup Miniconda
-      run: |
-        . $PRELUDE; setup_miniconda $HOME/miniconda
-        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
-        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
-
-    - name: Create Conda Environment
-      run: |
-        . $PRELUDE
-        create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
-
-        # This hack is needed to get builds running properly on Ubuntu 20.04
-        echo "[SETUP] Creating symlink \$CONDA_PREFIX/lib64 -> \$CONDA_PREFIX/lib ..."
-        conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
-        ln -s "${conda_prefix}/lib" "${conda_prefix}/lib64"
-
-    # - name: Install C/C++ Compilers
-    #   run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
-
-    - name: Install Build Tools
-      run: . $PRELUDE; install_build_tools $BUILD_ENV
-
-    - name: Install CUDA
-      run: . $PRELUDE; install_cuda $BUILD_ENV "${{ matrix.cuda-version }}"
-
-    - name: Install PyTorch
-      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda "${{ matrix.cuda-version }}"
-
-    - name: Install cuDNN
-      run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" "${{ matrix.cuda-version }}"
-
-    - name: Prepare FBGEMM Build
-      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
-
-    - name: Build and Install FBGEMM_GPU
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV
-
-    - name: Test FBGEMM_GPU installation
-      shell: bash
-      run: |
-        . $PRELUDE;
-        cd fbgemm_gpu/test
-        print_exec conda run -n $BUILD_ENV python input_combine_test.py -v
-        print_exec conda run -n $BUILD_ENV python quantize_ops_test.py -v
-        print_exec conda run -n $BUILD_ENV python sparse_ops_test.py -v
-        conda run -n $BUILD_ENV python -c "import fbgemm_gpu"
-        conda run -n $BUILD_ENV python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
-
   build_amd_gpu:
     if: ${{ false }}  # Disable the job for now
     runs-on: ${{ matrix.os }}
@@ -200,71 +125,48 @@ jobs:
         "
         docker run $DOCKER_OPTIONS $DOCKER_IMAGE $JENKINS_REPO_DIR_DOCKER/.jenkins/rocm/build_and_test.sh $JENKINS_REPO_DIR_DOCKER
 
-  test_nvidia_gpu:
-    if: ${{ false }}  # Disable the job for now
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
-    with:
-      job-name: cuda 11.7, A10
-      runner: linux.g5.4xlarge.nvidia.gpu # A10
-      repository: pytorch/fbgemm
-      gpu-arch-type: cuda
-      gpu-arch-version: 11.7
-      timeout: 150
-      script: |
-        set -x
-        # Checkout FBGEMM_GPU
-        git submodule update --init
-
-        # Build FBGEMM_GPU with pytorch-nightly
-        CUDA_VERSION="11.7.1"
-        PYTHON_VERSION="3.10"
-        bash .github/scripts/build_wheel.bash -v -p "$PYTHON_VERSION" -o fbgemm_gpu_test -P pytorch-nightly -c "$CUDA_VERSION" -m /opt/conda
-
-        # Test FBGEMM_GPU using a generated wheel file
-        WHEEL_PATH="$(ls fbgemm_gpu/dist/*.whl)"
-        bash .github/scripts/test_wheel.bash -v -p "$PYTHON_VERSION" -P pytorch-nightly -c "$CUDA_VERSION" -w "$WHEEL_PATH" -m /opt/conda
-
-  build_cpu_only:
+  build_and_test_cpu:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ ubuntu-20.04, ubuntu-latest ]
+        python-version: [ "3.8", "3.9", "3.10" ]
 
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
 
-    - name: Install dependencies
-      shell: bash
-      run: |
-        sudo apt-get update
-        sudo apt-get -y install git pip python3-dev
-        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        # Install PyTorch (nightly) as required by fbgemm_gpu
-        sudo pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
 
-    - name: Checkout submodules
-      shell: bash
+    - name: Setup Miniconda
       run: |
-        cd fbgemm_gpu
-        git submodule sync
-        git submodule update --init --recursive
+        . $PRELUDE; setup_miniconda $HOME/miniconda
+        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
+        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
 
-    - name: Build fbgemm_gpu
-      shell: bash
-      run: |
-        cd fbgemm_gpu
-        # to avoid "Permission denied" error in '/usr/local/lib/python3.8/dist-packages/' folder
-        sudo python setup.py install --cpu_only
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
-    - name: Test fbgemm_gpu cpu-only installation
-      shell: bash
-      run: |
-        cd fbgemm_gpu
-        cd test
-        python batched_unary_embeddings_test.py -v
-        python input_combine_test.py -v
-        python layout_transform_ops_test.py -v
-        python merge_pooled_embeddings_test.py -v
-        python permute_pooled_embedding_modules_test.py -v
-        python quantize_ops_test.py -v
-        python sparse_ops_test.py -v
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install PyTorch
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cpu
+
+    - name: Prepare FBGEMM Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build and Install FBGEMM_GPU (CPU version)
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV cpuonly
+
+    - name: Test with PyTest
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpuonly
