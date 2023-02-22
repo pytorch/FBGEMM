@@ -198,6 +198,26 @@ print_ec2_info () {
   echo "instance-type: $(get_ec2_metadata instance-type)"
 }
 
+free_disk_space () {
+  echo "################################################################################"
+  echo "# Free Disk Space"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "################################################################################"
+  echo ""
+
+  sudo rm -rf \
+    /usr/local/android \
+    /usr/share/dotnet \
+    /usr/local/share/boost \
+    /opt/ghc \
+    /usr/local/share/chrom* \
+    /usr/share/swift \
+    /usr/local/julia* \
+    /usr/local/lib/android
+
+  echo "[CLEANUP] Freed up some disk space"
+}
 
 ################################################################################
 # Environment Setup and Install Functions
@@ -431,7 +451,6 @@ install_pytorch_pip () {
 install_cuda () {
   env_name="$1"
   cuda_version="$2"
-
   if [ "$cuda_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME CUDA_VERSION"
     echo "Example(s):"
@@ -470,6 +489,62 @@ install_cuda () {
   # Print nvcc version
   print_exec conda run -n "${env_name}" nvcc --version
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
+}
+
+install_rocm_ubuntu () {
+  env_name="$1"
+  rocm_version="$2"
+  if [ "$rocm_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME ROC_VERSION"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env 5.4.3"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install ROCm (Ubuntu)"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # Based on instructions found in https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.4.3/page/How_to_Install_ROCm.html
+
+  # Disable CLI prompts during package installation
+  export DEBIAN_FRONTEND=noninteractive
+
+  echo "[INSTALL] Loading OS release info to fetch VERSION_CODENAME ..."
+  # shellcheck disable=SC1091
+  . /etc/os-release
+
+  # Split version string by dot into array, i.e. 5.4.3 => [5, 4, 3]
+  # shellcheck disable=SC2206
+  rocm_version_arr=(${rocm_version//./ })
+  # Materialize the long version string, i.e. 5.3 => 50500, 5.4.3 => 50403
+  long_version="${rocm_version_arr[0]}$(printf %02d "${rocm_version_arr[1]}")$(printf %02d "${rocm_version_arr[2]}")"
+  # Materialize the full deb package name
+  package_name="amdgpu-install_${rocm_version_arr[0]}.${rocm_version_arr[1]}.${long_version}-1_all.deb"
+  # Materialize the download URL
+  rocm_download_url="https://repo.radeon.com/amdgpu-install/${rocm_version}/ubuntu/${VERSION_CODENAME}/${package_name}"
+
+  echo "[INSTALL] Downloading the ROCm installer script ..."
+  print_exec wget -q "${rocm_download_url}" -O "${package_name}"
+
+  echo "[INSTALL] Installing the ROCm installer script ..."
+  install_system_packages "./${package_name}"
+
+  # Skip installation of kernel driver when run in Docker mode with --no-dkms
+  echo "[INSTALL] Installing ROCm ..."
+  print_exec amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
+
+  echo "[INSTALL] Installing HIP-relevant packages ..."
+  install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
+  install_system_packages hipify-clang miopen-hip miopen-hip-dev
+
+  echo "[INSTALL] Cleaning up ..."
+  print_exec rm -f "${package_name}"
+
+  echo "[INSTALL] Successfully installed ROCm ${rocm_version}"
 }
 
 install_cxx_compiler () {
@@ -849,7 +924,7 @@ install_fbgemm_gpu_package () {
 
 
 ################################################################################
-# Publish Functions
+# Test Functions
 ################################################################################
 
 run_fbgemm_gpu_tests () {
@@ -880,7 +955,7 @@ run_fbgemm_gpu_tests () {
   if [ "$cpu_only" != "" ]; then
     # These are tests that are currently broken in FBGEMM_GPU-CPU
     unstable_tests=(
-      jagged_tensor_ops_test.py
+      # jagged_tensor_ops_test.py
       uvm_test.py
     )
   else

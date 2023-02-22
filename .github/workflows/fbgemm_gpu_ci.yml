@@ -15,66 +15,134 @@ on:
 
 jobs:
   build_amd_gpu:
-    if: ${{ false }}  # Disable the job for now
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
     strategy:
       matrix:
-        os: [ubuntu-20.04]
-        config: [[pip, 5.3]]
+        os: [ ubuntu-20.04 ]
+        python-version: [ "3.10" ]
+        rocm-version: [ "5.3" ]
 
     steps:
-    - name: Free space
-      run: sudo rm -rf /usr/local/android /usr/share/dotnet /usr/local/share/boost /opt/ghc /usr/local/share/chrom* /usr/share/swift /usr/local/julia* /usr/local/lib/android
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
 
-    - uses: actions/checkout@v3
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Free Disk Space
+      run: . $PRELUDE; free_disk_space
+
+    - name: Setup Miniconda
+      run: |
+        . $PRELUDE; setup_miniconda $HOME/miniconda
+        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
+        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install ROCm
-      shell: bash
-      run: |
-        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
-        wget https://repo.radeon.com/amdgpu-install/5.3/ubuntu/focal/amdgpu-install_5.3.50300-1_all.deb
-        export DEBIAN_FRONTEND=noninteractive
-        sudo apt install -y ./amdgpu-install_5.3.50300-1_all.deb
-        amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
-        sudo rm amdgpu-install_5.3.50300-1_all.deb
+      run: . $PRELUDE; install_rocm_ubuntu $BUILD_ENV ${{ matrix.rocm-version }}
 
-    - name: Install dependencies
-      shell: bash
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git pip python3-dev mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
-        sudo apt-get install -y hipify-clang || true
-        sudo apt-get install -y miopen-hip miopen-hip-dev
-        sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
-        sudo apt-get clean
-        # Install PyTorch (nightly) as required by fbgemm_gpu
-        sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
 
-    - name: Checkout submodules
-      shell: bash
+    - name: Install PyTorch-ROCm Nightly
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
+
+    - name: Prepare FBGEMM Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build FBGEMM_GPU-ROCM Nightly
       run: |
+        . $PRELUDE
         cd fbgemm_gpu
-        git submodule sync
-        git submodule update --init --recursive
 
-    - name: Build fbgemm_gpu
+        # Build for MI250 only to save time.
+        print_exec conda env config vars set -n $BUILD_ENV PYTORCH_ROCM_ARCH=gfx90a
+        print_exec conda run -n $BUILD_ENV python setup.py build develop
+
+    - name: Test FBGEMM_GPU-ROCM Nightly installation
       shell: bash
       run: |
-        sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
-        cd fbgemm_gpu
-        # build for MI250 only to save time.
-        sudo PYTORCH_ROCM_ARCH=gfx90a python3 setup.py build develop
+        . $PRELUDE
+        cd fbgemm_gpu/test
 
-    - name: Test fbgemm_gpu installation
-      shell: bash
-      run: |
-        cd fbgemm_gpu
-        cd test
-        python3 input_combine_test.py -v
-        python3 quantize_ops_test.py -v
-        python3 sparse_ops_test.py -v
-        python3 -c "import fbgemm_gpu"
-        python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+        print_exec conda run -n $BUILD_ENV python -c "import fbgemm_gpu"
+        print_exec conda run -n $BUILD_ENV python -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+        print_exec conda run -n $BUILD_ENV python input_combine_test.py -v
+        print_exec conda run -n $BUILD_ENV python quantize_ops_test.py -v
+        print_exec conda run -n $BUILD_ENV python sparse_ops_test.py -v
+
+  # build_amd_gpu:
+  #   if: ${{ false }}  # Disable the job for now
+  #   runs-on: ${{ matrix.os }}
+  #   strategy:
+  #     matrix:
+  #       os: [ubuntu-20.04]
+  #       config: [[pip, 5.3]]
+
+  #   steps:
+  #   - name: Free space
+  #     run: sudo rm -rf /usr/local/android /usr/share/dotnet /usr/local/share/boost /opt/ghc /usr/local/share/chrom* /usr/share/swift /usr/local/julia* /usr/local/lib/android
+
+  #   - uses: actions/checkout@v3
+
+  #   - name: Install ROCm
+  #     shell: bash
+  #     run: |
+  #       sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+  #       wget https://repo.radeon.com/amdgpu-install/5.3/ubuntu/focal/amdgpu-install_5.3.50300-1_all.deb
+  #       export DEBIAN_FRONTEND=noninteractive
+  #       sudo apt install -y ./amdgpu-install_5.3.50300-1_all.deb
+  #       amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
+  #       sudo rm amdgpu-install_5.3.50300-1_all.deb
+
+  #   - name: Install dependencies
+  #     shell: bash
+  #     run: |
+  #       sudo apt-get update
+  #       sudo apt-get install -y git pip python3-dev mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
+  #       sudo apt-get install -y hipify-clang || true
+  #       sudo apt-get install -y miopen-hip miopen-hip-dev
+  #       sudo pip install cmake scikit-build ninja jinja2 numpy hypothesis --no-input
+  #       sudo apt-get clean
+  #       # Install PyTorch (nightly) as required by fbgemm_gpu
+  #       sudo pip install --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
+
+  #   - name: Checkout submodules
+  #     shell: bash
+  #     run: |
+  #       cd fbgemm_gpu
+  #       git submodule sync
+  #       git submodule update --init --recursive
+
+  #   - name: Build fbgemm_gpu
+  #     shell: bash
+  #     run: |
+  #       sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+  #       cd fbgemm_gpu
+  #       # build for MI250 only to save time.
+  #       sudo PYTORCH_ROCM_ARCH=gfx90a python3 setup.py build develop
+
+  #   - name: Test fbgemm_gpu installation
+  #     shell: bash
+  #     run: |
+  #       cd fbgemm_gpu
+  #       cd test
+  #       python3 input_combine_test.py -v
+  #       python3 quantize_ops_test.py -v
+  #       python3 sparse_ops_test.py -v
+  #       python3 -c "import fbgemm_gpu"
+  #       python3 -c "import fbgemm_gpu.split_embedding_codegen_lookup_invokers"
 
   test_amd_gpu:
     if: ${{ false }}  # Disable the job for now
