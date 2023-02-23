@@ -624,7 +624,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
         precompute_total_L=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -646,6 +648,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             precompute_total_L,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
@@ -676,6 +679,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
     # (8000+1) * 8 (size of the element of LongTensor/int64_t offsets)
     # = ~62.5KB > 48KB default shared memory on V100/A100.
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
@@ -969,7 +973,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
         dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_elementwise_binary(
@@ -990,6 +996,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             device_type,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
@@ -1170,7 +1177,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
         dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
-        device_type=st.sampled_from(["cpu", "cuda"]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_dense_dense_elementwise_add_jagged_output(
@@ -1282,7 +1291,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
         device_type=st.sampled_from(["cpu", "cuda"])
         if gpu_available
-        else st.just("cuda"),
+        else st.just("cpu"),
     )
     def test_batched_dense_vec_jagged_2d_mul(
         self,
