@@ -955,7 +955,7 @@ run_fbgemm_gpu_tests () {
   if [ "$cpu_only" != "" ]; then
     # These are tests that are currently broken in FBGEMM_GPU-CPU
     unstable_tests=(
-      # jagged_tensor_ops_test.py
+      jagged_tensor_ops_test.py
       uvm_test.py
     )
   else
