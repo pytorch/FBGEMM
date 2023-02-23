@@ -20,11 +20,15 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable
+    from test_utils import gpu_available, gpu_unavailable, running_on_github
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_unavailable,
+        running_on_github,
+    )
 
 
 def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
@@ -1446,6 +1450,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         new_embeddings = torch.index_select(values, 0, all_indices)
         return new_embeddings
 
+    @unittest.skipIf(*running_on_github)
     # pyre-ignore [56]
     @given(
         max_seq_length=st.integers(5, 10),

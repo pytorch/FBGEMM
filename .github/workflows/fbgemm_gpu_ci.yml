@@ -71,7 +71,6 @@ jobs:
         print_exec conda run -n $BUILD_ENV python setup.py build develop
 
     - name: Test FBGEMM_GPU-ROCM Nightly installation
-      shell: bash
       run: |
         . $PRELUDE
         cd fbgemm_gpu/test
@@ -237,4 +236,5 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV cpuonly
 
     - name: Test with PyTest
+      timeout-minutes: 10
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpuonly

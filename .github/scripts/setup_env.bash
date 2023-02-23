@@ -7,7 +7,7 @@
 
 
 ################################################################################
-# Utility Functions
+# Command Execution Functions
 ################################################################################
 
 print_exec () {
@@ -15,6 +15,36 @@ print_exec () {
   echo ""
   "$@"
 }
+
+exec_with_retries () {
+  local max=5
+  local delay=2
+  local retcode=0
+
+  for i in $(seq 1 ${max}); do
+    echo "[EXEC] [ATTEMPT ${i}/${max}]    + $*"
+
+    if "$@"; then
+      break
+    else
+      retcode=$?
+      echo "[EXEC] [ATTEMPT ${i}/${max}] Command attempt failed."
+      echo ""
+      sleep $delay
+    fi
+  done
+
+  if [ $retcode -ne 0 ]; then
+    echo "[EXEC] The command has failed after ${max} attempts; aborting."
+  fi
+
+  return $retcode
+}
+
+
+################################################################################
+# Assert Functions
+################################################################################
 
 test_python_import () {
   env_name="$1"
@@ -27,7 +57,7 @@ test_python_import () {
   fi
 
   if conda run -n "${env_name}" python -c "import ${python_import}"; then
-    echo "[CHECK] Python package ${python_import} found"
+    echo "[CHECK] Python package ${python_import} found."
   else
     echo "[CHECK] Python package ${python_import} not found!"
     return 1
@@ -93,6 +123,11 @@ test_env_var () {
   fi
 }
 
+
+################################################################################
+# System Functions
+################################################################################
+
 install_system_packages () {
   if [ $# -le 0 ]; then
     echo "Usage: ${FUNCNAME[0]} PACKAGE_NAME ... "
@@ -122,12 +157,12 @@ install_system_packages () {
 
   echo "[INSTALL] Updating system repositories ..."
   # shellcheck disable=SC2068
-  print_exec ${update_cmd[@]}
+  exec_with_retries ${update_cmd[@]}
 
   # shellcheck disable=SC2145
   echo "[INSTALL] Installing system package(s): $@ ..."
   # shellcheck disable=SC2068
-  print_exec ${install_cmd[@]}
+  exec_with_retries ${install_cmd[@]}
 }
 
 run_python_test () {
@@ -153,6 +188,32 @@ run_python_test () {
   fi
 }
 
+free_disk_space () {
+  echo "################################################################################"
+  echo "# Free Disk Space"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "################################################################################"
+  echo ""
+
+  sudo rm -rf \
+    /usr/local/android \
+    /usr/share/dotnet \
+    /usr/local/share/boost \
+    /opt/ghc \
+    /usr/local/share/chrom* \
+    /usr/share/swift \
+    /usr/local/julia* \
+    /usr/local/lib/android
+
+  echo "[CLEANUP] Freed up some disk space"
+}
+
+
+################################################################################
+# Info Functions
+################################################################################
+
 print_system_info () {
   echo "################################################################################"
   echo "# Print System Info"
@@ -161,21 +222,35 @@ print_system_info () {
   echo "################################################################################"
   echo ""
 
-  echo "[INFO] Check ldd version"
+  echo "################################################################################"
+  echo "[INFO] Printing environment variables ..."
+  print_exec printenv
+
+  echo "################################################################################"
+  echo "[INFO] Check ldd version ..."
   print_exec ldd --version
 
-  echo "[INFO] Check CPU info"
+  echo "################################################################################"
+  echo "[INFO] Check CPU info ..."
   print_exec nproc
   print_exec cat /proc/cpuinfo
 
-  echo "[INFO] Check Linux distribution info"
+  echo "################################################################################"
+  echo "[INFO] Check Linux distribution info ..."
   print_exec uname -a
   print_exec cat /proc/version
   print_exec cat /etc/os-release
 
-  echo "[INFO] Check GPU info"
+  echo "################################################################################"
+  echo "[INFO] Check GPU info ..."
   install_system_packages lshw
   print_exec sudo lshw -C display
+
+  if which nvidia-smi; then
+    echo "################################################################################"
+    echo "[INFO] Check NVIDIA GPU info ..."
+    print_exec nvidia-smi
+  fi
 }
 
 print_ec2_info () {
@@ -198,26 +273,6 @@ print_ec2_info () {
   echo "instance-type: $(get_ec2_metadata instance-type)"
 }
 
-free_disk_space () {
-  echo "################################################################################"
-  echo "# Free Disk Space"
-  echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
-  echo "################################################################################"
-  echo ""
-
-  sudo rm -rf \
-    /usr/local/android \
-    /usr/share/dotnet \
-    /usr/local/share/boost \
-    /opt/ghc \
-    /usr/local/share/chrom* \
-    /usr/share/swift \
-    /usr/local/julia* \
-    /usr/local/lib/android
-
-  echo "[CLEANUP] Freed up some disk space"
-}
 
 ################################################################################
 # Environment Setup and Install Functions
@@ -287,7 +342,7 @@ create_conda_environment () {
 
   # -y removes any existing conda environment with the same name
   echo "[SETUP] Creating new Conda environment (Python ${python_version}) ..."
-  print_exec conda create -y --name "${env_name}" python="${python_version}"
+  (exec_with_retries conda create -y --name "${env_name}" python="${python_version}") || return 1
 
   echo "[SETUP] Installed Python version: $(conda run -n "${env_name}" python --version)"
   echo "[SETUP] Successfully created Conda environment: ${env_name}"
@@ -335,7 +390,7 @@ install_pytorch_conda () {
   # Install PyTorch packages
   echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, CPU=${pytorch_cpu:-0}) through Conda using channel '${pytorch_channel}' ..."
   # shellcheck disable=SC2086
-  print_exec conda install -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}"
+  (exec_with_retries conda install -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}") || return 1
 
   # Run check for GPU variant
   if [ "$pytorch_cpu" == "" ]; then
@@ -420,7 +475,7 @@ install_pytorch_pip () {
 
   echo "[INSTALL] Attempting to install PyTorch ${pytorch_version}+${pytorch_variant} through PIP using channel ${pytorch_channel} ..."
   # shellcheck disable=SC2086
-  print_exec conda run -n "${env_name}" pip install ${pytorch_package} --extra-index-url ${pytorch_channel}
+  (exec_with_retries conda run -n "${env_name}" pip install ${pytorch_package} --extra-index-url ${pytorch_channel}) || return 1
 
   if [ "$pytorch_variant_type" != "cpu" ]; then
     if [ "$pytorch_variant_type" == "cuda" ]; then
@@ -475,7 +530,7 @@ install_cuda () {
 
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
-  print_exec conda install -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}"
+  (exec_with_retries conda install -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
 
   # Ensure that nvcc is properly installed
   test_binpath "${env_name}" nvcc || return 1
@@ -535,7 +590,7 @@ install_rocm_ubuntu () {
 
   # Skip installation of kernel driver when run in Docker mode with --no-dkms
   echo "[INSTALL] Installing ROCm ..."
-  print_exec amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
+  (exec_with_retries amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
 
   echo "[INSTALL] Installing HIP-relevant packages ..."
   install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
@@ -573,7 +628,7 @@ install_cxx_compiler () {
     # the latter breaks builds:
     #   https://root-forum.cern.ch/t/error-timespec-get-has-not-been-declared-with-conda-root-package/45712/6
     echo "[INSTALL] Installing C/C++ compilers through Conda ..."
-    print_exec conda install -n "${env_name}" -y gxx_linux-64
+    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-64) || return 1
 
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
@@ -615,14 +670,14 @@ install_build_tools () {
   fi
 
   echo "[INSTALL] Installing build tools ..."
-  print_exec conda install -n "${env_name}" -y \
+  (exec_with_retries conda install -n "${env_name}" -y \
     cmake \
     hypothesis \
     jinja2 \
     ninja \
     numpy \
     scikit-build \
-    wheel
+    wheel) || return 1
 
   # Check binaries are visible in the PAATH
   test_binpath "${env_name}" cmake || return 1
@@ -689,7 +744,7 @@ install_cudnn () {
 
   # Download cuDNN
   echo "[INSTALL] Downloading cuDNN to ${tmp_dir} ..."
-  print_exec wget -q "$cudnn_url" -O cudnn.tar.xz
+  (exec_with_retries wget -q "$cudnn_url" -O cudnn.tar.xz) || return 1
 
   # Unpack the tarball
   echo "[INSTALL] Unpacking cuDNN ..."
@@ -954,12 +1009,11 @@ run_fbgemm_gpu_tests () {
 
   if [ "$cpu_only" != "" ]; then
     # These are tests that are currently broken in FBGEMM_GPU-CPU
-    unstable_tests=(
-      jagged_tensor_ops_test.py
+    ignored_tests=(
       uvm_test.py
     )
   else
-    unstable_tests=()
+    ignored_tests=()
   fi
 
   echo "[TEST] Installing pytest ..."
@@ -973,7 +1027,7 @@ run_fbgemm_gpu_tests () {
   for test_file in *.py; do
     if echo "${files_to_skip[@]}" | grep "${test_file}"; then
       echo "[TEST] Skipping test file known to be broken: ${test_file}"
-    elif echo "${unstable_tests[@]}" | grep "${test_file}"; then
+    elif echo "${ignored_tests[@]}" | grep "${test_file}"; then
       echo "[TEST] Skipping test file: ${test_file}"
     elif run_python_test "${env_name}" "${test_file}"; then
       echo ""
