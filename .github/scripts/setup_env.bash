@@ -25,6 +25,7 @@ exec_with_retries () {
     echo "[EXEC] [ATTEMPT ${i}/${max}]    + $*"
 
     if "$@"; then
+      retcode=0
       break
     else
       retcode=$?
@@ -47,8 +48,8 @@ exec_with_retries () {
 ################################################################################
 
 test_python_import () {
-  env_name="$1"
-  python_import="$2"
+  local env_name="$1"
+  local python_import="$2"
   if [ "$python_import" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_IMPORT"
     echo "Example(s):"
@@ -65,8 +66,8 @@ test_python_import () {
 }
 
 test_binpath () {
-  env_name="$1"
-  bin_name="$2"
+  local env_name="$1"
+  local bin_name="$2"
   if [ "$bin_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME BIN_NAME"
     echo "Example(s):"
@@ -83,8 +84,8 @@ test_binpath () {
 }
 
 test_filepath () {
-  env_name="$1"
-  file_name="$2"
+  local env_name="$1"
+  local file_name="$2"
   if [ "$file_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME FILE_NAME"
     echo "Example(s):"
@@ -92,9 +93,12 @@ test_filepath () {
     return 1
   fi
 
-  conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
-  file_path=$(find "${conda_prefix}" -type f -name "${file_name}")
-  link_path=$(find "${conda_prefix}" -type l -name "${file_name}")
+  # shellcheck disable=SC2155
+  local conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155
+  local file_path=$(find "${conda_prefix}" -type f -name "${file_name}")
+  # shellcheck disable=SC2155
+  local link_path=$(find "${conda_prefix}" -type l -name "${file_name}")
   if [ "${file_path}" != "" ]; then
     echo "[CHECK] ${file_name} found in CONDA_PREFIX PATH (file): ${file_path}"
   elif [ "${link_path}" != "" ]; then
@@ -106,8 +110,8 @@ test_filepath () {
 }
 
 test_env_var () {
-  env_name="$1"
-  env_key="$2"
+  local env_name="$1"
+  local env_key="$2"
   if [ "$env_key" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME ENV_KEY"
     echo "Example(s):"
@@ -137,11 +141,11 @@ install_system_packages () {
   fi
 
   if which sudo; then
-    update_cmd=("sudo")
-    install_cmd=("sudo")
+    local update_cmd=("sudo")
+    local install_cmd=("sudo")
   else
-    update_cmd=()
-    install_cmd=()
+    local update_cmd=()
+    local install_cmd=()
   fi
 
   if which apt-get; then
@@ -166,8 +170,8 @@ install_system_packages () {
 }
 
 run_python_test () {
-  env_name="$1"
-  python_test_file="$2"
+  local env_name="$1"
+  local python_test_file="$2"
   if [ "$python_test_file" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_TEST_FILE"
     echo "Example(s):"
@@ -264,7 +268,7 @@ print_ec2_info () {
   get_ec2_metadata() {
     # Pulled from instance metadata endpoint for EC2
     # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-    category=$1
+    local category=$1
     curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
   }
 
@@ -279,7 +283,7 @@ print_ec2_info () {
 ################################################################################
 
 setup_miniconda () {
-  miniconda_prefix="$1"
+  local miniconda_prefix="$1"
   if [ "$miniconda_prefix" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} MINICONDA_PREFIX_PATH"
     echo "Example:"
@@ -324,8 +328,8 @@ setup_miniconda () {
 }
 
 create_conda_environment () {
-  env_name="$1"
-  python_version="$2"
+  local env_name="$1"
+  local python_version="$2"
   if [ "$python_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION"
     echo "Example:"
@@ -349,9 +353,9 @@ create_conda_environment () {
 }
 
 install_pytorch_conda () {
-  env_name="$1"
-  pytorch_version="$2"
-  pytorch_cpu="$3"
+  local env_name="$1"
+  local pytorch_version="$2"
+  local pytorch_cpu="$3"
   if [ "$pytorch_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VERSION [CPU]"
     echo "Example(s):"
@@ -372,19 +376,19 @@ install_pytorch_conda () {
   # Install cpuonly if needed
   if [ "$pytorch_cpu" != "" ]; then
     pytorch_cpu=1
-    pytorch_package="cpuonly pytorch"
+    local pytorch_package="cpuonly pytorch"
   else
-    pytorch_package="pytorch"
+    local pytorch_package="pytorch"
   fi
 
   # Set package name and installation channel
   if [ "$pytorch_version" == "nightly" ] || [ "$pytorch_version" == "test" ]; then
-    pytorch_channel="pytorch-${pytorch_version}"
+    local pytorch_channel="pytorch-${pytorch_version}"
   elif [ "$pytorch_version" == "latest" ]; then
-    pytorch_channel="pytorch"
+    local pytorch_channel="pytorch"
   else
     pytorch_package="${pytorch_package}==${pytorch_version}"
-    pytorch_channel="pytorch"
+    local pytorch_channel="pytorch"
   fi
 
   # Install PyTorch packages
@@ -413,7 +417,7 @@ install_pytorch_conda () {
   fi
 
   # Check that PyTorch is importable
-  test_python_import "${env_name}" torch.distributed || return 1
+  (test_python_import "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
   installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
@@ -495,7 +499,7 @@ install_pytorch_pip () {
   fi
 
   # Check that PyTorch is importable
-  test_python_import "${env_name}" torch.distributed || return 1
+  (test_python_import "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
   installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
@@ -504,8 +508,8 @@ install_pytorch_pip () {
 }
 
 install_cuda () {
-  env_name="$1"
-  cuda_version="$2"
+  local env_name="$1"
+  local cuda_version="$2"
   if [ "$cuda_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME CUDA_VERSION"
     echo "Example(s):"
@@ -522,7 +526,7 @@ install_cuda () {
 
   # Check CUDA version formatting
   # shellcheck disable=SC2206
-  cuda_version_arr=(${cuda_version//./ })
+  local cuda_version_arr=(${cuda_version//./ })
   if [ ${#cuda_version_arr[@]} -lt 3 ]; then
     echo "[ERROR] CUDA minor version number must be specified (i.e. X.Y.Z)"
     return 1
@@ -547,8 +551,8 @@ install_cuda () {
 }
 
 install_rocm_ubuntu () {
-  env_name="$1"
-  rocm_version="$2"
+  local env_name="$1"
+  local rocm_version="$2"
   if [ "$rocm_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME ROC_VERSION"
     echo "Example(s):"
@@ -573,14 +577,15 @@ install_rocm_ubuntu () {
   . /etc/os-release
 
   # Split version string by dot into array, i.e. 5.4.3 => [5, 4, 3]
-  # shellcheck disable=SC2206
-  rocm_version_arr=(${rocm_version//./ })
+  # shellcheck disable=SC2206,SC2155
+  local rocm_version_arr=(${rocm_version//./ })
   # Materialize the long version string, i.e. 5.3 => 50500, 5.4.3 => 50403
-  long_version="${rocm_version_arr[0]}$(printf %02d "${rocm_version_arr[1]}")$(printf %02d "${rocm_version_arr[2]}")"
+  # shellcheck disable=SC2155
+  local long_version="${rocm_version_arr[0]}$(printf %02d "${rocm_version_arr[1]}")$(printf %02d "${rocm_version_arr[2]}")"
   # Materialize the full deb package name
-  package_name="amdgpu-install_${rocm_version_arr[0]}.${rocm_version_arr[1]}.${long_version}-1_all.deb"
+  local package_name="amdgpu-install_${rocm_version_arr[0]}.${rocm_version_arr[1]}.${long_version}-1_all.deb"
   # Materialize the download URL
-  rocm_download_url="https://repo.radeon.com/amdgpu-install/${rocm_version}/ubuntu/${VERSION_CODENAME}/${package_name}"
+  local rocm_download_url="https://repo.radeon.com/amdgpu-install/${rocm_version}/ubuntu/${VERSION_CODENAME}/${package_name}"
 
   echo "[INSTALL] Downloading the ROCm installer script ..."
   print_exec wget -q "${rocm_download_url}" -O "${package_name}"
@@ -603,8 +608,8 @@ install_rocm_ubuntu () {
 }
 
 install_cxx_compiler () {
-  env_name="$1"
-  use_yum="$2"
+  local env_name="$1"
+  local use_yum="$2"
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME [USE_YUM]"
     echo "Example(s):"
@@ -633,8 +638,10 @@ install_cxx_compiler () {
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
     echo "[INSTALL] Setting the C/C++ compiler symlinks ..."
-    cc_path=$(conda run -n "${env_name}" printenv CC)
-    cxx_path=$(conda run -n "${env_name}" printenv CXX)
+    # shellcheck disable=SC2155
+    local cc_path=$(conda run -n "${env_name}" printenv CC)
+    # shellcheck disable=SC2155
+    local cxx_path=$(conda run -n "${env_name}" printenv CXX)
 
     print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/cc"
     print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/gcc"
@@ -654,7 +661,7 @@ install_cxx_compiler () {
 }
 
 install_build_tools () {
-  env_name="$1"
+  local env_name="$1"
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME"
     echo "Example(s):"
@@ -671,6 +678,7 @@ install_build_tools () {
 
   echo "[INSTALL] Installing build tools ..."
   (exec_with_retries conda install -n "${env_name}" -y \
+    click \
     cmake \
     hypothesis \
     jinja2 \
@@ -684,19 +692,18 @@ install_build_tools () {
   test_binpath "${env_name}" ninja || return 1
 
   # Check Python packages are importable
-  test_python_import "${env_name}" hypothesis || return 1
-  test_python_import "${env_name}" jinja2 || return 1
-  test_python_import "${env_name}" numpy || return 1
-  test_python_import "${env_name}" skbuild || return 1
-  test_python_import "${env_name}" wheel || return 1
+  local import_tests=( click hypothesis jinja2 numpy skbuild wheel )
+  for p in "${import_tests[@]}"; do
+    (test_python_import "${env_name}" "${p}") || return 1
+  done
 
   echo "[INSTALL] Successfully installed all the build tools"
 }
 
 install_cudnn () {
-  env_name="$1"
-  install_path="$2"
-  cuda_version="$3"
+  local env_name="$1"
+  local install_path="$2"
+  local cuda_version="$3"
   if [ "$cuda_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME INSTALL_PATH CUDA_VERSION"
     echo "Example:"
@@ -713,7 +720,7 @@ install_cudnn () {
 
   # Install cuDNN manually
   # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
-  cudnn_packages=(
+  local cudnn_packages=(
     ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
     ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
     ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz"
@@ -722,12 +729,12 @@ install_cudnn () {
 
   # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
   # shellcheck disable=SC2206
-  cuda_version_arr=(${cuda_version//./ })
+  local cuda_version_arr=(${cuda_version//./ })
   # Fetch the major and minor version to concat
-  cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
+  local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
 
   # Get the URL
-  cudnn_url="${cudnn_packages[cuda_concat_version]}"
+  local cudnn_url="${cudnn_packages[cuda_concat_version]}"
   if [ "$cudnn_url" == "" ]; then
     # Default to cuDNN for 11.7 if no CUDA version fits
     echo "[INSTALL] Defaulting to cuDNN for CUDA 11.7"
@@ -739,7 +746,8 @@ install_cudnn () {
   mkdir -p "$install_path"
 
   # Create temporary directory
-  tmp_dir=$(mktemp -d)
+  # shellcheck disable=SC2155
+  local tmp_dir=$(mktemp -d)
   cd "$tmp_dir" || return 1
 
   # Download cuDNN
@@ -813,7 +821,7 @@ create_conda_pytorch_environment () {
 ################################################################################
 
 prepare_fbgemm_gpu_build () {
-  env_name="$1"
+  local env_name="$1"
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME"
     echo "Example(s):"
@@ -835,8 +843,8 @@ prepare_fbgemm_gpu_build () {
   echo "[BUILD] Installing other build dependencies ..."
   print_exec conda run -n "${env_name}" python -m pip install -r requirements.txt
 
-  test_python_import "${env_name}" numpy || return 1
-  test_python_import "${env_name}" skbuild || return 1
+  (test_python_import "${env_name}" numpy) || return 1
+  (test_python_import "${env_name}" skbuild) || return 1
 
   echo "[BUILD] Successfully ran git submodules update"
 }
@@ -951,8 +959,8 @@ build_fbgemm_gpu_install () {
 }
 
 install_fbgemm_gpu_package () {
-  env_name="$1"
-  package_name="$2"
+  local env_name="$1"
+  local package_name="$2"
   if [ "$package_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME WHEEL_NAME"
     echo "Example(s):"
@@ -971,8 +979,8 @@ install_fbgemm_gpu_package () {
   conda run -n "${env_name}" python -m pip install "${package_name}"
 
   echo "[BUILD] Checking imports ..."
-  test_python_import "${env_name}" fbgemm_gpu || return 1
-  test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers || return 1
+  (test_python_import "${env_name}" fbgemm_gpu) || return 1
+  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
 
   echo "[BUILD] Wheel installation completed ..."
 }
@@ -983,13 +991,14 @@ install_fbgemm_gpu_package () {
 ################################################################################
 
 run_fbgemm_gpu_tests () {
-  env_name="$1"
-  cpu_only="$2"
+  local env_name="$1"
+  local fbgemm_variant="$2"
   if [ "$env_name" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME [CPU_ONLY]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME [FBGEMM_VARIANT]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env    # Run all tests"
-    echo "    ${FUNCNAME[0]} build_env 1  # Skip tests known to be broken in CPU-only mode"
+    echo "    ${FUNCNAME[0]} build_env        # Run all tests applicable to GPU (Nvidia)"
+    echo "    ${FUNCNAME[0]} build_env cpu    # Run all tests applicable to CPU"
+    echo "    ${FUNCNAME[0]} build_env rocm   # Run all tests applicable to ROCm"
     return 1
   else
     echo "################################################################################"
@@ -1000,27 +1009,39 @@ run_fbgemm_gpu_tests () {
     echo ""
   fi
 
+  # Enable ROCM testing if specified
+  if [ "$fbgemm_variant" == "rocm" ]; then
+    echo "[TEST] Set environment variable FBGEMM_TEST_WITH_ROCM to enable ROCm tests ..."
+    print_exec conda env config vars set -n "${env_name}" FBGEMM_TEST_WITH_ROCM=1
+  fi
+
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
-  files_to_skip=(
-    split_table_batched_embeddings_test.py
+  local files_to_skip=(
     test_utils.py
+    split_table_batched_embeddings_test.py
     ssd_split_table_batched_embeddings_test.py
   )
 
-  if [ "$cpu_only" != "" ]; then
+  if [ "$fbgemm_variant" == "cpu" ]; then
     # These are tests that are currently broken in FBGEMM_GPU-CPU
-    ignored_tests=(
+    local ignored_tests=(
       uvm_test.py
     )
+  elif [ "$fbgemm_variant" == "rocm" ]; then
+    local ignored_tests=()
   else
-    ignored_tests=()
+    local ignored_tests=()
   fi
 
   echo "[TEST] Installing pytest ..."
   print_exec conda install -n "${env_name}" -y pytest
 
-  echo "[BUILD] Checking imports ..."
-  test_python_import "${env_name}" fbgemm_gpu || return 1
+  echo "[TEST] Checking imports ..."
+  (test_python_import "${env_name}" fbgemm_gpu) || return 1
+  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+
+  echo "[TEST] Enumerating test files ..."
+  print_exec ls -lth ./*.py
 
   # NOTE: These tests running on single CPU core with a less powerful testing
   # GPU in GHA can take up to 5 hours.
@@ -1043,9 +1064,9 @@ run_fbgemm_gpu_tests () {
 ################################################################################
 
 publish_to_pypi () {
-  env_name="$1"
-  package_name="$2"
-  pypi_token="$3"
+  local env_name="$1"
+  local package_name="$2"
+  local pypi_token="$3"
   if [ "$pypi_token" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PYPI_TOKEN"
     echo "Example(s):"
@@ -1064,7 +1085,7 @@ publish_to_pypi () {
 
   echo "[INSTALL] Installing twine ..."
   print_exec conda install -n "${env_name}" -y twine
-  test_python_import "${env_name}" twine || return 1
+  (test_python_import "${env_name}" twine) || return 1
 
   echo "[PUBLISH] Uploading package(s) to PyPI: ${package_name} ..."
   conda run -n "${env_name}" \

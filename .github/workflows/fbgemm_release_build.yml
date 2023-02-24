@@ -137,11 +137,11 @@ jobs:
       with:
         name: fbgemm_gpu_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
 
-    - name: Display Structure of the Downloaded Files
-      run: ls -R
-
     - name: Install FBGEMM_GPU
-      run: . $PRELUDE; install_fbgemm_gpu_package $BUILD_ENV *.whl
+      run: |
+        . $PRELUDE
+        ls .
+        install_fbgemm_gpu_package $BUILD_ENV *.whl
 
     - name: Test with PyTest
       timeout-minutes: 10

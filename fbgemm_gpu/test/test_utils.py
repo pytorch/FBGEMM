@@ -173,7 +173,7 @@ gpu_unavailable: Tuple[bool, str] = (
 gpu_available: bool = not gpu_unavailable[0]
 
 # Used for `@unittest.skipIf` for tests that pass in internal CI, but fail on the GitHub runners
-running_on_github: bool = (
+running_on_github: Tuple[bool, str] = (
     os.getenv("GITHUB_ENV") is not None,
     "Test is currently known to fail or hang when run in the GitHub runners",
 )
