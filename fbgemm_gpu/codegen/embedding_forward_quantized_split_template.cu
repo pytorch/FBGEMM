@@ -635,6 +635,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     TENSOR_EMPTY_OR_ON_CUDA_GPU(lxu_cache_weights);
     TENSOR_EMPTY_OR_ON_CUDA_GPU(lxu_cache_locations);
 
+    TENSORS_ON_SAME_DEVICE(dev_weights, indices);
+    TENSORS_ON_SAME_DEVICE(dev_weights, offsets);
+
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 
