@@ -714,31 +714,23 @@ at::Tensor index_add_with_unique_indices_cuda(
     const int consecutive_range_length);
 
 ///@ingroup sparse-data-cuda
-std::vector<at::Tensor> group_index_select_cuda(
+void group_index_select_or_add_cuda(
     const int64_t* input_ptrs,
+    const int64_t* output_ptrs,
     const int64_t* indices_ptrs,
-    const c10::TensorOptions& input_tensor_options,
+    const int64_t* warp_offsets_group,
+    const int32_t* num_cols_group,
     const c10::ScalarType& input_scalar_type,
     const c10::ScalarType& indices_scalar_type,
     const c10::DeviceIndex& device,
-    const std::vector<int64_t>& output_shape,
-    const int num_input_rows,
-    const int num_output_rows,
-    const int num_cols,
-    const int num_groups);
+    const int max_indices,
+    const int num_work_rows,
+    const int64_t total_num_warps,
+    const int group_size,
+    const bool use_index_select,
+    const bool use_var_cols);
 
-std::vector<at::Tensor> group_index_add_cuda(
-    const int64_t* input_ptrs,
-    const int64_t* indices_ptrs,
-    const c10::TensorOptions& input_tensor_options,
-    const c10::ScalarType& input_scalar_type,
-    const c10::ScalarType& indices_scalar_type,
-    const c10::DeviceIndex& device,
-    const std::vector<int64_t>& output_shape,
-    const int num_input_rows,
-    const int num_output_rows,
-    const int num_cols,
-    const int num_groups);
+int get_group_index_select_cols_per_warp();
 
 std::vector<at::Tensor> jagged_index_select_2d(
     const at::Tensor& values,

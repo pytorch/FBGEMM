@@ -258,144 +258,215 @@ class GroupIndexSelectDim0GPUOp
       const std::vector<Tensor>& indices_group,
       Tensors&&... input_tensors) {
     std::vector<Tensor> input_group = {input_tensors...};
-    const int32_t num_groups = input_group.size();
-    if (num_groups == 0) {
+    constexpr int group_size = sizeof...(Tensors);
+
+    if (group_size == 0) {
       return {torch::autograd::Variable()};
     }
 
-    TORCH_CHECK(num_groups == (int32_t)indices_group.size())
+    TORCH_CHECK(group_size == static_cast<int32_t>(indices_group.size()));
 
-    Tensor all_ptrs = at::empty(
-        {(int64_t)num_groups * 2},
-        at::TensorOptions().dtype(at::kLong).pinned_memory(true));
-    int64_t* all_ptrs_buf = all_ptrs.data_ptr<int64_t>();
+    struct GroupIndexSelectArgs {
+      int64_t input_ptrs[group_size];
+      int64_t output_ptrs[group_size];
+      int64_t indices_ptrs[group_size];
+      int64_t warp_offsets_group[group_size + 1];
+      int32_t num_cols_group[group_size];
+    };
+
+    // Allocate memory for GroupIndexSelectArgs
+    Tensor args_tensor = at::empty(
+        {sizeof(GroupIndexSelectArgs)},
+        at::TensorOptions().dtype(at::kByte).pinned_memory(true));
+    struct GroupIndexSelectArgs* args =
+        reinterpret_cast<struct GroupIndexSelectArgs*>(args_tensor.data_ptr());
 
     auto& first_input = input_group[0];
     auto& first_indices = indices_group[0];
 
+    const int input_dim = first_input.dim();
     const int num_output_rows = first_indices.size(0);
     const int num_input_rows = first_input.size(0);
     Tensor input_reshaped = first_input.reshape({num_input_rows, -1});
     const int num_cols = input_reshaped.size(1);
+    const int cols_per_warp = get_group_index_select_cols_per_warp();
+    int64_t warp_offset = 0;
+    bool use_var_cols = false;
 
-    std::vector<Tensor> saved_list;
-    saved_list.reserve(num_groups + 1);
-    for (int i = 0; i < num_groups; i++) {
+    std::vector<Tensor> outputs;
+    outputs.reserve(group_size);
+    std::vector<int64_t> input_shape_group;
+    input_shape_group.reserve(group_size * input_dim);
+    for (int i = 0; i < group_size; i++) {
       auto& input = input_group[i];
       auto& indices = indices_group[i];
+
+      // Verify that all input tensors have the same number of dimensions
+      TORCH_CHECK(
+          input_dim == input.dim(),
+          "All inputs in group_index_select must have the same number of dimensions");
 
       // Verify that all tensors are on the same GPU
       TENSOR_ON_CUDA_GPU(input);
       TENSOR_ON_CUDA_GPU(indices);
       TENSORS_ON_SAME_DEVICE(input, indices);
 
-      // Verify that all input tensors have the same shape
-      TORCH_CHECK(num_output_rows == indices.size(0))
-      TORCH_CHECK(num_input_rows == input.size(0))
+      auto num_output_rows_ = indices.size(0);
+
+      // Verify that all input tensors have the same shape[0]
+      TORCH_CHECK(
+          num_output_rows == num_output_rows_,
+          "The number of indices to be selected must be the same for the entire group");
+      TORCH_CHECK(
+          num_input_rows == input.size(0),
+          "The number of rows in the input must be the same for the entire group");
       Tensor input_reshaped_ = input.reshape({num_input_rows, -1});
-      TORCH_CHECK(num_cols == input_reshaped_.size(1))
 
-      // Put all pointers in an array
-      all_ptrs_buf[i] = reinterpret_cast<int64_t>(input.data_ptr());
-      all_ptrs_buf[i + num_groups] =
-          reinterpret_cast<int64_t>(indices.data_ptr());
+      // Number of columns can be different
+      auto num_cols_ = input_reshaped_.size(1);
+      auto warps_per_row = (num_cols_ + cols_per_warp - 1) / cols_per_warp;
 
-      // Save indices for backward
-      saved_list.push_back(indices);
+      if (num_cols != num_cols_) {
+        use_var_cols = true;
+      }
+
+      // Copy input shape
+      auto input_shape = input.sizes().vec();
+      input_shape_group.insert(
+          input_shape_group.end(), input_shape.begin(), input_shape.end());
+
+      // Create output pointers
+      input_shape[0] = num_output_rows_;
+      Tensor output = at::empty(input_shape, input.options());
+      outputs.push_back(output);
+
+      // Store args
+      args->input_ptrs[i] = reinterpret_cast<int64_t>(input.data_ptr());
+      args->output_ptrs[i] = reinterpret_cast<int64_t>(output.data_ptr());
+      args->indices_ptrs[i] = reinterpret_cast<int64_t>(indices.data_ptr());
+      args->warp_offsets_group[i] = warp_offset;
+      args->num_cols_group[i] = num_cols_;
+
+      warp_offset += warps_per_row * num_output_rows;
     }
-    // Store one input tensor to get input tensor property in backward
-    saved_list.push_back(input_group[0]);
-    // Transfer input pointers to GPU
-    all_ptrs = all_ptrs.to(first_input.device(), /*non_blocking=*/true);
-    // Save pointers for backward
-    saved_list.push_back(all_ptrs);
+    // Store the last offset
+    args->warp_offsets_group[group_size] = warp_offset;
+    // Transfer args tensor to GPU
+    args_tensor = args_tensor.to(first_input.device(), /*non_blocking=*/true);
 
-    ctx->save_for_backward(saved_list);
-    ctx->saved_data["input_shape"] = first_input.sizes().vec();
-    ctx->saved_data["num_groups"] = num_groups;
-    ctx->saved_data["num_cols"] = num_cols;
+    TORCH_CHECK(group_size * input_dim == (int)input_shape_group.size())
 
-    auto output_shape = first_input.sizes().vec();
-    output_shape[0] = num_groups * num_output_rows;
+    struct GroupIndexSelectArgs* gpu_args =
+        static_cast<struct GroupIndexSelectArgs*>(args_tensor.data_ptr());
 
-    return group_index_select_cuda(
-        all_ptrs.data_ptr<int64_t>(),
-        all_ptrs.data_ptr<int64_t>() + num_groups,
-        first_input.options(),
+    // Need to store args_tensor for backward to keep indices_ptrs alive
+    ctx->save_for_backward({indices_group[0], input_group[0], args_tensor});
+    ctx->saved_data["input_dim"] = input_dim;
+    ctx->saved_data["input_shape_group"] = input_shape_group;
+    ctx->saved_data["group_size"] = group_size;
+    ctx->saved_data["use_var_cols"] = use_var_cols;
+    ctx->saved_data["indices_ptrs"] =
+        reinterpret_cast<int64_t>(gpu_args->indices_ptrs);
+    ctx->saved_data["warp_offsets_group"] =
+        reinterpret_cast<int64_t>(gpu_args->warp_offsets_group);
+    ctx->saved_data["num_cols_group"] =
+        reinterpret_cast<int64_t>(gpu_args->num_cols_group);
+    ctx->saved_data["total_num_warps"] = warp_offset;
+
+    group_index_select_or_add_cuda(
+        gpu_args->input_ptrs,
+        gpu_args->output_ptrs,
+        gpu_args->indices_ptrs,
+        gpu_args->warp_offsets_group,
+        gpu_args->num_cols_group,
         first_input.scalar_type(),
         first_indices.scalar_type(),
         first_input.device().index(),
-        output_shape,
         num_input_rows,
         num_output_rows,
-        num_cols,
-        num_groups);
+        /*total_num_warps=*/warp_offset,
+        group_size,
+        /*use_index_select=*/true,
+        use_var_cols);
+
+    return outputs;
   }
 
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_output_group) {
-    const int num_groups = ctx->saved_data["num_groups"].toInt();
-    const int num_cols = ctx->saved_data["num_cols"].toInt();
-    auto output_shape = ctx->saved_data["input_shape"].toIntVector();
-    const int num_output_rows = output_shape[0];
-    output_shape[0] *= num_groups;
+    const int group_size = ctx->saved_data["group_size"].toInt();
 
-    TORCH_CHECK((int32_t)grad_output_group.size() == num_groups);
-
-    if (num_groups == 0) {
+    if (group_size == 0) {
       return torch::autograd::variable_list();
     }
 
+    const int output_dim = ctx->saved_data["input_dim"].toInt();
+    std::vector<int64_t> output_shape_group =
+        ctx->saved_data["input_shape_group"].toIntVector();
+    const bool use_var_cols = ctx->saved_data["use_var_cols"].toBool();
+    int64_t* indices_ptrs =
+        reinterpret_cast<int64_t*>(ctx->saved_data["indices_ptrs"].toInt());
+    int64_t* warp_offsets_group = reinterpret_cast<int64_t*>(
+        ctx->saved_data["warp_offsets_group"].toInt());
+    int32_t* num_cols_group =
+        reinterpret_cast<int32_t*>(ctx->saved_data["num_cols_group"].toInt());
+    auto total_num_warps = ctx->saved_data["total_num_warps"].toInt();
+
+    TORCH_CHECK(static_cast<int32_t>(grad_output_group.size()) == group_size);
+
+    // We checked in forward that all output rows are the same for all member
+    // in the group
+    const int num_output_rows = output_shape_group[0];
     const int num_input_rows = grad_output_group[0].size(0);
 
     const auto saved = ctx->get_saved_variables();
     const auto saved_itr = std::begin(saved);
     Tensor first_indices = *saved_itr;
-    Tensor fwd_input = *(saved_itr + num_groups);
-    // Get indices pointers from all_ptrs saved in forward
-    int64_t* indices_ptrs =
-        (saved_itr + num_groups + 1)->data_ptr<int64_t>() + num_groups;
+    Tensor fwd_input = *(saved_itr + 1);
 
-    Tensor grad_output_ptrs = at::empty(
-        {num_groups}, at::TensorOptions().dtype(at::kLong).pinned_memory(true));
-    int64_t* grad_output_ptrs_buf = grad_output_ptrs.data_ptr<int64_t>();
-    for (int i = 0; i < num_groups; i++) {
+    std::vector<Tensor> output_group;
+    output_group.reserve(group_size + 1);
+    output_group.push_back(torch::autograd::Variable());
+
+    Tensor args_tensor = at::empty(
+        {group_size * 2},
+        at::TensorOptions().dtype(at::kLong).pinned_memory(true));
+    int64_t* grad_output_ptrs = args_tensor.data_ptr<int64_t>();
+    int64_t* grad_input_ptrs = args_tensor.data_ptr<int64_t>() + group_size;
+    for (int i = 0; i < group_size; i++) {
       Tensor& grad = grad_output_group[i];
       TENSOR_ON_CUDA_GPU(grad);
       TENSORS_ON_SAME_DEVICE(grad, first_indices);
 
-      // Put all grad output pointers in an array
-      grad_output_ptrs_buf[i] = reinterpret_cast<int64_t>(grad.data_ptr());
+      auto grad_input_shape = std::vector<int64_t>(
+          output_shape_group.begin() + i * output_dim,
+          output_shape_group.begin() + (i + 1) * output_dim);
+      Tensor grad_input = at::zeros(grad_input_shape, fwd_input.options());
+      output_group.push_back(grad_input);
+
+      // Put all grad output/input pointers in an array
+      grad_output_ptrs[i] = reinterpret_cast<int64_t>(grad.data_ptr());
+      grad_input_ptrs[i] = reinterpret_cast<int64_t>(grad_input.data_ptr());
     }
     // Transfer grad output pointers to GPU
-    grad_output_ptrs =
-        grad_output_ptrs.to(first_indices.device(), /*non_blocking=*/true);
+    args_tensor = args_tensor.to(first_indices.device(), /*non_blocking=*/true);
 
-    std::vector<Tensor> output_group;
-    output_group.reserve(num_groups + 1);
-    output_group.push_back(torch::autograd::Variable());
-
-    auto output_index_add_group = group_index_add_cuda(
-        grad_output_ptrs.data_ptr<int64_t>(),
+    group_index_select_or_add_cuda(
+        args_tensor.data_ptr<int64_t>(),
+        args_tensor.data_ptr<int64_t>() + group_size,
         indices_ptrs,
-        fwd_input.options(),
+        warp_offsets_group,
+        num_cols_group,
         fwd_input.scalar_type(),
         first_indices.scalar_type(),
         fwd_input.device().index(),
-        output_shape,
-        num_input_rows,
         num_output_rows,
-        num_cols,
-        num_groups);
-
-    // This can be slow because the complexity is O(num_groups)
-    output_group.insert(
-        output_group.end(),
-        output_index_add_group.begin(),
-        output_index_add_group.end());
-
-    TORCH_CHECK((int)output_group.size() == num_groups + 1)
+        num_input_rows,
+        total_num_warps,
+        group_size,
+        /*use_index_select=*/false,
+        use_var_cols);
 
     return output_group;
   }

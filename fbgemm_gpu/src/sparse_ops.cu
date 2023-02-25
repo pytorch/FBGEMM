@@ -2994,198 +2994,160 @@ Tensor index_add_with_unique_indices_cuda(
   return input_grad.reshape(input_shape);
 }
 
-template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
-__global__ __launch_bounds__(kMaxThreads) void group_index_select_2d_kernel(
-    const int64_t* input_ptrs,
-    const int64_t* indices_ptrs,
-    scalar_t* output,
-    const int64_t num_input_rows,
-    const int64_t num_output_rows,
-    const int64_t num_cols,
-    const int64_t num_groups) {
-  for (int64_t bid = threadIdx.y * gridDim.x + blockIdx.x;
-       bid < num_groups * num_output_rows;
-       bid += gridDim.x * blockDim.y) {
-    const int64_t group_id = bid / num_output_rows;
-    const int64_t row = bid % num_output_rows;
-    scalar_t* input = (scalar_t*)input_ptrs[group_id];
-    index_t* indices = (index_t*)indices_ptrs[group_id];
-    const index_t idx = indices[row];
-    CUDA_KERNEL_ASSERT(idx < num_input_rows)
-    int col;
-    scalar_t* output_ = output + (num_output_rows * num_cols * group_id);
-    for (col = threadIdx.x * UNROLL_FACTOR;
-         col < num_cols / UNROLL_FACTOR * UNROLL_FACTOR;
-         col += blockDim.x * UNROLL_FACTOR) {
-#pragma unroll
-      for (int i = 0; i < UNROLL_FACTOR; i++) {
-        output_[row * num_cols + col + i] =
-            LDG(&input[idx * num_cols + col + i]);
-      }
-    }
-    for (; col < num_cols; ++col) {
-      output_[row * num_cols + col] = LDG(&input[idx * num_cols + col]);
-    }
-  }
+// TODO: Update UNROLL_FACTOR
+constexpr int GROUP_INDEX_SELECT_UNROLL_FACTOR = 1;
+constexpr int GROUP_INDEX_SELECT_COLS_PER_WARP =
+    GROUP_INDEX_SELECT_UNROLL_FACTOR * kWarpSize;
+// GROUP_INDEX_SELECT_COLS_PER_WARP must be power of two
+constexpr int GROUP_INDEX_SELECT_LOG_COLS_PER_WARP =
+    log2_calc<GROUP_INDEX_SELECT_COLS_PER_WARP>::value;
+
+int get_group_index_select_cols_per_warp() {
+  return GROUP_INDEX_SELECT_COLS_PER_WARP;
 }
 
-template <typename index_t, typename scalar_t, int UNROLL_FACTOR>
-__global__ __launch_bounds__(kMaxThreads) void group_index_add_2d_kernel(
+template <
+    typename index_t,
+    typename scalar_t,
+    bool USE_INDEX_SELECT,
+    bool USE_VAR_COLS,
+    int UNROLL_FACTOR,
+    int COLS_PER_WARP,
+    int LOG_COLS_PER_WARP>
+__global__
+__launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     const int64_t* input_ptrs,
+    const int64_t* output_ptrs,
     const int64_t* indices_ptrs,
-    scalar_t* output,
-    const int64_t num_input_rows,
-    const int64_t num_output_rows,
-    const int64_t num_cols,
-    const int64_t num_groups) {
-  for (int64_t bid = threadIdx.y * gridDim.x + blockIdx.x;
-       bid < num_groups * num_input_rows;
-       bid += gridDim.x * blockDim.y) {
-    const int64_t group_id = bid / num_input_rows;
-    const int64_t row = bid % num_input_rows;
-    scalar_t* input = (scalar_t*)input_ptrs[group_id];
-    index_t* indices = (index_t*)indices_ptrs[group_id];
+    const int64_t* warp_offsets_group,
+    const int32_t* num_cols_group,
+    const int64_t max_indices,
+    const int64_t num_work_rows, // number of rows to work on per member
+    const int64_t group_size) {
+  const auto total_num_warps = warp_offsets_group[group_size];
+  for (int64_t warp_id = threadIdx.y * gridDim.x + blockIdx.x;
+       warp_id < total_num_warps;
+       warp_id += gridDim.x * blockDim.y) {
+    int32_t member_id, member_warp_id, num_cols, warps_per_row;
+    if (USE_VAR_COLS) {
+      __shared__ int member_ids[kMaxThreads / kWarpSize];
+      if (threadIdx.x == 0) {
+        binary_search_range(
+            &member_ids[threadIdx.y],
+            warp_offsets_group + 1,
+            warp_id,
+            group_size);
+      }
+      syncwarp();
+      member_id = member_ids[threadIdx.y];
+      num_cols = num_cols_group[member_id];
+      warps_per_row = (num_cols + COLS_PER_WARP - 1) >> LOG_COLS_PER_WARP;
+      member_warp_id = warp_id - warp_offsets_group[member_id];
+    } else {
+      // All columns are the same
+      num_cols = num_cols_group[0];
+      warps_per_row = (num_cols + COLS_PER_WARP - 1) >> LOG_COLS_PER_WARP;
+      member_id = warp_id / (warps_per_row * num_work_rows);
+      member_warp_id = warp_id - (member_id * warps_per_row * num_work_rows);
+    }
+    const auto row = member_warp_id / warps_per_row;
+    const auto col_offset =
+        ((member_warp_id % warps_per_row) << LOG_COLS_PER_WARP) +
+        (threadIdx.x * UNROLL_FACTOR);
+    scalar_t* input =
+        reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
+    scalar_t* output =
+        reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+    index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
     const index_t idx = indices[row];
-    CUDA_KERNEL_ASSERT(idx < num_output_rows)
-    int col;
-    scalar_t* output_ = output + (num_output_rows * num_cols * group_id);
-    for (col = threadIdx.x * UNROLL_FACTOR;
-         col < num_cols / UNROLL_FACTOR * UNROLL_FACTOR;
-         col += blockDim.x * UNROLL_FACTOR) {
+    CUDA_KERNEL_ASSERT(idx < max_indices)
 #pragma unroll
-      for (int i = 0; i < UNROLL_FACTOR; i++) {
-        // PyTorch also uses atomicAdd.  It does not require sorting and
-        // provides better parallelism.  But this can lead to numerical
-        // indeterminisim.
+    for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
+      // Compile time conditional
+      if (USE_INDEX_SELECT) {
+        output[row * num_cols + i] = LDG(&input[idx * num_cols + i]);
+      } else {
         gpuAtomicAddNoReturn(
-            &output_[idx * num_cols + col + i],
-            input[row * num_cols + col + i]);
+            &output[idx * num_cols + i], input[row * num_cols + i]);
       }
-    }
-    for (; col < num_cols; ++col) {
-      gpuAtomicAddNoReturn(
-          &output[idx * num_cols + col], input[row * num_cols + col]);
     }
   }
 }
 
-std::vector<Tensor> group_index_select_cuda(
+void group_index_select_or_add_cuda(
     const int64_t* input_ptrs,
+    const int64_t* output_ptrs,
     const int64_t* indices_ptrs,
-    const c10::TensorOptions& input_tensor_options,
+    const int64_t* warp_offsets_group,
+    const int32_t* num_cols_group,
     const c10::ScalarType& input_scalar_type,
     const c10::ScalarType& indices_scalar_type,
     const c10::DeviceIndex& device,
-    const std::vector<int64_t>& output_shape,
-    const int num_input_rows,
-    const int num_output_rows,
-    const int num_cols,
-    const int num_groups) {
-  if (num_groups == 0) {
-    return std::vector<Tensor>();
+    const int max_indices,
+    const int num_work_rows,
+    const int64_t total_num_warps,
+    const int group_size,
+    const bool use_index_select,
+    const bool use_var_cols) {
+  if (group_size == 0) {
+    return;
   }
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(device);
 
-  Tensor output = at::empty(output_shape, input_tensor_options);
-
-  // Partition work based on num_output_rows
-  const int UNROLL_FACTOR = 1;
+  // Partition work based on num_work_rows
+  uint32_t num_warps_per_threadblock = kMaxThreads / kWarpSize;
   uint32_t max_grid_size =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount * 8;
   uint32_t grid_size = std::min(
-      cuda_calc_xblock_count(num_groups * num_output_rows, 1), max_grid_size);
-  uint32_t block_size_x =
-      std::min(div_round_up(num_cols, UNROLL_FACTOR), kMaxThreads);
-  uint32_t block_size_y =
-      std::max((num_groups * num_output_rows) / grid_size, (uint32_t)1);
-  dim3 block_size(
-      block_size_x,
-      std::min(block_size_y, (uint32_t)(kMaxThreads / block_size_x)),
-      1);
+      cuda_calc_xblock_count(total_num_warps, num_warps_per_threadblock),
+      max_grid_size);
+  dim3 block_size(kWarpSize, num_warps_per_threadblock, 1);
+
+#define INVOKE_GROUP_INDEX_SELECT_OR_ADD(USE_INDEX_SELECT, USE_VAR_COLS) \
+  group_index_select_or_add_2d_kernel<                                   \
+      index_t,                                                           \
+      scalar_t,                                                          \
+      USE_INDEX_SELECT,                                                  \
+      USE_VAR_COLS,                                                      \
+      GROUP_INDEX_SELECT_UNROLL_FACTOR,                                  \
+      GROUP_INDEX_SELECT_COLS_PER_WARP,                                  \
+      GROUP_INDEX_SELECT_LOG_COLS_PER_WARP>                              \
+      <<<grid_size, block_size, 0, at::cuda::getCurrentCUDAStream()>>>(  \
+          input_ptrs,                                                    \
+          output_ptrs,                                                   \
+          indices_ptrs,                                                  \
+          warp_offsets_group,                                            \
+          num_cols_group,                                                \
+          max_indices,                                                   \
+          num_work_rows,                                                 \
+          group_size)
 
   AT_DISPATCH_INDEX_TYPES(
       indices_scalar_type, "group_index_select_2d_wrapper_1", [&] {
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             input_scalar_type, "group_index_select_2d_wrapper_2", [&] {
-              group_index_select_2d_kernel<index_t, scalar_t, UNROLL_FACTOR>
-                  <<<grid_size,
-                     block_size,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      input_ptrs,
-                      indices_ptrs,
-                      output.data_ptr<scalar_t>(),
-                      num_input_rows,
-                      num_output_rows,
-                      num_cols,
-                      num_groups);
+              if (use_index_select) {
+                if (use_var_cols) {
+                  INVOKE_GROUP_INDEX_SELECT_OR_ADD(true, true);
+                } else {
+                  INVOKE_GROUP_INDEX_SELECT_OR_ADD(true, false);
+                }
+              } else {
+                if (use_var_cols) {
+                  INVOKE_GROUP_INDEX_SELECT_OR_ADD(false, true);
+                } else {
+                  INVOKE_GROUP_INDEX_SELECT_OR_ADD(false, false);
+                }
+              }
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
 
-  return output.split(num_output_rows, 0);
+#undef INVOKE_GROUP_INDEX_SELECT_OR_ADD
 }
 
-std::vector<Tensor> group_index_add_cuda(
-    const int64_t* input_ptrs,
-    const int64_t* indices_ptrs,
-    const c10::TensorOptions& input_tensor_options,
-    const c10::ScalarType& input_scalar_type,
-    const c10::ScalarType& indices_scalar_type,
-    const c10::DeviceIndex& device,
-    const std::vector<int64_t>& output_shape,
-    const int num_input_rows,
-    const int num_output_rows,
-    const int num_cols,
-    const int num_groups) {
-  if (num_groups == 0) {
-    return std::vector<Tensor>();
-  }
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(device);
-
-  Tensor output = at::zeros(output_shape, input_tensor_options);
-
-  // Partition work based on num_input_rows
-  const int UNROLL_FACTOR = 1;
-  uint32_t max_grid_size =
-      at::cuda::getCurrentDeviceProperties()->multiProcessorCount * 8;
-  uint32_t grid_size = std::min(
-      cuda_calc_xblock_count(num_groups * num_input_rows, 1), max_grid_size);
-  uint32_t block_size_x =
-      std::min(div_round_up(num_cols, UNROLL_FACTOR), kMaxThreads);
-  uint32_t block_size_y =
-      std::max((num_groups * num_input_rows) / grid_size, (uint32_t)1);
-  dim3 block_size(
-      block_size_x,
-      std::min(block_size_y, (uint32_t)(kMaxThreads / block_size_x)),
-      1);
-
-  AT_DISPATCH_INDEX_TYPES(
-      indices_scalar_type, "group_index_add_2d_wrapper_1", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            input_scalar_type, "group_index_add_2d_wrapper_2", [&] {
-              group_index_add_2d_kernel<index_t, scalar_t, UNROLL_FACTOR>
-                  <<<grid_size,
-                     block_size,
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>(
-                      input_ptrs,
-                      indices_ptrs,
-                      output.data_ptr<scalar_t>(),
-                      num_input_rows,
-                      num_output_rows,
-                      num_cols,
-                      num_groups);
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
-            });
-      });
-
-  return output.split(num_output_rows, 0);
-}
 // Copied from cupy/random/_kernels.py v11
 // (commit id 420e41fd41157d4cf526b0e94eb86a3f8eb5a231)
 

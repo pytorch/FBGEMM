@@ -1595,6 +1595,7 @@ class SparseOpsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.half, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         num_groups=st.integers(1, 32),
+        use_var_cols=st.booleans(),
     )
     @settings(max_examples=20, deadline=None)
     def test_group_index_select_dim0(
@@ -1605,6 +1606,7 @@ class SparseOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         use_cpu: bool,
         num_groups: int,
+        use_var_cols: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
 
@@ -1616,6 +1618,10 @@ class SparseOpsTest(unittest.TestCase):
             indices = torch.randint(num_input_rows, (num_indices,), device=device)
             assert indices.max() < num_input_rows
 
+            if use_var_cols:
+                var_dim = random.randint(0, len(shape) - 1)
+                new_shape = random.randint(1, 32)
+                shape[var_dim] = new_shape
             indices_group.append(indices)
             input = torch.rand(
                 (num_input_rows,) + tuple(shape), dtype=dtype, device=device
@@ -1644,8 +1650,8 @@ class SparseOpsTest(unittest.TestCase):
         for out, grad in zip(output_ref_group, grad_group):
             out.backward(grad)
 
-        cat_output = torch.concat(output_group)
-        cat_grad = torch.concat(grad_group)
+        cat_output = torch.concat([output.flatten() for output in output_group])
+        cat_grad = torch.concat([grad.flatten() for grad in grad_group])
         cat_output.backward(cat_grad)
 
         def compare_tensor_groups(
