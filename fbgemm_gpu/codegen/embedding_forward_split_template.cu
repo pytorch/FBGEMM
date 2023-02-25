@@ -106,11 +106,7 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
             {% endif %}
 
             {% if not dense %}
-            auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-                const_cast<emb_t*>(&weights[idx_j * D_emb]),
-                const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
-                D,
-                nullptr);
+
             // assume cache is fp16/fp32 which doesn't require qparams
             float2 qparams_cache = make_float2(0.0f, 0.0f);
 
@@ -128,6 +124,11 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
             if (d < D) {
                 {% if not dense %}
                 if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                    auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
+                        const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                        const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
+                        D,
+                        nullptr);
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     weight.store(&output[output_j][d]);
                 } else {
