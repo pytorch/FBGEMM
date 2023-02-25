@@ -410,6 +410,9 @@ void csr2csc_template_(
 
   int max_thds = omp_get_max_threads();
   int num_uniq[max_thds][64];
+  for (int i = 0; i < max_thds; i++) {
+    num_uniq[i][0] = 0;
+  }
 
   int U = 0;
   if (at::get_num_threads() > 1) {
