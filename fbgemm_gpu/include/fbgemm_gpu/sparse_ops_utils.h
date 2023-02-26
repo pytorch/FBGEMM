@@ -376,3 +376,23 @@ void binary_search_range_cpu(
   }
   *found = found_;
 }
+
+template <int x>
+struct log2_calc_ {
+  enum { value = log2_calc_<(x >> 1)>::value + 1 };
+};
+template <>
+struct log2_calc_<0> {
+  enum { value = 0 };
+};
+
+template <int x>
+struct log2_calc {
+  enum { value = log2_calc_<(x - 1)>::value };
+};
+#if 0
+template <>
+struct log2_calc<0> { enum { value = 0 }; };
+template <>
+struct log2_calc<1> { enum { value = 0 }; };
+#endif
