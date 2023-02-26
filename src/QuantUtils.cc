@@ -36,6 +36,11 @@ TensorQuantizationParams ChooseQuantizationParams(
     int32_t qmax,
     bool preserve_sparsity,
     bool force_scale_power_of_two) {
+  if (min > max) {
+    throw std::runtime_error(
+        "In ChooseQuantizationParams, min should be less than or equal to max");
+  }
+
   if (min < 0 && max > 0 && preserve_sparsity) {
     int symmetric_qmin = -((qmax - qmin) / 2 + 1);
     int symmetric_qmax = (qmax - qmin) / 2;
