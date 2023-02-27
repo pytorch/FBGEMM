@@ -18,13 +18,8 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 torch.ops.load_library(
     "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
 )
-# try:
-#     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update")
-#     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_cpu")
-# except OSError:
-#     # Keep for BC: will be deprecated soon.
-#     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update")
-#     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/fb:embedding_inplace_update_cpu")
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update")
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_cpu")
 
 {% else %}
 #import os
