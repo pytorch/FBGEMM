@@ -2513,7 +2513,7 @@ def emb_inplace_update(  # noqa C901
     logging.info(
         f"Emb inplace update (including H2D for metadata): "
         f"T: {T}, D: {D}, E: {E}, N: {N}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9:.2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -2566,7 +2566,7 @@ def emb_inplace_update(  # noqa C901
     logging.info(
         f"Emb inplace update (pure device update op): "
         f"T: {T}, D: {D}, E: {E}, N: {N}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {read_write_bytes / time_per_iter / 1.0e9:.2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
