@@ -620,20 +620,20 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     const int64_t fp8_exponent_bias
 ) {
     TENSOR_ON_CUDA_GPU(dev_weights);
-    TENSOR_ON_CUDA_GPU(uvm_weights);
-    TENSOR_ON_CUDA_GPU(weights_placements);
-    TENSOR_ON_CUDA_GPU(weights_offsets);
-    TENSOR_ON_CUDA_GPU(weights_tys);
+    TENSORS_ON_SAME_DEVICE(uvm_weights, dev_weights);
+    TENSORS_ON_SAME_DEVICE(weights_placements, dev_weights);
+    TENSORS_ON_SAME_DEVICE(weights_offsets, dev_weights);
+    TENSORS_ON_SAME_DEVICE(weights_tys, dev_weights);
     {% if not nobag %}
-    TENSOR_ON_CUDA_GPU(D_offsets);
+    TENSORS_ON_SAME_DEVICE(D_offsets, dev_weights);
     {% endif %}
-    TENSOR_ON_CUDA_GPU(indices);
-    TENSOR_ON_CUDA_GPU(offsets);
+    TENSORS_ON_SAME_DEVICE(indices, dev_weights);
+    TENSORS_ON_SAME_DEVICE(offsets, dev_weights);
     {% if weighted %}
-    TENSOR_EMPTY_OR_ON_CUDA_GPU(indice_weights);
+    TENSORS_EMPTY_OR_ON_SAME_DEVICE(indice_weights, dev_weights);
     {% endif %}
-    TENSOR_EMPTY_OR_ON_CUDA_GPU(lxu_cache_weights);
-    TENSOR_EMPTY_OR_ON_CUDA_GPU(lxu_cache_locations);
+    TENSORS_EMPTY_OR_ON_SAME_DEVICE(lxu_cache_weights, dev_weights);
+    TENSORS_EMPTY_OR_ON_SAME_DEVICE(lxu_cache_locations, dev_weights);
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
