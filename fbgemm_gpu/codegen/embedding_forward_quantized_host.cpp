@@ -372,7 +372,8 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
       call_count = tbe_call_count[signature];
     }
 
-    if (call_count % FLAGS_tbe_uvm_cache_stat_report == 0) {
+    if (FLAGS_tbe_uvm_cache_stat_report > 0 &&
+        call_count % FLAGS_tbe_uvm_cache_stat_report == 0) {
       gather_uvm_stats = true;
       uvm_cache_stats = at::zeros(
           {kUvmCacheStatsSize},
