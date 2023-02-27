@@ -111,6 +111,12 @@ inline bool torch_tensor_empty_or_on_cpu_check(
       #x " must be empty or a CUDA tensor; it is currently on device ", \
       torch_tensor_device_name(x))
 
+#define TENSORS_EMPTY_OR_ON_SAME_DEVICE(x, y)                           \
+  TORCH_CHECK(                                                          \
+      torch_tensor_on_same_device_check(x, y) || (x.numel() == 0),      \
+      #x " must be empty or a CUDA tensor; it is currently on device ", \
+      torch_tensor_device_name(x))
+
 #define TENSORS_ON_SAME_DEVICE(x, y)                                       \
   TORCH_CHECK(                                                             \
       torch_tensor_on_same_device_check(x, y),                             \
