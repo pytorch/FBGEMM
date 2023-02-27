@@ -1,5 +1,9 @@
-# This workflow builds the fbgemm_gpu docs and deploys them to gh-pages.
-name: Generate documentation
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+name: FBGEMM Documentation
 on:
   push:
     branches:

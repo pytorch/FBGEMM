@@ -172,6 +172,12 @@ gpu_unavailable: Tuple[bool, str] = (
 # Used for `if` statements inside tests
 gpu_available: bool = not gpu_unavailable[0]
 
+# Used for `@unittest.skipIf` for tests that pass in internal CI, but fail on the GitHub runners
+running_on_github: Tuple[bool, str] = (
+    os.getenv("GITHUB_ENV") is not None,
+    "Test is currently known to fail or hang when run in the GitHub runners",
+)
+
 
 def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
     gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
