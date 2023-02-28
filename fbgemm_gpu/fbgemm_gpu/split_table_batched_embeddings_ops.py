@@ -1799,6 +1799,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         dims: List[int] = [e[2] for e in embedding_specs]
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
         locations: List[EmbeddingLocation] = [e[4] for e in embedding_specs]
+        # if target device is meta then we set use_cpu based on the embedding location
+        # information in embedding_specs.
+        if self.current_device.type == "meta":
+            self.use_cpu = all(loc == EmbeddingLocation.HOST for loc in locations)
 
         if row_alignment is None:
             self.row_alignment: int = 1 if self.use_cpu else 16
