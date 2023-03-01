@@ -667,17 +667,27 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     if (o_dtype == SparseType::INT8) {
         total_adjusted_D += T * kINT8QparamsBytes;
     }
-    output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    if (indices.numel() == 0) {
+      output = at::zeros({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    }
+    else {
+      output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    }
     {% else %}
     int64_t adjusted_D = D;
     if (o_dtype == SparseType::INT8) {
         adjusted_D += T * kINT8QparamsBytes;
     }
-    output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    if (total_L == 0) {
+      output = at::zeros({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    }
+    else {
+      output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    }
 
     {% endif %}
 
-    if (B == 0) {
+    if (B == 0 || indices.numel() == 0) {
       return output;
     }
 
