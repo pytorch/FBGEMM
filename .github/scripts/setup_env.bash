@@ -344,9 +344,21 @@ create_conda_environment () {
     echo ""
   fi
 
-  # -y removes any existing conda environment with the same name
+  # The `-y` flag removes any existing Conda environment with the same name
   echo "[SETUP] Creating new Conda environment (Python ${python_version}) ..."
   (exec_with_retries conda create -y --name "${env_name}" python="${python_version}") || return 1
+
+  echo "[SETUP] Upgrading PIP to latest ..."
+  print_exec conda run -n "${env_name}" pip install --upgrade pip
+
+  # The pyOpenSSL and cryptography packages versions need to line up for PyPI publishing to work
+  # https://stackoverflow.com/questions/74981558/error-updating-python3-pip-attributeerror-module-lib-has-no-attribute-openss
+  echo "[SETUP] Upgrading pyOpenSSL ..."
+  print_exec conda run -n "${env_name}" python -m pip install "pyOpenSSL>22.1.0"
+
+  # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
+  echo "[SETUP] Testing pyOpenSSL import ..."
+  (test_python_import "${env_name}" OpenSSL) || return 1
 
   echo "[SETUP] Installed Python version: $(conda run -n "${env_name}" python --version)"
   echo "[SETUP] Successfully created Conda environment: ${env_name}"
@@ -1086,6 +1098,7 @@ publish_to_pypi () {
   echo "[INSTALL] Installing twine ..."
   print_exec conda install -n "${env_name}" -y twine
   (test_python_import "${env_name}" twine) || return 1
+  (test_python_import "${env_name}" OpenSSL) || return 1
 
   echo "[PUBLISH] Uploading package(s) to PyPI: ${package_name} ..."
   conda run -n "${env_name}" \
