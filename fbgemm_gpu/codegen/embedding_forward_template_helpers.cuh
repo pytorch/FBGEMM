@@ -29,4 +29,5 @@
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"

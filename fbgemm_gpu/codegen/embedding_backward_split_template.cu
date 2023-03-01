@@ -11,6 +11,37 @@
 
 #define SHFL_SYNC(val, srcLane) shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
+#define MAKE_PACKED_TENSOR_ACCESSOR(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE(__VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_GRAD_MEAN(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE("grad_mean_kernel", __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE( \
+      "split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segment", \
+      __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_CTA(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE( \
+      "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1", \
+      __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_CTA_ACC_TYPE(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE( \
+      "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1", \
+      __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_WARP(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE( \
+      "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1", \
+      __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_WARP_ACC_TYPE(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE( \
+      "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1", \
+      __VA_ARGS__)
+
 {% if not dense %}
 constexpr int32_t kCacheLocationMissing = -1;
 {% endif %}
@@ -34,19 +65,19 @@ int get_max_thread_blocks_() {
 
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_num_runs,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_run_lengths,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         num_long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         num_really_long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         grad_accum_counter,
     const int32_t max_segment_length_per_warp,
     const int32_t max_segment_length_per_cta,
@@ -77,11 +108,11 @@ split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_find_long_segments(
 
 template <typename grad_t>
 __global__ __launch_bounds__(kMaxThreads) void grad_mean_kernel(
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean) {
   int32_t B = grad_output.size(0);
   int32_t T = D_offsets.size(0) - 1;
@@ -123,58 +154,58 @@ template <
     int32_t kThreadGroupSize = kWarpSize>
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1(
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
     int32_t B,
     int64_t D,
     {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         num_long_run_ids,
     {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {% else %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {% endif %}
     {% if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_lxu_cache_locations,
     {% endif %}
     {% if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {% endif %}
     {% if not dense %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {% else %}
-    at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    pta::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {% endif %}
     {% if not nobag %}
     FixedDivisor fd,
     {% endif %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
+    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
-    {{ args.split_kernel_args | join(", ") }}) {
+    {{ args.split_kernel_args | replace_pta_namespace() | join(", ") }}) {
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
   const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
@@ -538,53 +569,53 @@ __global__
 __launch_bounds__(kBackwardMaxThreads)
 void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1(
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
     int32_t B,
     int64_t D,
     {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_cumulative_run_lengths,
     {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {% else %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {% endif %}
     {% if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_lxu_cache_locations,
     {% endif %}
     {% if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {% endif %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_num_runs,
     int32_t max_segment_length_per_warp,
     {% if not dense %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {% else %}
-    at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    pta::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {% endif %}
     {% if not nobag %}
     FixedDivisor fd,
     {% endif %}
-    {{ args.split_kernel_args | join(", ") }}) {
+    {{ args.split_kernel_args | replace_pta_namespace() | join(", ") }}) {
 
     {% if not nobag %}
     int32_t T = D_offsets.size(0) - 1;
@@ -989,7 +1020,17 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             linear_indices.reset();
             linear_indices_sorted.reset();
 
-            auto grad_output_accessor = grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>();
+            auto grad_output_accessor = MAKE_PACKED_TENSOR_ACCESSOR(
+                {% if not nobag %}
+                static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN ? "grad_mean_kernel" :
+                {% endif %}
+                "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel",
+                grad_output,
+                grad_t,
+                2,
+                at::RestrictPtrTraits,
+                64);
+
             {% if not nobag %}
             Tensor grad_output_mean;
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
@@ -1000,15 +1041,17 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
                       grad_output_accessor,
-                      D_offsets
-                          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                      offsets
-                          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                      grad_output_mean.packed_accessor64<
-                          grad_t, 2, at::RestrictPtrTraits>());
+                      MAKE_PACKED_TENSOR_ACCESSOR_GRAD_MEAN(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32),
+                      MAKE_PACKED_TENSOR_ACCESSOR_GRAD_MEAN(offsets, int64_t, 1, at::RestrictPtrTraits, 32),
+                      MAKE_PACKED_TENSOR_ACCESSOR_GRAD_MEAN(grad_output_mean, grad_t, 2, at::RestrictPtrTraits, 64));
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-              grad_output_accessor = grad_output_mean.packed_accessor64<
-                  grad_t, 2, at::RestrictPtrTraits>();
+              grad_output_accessor = MAKE_PACKED_TENSOR_ACCESSOR(
+                  "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel",
+                  grad_output_mean,
+                  grad_t,
+                  2,
+                  at::RestrictPtrTraits,
+                  64);
             }
             {% endif %}
 
@@ -1069,13 +1112,13 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 0,
                 at::cuda::getCurrentCUDAStream()
             >>>(
-                sorted_linear_indices_num_runs.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                sorted_linear_indices_run_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                num_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(sorted_linear_indices_num_runs, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(sorted_linear_indices_run_lengths, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(long_run_ids, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(num_long_run_ids, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(long_run_id_to_really_long_run_ids, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(num_really_long_run_ids, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR_FIND_LONG_SEGMENTS(grad_accum_counter, int32_t, 1, at::RestrictPtrTraits, 32),
                 max_segment_length_per_warp,
                 max_segment_length_per_cta,
                 use_deterministic_algorithms);
@@ -1124,53 +1167,51 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
                     {% if not dense %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(dev_weights, emb_t, 1, at::RestrictPtrTraits, 64),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(uvm_weights, emb_t, 1, at::RestrictPtrTraits, 64),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(lxu_cache_weights, cache_t, 2, at::RestrictPtrTraits, 64),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% else %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(dev_weights, emb_t, 1, at::RestrictPtrTraits, 64),
                     {% endif %}
-                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32),
                     {% if not nobag %}
-                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% else %}
                     B,
                     D,
                     {% endif %}
-                    hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run
-                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(hash_size_cumsum, int64_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(sorted_linear_indices_run, int64_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(sorted_linear_indices_cumulative_run_lengths, int32_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(long_run_ids, int32_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(num_long_run_ids, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% if not nobag %}
-                    infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(infos_sorted, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% else %}
-                    infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(infos_sorted, int64_t, 1, at::RestrictPtrTraits, 32),
                     {% endif %}
                     {% if not dense %}
-                    lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(lxu_cache_locations_sorted, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% endif %}
                     {% if weighted %}
-                    indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA_ACC_TYPE(indice_weights_sorted, cache_t, 1, at::RestrictPtrTraits, 32),
                     {% endif %}
                     {% if not dense %}
                     stochastic_rounding,
                     rng_engine_inputs,
                     {% else %}
-                    grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(grad_dev_weights, cache_t, 1, at::RestrictPtrTraits, 64),
                     {% endif %}
                     {% if not nobag %}
                     FixedDivisor(B),
                     {% endif %}
-                    long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
-                    grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(long_run_id_to_really_long_run_ids, int32_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA_ACC_TYPE(temp_grad_accum, cache_t, 2, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_CTA(grad_accum_counter, int32_t, 1, at::RestrictPtrTraits, 32),
                     max_segment_length_per_cta,
                     use_deterministic_algorithms,
-                    {{ args.split_kernel_arg_constructors | join(", ") }});
+                    {{ args.split_kernel_arg_constructors | make_pta_acc_format("MAKE_PACKED_TENSOR_ACCESSOR_CTA") | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             grid_size = std::min(
                 div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
@@ -1207,49 +1248,46 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
                     {% if not dense %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(dev_weights, emb_t, 1, at::RestrictPtrTraits, 64),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(uvm_weights, emb_t, 1, at::RestrictPtrTraits, 64),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(lxu_cache_weights, cache_t, 2, at::RestrictPtrTraits, 64),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% else %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(dev_weights, emb_t, 1, at::RestrictPtrTraits, 64),
                     {% endif %}
-                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32),
                     {% if not nobag %}
-                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% else %}
                     B,
                     D,
                     {% endif %}
-                    hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run
-                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(hash_size_cumsum, int64_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(sorted_linear_indices_run, int64_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(sorted_linear_indices_cumulative_run_lengths, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% if not nobag %}
-                    infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(infos_sorted, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% else %}
-                    infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(infos_sorted, int64_t, 1, at::RestrictPtrTraits, 32),
                     {% endif %}
                     {% if not dense %}
-                    lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(lxu_cache_locations_sorted, int32_t, 1, at::RestrictPtrTraits, 32),
                     {% endif %}
                     {% if weighted %}
-                    indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP_ACC_TYPE(indice_weights_sorted, cache_t, 1, at::RestrictPtrTraits, 32),
                     {% endif %}
-                    sorted_linear_indices_num_runs
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(sorted_linear_indices_num_runs, int32_t, 1, at::RestrictPtrTraits, 32),
                     max_segment_length_per_warp,
                     {% if not dense %}
                     stochastic_rounding,
                     rng_engine_inputs,
                     {% else %}
-                    grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PACKED_TENSOR_ACCESSOR_WARP(grad_dev_weights, cache_t, 1, at::RestrictPtrTraits, 64),
                     {% endif %}
                     {% if not nobag %}
                     FixedDivisor(B),
                     {% endif %}
-                    {{ args.split_kernel_arg_constructors | join(", ") }});
+                    {{ args.split_kernel_arg_constructors | make_pta_acc_format("MAKE_PACKED_TENSOR_ACCESSOR_WARP") | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         }
