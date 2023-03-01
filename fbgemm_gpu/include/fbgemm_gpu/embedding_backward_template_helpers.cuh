@@ -23,6 +23,7 @@
 #include "dispatch_macros.h"
 #include "embedding_common.h"
 #include "fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "sparse_ops_utils.h"
 
 DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
