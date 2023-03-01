@@ -12,6 +12,32 @@ using namespace fbgemm_gpu;
 
 using Tensor = at::Tensor;
 
+#define MAKE_PACKED_TENSOR_ACCESSOR_TYPE(TYPE, ...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE( \
+      TYPE "_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L", \
+      __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_INT2(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_TYPE("INT2", __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_INT4(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_TYPE("INT4", __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_INT8(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_TYPE("INT8", __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_FP8(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_TYPE("FP8", __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_FP16(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_TYPE("FP16", __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR_FP32(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_TYPE("FP32", __VA_ARGS__)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__)
+
 namespace nbit {
 
 constexpr int32_t kCacheLocationMissing = -1;
@@ -155,35 +181,35 @@ void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
   {% if not nobag %}
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
   {% else %}
   const int64_t D,
   {% endif %}
   FixedDivisor fd_B, // FixedDivisor(div_round_up(B, OutputRowsPerThread))
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   {% if not nobag %}
   const int64_t pooling_mode,
   {% endif %}
   const int64_t row_alignment,
   {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
+  pta::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
       indice_weights,
   {% endif %}
   {% if type_map[emb_weight_type].enum_name == "FP8" %}
   const int exponent_bits,
   const int exponent_bias,
   {% endif %}
-  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
+  pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
       output, // [B][total_D],
-  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
+  const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
   const int32_t T = weights_offsets.size(0);
   {% if not nobag %}
@@ -451,13 +477,13 @@ __device__ inline uint32_t pruned_hash_function(uint32_t h) {
 }
 
 __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
-    const at::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits> hash_table,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_table_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits> hash_table,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_table_offsets,
     const int32_t B,
     const int32_t T,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
     // uint32_t capacity = hash_table.size(0);
     const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
     const int32_t t = b_t / B;
@@ -518,13 +544,13 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
 
 {% if not weighted %}
 __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> index_remappings_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> index_remappings_offsets,
     const int32_t B,
     const int32_t T,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> dense_indices) {
   const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t t = b_t / B;
   const int32_t b = b_t % B;
@@ -555,11 +581,11 @@ __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_
 {% if not weighted %}
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_from_row_idx_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> update_row_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> update_table_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> index_remappings_offsets,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> dense_indices) {
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> update_row_indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> update_table_indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> index_remappings,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> index_remappings_offsets,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> dense_indices) {
 
   const int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= update_row_indices.size(0)) {
@@ -700,27 +726,27 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(dev_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(uvm_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(weights_tys, uint8_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(indices, index_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(offsets, index_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PACKED_TENSOR_ACCESSOR_INT2(indice_weights, float, 1, at::RestrictPtrTraits, 32), {% endif %} \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(output, output_t, 2, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(lxu_cache_weights, uint8_t, 2, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT2(lxu_cache_locations, int32_t, 1, at::RestrictPtrTraits, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -746,27 +772,27 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(dev_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(uvm_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(weights_tys, uint8_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(indices, index_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(offsets, index_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PACKED_TENSOR_ACCESSOR_INT4(indice_weights, float, 1, at::RestrictPtrTraits, 32), {% endif %} \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(output, output_t, 2, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(lxu_cache_weights, uint8_t, 2, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT4(lxu_cache_locations, int32_t, 1, at::RestrictPtrTraits, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -794,27 +820,27 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(dev_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(uvm_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(weights_tys, uint8_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(indices, index_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(offsets, index_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PACKED_TENSOR_ACCESSOR_INT8(indice_weights, float, 1, at::RestrictPtrTraits, 32), {% endif %} \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(output, output_t, 2, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(lxu_cache_weights, uint8_t, 2, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_INT8(lxu_cache_locations, int32_t, 1, at::RestrictPtrTraits, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -845,29 +871,29 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(dev_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(uvm_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(weights_tys, uint8_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(indices, index_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(offsets, index_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
+        {% if weighted %} MAKE_PACKED_TENSOR_ACCESSOR_FP8(indice_weights, float, 1, at::RestrictPtrTraits, 32), {% endif %} \
         fp8_exponent_bits, \
         fp8_exponent_bias, \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(output, output_t, 2, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(lxu_cache_weights, uint8_t, 2, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP8(lxu_cache_locations, int32_t, 1, at::RestrictPtrTraits, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -898,27 +924,27 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(dev_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(uvm_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(weights_tys, uint8_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(indices, index_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(offsets, index_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PACKED_TENSOR_ACCESSOR_FP16(indice_weights, float, 1, at::RestrictPtrTraits, 32), {% endif %} \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(output, output_t, 2, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(lxu_cache_weights, uint8_t, 2, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP16(lxu_cache_locations, int32_t, 1, at::RestrictPtrTraits, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -949,27 +975,27 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(dev_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(uvm_weights, uint8_t, 1, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(weights_placements, int32_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(weights_offsets, int64_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(weights_tys, uint8_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(D_offsets, int32_t, 1, at::RestrictPtrTraits, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(indices, index_t, 1, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(offsets, index_t, 1, at::RestrictPtrTraits, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PACKED_TENSOR_ACCESSOR_FP32(indice_weights, float, 1, at::RestrictPtrTraits, 32), {% endif %} \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(output, output_t, 2, at::RestrictPtrTraits, 32), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(lxu_cache_weights, uint8_t, 2, at::RestrictPtrTraits, 64), \
+        MAKE_PACKED_TENSOR_ACCESSOR_FP32(lxu_cache_locations, int32_t, 1, at::RestrictPtrTraits, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -1014,18 +1040,21 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cuda(
     TORCH_CHECK(B > 0);
     TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
     constexpr size_t kForwardMaxThreads = 256;
+#ifdef FBGEMM_GPU_MEMCHECK
+    const char* func_name = "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel";
+#endif
     nbit::int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel<<<
         nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
         dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
         0,
         at::cuda::getCurrentCUDAStream()>>>(
-            indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            hash_table.packed_accessor64<int32_t, 2, at::RestrictPtrTraits>(),
-            hash_table_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PACKED_TENSOR_ACCESSOR(indices, int32_t, 1, at::RestrictPtrTraits, 32),
+            MAKE_PACKED_TENSOR_ACCESSOR(offsets, int32_t, 1, at::RestrictPtrTraits, 32),
+            MAKE_PACKED_TENSOR_ACCESSOR(hash_table, int32_t, 2, at::RestrictPtrTraits, 64),
+            MAKE_PACKED_TENSOR_ACCESSOR(hash_table_offsets, int64_t, 1, at::RestrictPtrTraits, 32),
             B,
             T,
-            dense_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()
+            MAKE_PACKED_TENSOR_ACCESSOR(dense_indices, int32_t, 1, at::RestrictPtrTraits, 32)
     );
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return dense_indices;
@@ -1063,18 +1092,21 @@ Tensor pruned_array_lookup_cuda(
   TORCH_CHECK(index_remappings_offsets.dim() == 1, "Tensor dim: ", index_remappings_offsets.dim());
   TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
   constexpr size_t kForwardMaxThreads = 256;
+#ifdef FBGEMM_GPU_MEMCHECK
+  const char* func_name = "int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel";
+#endif
   nbit::int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<<<
       nbit::div_round_up(offsets.size(0), kForwardMaxThreads / kWarpSize),
       dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-          indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-          offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-          index_remappings.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-          index_remappings_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+          MAKE_PACKED_TENSOR_ACCESSOR(indices, int32_t, 1, at::RestrictPtrTraits, 32),
+          MAKE_PACKED_TENSOR_ACCESSOR(offsets, int32_t, 1, at::RestrictPtrTraits, 32),
+          MAKE_PACKED_TENSOR_ACCESSOR(index_remappings, int32_t, 1, at::RestrictPtrTraits, 32),
+          MAKE_PACKED_TENSOR_ACCESSOR(index_remappings_offsets, int64_t, 1, at::RestrictPtrTraits, 32),
           B,
           T,
-          dense_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()
+          MAKE_PACKED_TENSOR_ACCESSOR(dense_indices, int32_t, 1, at::RestrictPtrTraits, 32)
   );
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
@@ -1111,16 +1143,19 @@ Tensor pruned_array_lookup_from_row_idx_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       update_row_indices.scalar_type(), "embedding_inplace_update_kernel", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "int_nbit_split_embedding_codegen_forward_pruned_array_lookup_from_row_idx_kernel";
+#endif
         nbit::int_nbit_split_embedding_codegen_forward_pruned_array_lookup_from_row_idx_kernel<<<
             nbit::div_round_up(num_indices, kForwardMaxThreads),
             kForwardMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-                update_row_indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                update_table_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                index_remappings.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                index_remappings_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                dense_indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>()
+                MAKE_PACKED_TENSOR_ACCESSOR(update_row_indices, index_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR(update_table_indices, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR(index_remappings, int32_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR(index_remappings_offsets, int64_t, 1, at::RestrictPtrTraits, 32),
+                MAKE_PACKED_TENSOR_ACCESSOR(dense_indices, index_t, 1, at::RestrictPtrTraits, 32)
         );
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
