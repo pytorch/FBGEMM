@@ -649,12 +649,12 @@ install_rocm_ubuntu () {
 
 install_cxx_compiler () {
   local env_name="$1"
-  local use_yum="$2"
+  local use_system_package_manager="$2"
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME [USE_YUM]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env     # Install C/C++ compilers through Conda"
-    echo "    ${FUNCNAME[0]} build_env 1   # Install C/C++ compilers through yum"
+    echo "    ${FUNCNAME[0]} build_env 1   # Install C/C++ compilers through the system package manager"
     return 1
   else
     echo "################################################################################"
@@ -665,15 +665,20 @@ install_cxx_compiler () {
     echo ""
   fi
 
-  if [ "$use_yum" != "" ]; then
-    echo "[INSTALL] Installing C/C++ compilers through yum ..."
+  if [ "$use_system_package_manager" != "" ]; then
+    echo "[INSTALL] Installing C/C++ compilers through the system package manager ..."
     install_system_packages gcc gcc-c++
+
   else
     # Install gxx_linux-64 from main instead of cxx-compiler from conda-forge, as
     # the latter breaks builds:
     #   https://root-forum.cern.ch/t/error-timespec-get-has-not-been-declared-with-conda-root-package/45712/6
+    #
+    # NOTE: Install g++ 9.x instead of 11.x becaue 11.x builds libraries with
+    # references to GLIBCXX_3.4.29, which is not available on systems with older
+    # versions of libstdc++.so.6 such as CentOS Stream 8 and Ubuntu 20.04
     echo "[INSTALL] Installing C/C++ compilers through Conda ..."
-    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-64) || return 1
+    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-64=9.3.0) || return 1
 
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
@@ -971,8 +976,8 @@ check_fbgemm_gpu_build () {
     fbgemm_gpu::jagged_2d_to_dense
   )
 
-  # Add more symbols to check for if CPU mode
-  if [ "$fbgemm_variant" != "cpu" ]; then
+  # Add more symbols to check for if it's a non-CPU variant
+  if [ "${fbgemm_variant}" != "cpu" ]; then
     lib_symbols_to_check+=(
       fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
       fbgemm_gpu::merge_pooled_embeddings
@@ -981,7 +986,7 @@ check_fbgemm_gpu_build () {
 
   for library in "${fbgemm_gpu_so_files[@]}"; do
     echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
-    objdump -T "${library}" | grep GLIBCXX | awk '{ print $5 }' | sort | uniq | cat
+    objdump -TC "${library}" | grep GLIBCXX | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
 
     echo "[CHECK] Verifying sample subset of symbols in the library ..."
     for symbol in "${lib_symbols_to_check[@]}"; do
@@ -1029,6 +1034,9 @@ build_fbgemm_gpu_package () {
 
   echo "[BUILD] Enumerating the built wheels ..."
   print_exec ls -lth dist/*.whl
+
+  echo "[BUILD] Enumerating the wheel SHAs ..."
+  print_exec sha1sum dist/*.whl
 
   echo "[BUILD] FBGEMM-GPU build wheel completed"
 }
@@ -1083,14 +1091,17 @@ install_fbgemm_gpu_package () {
     echo ""
   fi
 
-  echo "[BUILD] Installing FBGEMM-GPU wheel: ${package_name} ..."
+  echo "[INSTALL] Printing out FBGEMM-GPU wheel SHA: ${package_name}"
+  print_exec sha1sum "${package_name}"
+
+  echo "[INSTALL] Installing FBGEMM-GPU wheel: ${package_name} ..."
   conda run -n "${env_name}" python -m pip install "${package_name}"
 
-  echo "[BUILD] Checking imports ..."
+  echo "[INSTALL] Checking imports ..."
   (test_python_import "${env_name}" fbgemm_gpu) || return 1
   (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
 
-  echo "[BUILD] Wheel installation completed ..."
+  echo "[INSTALL] Wheel installation completed ..."
 }
 
 
@@ -1151,8 +1162,8 @@ run_fbgemm_gpu_tests () {
   echo "[TEST] Enumerating test files ..."
   print_exec ls -lth ./*.py
 
-  # NOTE: These tests running on single CPU core with a less powerful testing
-  # GPU in GHA can take up to 5 hours.
+  # NOTE: Tests running on single CPU core with a less powerful testing GPU in
+  # GHA can take up to 5 hours.
   for test_file in *.py; do
     if echo "${files_to_skip[@]}" | grep "${test_file}"; then
       echo "[TEST] Skipping test file known to be broken: ${test_file}"
