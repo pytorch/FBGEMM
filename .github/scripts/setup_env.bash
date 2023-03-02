@@ -127,6 +127,26 @@ test_env_var () {
   fi
 }
 
+test_library_symbol () {
+  local lib_path="$1"
+  local lib_symbol="$2"
+  if [ "$lib_symbol" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} LIB_PATH FULL_NAMESPACE_PATH_LIB_SYMBOL"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} fbgemm_gpu_py.so fbgemm_gpu::merge_pooled_embeddings"
+    return 1
+  fi
+
+  # Add space and '(' to the grep string to get the full method path
+  symbol_entries=$(nm -gDC "${lib_path}" | grep " ${lib_symbol}(")
+  if [ "${symbol_entries}" != "" ]; then
+    echo "[CHECK] Found symbol in ${lib_path}: ${lib_symbol}"
+  else
+    echo "[CHECK] Symbol NOT found in ${lib_path}: ${lib_symbol}"
+    return 1
+  fi
+}
+
 
 ################################################################################
 # System Functions
@@ -141,8 +161,8 @@ install_system_packages () {
   fi
 
   if which sudo; then
-    local update_cmd=("sudo")
-    local install_cmd=("sudo")
+    local update_cmd=(sudo)
+    local install_cmd=(sudo)
   else
     local update_cmd=()
     local install_cmd=()
@@ -184,7 +204,7 @@ run_python_test () {
     echo "################################################################################"
   fi
 
-  if conda run -n "${env_name}" python -m pytest -v -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
+  if conda run -n "${env_name}" python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
   else
     echo "[TEST] Python test suite FAILED: ${python_test_file}"
@@ -425,7 +445,7 @@ install_pytorch_conda () {
     fi
 
     # Ensure that the PyTorch-CUDA headers are properly installed
-    test_filepath "${env_name}" cuda_cmake_macros.h || return 1
+    (test_filepath "${env_name}" cuda_cmake_macros.h) || return 1
   fi
 
   # Check that PyTorch is importable
@@ -496,7 +516,7 @@ install_pytorch_pip () {
   if [ "$pytorch_variant_type" != "cpu" ]; then
     if [ "$pytorch_variant_type" == "cuda" ]; then
       # Ensure that the PyTorch-CUDA headers are properly installed
-      test_filepath "${env_name}" cuda_cmake_macros.h || return 1
+      (test_filepath "${env_name}" cuda_cmake_macros.h) || return 1
     fi
 
     # Ensure that the PyTorch build is of the correct variant
@@ -549,13 +569,21 @@ install_cuda () {
   (exec_with_retries conda install -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
 
   # Ensure that nvcc is properly installed
-  test_binpath "${env_name}" nvcc || return 1
+  (test_binpath "${env_name}" nvcc) || return 1
 
   # Ensure that the CUDA headers are properly installed
-  test_filepath "${env_name}" cuda_runtime.h || return 1
+  (test_filepath "${env_name}" cuda_runtime.h) || return 1
 
   # Ensure that the libraries are properly installed
-  test_filepath "${env_name}" libnvToolsExt.so || return 1
+  (test_filepath "${env_name}" libnvToolsExt.so) || return 1
+  (test_filepath "${env_name}" libnvidia-ml.so) || return 1
+
+  echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
+  # shellcheck disable=SC2155
+  local conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155
+  local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
+  print_exec conda env config vars set -n "${env_name}" NVML_LIB_PATH="${nvml_lib_path}"
 
   # Print nvcc version
   print_exec conda run -n "${env_name}" nvcc --version
@@ -662,10 +690,10 @@ install_cxx_compiler () {
   fi
 
   # Check C/C++ compilers are visible
-  test_binpath "${env_name}" cc || return 1
-  test_binpath "${env_name}" gcc || return 1
-  test_binpath "${env_name}" c++ || return 1
-  test_binpath "${env_name}" g++ || return 1
+  (test_binpath "${env_name}" cc) || return 1
+  (test_binpath "${env_name}" gcc) || return 1
+  (test_binpath "${env_name}" c++) || return 1
+  (test_binpath "${env_name}" g++) || return 1
 
   # Print out the C++ version
   print_exec conda run -n "${env_name}" c++ --version
@@ -700,8 +728,8 @@ install_build_tools () {
     wheel) || return 1
 
   # Check binaries are visible in the PAATH
-  test_binpath "${env_name}" cmake || return 1
-  test_binpath "${env_name}" ninja || return 1
+  (test_binpath "${env_name}" cmake) || return 1
+  (test_binpath "${env_name}" ninja) || return 1
 
   # Check Python packages are importable
   local import_tests=( click hypothesis jinja2 numpy skbuild wheel )
@@ -865,28 +893,44 @@ __build_fbgemm_gpu_common_pre_steps () {
   # Private function that uses variables instantiated by its caller
 
   # Check C/C++ compilers are visible (the build scripts look specifically for `gcc`)
-  test_binpath "${env_name}" cc || return 1
-  test_binpath "${env_name}" gcc || return 1
-  test_binpath "${env_name}" c++ || return 1
-  test_binpath "${env_name}" g++ || return 1
+  (test_binpath "${env_name}" cc) || return 1
+  (test_binpath "${env_name}" gcc) || return 1
+  (test_binpath "${env_name}" c++) || return 1
+  (test_binpath "${env_name}" g++) || return 1
 
-  if [ "$cpu_only" != "" ]; then
+  if [ "$fbgemm_variant" == "cpu" ]; then
     # Update the package name and build args depending on if CUDA is specified
     echo "[BUILD] Applying CPU-only build args ..."
-    cpu_only=1
-    build_args="--cpu_only"
+    build_args=(--cpu_only)
     package_name="${package_name}-cpu"
+
+  elif [ "$fbgemm_variant" == "rocm" ]; then
+    (test_env_var "${env_name}" PYTORCH_ROCM_ARCH) || return 1
+
+    echo "[BUILD] Applying ROCm build args ..."
+    build_args=()
+    package_name="${package_name}-rocm"
+
   else
+    # Set to the default variant
+    fbgemm_variant="gpu"
+
     # Check nvcc is visible
-    test_binpath "${env_name}" nvcc || return 1
+    (test_binpath "${env_name}" nvcc) || return 1
 
     # Check that cuDNN environment variables are available
-    test_env_var "${env_name}" CUDNN_INCLUDE_DIR || return 1
-    test_env_var "${env_name}" CUDNN_LIBRARY || return 1
+    (test_env_var "${env_name}" CUDNN_INCLUDE_DIR) || return 1
+    (test_env_var "${env_name}" CUDNN_LIBRARY) || return 1
+    (test_env_var "${env_name}" NVML_LIB_PATH) || return 1
 
     # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
     echo "[BUILD] Applying GPU build args ..."
-    build_args="-DTORCH_CUDA_ARCH_LIST='7.0;8.0'"
+    # shellcheck disable=SC2155
+    local nvml_lib_path=$(conda run -n "${env_name}" printenv NVML_LIB_PATH)
+    build_args=(
+      --nvml_lib_path="${nvml_lib_path}"
+      -DTORCH_CUDA_ARCH_LIST='7.0;8.0'
+    )
   fi
 
   # Extract the Python tag
@@ -902,15 +946,61 @@ __build_fbgemm_gpu_common_pre_steps () {
   print_exec conda run -n "${env_name}" python setup.py clean
 }
 
+check_fbgemm_gpu_build () {
+  local fbgemm_variant="$1"
+  if [ "$fbgemm_variant" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} cpu"
+    return 1
+  fi
+
+  # Find the .SO file
+  # shellcheck disable=SC2155
+  local fbgemm_gpu_so_files=$(find . -name fbgemm_gpu_py.so)
+  readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
+  if [ "${#fbgemm_gpu_so_files[@]}" -le 0 ]; then
+    echo "[CHECK] .SO library fbgemm_gpu_py.so is missing from the build path!"
+    return 1
+  fi
+
+  # Prepare a sample set of symbols whose existence in the built library should be checked
+  # This is by no means an exhaustive set, and should be updated accordingly
+  local lib_symbols_to_check=(
+    fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+    fbgemm_gpu::jagged_2d_to_dense
+  )
+
+  # Add more symbols to check for if CPU mode
+  if [ "$fbgemm_variant" != "cpu" ]; then
+    lib_symbols_to_check+=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
+      fbgemm_gpu::merge_pooled_embeddings
+    )
+  fi
+
+  for library in "${fbgemm_gpu_so_files[@]}"; do
+    echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
+    objdump -T "${library}" | grep GLIBCXX | awk '{ print $5 }' | sort | uniq | cat
+
+    echo "[CHECK] Verifying sample subset of symbols in the library ..."
+    for symbol in "${lib_symbols_to_check[@]}"; do
+      (test_library_symbol "${library}" "${symbol}") || return 1
+    done
+
+    echo ""
+  done
+}
+
 build_fbgemm_gpu_package () {
   env_name="$1"
   package_name="$2"
-  cpu_only="$3"
+  fbgemm_variant="$3"
   if [ "$package_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME [CPU_ONLY]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly    # Build the full wheel package"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly 1  # Build the CPU-only variant of the wheel package"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly       # Build the full wheel package"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly cpu   # Build the CPU-only variant of the wheel package"
     return 1
   else
     echo "################################################################################"
@@ -922,17 +1012,20 @@ build_fbgemm_gpu_package () {
   fi
 
   # Run all the common FBGEMM-GPU build pre-steps (set up variables)
-  __build_fbgemm_gpu_common_pre_steps
+  __build_fbgemm_gpu_common_pre_steps || return 1
 
   # manylinux1_x86_64 is specified for PyPI upload
   # Distribute Python extensions as wheels on Linux
-  echo "[BUILD] Building FBGEMM-GPU (CPU=${cpu_only:-0}) wheel ..."
+  echo "[BUILD] Building FBGEMM-GPU (VARIANT=${fbgemm_variant}) wheel ..."
   print_exec conda run -n "${env_name}" \
     python setup.py bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name=manylinux1_x86_64 \
-      "${build_args}"
+      "${build_args[@]}"
+
+  # Run checks on the built libraries
+  (check_fbgemm_gpu_build "${fbgemm_variant}") || return 1
 
   echo "[BUILD] Enumerating the built wheels ..."
   print_exec ls -lth dist/*.whl
@@ -942,12 +1035,12 @@ build_fbgemm_gpu_package () {
 
 build_fbgemm_gpu_install () {
   env_name="$1"
-  cpu_only="$2"
+  fbgemm_variant="$2"
   if [ "$env_name" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME [CPU_ONLY]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env      # Build + install the package"
-    echo "    ${FUNCNAME[0]} build_env 1    # Build + Install the CPU-only variant of the package"
+    echo "    ${FUNCNAME[0]} build_env cpu  # Build + Install the CPU-only variant of the package"
     return 1
   else
     echo "################################################################################"
@@ -963,9 +1056,12 @@ build_fbgemm_gpu_install () {
 
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
-  echo "[BUILD] Building and installing FBGEMM-GPU (CPU=${cpu_only:-0}) ..."
+  echo "[BUILD] Building and installing FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
   print_exec conda run -n "${env_name}" \
-    python setup.py install "${build_args}"
+    python setup.py install "${build_args[@]}"
+
+  # Run checks on the built libraries
+  (check_fbgemm_gpu_build "${fbgemm_variant}") || return 1
 
   echo "[BUILD] FBGEMM-GPU build + install completed"
 }
