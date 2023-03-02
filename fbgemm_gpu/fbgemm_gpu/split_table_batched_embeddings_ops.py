@@ -2451,7 +2451,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if uvm_size > 0:
             assert not self.use_cpu
             if enforce_hbm:
-                logging.info("Enforce hbm for the cache location")
+                if not torch.jit.is_scripting():
+                    logging.info("Enforce hbm for the cache location")
                 self.weights_uvm = torch.zeros(
                     uvm_size,
                     device=self.current_device,
@@ -2767,6 +2768,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         return splits
 
+    @torch.jit.export
     def initialize_weights(self) -> None:
         if not self.weight_initialized:
             self._apply_split(
@@ -2777,7 +2779,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights_physical_offsets,
                 self.enforce_hbm,
             )
-            self.weight_initialized: bool = True
+            self.weight_initialized = True
 
     def fill_random_weights(self) -> None:
         """
