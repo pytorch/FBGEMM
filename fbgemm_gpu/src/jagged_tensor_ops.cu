@@ -651,10 +651,10 @@ bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
 
   int max_shared_bytes;
 #ifndef __HIP_PLATFORM_HCC__
-  cudaDeviceGetAttribute(
+  C10_CUDA_CHECK(cudaDeviceGetAttribute(
       &max_shared_bytes,
       cudaDevAttrMaxSharedMemoryPerBlockOptin,
-      y_0_reshaped.get_device());
+      y_0_reshaped.get_device()));
 #else
   // MI100 has 64 KB local memory (shared memory) per workgroup
   max_shared_bytes = 64 << 10;
@@ -769,10 +769,10 @@ void jagged_dense_elementwise_jagged_output_opt_(
           if (dynamic_smem_size > cur_max_shared_bytes) {
             int max_shared_bytes;
 #ifndef __HIP_PLATFORM_HCC__
-            cudaDeviceGetAttribute(
+            C10_CUDA_CHECK(cudaDeviceGetAttribute(
                 &max_shared_bytes,
                 cudaDevAttrMaxSharedMemoryPerBlockOptin,
-                y_reshaped.get_device());
+                y_reshaped.get_device()));
 #else
             // MI100 has 64 KB local memory (shared memory) per workgroup
             max_shared_bytes = 64 << 10;
@@ -788,11 +788,11 @@ void jagged_dense_elementwise_jagged_output_opt_(
 #endif
             int used_shared_bytes = used_shared_kb << 10;
 #ifndef __HIP_PLATFORM_HCC__
-            cudaFuncSetAttribute(
+            C10_CUDA_CHECK(cudaFuncSetAttribute(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                     index_t>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                used_shared_bytes)); // V100: 64 KB; A100: 96 KB.
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
@@ -973,10 +973,10 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
           if (dynamic_smem_size > cur_max_shared_bytes) {
             int max_shared_bytes;
 #ifndef __HIP_PLATFORM_HCC__
-            cudaDeviceGetAttribute(
+            C10_CUDA_CHECK(cudaDeviceGetAttribute(
                 &max_shared_bytes,
                 cudaDevAttrMaxSharedMemoryPerBlockOptin,
-                y_0_reshaped.get_device());
+                y_0_reshaped.get_device()));
 #else
             // MI100 has 64 KB local memory (shared memory) per workgroup
             max_shared_bytes = 64 << 10;
@@ -992,11 +992,11 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
 #endif
             int used_shared_bytes = used_shared_kb << 10;
 #ifndef __HIP_PLATFORM_HCC__
-            cudaFuncSetAttribute(
+            C10_CUDA_CHECK(cudaFuncSetAttribute(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                     index_t>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                used_shared_bytes)); // V100: 64 KB; A100: 96 KB.
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
