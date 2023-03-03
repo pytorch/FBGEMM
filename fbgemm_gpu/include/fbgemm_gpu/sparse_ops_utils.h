@@ -91,14 +91,6 @@ inline bool torch_tensor_empty_or_on_cpu_check(
       #x " must be empty or a CPU tensor; it is currently on device ", \
       torch_tensor_device_name(x))
 
-#define TENSORS_HAVE_SAME_TYPE(x, y)                       \
-  TORCH_CHECK(                                             \
-      (x).dtype() == (y).dtype(),                          \
-      #x " must have the same type as " #y " types were ", \
-      (x).dtype().name(),                                  \
-      " and ",                                             \
-      (y).dtype().name())
-
 #define TENSOR_ON_CUDA_GPU(x)                                  \
   TORCH_CHECK(                                                 \
       torch_tensor_on_cuda_gpu_check(x),                       \
@@ -144,6 +136,10 @@ inline bool torch_tensor_empty_or_on_cpu_check(
 #define TENSOR_CONTIGUOUS(x) \
   TORCH_CHECK((x).is_contiguous(), #x " must be contiguous")
 
+#define TENSOR_CONTIGUOUS_AND_ON_CPU(x) \
+  TENSOR_ON_CPU(x);                     \
+  TENSOR_CONTIGUOUS(x)
+
 #define TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(x) \
   TENSOR_ON_CUDA_GPU(x);                     \
   TENSOR_CONTIGUOUS(x)
@@ -155,6 +151,28 @@ inline bool torch_tensor_empty_or_on_cpu_check(
       " dimension(s). "                      \
       "Found ",                              \
       (ten).ndimension())
+
+#define TENSOR_TYPE_MUST_BE(ten, typ)                                      \
+  TORCH_CHECK(                                                             \
+      (ten).scalar_type() == typ,                                          \
+      "Tensor '" #ten "' must have scalar type " #typ " but it had type ", \
+      (ten).dtype().name())
+
+#define TENSOR_NDIM_EXCEEDS(ten, dims)               \
+  TORCH_CHECK(                                       \
+      (ten).dim() > (dims),                          \
+      "Tensor '" #ten "' must have more than " #dims \
+      " dimension(s). "                              \
+      "Found ",                                      \
+      (ten).ndimension())
+
+#define TENSORS_HAVE_SAME_NUMEL(x, y)                                  \
+  TORCH_CHECK(                                                         \
+      (x).numel() == (y).numel(),                                      \
+      #x " must have the same number of elements as " #y " They had ", \
+      (x).numel(),                                                     \
+      " and ",                                                         \
+      (y).numel())
 
 /// Determine an appropriate CUDA block count along the x axis
 ///
