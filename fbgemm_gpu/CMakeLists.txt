@@ -320,12 +320,15 @@ if(NOT FBGEMM_CPU_ONLY)
     src/embedding_inplace_update_gpu.cpp)
 
   if(NVML_LIB_PATH)
+    message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")
     list(
       APPEND
       fbgemm_gpu_sources_cpu
       src/merge_pooled_embeddings_cpu.cpp
       src/merge_pooled_embeddings_gpu.cpp
       src/topology_utils.cpp)
+  else()
+    message(STATUS "Could not find NVML_LIB_PATH; will NOT include certain sources into the build!")
   endif()
 endif()
 
