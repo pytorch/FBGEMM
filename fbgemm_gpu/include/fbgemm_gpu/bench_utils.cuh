@@ -31,8 +31,8 @@ void flush_cache(int cache_size_mb = 40, bool do_write = false) {
   CUDA_CHECK(
       cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice));
   flush_gpu<<<cache_size / 512, 512>>>(d_flush, d_flush2, do_write);
-  cudaFree(d_flush);
-  cudaFree(d_flush2);
+  CUDA_CHECK(cudaFree(d_flush));
+  CUDA_CHECK(cudaFree(d_flush2));
   CUDA_CHECK(cudaDeviceSynchronize());
   CUDA_CHECK(cudaGetLastError());
 }

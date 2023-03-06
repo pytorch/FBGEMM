@@ -7,6 +7,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/core/Device.h>
+#include <c10/cuda/CUDAException.h>
 #include <algorithm>
 
 #include "fbgemm_gpu/topology_utils.h"
@@ -131,14 +132,15 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
         &pci_info.busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE],
         pci_bus_id.data());
     int32_t node = 0;
-    auto err = cudaDeviceGetByPCIBusId(&node, pci_bus_id.data());
+    auto err = C10_CUDA_ERROR_HANDLED(
+        cudaDeviceGetByPCIBusId(&node, pci_bus_id.data()));
     if (err == cudaSuccess) {
       pci_bus_ids.insert({pci_bus_id, node});
       cuda_device_to_nvml_device.insert({node, i});
     } else {
       // flush the last error - this can occur when e.g. we set
       // CUDA_VISIBLE_DEVICES to a subset of the available GPUs in the system.
-      cudaGetLastError();
+      C10_CUDA_CLEAR_ERROR();
     }
   }
 
