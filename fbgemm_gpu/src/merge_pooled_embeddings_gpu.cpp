@@ -274,10 +274,11 @@ void init_p2p_access() {
       for (const auto j : c10::irange(at::cuda::getNumGPUs())) {
         if (i != j) {
           at::cuda::CUDAGuard g(i);
-          const auto err = cudaDeviceEnablePeerAccess(j, 0);
+          const auto err =
+              C10_CUDA_ERROR_HANDLED(cudaDeviceEnablePeerAccess(j, 0));
           if (err == cudaErrorPeerAccessAlreadyEnabled) {
             // ignore and clear the error if access was already enabled
-            cudaGetLastError();
+            C10_CUDA_CLEAR_ERROR();
           } else {
             AT_CUDA_CHECK(err);
           }
