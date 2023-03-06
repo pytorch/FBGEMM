@@ -83,7 +83,7 @@ __global__ inline void _float_to_fused8bitrowwise_cuda_kernel(
     const int nrows,
     const int ncols,
     std::uint8_t* __restrict__ output) {
-  constexpr float kEpsilon = 1e-8f;
+  constexpr float kEpsilon = 1e-20f;
 
   const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const int output_columns = ncols_aligned + 2 * sizeof(float);
@@ -128,7 +128,7 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
     const int ncols,
     std::uint8_t* __restrict__ output,
     bool forward) {
-  constexpr float kEpsilon = 1e-8f;
+  constexpr float kEpsilon = 1e-20f;
   int ebit;
   int bias;
   float max_pos;
@@ -253,7 +253,7 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
     max_pos = 0.875;
   }
   // starting values for future reductions
-  constexpr float kEpsilon = 1e-8f;
+  constexpr float kEpsilon = 1e-20f;
   float maximum_element = kEpsilon;
   // always a power of 2 up to size 32. Multiple rows can share the same warp
   // when smaller than 32.
@@ -299,7 +299,7 @@ __global__ inline void _compute_8bit_quantize_cuda_kernel(
     const int nrows,
     const int ncols,
     std::uint8_t* const __restrict__ output) {
-  constexpr float kEpsilon = 1e-8f;
+  constexpr float kEpsilon = 1e-20f;
 
   const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const int output_columns = ncols_aligned + 2 * sizeof(float);
@@ -332,7 +332,7 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
     const int ncols,
     std::uint8_t* const __restrict__ output,
     bool forward) {
-  constexpr float kEpsilon = 1e-8f;
+  constexpr float kEpsilon = 1e-20f;
   int ebit;
   int bias;
   float max_pos;
