@@ -328,7 +328,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/merge_pooled_embeddings_gpu.cpp
       src/topology_utils.cpp)
   else()
-    message(STATUS "Could not find NVML_LIB_PATH; will NOT include certain sources into the build!")
+    message(STATUS
+    "Could not find NVML_LIB_PATH; skipping certain sources into the build")
   endif()
 endif()
 

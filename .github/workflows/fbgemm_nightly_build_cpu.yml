@@ -56,6 +56,9 @@ jobs:
     - name: Display System Info
       run: . $PRELUDE; print_system_info
 
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
     - name: Setup Miniconda
       run: |
         . $PRELUDE; setup_miniconda $HOME/miniconda
@@ -110,10 +113,10 @@ jobs:
         submodules: true
 
     - name: Display System Info
-      run: . $PRELUDE; print_system_info
+      run: . $PRELUDE; print_system_info; print_ec2_info
 
-    - name: Display EC2 Info
-      run: . $PRELUDE; print_ec2_info
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
 
     - name: Setup Miniconda
       run: |
