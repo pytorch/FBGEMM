@@ -7,29 +7,41 @@
 import argparse
 import os
 import random
-import re
 import subprocess
 import sys
+
 from datetime import date
 from typing import List, Optional
 
+import setuptools_git_versioning as gitversion
 import torch
 from skbuild import setup
 
 
-def get_version():
-    # get version string from version.py
-    # TODO: ideally the version.py should be generated when setup is run
-    version_file = os.path.join(os.path.dirname(__file__), "version.py")
-    version_regex = r"__version__ = ['\"]([^'\"]*)['\"]"
-    with open(version_file, "r") as f:
-        version = re.search(version_regex, f.read(), re.M).group(1)
-        return version
+def generate_package_version(package_name: str):
+    print("[SETUP.PY] Generating the package version ...")
 
+    if "nightly" in package_name:
+        # Use date stamp for nightly versions
+        print("[SETUP.PY] Package is for NIGHTLY; using timestamp for the versioning")
+        today = date.today()
+        version = f"{today.year}.{today.month}.{today.day}"
 
-def get_nightly_version():
-    today = date.today()
-    return f"{today.year}.{today.month}.{today.day}"
+    elif "test" in package_name:
+        # Use date stamp for nightly versions
+        print("[SETUP.PY] Package is for TEST: using random number for the versioning")
+        version = (f"0.0.{random.randint(0, 1000)}",)
+
+    else:
+        # Use git tag / branch / commit info to generate a PEP-440-compliant version string
+        print("[SETUP.PY] Package is for RELEASE: using git info for the versioning")
+        print(
+            f"[SETUP.PY] TAG: {gitversion.get_tag()}, BRANCH: {gitversion.get_branch()}, SHA: {gitversion.get_sha()}"
+        )
+        version = gitversion.version_from_git()
+
+    print(f"[SETUP.PY] Setting the package version: {version}")
+    return version
 
 
 def get_cxx11_abi():
@@ -170,23 +182,15 @@ def main(argv: List[str]) -> None:
     if args.nvml_lib_path:
         cmake_args.append(f"-DNVML_LIB_PATH={args.nvml_lib_path}")
 
-    name = args.package_name
-    print("name: ", name)
-    is_nightly = "nightly" in name
-    is_test = "test" in name
-
-    version = get_nightly_version() if is_nightly else get_version()
-    if is_test:
-        version = (f"0.0.{random.randint(0, 1000)}",)
-    print(f"-- {name} building version: {version}")
+    package_version = generate_package_version(args.package_name)
 
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
 
     setup(
         # Metadata
-        name=name,
-        version=version,
+        name=args.package_name,
+        version=package_version,
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
         long_description=long_description,
@@ -210,6 +214,8 @@ def main(argv: List[str]) -> None:
             "License :: OSI Approved :: BSD License",
             "Programming Language :: Python :: 3",
             "Programming Language :: Python :: 3.8",
+            "Programming Language :: Python :: 3.9",
+            "Programming Language :: Python :: 3.10",
             "Topic :: Scientific/Engineering :: Artificial Intelligence",
         ],
     )

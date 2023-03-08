@@ -38,6 +38,9 @@ jobs:
     - name: Display System Info
       run: . $PRELUDE; print_system_info
 
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
     - name: Free Disk Space
       run: . $PRELUDE; free_disk_space
 
@@ -149,6 +152,9 @@ jobs:
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
 
     - name: Setup Miniconda
       run: |
