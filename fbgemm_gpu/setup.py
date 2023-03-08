@@ -38,7 +38,8 @@ def generate_package_version(package_name: str):
         print(
             f"[SETUP.PY] TAG: {gitversion.get_tag()}, BRANCH: {gitversion.get_branch()}, SHA: {gitversion.get_sha()}"
         )
-        version = gitversion.version_from_git()
+        # Remove the local version identifier, if any (0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
+        version = gitversion.version_from_git().split("+")[0]
 
     print(f"[SETUP.PY] Setting the package version: {version}")
     return version
