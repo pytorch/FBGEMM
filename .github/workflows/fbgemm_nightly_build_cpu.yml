@@ -102,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ linux.g5.4xlarge.nvidia.gpu ]
+        os: [ linux.4xlarge ]
         python-version: [ "3.8", "3.9", "3.10" ]
     needs: build_artifact
 
