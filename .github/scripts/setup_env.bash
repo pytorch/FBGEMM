@@ -14,6 +14,7 @@ print_exec () {
   echo "+ $*"
   echo ""
   "$@"
+  echo ""
 }
 
 exec_with_retries () {
@@ -238,6 +239,30 @@ free_disk_space () {
 # Info Functions
 ################################################################################
 
+print_gpu_info () {
+  echo "################################################################################"
+  echo "[INFO] Check GPU info ..."
+  install_system_packages lshw
+  print_exec sudo lshw -C display
+
+  echo "################################################################################"
+  echo "[INFO] Check NVIDIA GPU info ..."
+
+  if [[ "${ENFORCE_NVIDIA_GPU}" ]]; then
+    # Ensure that nvidia-smi is available and returns GPU entries
+    if ! nvidia-smi; then
+      echo "[CHECK] NVIDIA driver is required, but does not appear to have been installed.  This will cause FBGEMM_GPU installation to fail!"
+      return 1
+    fi
+
+  else
+    if which nvidia-smi; then
+      # If nvidia-smi is installed on a machine without GPUs, this will return error
+      (print_exec nvidia-smi) || true
+    fi
+  fi
+}
+
 print_system_info () {
   echo "################################################################################"
   echo "# Print System Info"
@@ -264,17 +289,6 @@ print_system_info () {
   print_exec uname -a
   print_exec cat /proc/version
   print_exec cat /etc/os-release
-
-  echo "################################################################################"
-  echo "[INFO] Check GPU info ..."
-  install_system_packages lshw
-  print_exec sudo lshw -C display
-
-  if which nvidia-smi; then
-    echo "################################################################################"
-    echo "[INFO] Check NVIDIA GPU info ..."
-    print_exec nvidia-smi
-  fi
 }
 
 print_ec2_info () {
@@ -335,7 +349,7 @@ setup_miniconda () {
   print_exec . ~/.bashrc
 
   echo "[SETUP] Updating Miniconda base packages ..."
-  print_exec conda update -n base -c defaults -y conda
+  (exec_with_retries conda update -n base -c defaults -y conda) || return 1
 
   # Print Conda info
   print_exec conda info
@@ -369,12 +383,12 @@ create_conda_environment () {
   (exec_with_retries conda create -y --name "${env_name}" python="${python_version}") || return 1
 
   echo "[SETUP] Upgrading PIP to latest ..."
-  print_exec conda run -n "${env_name}" pip install --upgrade pip
+  (exec_with_retries conda run -n "${env_name}" pip install --upgrade pip) || return 1
 
   # The pyOpenSSL and cryptography packages versions need to line up for PyPI publishing to work
   # https://stackoverflow.com/questions/74981558/error-updating-python3-pip-attributeerror-module-lib-has-no-attribute-openss
   echo "[SETUP] Upgrading pyOpenSSL ..."
-  print_exec conda run -n "${env_name}" python -m pip install "pyOpenSSL>22.1.0"
+  (exec_with_retries conda run -n "${env_name}" python -m pip install "pyOpenSSL>22.1.0") || return 1
 
   # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
   echo "[SETUP] Testing pyOpenSSL import ..."
@@ -886,7 +900,7 @@ prepare_fbgemm_gpu_build () {
   git submodule update --init --recursive
 
   echo "[BUILD] Installing other build dependencies ..."
-  print_exec conda run -n "${env_name}" python -m pip install -r requirements.txt
+  (exec_with_retries conda run -n "${env_name}" python -m pip install -r requirements.txt) || return 1
 
   (test_python_import "${env_name}" numpy) || return 1
   (test_python_import "${env_name}" skbuild) || return 1
@@ -1095,7 +1109,7 @@ install_fbgemm_gpu_package () {
   print_exec sha1sum "${package_name}"
 
   echo "[INSTALL] Installing FBGEMM-GPU wheel: ${package_name} ..."
-  conda run -n "${env_name}" python -m pip install "${package_name}"
+  (exec_with_retries conda run -n "${env_name}" python -m pip install "${package_name}") || return 1
 
   echo "[INSTALL] Checking imports ..."
   (test_python_import "${env_name}" fbgemm_gpu) || return 1
@@ -1217,4 +1231,5 @@ publish_to_pypi () {
       "${package_name}"
 
   echo "[PUBLISH] Successfully published package(s) to PyPI: ${package_name}"
+  echo "[PUBLISH] NOTE: The publish command is a successful no-op if the wheel version already existed in PyPI; please double check!"
 }
