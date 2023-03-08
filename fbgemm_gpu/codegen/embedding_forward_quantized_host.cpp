@@ -9,6 +9,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/library.h>
+#include <algorithm>
 #include "c10/core/ScalarType.h"
 #ifdef FBCODE_CAFFE2
 #include "common/stats/Stats.h"
@@ -73,27 +74,61 @@ void process_uvm_cache_stats(
     const int64_t total_cache_hash_size,
     const int64_t call_count,
     const bool gather_uvm_stats,
-    const Tensor& uvm_cache_stats) {
+    const Tensor& uvm_cache_stats,
+    const bool populate_uvm_stats) {
   if (gather_uvm_stats) {
+    static std::mutex cache_mutex;
+
+    // uvm_cache_stats_counters is a vector of size 4, storing the cumulated
+    // cache stats. Each element represents different counter respectively:
+    // uvm_cache_stats_counters[0]: num_req_indices
+    // uvm_cache_stats_counters[1]: num_unique_indices
+    // uvm_cache_stats_counters[2]: num_unique_misses
+    // uvm_cache_stats_counters[3]: num_unique_conflict_misses
+    // They should be zero-out after the calculated rates are populated into
+    // cache counters.
+    static std::vector<int64_t> uvm_cache_stats_counters(4);
+
     // Export cache stats.
     auto uvm_cache_stats_cpu = uvm_cache_stats.cpu();
     auto* uvm_cache_stats_ptr = uvm_cache_stats_cpu.data_ptr<int32_t>();
     if (uvm_cache_stats_ptr[1] > 0) {
       // Report cache stats in per-mille.
-      double num_requested_indices =
-          static_cast<double>(uvm_cache_stats_ptr[1]);
-      double unique_rate = static_cast<double>(uvm_cache_stats_ptr[2] * 1000) /
-          num_requested_indices;
-      double unique_miss_rate =
-          static_cast<double>(uvm_cache_stats_ptr[3] * 1000) /
-          num_requested_indices;
-      double unique_conflict_miss_rate =
-          static_cast<double>(uvm_cache_stats_ptr[4] * 1000) /
-          num_requested_indices;
-      STATS_tbe_uvm_cache_unique_rate.addValue(unique_rate);
-      STATS_tbe_uvm_cache_unique_miss_rate.addValue(unique_miss_rate);
-      STATS_tbe_uvm_cache_conflict_unique_miss_rate.addValue(
-          unique_conflict_miss_rate);
+      {
+        // Add cache stats values into the culmulated variables.
+        std::lock_guard<std::mutex> guard(cache_mutex);
+        std::transform(
+            uvm_cache_stats_counters.begin(),
+            uvm_cache_stats_counters.end(),
+            uvm_cache_stats_ptr + 1,
+            uvm_cache_stats_counters.begin(),
+            std::plus<int>());
+
+        // Calculate cache related ratios based on the cumulated numbers and
+        // push them into the counter pools.
+        if (populate_uvm_stats && uvm_cache_stats_counters[0] > 0) {
+          double unique_rate =
+              static_cast<double>(uvm_cache_stats_counters[1]) /
+              uvm_cache_stats_counters[0] * 1000;
+          double unique_miss_rate =
+              static_cast<double>(uvm_cache_stats_counters[2]) /
+              uvm_cache_stats_counters[0] * 1000;
+          double unique_conflict_miss_rate =
+              static_cast<double>(uvm_cache_stats_counters[3]) /
+              uvm_cache_stats_counters[0] * 1000;
+          STATS_tbe_uvm_cache_unique_rate.addValue(unique_rate);
+          STATS_tbe_uvm_cache_unique_miss_rate.addValue(unique_miss_rate);
+          STATS_tbe_uvm_cache_conflict_unique_miss_rate.addValue(
+              unique_conflict_miss_rate);
+
+          // Fill all the elements of the vector uvm_cache_stats_counters as 0
+          // to zero out the cumulated counters.
+          std::fill(
+              uvm_cache_stats_counters.begin(),
+              uvm_cache_stats_counters.end(),
+              0);
+        }
+      }
     }
     if (call_count % FLAGS_tbe_uvm_cache_stats_print_out_period == 0) {
       LOG(INFO) << "$Stats [" << signature << "] "
@@ -358,6 +393,13 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         cache_hash_size_cumsum.value(), indices, offsets);
 
     bool gather_uvm_stats = false;
+    // populate_uvm_stats indicates whether to calculate cache related ratios,
+    // using the data from cumulated counters, and populate them into the cache
+    // stats pools to get the percentil stats. We want to calculate the weighted
+    // cache ratios, taking the # req indices of each TBE as the weight. so we
+    // will populate stats when we think the current lookup is for the last TBE
+    // call of the same round.
+    bool populate_uvm_stats = true;
     Tensor uvm_cache_stats =
         at::empty({0}, lxu_cache_weights.value().options().dtype(at::kInt));
 #ifdef FBCODE_CAFFE2
@@ -370,6 +412,17 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
       }
       tbe_call_count[signature]++;
       call_count = tbe_call_count[signature];
+
+      // populate_uvm_stats is used as an indicator whether to push the cache
+      // related ratios caclulated from cumulative counters into the cache stats
+      // pools. We want to wait until all the knwon TBE ops' data been included
+      // to get the weighted ratios.
+      for (const auto& [sig, count] : tbe_call_count) {
+        if (count < call_count) {
+          populate_uvm_stats = false;
+          break;
+        }
+      }
     }
 
     if (FLAGS_tbe_uvm_cache_stat_report > 0 &&
@@ -413,7 +466,8 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         total_cache_hash_size.value(),
         call_count,
         gather_uvm_stats,
-        uvm_cache_stats);
+        uvm_cache_stats,
+        populate_uvm_stats);
 #endif
   }
 
