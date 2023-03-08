@@ -963,6 +963,10 @@ __build_fbgemm_gpu_common_pre_steps () {
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
   print_exec conda run -n "${env_name}" python setup.py clean
+
+  echo "[BUILD] Printing git status ..."
+  print_exec git status
+  print_exec git diff
 }
 
 check_fbgemm_gpu_build () {
