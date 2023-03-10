@@ -41,7 +41,8 @@ struct CUDAHostMappedContext {
   ~CUDAHostMappedContext() {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(cuda_device_);
-    AT_CUDA_CHECK(cudaFreeHost(ptr_));
+    AT_CUDA_CHECK(cudaHostUnregister(ptr_));
+    free(ptr_);
   }
 
   static void release(void* ptr) {
@@ -206,9 +207,28 @@ Tensor new_host_mapped_tensor(
   auto strides = defaultStrides(sizes);
   size_t size_bytes =
       at::detail::computeStorageNbytes(sizes, strides, self.dtype().itemsize());
-  void* ptr;
-  AT_CUDA_CHECK(cudaHostAlloc(
-      &ptr, size_bytes, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+
+  // When using cudaHostAlloc for large allocations, we found that it can
+  // potentially take a global lock and lock out CUDA APIs from other processes.
+  // The main cost in cudaHostAlloc is faulting/mapping the pages. So, instead
+  // of using this cuda API, we can do regular malloc, pre-fault the pages, and
+  // then do cudaHostRegister with GPU mapping flags to lock the pages, so we
+  // can minimize the cost while holding this global lock.
+  void* const ptr = malloc(size_bytes);
+
+  // advise the kernel to allocate large 2M pages
+  madvise(ptr, size_bytes, MADV_HUGEPAGE);
+
+  // pre-fault/map the pages by setting the first byte of the page
+  size_t pageSize = (1 << 21);
+  uintptr_t alignedPtr = (((uintptr_t)ptr + pageSize - 1) & ~(pageSize - 1));
+  for (uintptr_t p = alignedPtr; p < ((uintptr_t)ptr + size_bytes);
+       p += pageSize) {
+    memset((void*)p, 0, 1);
+  }
+
+  AT_CUDA_CHECK(cudaHostRegister(
+      ptr, size_bytes, cudaHostRegisterMapped | cudaHostRegisterPortable));
   void* dev_ptr;
   AT_CUDA_CHECK(cudaHostGetDevicePointer(&dev_ptr, ptr, 0));
 
