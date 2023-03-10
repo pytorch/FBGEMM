@@ -13,8 +13,13 @@
 print_exec () {
   echo "+ $*"
   echo ""
-  "$@"
+  if "$@"; then
+    local retcode=0
+  else
+    local retcode=$?
+  fi
   echo ""
+  return $retcode
 }
 
 exec_with_retries () {
@@ -205,7 +210,7 @@ run_python_test () {
     echo "################################################################################"
   fi
 
-  if conda run -n "${env_name}" python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
+  if print_exec conda run -n "${env_name}" python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
   else
     echo "[TEST] Python test suite FAILED: ${python_test_file}"
@@ -652,8 +657,10 @@ install_rocm_ubuntu () {
   (exec_with_retries amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
 
   echo "[INSTALL] Installing HIP-relevant packages ..."
-  install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
   install_system_packages hipify-clang miopen-hip miopen-hip-dev
+
+  # There is no need to install these packages for ROCm
+  # install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
 
   echo "[INSTALL] Cleaning up ..."
   print_exec rm -f "${package_name}"
