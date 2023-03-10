@@ -44,6 +44,13 @@ class OptimizerArgs(NamedTuple):
     weight_decay_mode: int
     eta: float
     momentum: float
+    counter_halflife: int
+    adjustment_iter: int
+    adjustment_ub: float
+    learning_rate_mode: int
+    grad_sum_decay: int
+    tail_id_threshold: float
+    is_tail_id_thresh_ratio: int
 
 
 class Momentum(NamedTuple):

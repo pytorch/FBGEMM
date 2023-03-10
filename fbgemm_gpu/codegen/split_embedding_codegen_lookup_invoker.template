@@ -36,8 +36,17 @@ def invoke(
     {% if "momentum2_dev" in args.split_function_arg_names %}
     momentum2: Momentum,
     {% endif %}
+    {% if "prev_iter_dev" in args.split_function_arg_names %}
+    prev_iter: Momentum,
+    {% endif %}
+    {% if "row_counter_dev" in args.split_function_arg_names %}
+    row_counter: Momentum,
+    {% endif %}
     {% if "iter" in args.split_function_arg_names %}
     iter: int,
+    {% endif %}
+    {% if "max_counter" in args.split_function_arg_names %}
+    max_counter: float,
     {% endif %}
 ) -> torch.Tensor:
     if (common_args.host_weights.numel() > 0):
@@ -84,6 +93,27 @@ def invoke(
             {% if "momentum" in args.split_function_arg_names %}
             momentum=optimizer_args.momentum,
             {% endif %}
+            {% if "counter_halflife" in args.split_function_arg_names %}
+            counter_halflife=optimizer_args.counter_halflife,
+            {% endif %}
+            {% if "adjustment_iter" in args.split_function_arg_names %}
+            adjustment_iter=optimizer_args.adjustment_iter,
+            {% endif %}
+            {% if "adjustment_ub" in args.split_function_arg_names %}
+            adjustment_ub=optimizer_args.adjustment_ub,
+            {% endif %}
+            {% if "learning_rate_mode" in args.split_function_arg_names %}
+            learning_rate_mode=optimizer_args.learning_rate_mode,
+            {% endif %}
+            {% if "grad_sum_decay" in args.split_function_arg_names %}
+            grad_sum_decay=optimizer_args.grad_sum_decay,
+            {% endif %}
+            {% if "tail_id_threshold" in args.split_function_arg_names %}
+            tail_id_threshold=optimizer_args.tail_id_threshold,
+            {% endif %}
+            {% if "is_tail_id_thresh_ratio" in args.split_function_arg_names %}
+            is_tail_id_thresh_ratio=optimizer_args.is_tail_id_thresh_ratio,
+            {% endif %}
             # momentum1
             {% if "momentum1_dev" in args.split_function_arg_names %}
             momentum1_host=momentum1.host,
@@ -96,9 +126,25 @@ def invoke(
             momentum2_offsets=momentum2.offsets,
             momentum2_placements=momentum2.placements,
             {% endif %}
+            # prev_iter
+            {% if "prev_iter_dev" in args.split_function_arg_names %}
+            prev_iter_host=prev_iter.host,
+            prev_iter_offsets=prev_iter.offsets,
+            prev_iter_placements=prev_iter.placements,
+            {% endif %}
+            # row_counter
+            {% if "row_counter_dev" in args.split_function_arg_names %}
+            row_counter_host=row_counter.host,
+            row_counter_offsets=row_counter.offsets,
+            row_counter_placements=row_counter.placements,
+            {% endif %}
             # iter
             {% if "iter" in args.split_function_arg_names %}
             iter=iter,
+            {% endif %}
+            # max counter
+            {% if "max_counter" in args.split_function_arg_names %}
+            max_counter=max_counter,
             {% endif %}
         )
     else:
@@ -151,6 +197,27 @@ def invoke(
             {% if "momentum" in args.split_function_arg_names %}
             momentum=optimizer_args.momentum,
             {% endif %}
+            {% if "counter_halflife" in args.split_function_arg_names %}
+            counter_halflife=optimizer_args.counter_halflife,
+            {% endif %}
+            {% if "adjustment_iter" in args.split_function_arg_names %}
+            adjustment_iter=optimizer_args.adjustment_iter,
+            {% endif %}
+            {% if "adjustment_ub" in args.split_function_arg_names %}
+            adjustment_ub=optimizer_args.adjustment_ub,
+            {% endif %}
+            {% if "learning_rate_mode" in args.split_function_arg_names %}
+            learning_rate_mode=optimizer_args.learning_rate_mode,
+            {% endif %}
+            {% if "grad_sum_decay" in args.split_function_arg_names %}
+            grad_sum_decay=optimizer_args.grad_sum_decay,
+            {% endif %}
+            {% if "tail_id_threshold" in args.split_function_arg_names %}
+            tail_id_threshold=optimizer_args.tail_id_threshold,
+            {% endif %}
+            {% if "is_tail_id_thresh_ratio" in args.split_function_arg_names %}
+            is_tail_id_thresh_ratio=optimizer_args.is_tail_id_thresh_ratio,
+            {% endif %}
             # momentum1
             {% if "momentum1_dev" in args.split_function_arg_names %}
             momentum1_dev=momentum1.dev,
@@ -165,9 +232,27 @@ def invoke(
             momentum2_offsets=momentum2.offsets,
             momentum2_placements=momentum2.placements,
             {% endif %}
+            # prev_iter
+            {% if "prev_iter_dev" in args.split_function_arg_names %}
+            prev_iter_dev=prev_iter.dev,
+            prev_iter_uvm=prev_iter.uvm,
+            prev_iter_offsets=prev_iter.offsets,
+            prev_iter_placements=prev_iter.placements,
+            {% endif %}
+            # row_counter
+            {% if "row_counter_dev" in args.split_function_arg_names %}
+            row_counter_dev=row_counter.dev,
+            row_counter_uvm=row_counter.uvm,
+            row_counter_offsets=row_counter.offsets,
+            row_counter_placements=row_counter.placements,
+            {% endif %}
             # iter
             {% if "iter" in args.split_function_arg_names %}
             iter=iter,
+            {% endif %}
+            # max counter
+            {% if "max_counter" in args.split_function_arg_names %}
+            max_counter=max_counter,
             {% endif %}
             output_dtype=common_args.output_dtype,
         )
