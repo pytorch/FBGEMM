@@ -8,6 +8,7 @@
 // This file defines common utilities used in code compiled with avx2/avx512
 // flags.
 
+#include <cstdint>
 #include <string>
 
 namespace fbgemm {
