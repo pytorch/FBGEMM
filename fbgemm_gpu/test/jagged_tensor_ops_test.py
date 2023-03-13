@@ -20,7 +20,12 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, running_on_github
+    from test_utils import (
+        gpu_available,
+        gpu_unavailable,
+        running_on_github,
+        TEST_WITH_ROCM,
+    )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
@@ -28,6 +33,7 @@ except Exception:
         gpu_available,
         gpu_unavailable,
         running_on_github,
+        TEST_WITH_ROCM,
     )
 
 
@@ -1466,7 +1472,11 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 torch.long,
             ]  # Disable torch.bfloat16 due to large error bound
         ),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
     )
     @settings(max_examples=20, deadline=None)
     def test_jagged_index_select_2d(
