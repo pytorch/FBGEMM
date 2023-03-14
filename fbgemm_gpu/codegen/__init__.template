@@ -13,7 +13,9 @@ import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_lars_sgd as loo
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_partial_rowwise_adam as lookup_partial_rowwise_adam  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_partial_rowwise_lamb as lookup_partial_rowwise_lamb  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_rowwise_adagrad as lookup_rowwise_adagrad  # noqa: F401
+import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_rowwise_adagrad_with_counter as lookup_rowwise_adagrad_with_counter  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_sgd as lookup_sgd  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_approx_sgd as lookup_approx_sgd  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_approx_rowwise_adagrad as lookup_approx_rowwise_adagrad  # noqa: F401
+import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_approx_rowwise_adagrad_with_counter as lookup_approx_rowwise_adagrad_with_counter  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_rowwise_weighted_adagrad as lookup_rowwise_weighted_adagrad  # noqa: F401

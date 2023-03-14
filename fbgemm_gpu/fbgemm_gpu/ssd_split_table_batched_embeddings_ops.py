@@ -18,6 +18,7 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops import (
     align_to_cacheline,
     CacheAlgorithm,
+    CounterBasedRegularizationDefinition,
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
     PoolingMode,
@@ -88,6 +89,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
+        counter_based_regularization: Optional[
+            CounterBasedRegularizationDefinition
+        ] = None,  # used by Rowwise Adagrad
         pooling_mode: PoolingMode = PoolingMode.SUM,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
@@ -217,6 +221,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_set_end = torch.cuda.Event()
         self.timesteps_prefetched: List[int] = []
 
+        if weight_decay_mode == WeightDecayMode.COUNTER or counter_based_regularization:
+            raise AssertionError(
+                "weight_decay_mode = WeightDecayMode.COUNTER is not supported for SSD TBE."
+            )
+        counter_based_regularization = CounterBasedRegularizationDefinition()
+
         self.optimizer_args = invokers.lookup_args.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
@@ -229,6 +239,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             weight_decay_mode=weight_decay_mode.value,
             eta=eta,
             momentum=momentum,
+            counter_halflife=counter_based_regularization.counter_halflife,
+            adjustment_iter=counter_based_regularization.adjustment_iter,
+            adjustment_ub=counter_based_regularization.adjustment_ub,
+            learning_rate_mode=counter_based_regularization.learning_rate_mode.value,
+            grad_sum_decay=counter_based_regularization.grad_sum_decay.value,
+            tail_id_threshold=counter_based_regularization.tail_id_threshold.val,
+            is_tail_id_thresh_ratio=int(
+                counter_based_regularization.tail_id_threshold.is_ratio
+            ),
         )
         self.weights_dev = nn.Parameter(
             torch.empty((0,), device=self.current_device, dtype=torch.float32)

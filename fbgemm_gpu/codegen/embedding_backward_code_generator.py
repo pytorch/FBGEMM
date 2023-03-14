@@ -646,6 +646,11 @@ def rowwise_adagrad_with_counter() -> None:
     split_precomputation = """
     at::acc_type<cache_t, true> freq = 1.0;
     at::acc_type<cache_t, true> l2_wd = 0.0;
+    at::acc_type<cache_t, true> tail_id_threshold_val = tail_id_threshold;
+    CUDA_KERNEL_ASSERT(max_counter > 0.0); // avoid divide by zero error
+    if (is_tail_id_thresh_ratio == 1){
+        tail_id_threshold_val = floorf(tail_id_threshold * max_counter);
+    }
     if (counter_halflife > 0 && threadIdx.x == 0) {
         // if id occurs multiple times in a batch, iter_delta=1
         const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
@@ -660,6 +665,7 @@ def rowwise_adagrad_with_counter() -> None:
     }
     freq = SHFL_SYNC(freq, 0);
     l2_wd = SHFL_SYNC(l2_wd, 0);
+    tail_id_threshold_val = SHFL_SYNC(tail_id_threshold_val, 0);
 
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
 
@@ -682,10 +688,7 @@ def rowwise_adagrad_with_counter() -> None:
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> adjusted_multiplier;
     at::acc_type<cache_t, true> exp_reg_correction;
-    at::acc_type<cache_t, true> tail_id_threshold_val = tail_id_threshold;
-    if (is_tail_id_thresh_ratio == 1){
-        tail_id_threshold_val = floorf(tail_id_threshold * max_counter);
-    }
+
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
