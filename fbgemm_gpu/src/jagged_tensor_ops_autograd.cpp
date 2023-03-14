@@ -644,7 +644,7 @@ jagged_dense_elementwise_add_jagged_output(
     const Tensor& y) {
   // Convert to jagged
   auto jagged_values =
-      DenseToJaggedOp::apply(y, x_offsets, c10::optional<int64_t>())[0];
+      DenseToJaggedOp::apply(y, x_offsets, x_values.size(0))[0];
 
   // Add jagged_values + x_values -> sum_values
   auto sum_values = x_values + jagged_values;
