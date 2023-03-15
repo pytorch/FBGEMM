@@ -500,12 +500,41 @@ Tensor index_select_dim0_gpu(
 std::vector<Tensor> group_index_select_dim0_gpu(
     const std::vector<Tensor>& input_group,
     const std::vector<Tensor>& indices_group) {
+  const auto group_size = input_group.size();
   std::vector<Tensor> output_group;
-  apply_(
-      [&](auto&&... args) {
-        output_group = GroupIndexSelectDim0GPUOp::apply(indices_group, args...);
-      },
-      input_group);
+  // We use the APPLY_AUTOGRAD_FN macros to instantiate
+  // GroupIndexSelectDim0GPUOp for different group sizes.  We only instantiate
+  // up to group size of 54.
+  constexpr size_t max_group_size = 54;
+  // Specialize this path to avoid copy
+  if (group_size <= max_group_size) {
+    apply_(
+        [&](auto&&... args) {
+          output_group =
+              GroupIndexSelectDim0GPUOp::apply(indices_group, args...);
+        },
+        input_group);
+    return output_group;
+  }
+
+  const auto input_itr = input_group.begin();
+  const auto indices_itr = indices_group.begin();
+
+  for (size_t start = 0; start < group_size; start += max_group_size) {
+    const auto end = std::min(start + max_group_size, group_size);
+    std::vector<Tensor> input_subgroup(input_itr + start, input_itr + end);
+    std::vector<Tensor> indices_subgroup(
+        indices_itr + start, indices_itr + end);
+    std::vector<Tensor> output_subgroup;
+    apply_(
+        [&](auto&&... args) {
+          output_subgroup =
+              GroupIndexSelectDim0GPUOp::apply(indices_subgroup, args...);
+        },
+        input_subgroup);
+    output_group.insert(
+        output_group.end(), output_subgroup.begin(), output_subgroup.end());
+  }
   return output_group;
 }
 
