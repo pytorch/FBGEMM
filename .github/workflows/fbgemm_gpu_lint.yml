@@ -14,6 +14,11 @@ on:
     branches:
       - main
 
+concurrency:
+  # Cancel previous runs in the PR if a new commit is pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   run_pylint:
     runs-on: ubuntu-latest

@@ -13,9 +13,17 @@ on:
     branches:
       - main
 
+concurrency:
+  # Cancel previous runs in the PR if a new commit is pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_and_test_amd:
     runs-on: ${{ matrix.os }}
+    container:
+      image: ${{ matrix.container-image }}
+      options: --user root
     defaults:
       run:
         shell: bash
@@ -25,11 +33,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-20.04 ]
+        os: [ linux.12xlarge ]
+        container-image: [ "ubuntu:20.04" ]
         python-version: [ "3.10" ]
         rocm-version: [ "5.3" ]
 
     steps:
+    - name: Setup Build Container
+      run: |
+        apt update -y
+        apt install -y binutils git sudo wget
+        git config --global --add safe.directory '*'
+
     - name: Checkout the Repository
       uses: actions/checkout@v3
       with:
@@ -74,7 +89,7 @@ jobs:
         print_exec conda env config vars set -n $BUILD_ENV PYTORCH_ROCM_ARCH=gfx90a
         print_exec conda run -n $BUILD_ENV python setup.py build develop
 
-    - name: Test FBGEMM_GPU-ROCM Nightly installation
+    - name: Test FBGEMM_GPU-ROCM Nightly Installation
       timeout-minutes: 10
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm
 
