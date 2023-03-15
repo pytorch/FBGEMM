@@ -58,10 +58,7 @@ jobs:
       run: . $PRELUDE; print_gpu_info
 
     - name: Setup Miniconda
-      run: |
-        . $PRELUDE; setup_miniconda $HOME/miniconda
-        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
-        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
@@ -126,10 +123,7 @@ jobs:
       run: . $PRELUDE; print_gpu_info
 
     - name: Setup Miniconda
-      run: |
-        . $PRELUDE; setup_miniconda $HOME/miniconda
-        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
-        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}

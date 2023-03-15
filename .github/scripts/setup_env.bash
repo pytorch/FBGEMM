@@ -264,22 +264,13 @@ print_gpu_info () {
     if which nvidia-smi; then
       # If nvidia-smi is installed on a machine without GPUs, this will return error
       (print_exec nvidia-smi) || true
+    else
+      echo "[CHECK] nvidia-smi not found"
     fi
   fi
 }
 
-print_system_info () {
-  echo "################################################################################"
-  echo "# Print System Info"
-  echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
-  echo "################################################################################"
-  echo ""
-
-  echo "################################################################################"
-  echo "[INFO] Printing environment variables ..."
-  print_exec printenv
-
+__print_system_info_linux () {
   echo "################################################################################"
   echo "[INFO] Check ldd version ..."
   print_exec ldd --version
@@ -294,6 +285,36 @@ print_system_info () {
   print_exec uname -a
   print_exec cat /proc/version
   print_exec cat /etc/os-release
+}
+
+__print_system_info_macos () {
+  echo "################################################################################"
+  echo "[INFO] Check CPU info ..."
+  sysctl -a | grep machdep.cpu
+
+  echo "################################################################################"
+  echo "[INFO] Check MacOS version info ..."
+  print_exec uname -a
+  print_exec sw_vers
+}
+
+print_system_info () {
+  echo "################################################################################"
+  echo "# Print System Info"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "################################################################################"
+  echo ""
+
+  echo "################################################################################"
+  echo "[INFO] Printing environment variables ..."
+  print_exec printenv
+
+  if [[ $OSTYPE == 'darwin'* ]]; then
+    __print_system_info_macos
+  else
+    __print_system_info_linux
+  fi
 }
 
 print_ec2_info () {
@@ -360,8 +381,15 @@ setup_miniconda () {
   print_exec conda info
 
   # These variables will be exported outside
+  echo "[SETUP] Exporting Miniconda variables ..."
   export PATH="${miniconda_prefix}/bin:${PATH}"
   export CONDA="${miniconda_prefix}"
+
+  if [ -f "${GITHUB_PATH}" ]; then
+    echo "[SETUP] Saving Miniconda variables to GITHUB_PATH ..."
+    echo "${miniconda_prefix}/bin" >> "${GITHUB_PATH}"
+    echo "CONDA=${miniconda_prefix}" >> "${GITHUB_PATH}"
+  fi
 
   echo "[SETUP] Successfully set up Miniconda at ${miniconda_prefix}"
 }

@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   build_and_test_amd:
-    runs-on: ${{ matrix.os }}
+    runs-on: linux.12xlarge
     container:
       image: ${{ matrix.container-image }}
       options: --user root
@@ -33,9 +33,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ linux.12xlarge ]
         container-image: [ "ubuntu:20.04" ]
-        python-version: [ "3.10" ]
+        python-version: [ "3.8", "3.9", "3.10" ]
         rocm-version: [ "5.3" ]
 
     steps:
@@ -60,10 +59,7 @@ jobs:
       run: . $PRELUDE; free_disk_space
 
     - name: Setup Miniconda
-      run: |
-        . $PRELUDE; setup_miniconda $HOME/miniconda
-        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
-        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
@@ -146,7 +142,10 @@ jobs:
 
 
   build_and_test_cpu:
-    runs-on: ${{ matrix.os }}
+    runs-on: linux.12xlarge
+    container:
+      image: ${{ matrix.container-image }}
+      options: --user root
     defaults:
       run:
         shell: bash
@@ -156,10 +155,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-20.04, ubuntu-latest ]
+        container-image: [ "ubuntu:20.04", "ubuntu:22.04" ]
         python-version: [ "3.8", "3.9", "3.10" ]
 
     steps:
+    - name: Setup Build Container
+      run: |
+        apt update -y
+        apt install -y binutils build-essential git sudo wget
+        git config --global --add safe.directory '*'
+
     - name: Checkout the Repository
       uses: actions/checkout@v3
       with:
@@ -172,10 +177,7 @@ jobs:
       run: . $PRELUDE; print_gpu_info
 
     - name: Setup Miniconda
-      run: |
-        . $PRELUDE; setup_miniconda $HOME/miniconda
-        echo "${HOME}/miniconda/bin" >> $GITHUB_PATH
-        echo "CONDA=${HOME}/miniconda" >> $GITHUB_PATH
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
