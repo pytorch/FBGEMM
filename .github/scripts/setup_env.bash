@@ -13,8 +13,13 @@
 print_exec () {
   echo "+ $*"
   echo ""
-  "$@"
+  if "$@"; then
+    local retcode=0
+  else
+    local retcode=$?
+  fi
   echo ""
+  return $retcode
 }
 
 exec_with_retries () {
@@ -205,7 +210,7 @@ run_python_test () {
     echo "################################################################################"
   fi
 
-  if conda run -n "${env_name}" python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
+  if print_exec conda run -n "${env_name}" python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
   else
     echo "[TEST] Python test suite FAILED: ${python_test_file}"
@@ -313,7 +318,7 @@ print_ec2_info () {
 
 
 ################################################################################
-# Environment Setup and Install Functions
+# Miniconda Setup Functions
 ################################################################################
 
 setup_miniconda () {
@@ -397,6 +402,11 @@ create_conda_environment () {
   echo "[SETUP] Installed Python version: $(conda run -n "${env_name}" python --version)"
   echo "[SETUP] Successfully created Conda environment: ${env_name}"
 }
+
+
+################################################################################
+# PyTorch Setup Functions
+################################################################################
 
 install_pytorch_conda () {
   local env_name="$1"
@@ -553,6 +563,28 @@ install_pytorch_pip () {
   echo "[INSTALL] NOTE: The installed version is: ${installed_pytorch_version}"
 }
 
+
+################################################################################
+# CUDA Setup Functions
+################################################################################
+
+install_nvidia_drivers_centos () {
+  echo "################################################################################"
+  echo "# Install NVIDIA Drivers"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "################################################################################"
+  echo ""
+
+  echo "[SETUP] Adding NVIDIA repos to yum ..."
+  print_exec sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+  print_exec sudo yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel7/x86_64/cuda-rhel7.repo
+  print_exec sudo yum clean expire-cache
+
+  echo "[SETUP] Installing NVIDIA drivers ..."
+  install_system_packages nvidia-driver-latest-dkms
+}
+
 install_cuda () {
   local env_name="$1"
   local cuda_version="$2"
@@ -604,6 +636,86 @@ install_cuda () {
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
 }
 
+install_cudnn () {
+  local env_name="$1"
+  local install_path="$2"
+  local cuda_version="$3"
+  if [ "$cuda_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME INSTALL_PATH CUDA_VERSION"
+    echo "Example:"
+    echo "    ${FUNCNAME[0]} build_env \$(pwd)/cudnn_install 11.7"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install cuDNN"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # Install cuDNN manually
+  # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+  local cudnn_packages=(
+    ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
+    ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
+    ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz"
+    ["118"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz"
+  )
+
+  # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
+  # shellcheck disable=SC2206
+  local cuda_version_arr=(${cuda_version//./ })
+  # Fetch the major and minor version to concat
+  local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
+
+  # Get the URL
+  local cudnn_url="${cudnn_packages[cuda_concat_version]}"
+  if [ "$cudnn_url" == "" ]; then
+    # Default to cuDNN for 11.7 if no CUDA version fits
+    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.7"
+    cudnn_url="${cudnn_packages[117]}"
+  fi
+
+  # Clear the install path
+  rm -rf "$install_path"
+  mkdir -p "$install_path"
+
+  # Create temporary directory
+  # shellcheck disable=SC2155
+  local tmp_dir=$(mktemp -d)
+  cd "$tmp_dir" || return 1
+
+  # Download cuDNN
+  echo "[INSTALL] Downloading cuDNN to ${tmp_dir} ..."
+  (exec_with_retries wget -q "$cudnn_url" -O cudnn.tar.xz) || return 1
+
+  # Unpack the tarball
+  echo "[INSTALL] Unpacking cuDNN ..."
+  tar -xvf cudnn.tar.xz
+
+  # Copy the includes and libs over to the install path
+  echo "[INSTALL] Moving cuDNN files to ${install_path} ..."
+  rm -rf "${install_path:?}/include"
+  rm -rf "${install_path:?}/lib"
+  mv cudnn-linux-*/include "$install_path"
+  mv cudnn-linux-*/lib "$install_path"
+
+  # Delete the temporary directory
+  cd - || return 1
+  rm -rf "$tmp_dir"
+
+  # Export the environment variables to the Conda environment
+  echo "[INSTALL] Set environment variables CUDNN_INCLUDE_DIR and CUDNN_LIBRARY ..."
+  print_exec conda env config vars set -n "${env_name}" CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
+
+  echo "[INSTALL] Successfully installed cuDNN (for CUDA ${cuda_version})"
+}
+
+################################################################################
+# ROCm Setup Functions
+################################################################################
+
 install_rocm_ubuntu () {
   local env_name="$1"
   local rocm_version="$2"
@@ -652,14 +764,24 @@ install_rocm_ubuntu () {
   (exec_with_retries amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
 
   echo "[INSTALL] Installing HIP-relevant packages ..."
-  install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
   install_system_packages hipify-clang miopen-hip miopen-hip-dev
+
+  # There is no need to install these packages for ROCm
+  # install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
 
   echo "[INSTALL] Cleaning up ..."
   print_exec rm -f "${package_name}"
 
+  echo "[INFO] Check ROCM GPU info ..."
+  print_exec rocm-smi
+
   echo "[INSTALL] Successfully installed ROCm ${rocm_version}"
 }
+
+
+################################################################################
+# Build Tools Setup Functions
+################################################################################
 
 install_cxx_compiler () {
   local env_name="$1"
@@ -759,82 +881,6 @@ install_build_tools () {
   echo "[INSTALL] Successfully installed all the build tools"
 }
 
-install_cudnn () {
-  local env_name="$1"
-  local install_path="$2"
-  local cuda_version="$3"
-  if [ "$cuda_version" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME INSTALL_PATH CUDA_VERSION"
-    echo "Example:"
-    echo "    ${FUNCNAME[0]} build_env \$(pwd)/cudnn_install 11.7"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Install cuDNN"
-    echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
-    echo "################################################################################"
-    echo ""
-  fi
-
-  # Install cuDNN manually
-  # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
-  local cudnn_packages=(
-    ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
-    ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
-    ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz"
-    ["118"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz"
-  )
-
-  # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
-  # shellcheck disable=SC2206
-  local cuda_version_arr=(${cuda_version//./ })
-  # Fetch the major and minor version to concat
-  local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
-
-  # Get the URL
-  local cudnn_url="${cudnn_packages[cuda_concat_version]}"
-  if [ "$cudnn_url" == "" ]; then
-    # Default to cuDNN for 11.7 if no CUDA version fits
-    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.7"
-    cudnn_url="${cudnn_packages[117]}"
-  fi
-
-  # Clear the install path
-  rm -rf "$install_path"
-  mkdir -p "$install_path"
-
-  # Create temporary directory
-  # shellcheck disable=SC2155
-  local tmp_dir=$(mktemp -d)
-  cd "$tmp_dir" || return 1
-
-  # Download cuDNN
-  echo "[INSTALL] Downloading cuDNN to ${tmp_dir} ..."
-  (exec_with_retries wget -q "$cudnn_url" -O cudnn.tar.xz) || return 1
-
-  # Unpack the tarball
-  echo "[INSTALL] Unpacking cuDNN ..."
-  tar -xvf cudnn.tar.xz
-
-  # Copy the includes and libs over to the install path
-  echo "[INSTALL] Moving cuDNN files to ${install_path} ..."
-  rm -rf "${install_path:?}/include"
-  rm -rf "${install_path:?}/lib"
-  mv cudnn-linux-*/include "$install_path"
-  mv cudnn-linux-*/lib "$install_path"
-
-  # Delete the temporary directory
-  cd - || return 1
-  rm -rf "$tmp_dir"
-
-  # Export the environment variables to the Conda environment
-  echo "[INSTALL] Set environment variables CUDNN_INCLUDE_DIR and CUDNN_LIBRARY ..."
-  print_exec conda env config vars set -n "${env_name}" CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
-
-  echo "[INSTALL] Successfully installed cuDNN (for CUDA ${cuda_version})"
-}
-
 
 ################################################################################
 # Combination Functions
@@ -876,7 +922,7 @@ create_conda_pytorch_environment () {
 
 
 ################################################################################
-# Build Functions
+# FBGEMM_GPU Build Functions
 ################################################################################
 
 prepare_fbgemm_gpu_build () {
@@ -893,6 +939,11 @@ prepare_fbgemm_gpu_build () {
     echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
     echo ""
+  fi
+
+  if [[ "${GITHUB_WORKSPACE}" ]]; then
+    # https://github.com/actions/checkout/issues/841
+    git config --global --add safe.directory "${GITHUB_WORKSPACE}"
   fi
 
   echo "[BUILD] Running git submodules update ..."
