@@ -123,7 +123,7 @@ Follow these instructions to document, generate, and publish a new C++ descripti
 
    ```
    pip3 install -r requirements.txt
-   doxygen Doxygen.ini
+   doxygen Doxyfile.in
    make html
    ```
 
