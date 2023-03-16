@@ -155,6 +155,12 @@ at::Tensor lxu_cache_lookup_cuda(
     bool gather_cache_stats,
     c10::optional<at::Tensor> uvm_cache_stats);
 
+at::Tensor emulate_cache_miss(
+    at::Tensor lxu_cache_locations,
+    const int64_t enforced_misses_per_256,
+    const bool gather_cache_stats,
+    at::Tensor uvm_cache_stats);
+
 ///@ingroup table-batched-embed-cuda
 /// Lookup the LRU/LFU cache: find the cache weights location for all indices.
 /// Look up the slots in the cache corresponding to `linear_cache_indices`, with
