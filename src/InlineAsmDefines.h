@@ -10,13 +10,14 @@
 // We need to do a hack in inline assembly in some clang versions where we have
 // to do `.intel_syntax noprefix`. This was fixed in clang in
 // https://reviews.llvm.org/D113707, which made it into clang-14, but not in
-// Apple's clang-14 that ships with Xcode 14.
+// Apple's clang-14 that ships with Xcode 14.2. It was first fixed in Xcode 14.3
+// where the clang version is 14.0.3.
 #if defined(__clang__)
 
 #if (                                                                      \
     defined(__apple_build_version__) ||                                    \
     (defined(__has_builtin) && __has_builtin(__builtin_pika_xxhash64))) && \
-    (__clang_major__ < 15)
+    (__clang_major__ < 15 && __clang_minor__ == 0 && __clang_patchlevel__ < 3)
 #define FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK 1
 #elif (__clang_major__ < 14)
 #define FBGEMM_USE_CLANG_INTEL_SYNTAX_ASM_HACK 1
