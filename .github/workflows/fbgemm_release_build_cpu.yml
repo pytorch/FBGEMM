@@ -30,7 +30,7 @@ concurrency:
 jobs:
   # Build on CPU hosts, run tests, and upload to GHA
   build_artifact:
-    runs-on: ${{ matrix.os }}
+    runs-on: linux.4xlarge
     container:
       image: amazonlinux:2023
       options: --user root
@@ -44,8 +44,7 @@ jobs:
       # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
-        os: [ linux.4xlarge ]
-        python-version: [ "3.8", "3.9", "3.10" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
 
     steps:
     - name: Setup Build Container
@@ -77,7 +76,7 @@ jobs:
     - name: Install PyTorch-CPU Test
       run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test cpuonly
 
-    - name: Prepare FBGEMM Build
+    - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU (CPU version)
@@ -92,7 +91,7 @@ jobs:
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    runs-on: ${{ matrix.os }}
+    runs-on: linux.4xlarge
     container:
       image: amazonlinux:2023
       options: --user root
@@ -105,8 +104,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ linux.4xlarge ]
-        python-version: [ "3.8", "3.9", "3.10" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
     needs: build_artifact
 
     steps:
@@ -133,7 +131,7 @@ jobs:
     - name: Install PyTorch Test
       run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test cpuonly
 
-    - name: Prepare FBGEMM Build
+    - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Download Wheel Artifact from GHA

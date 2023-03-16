@@ -38,7 +38,10 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
-    runs-on: ${{ matrix.os }}
+    runs-on: linux.24xlarge
+    container:
+      image: amazonlinux:2023
+      options: --user root
     defaults:
       run:
         shell: bash
@@ -49,11 +52,13 @@ jobs:
       # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
-        os: [ linux.12xlarge ]
-        python-version: [ "3.8", "3.9", "3.10" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0" ]
 
     steps:
+    - name: Setup Build Container
+      run: yum update -y; yum install -y binutils findutils git sudo tar wget which
+
     - name: Checkout the Repository
       uses: actions/checkout@v3
       with:
@@ -86,7 +91,7 @@ jobs:
     - name: Install cuDNN
       run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
 
-    - name: Prepare FBGEMM Build
+    - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU Nightly
@@ -113,7 +118,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ linux.g5.4xlarge.nvidia.gpu ]
-        python-version: [ "3.8", "3.9", "3.10" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0" ]
         # Specify exactly ONE CUDA version for artifact publish
         cuda-version-publish: [ "11.7.1" ]
@@ -143,7 +148,7 @@ jobs:
     - name: Install PyTorch Nightly
       run: . $PRELUDE; install_pytorch_conda $BUILD_ENV nightly
 
-    - name: Prepare FBGEMM Build
+    - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Download Wheel Artifact from GHA

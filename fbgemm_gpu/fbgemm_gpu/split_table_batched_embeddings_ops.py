@@ -9,7 +9,7 @@
 
 import enum
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
 from typing import Dict, List, NamedTuple, Optional, Tuple, Type, Union
@@ -106,7 +106,7 @@ class CounterBasedRegularizationDefinition:
     adjustment_ub: float = 1.0
     learning_rate_mode: LearningRateMode = LearningRateMode.EQUAL
     grad_sum_decay: GradSumDecay = GradSumDecay.NO_DECAY
-    tail_id_threshold: TailIdThreshold = TailIdThreshold(val=0, is_ratio=False)
+    tail_id_threshold: TailIdThreshold = field(default_factory=TailIdThreshold)
     max_counter_update_freq: int = 1000
 
 
