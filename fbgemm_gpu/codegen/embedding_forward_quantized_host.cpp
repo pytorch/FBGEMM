@@ -4,12 +4,12 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/library.h>
-#include <algorithm>
 #include "c10/core/ScalarType.h"
 #ifdef FBCODE_CAFFE2
 #include "common/stats/Stats.h"
@@ -17,6 +17,8 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
+
+#include <algorithm>
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -37,11 +39,26 @@ DEFINE_quantile_stat(
     facebook::fb303::ExportTypeConsts::kNone,
     std::array<double, 4>{{.25, .50, .75, .99}});
 
-// Miss rate due to conflict in cache associativity.
+// (Unique) Miss rate due to conflict in cache associativity.
 // # unique misses due to conflict / # requested indices.
 DEFINE_quantile_stat(
     tbe_uvm_cache_conflict_unique_miss_rate,
     "tbe_uvm_cache_conflict_unique_miss_rate_per_mille",
+    facebook::fb303::ExportTypeConsts::kNone,
+    std::array<double, 4>{{.25, .50, .75, .99}});
+
+// Miss rate due to conflict in cache associativity.
+// # misses due to conflict / # requested indices.
+DEFINE_quantile_stat(
+    tbe_uvm_cache_conflict_miss_rate,
+    "tbe_uvm_cache_conflict_miss_rate_per_mille",
+    facebook::fb303::ExportTypeConsts::kNone,
+    std::array<double, 4>{{.25, .50, .75, .99}});
+
+// Total miss rate.
+DEFINE_quantile_stat(
+    tbe_uvm_cache_total_miss_rate,
+    "tbe_uvm_cache_total_miss_rate_per_mille",
     facebook::fb303::ExportTypeConsts::kNone,
     std::array<double, 4>{{.25, .50, .75, .99}});
 
@@ -57,6 +74,12 @@ DEFINE_int32(
     -1,
     "If tbe_uvm_cache_stat_report is enabled, more detailed raw stats will be printed with this "
     "period. This should be an integer multiple of tbe_uvm_cache_stat_report.");
+
+DEFINE_int32(
+    tbe_uvm_cache_enforced_misses,
+    0,
+    "If set to non-zero, some cache lookups (tbe_uvm_cache_enforced_misses / 256) are enforced to be misses; "
+    "this is performance evaluation purposes only; and should be zero otherwise.");
 
 // TODO: align this with uvm_cache_stats_index in
 // split_embeddings_cache_cuda.cu.
@@ -84,10 +107,11 @@ void process_uvm_cache_stats(
     // uvm_cache_stats_counters[0]: num_req_indices
     // uvm_cache_stats_counters[1]: num_unique_indices
     // uvm_cache_stats_counters[2]: num_unique_misses
-    // uvm_cache_stats_counters[3]: num_unique_conflict_misses
+    // uvm_cache_stats_counters[3]: num_conflict_unique_misses
+    // uvm_cache_stats_counters[4]: num_conflict_misses
     // They should be zero-out after the calculated rates are populated into
     // cache counters.
-    static std::vector<int64_t> uvm_cache_stats_counters(4);
+    static std::vector<int64_t> uvm_cache_stats_counters(5);
 
     // Export cache stats.
     auto uvm_cache_stats_cpu = uvm_cache_stats.cpu();
@@ -107,19 +131,32 @@ void process_uvm_cache_stats(
         // Calculate cache related ratios based on the cumulated numbers and
         // push them into the counter pools.
         if (populate_uvm_stats && uvm_cache_stats_counters[0] > 0) {
-          double unique_rate =
+          const double unique_rate =
               static_cast<double>(uvm_cache_stats_counters[1]) /
               uvm_cache_stats_counters[0] * 1000;
-          double unique_miss_rate =
+          const double unique_miss_rate =
               static_cast<double>(uvm_cache_stats_counters[2]) /
               uvm_cache_stats_counters[0] * 1000;
-          double unique_conflict_miss_rate =
+          const double conflict_unique_miss_rate =
               static_cast<double>(uvm_cache_stats_counters[3]) /
               uvm_cache_stats_counters[0] * 1000;
+          const double conflict_miss_rate =
+              static_cast<double>(uvm_cache_stats_counters[4]) /
+              uvm_cache_stats_counters[0] * 1000;
+          // total # misses = unique misses - conflict_unique_misses + conflict
+          // misses.
+          const double total_miss_rate =
+              static_cast<double>(
+                  uvm_cache_stats_counters[2] - uvm_cache_stats_counters[3] +
+                  uvm_cache_stats_counters[4]) /
+              uvm_cache_stats_counters[0] * 1000;
+
           STATS_tbe_uvm_cache_unique_rate.addValue(unique_rate);
           STATS_tbe_uvm_cache_unique_miss_rate.addValue(unique_miss_rate);
           STATS_tbe_uvm_cache_conflict_unique_miss_rate.addValue(
-              unique_conflict_miss_rate);
+              conflict_unique_miss_rate);
+          STATS_tbe_uvm_cache_conflict_miss_rate.addValue(conflict_miss_rate);
+          STATS_tbe_uvm_cache_total_miss_rate.addValue(total_miss_rate);
 
           // Fill all the elements of the vector uvm_cache_stats_counters as 0
           // to zero out the cumulated counters.
@@ -365,7 +402,7 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     // cache_index_table_map: (linearized) index to table number map.
     // 1D tensor, dtype=int32.
     c10::optional<Tensor> cache_index_table_map,
-    // lxu_cache_state: Cache state (cached idnex, or invalid).
+    // lxu_cache_state: Cache state (cached index, or invalid).
     // 2D tensor: # sets x assoc. dtype=int64.
     c10::optional<Tensor> lxu_cache_state,
     // lxu_state: meta info for replacement (time stamp for LRU).
@@ -461,6 +498,16 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         uvm_cache_stats);
 
 #ifdef FBCODE_CAFFE2
+    if (FLAGS_tbe_uvm_cache_enforced_misses > 0) {
+      // Override some lxu_cache_locations (N for every 256 indices) with cache
+      // miss to enforce access to UVM.
+      lxu_cache_locations = emulate_cache_miss(
+          lxu_cache_locations.value(),
+          FLAGS_tbe_uvm_cache_enforced_misses,
+          gather_uvm_stats,
+          uvm_cache_stats);
+    }
+
     process_uvm_cache_stats(
         signature,
         total_cache_hash_size.value(),

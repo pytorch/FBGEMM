@@ -79,6 +79,18 @@ enum uvm_cache_stats_index {
   num_conflict_misses = 5,
 };
 
+// Experiments showed that performance of lru/lxu_cache_find_uncached_kernel is
+// not sensitive to grid size as long as the number thread blocks per SM is not
+// too small nor too big.
+constexpr int MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS = 16;
+
+int get_max_thread_blocks_for_cache_kernels_() {
+  cudaDeviceProp* deviceProp =
+      at::cuda::getDeviceProperties(c10::cuda::current_device());
+  return deviceProp->multiProcessorCount *
+      MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS;
+}
+
 } // namespace
 
 int64_t host_lxu_cache_slot(int64_t h_in, int64_t C) {
@@ -496,6 +508,69 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
 namespace {
 
 template <typename index_t>
+__global__ __launch_bounds__(kMaxThreads) void emulate_cache_miss_kernel(
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        lxu_cache_locations,
+    const int64_t enforced_misses_per_256,
+    const bool gather_cache_stats,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        uvm_cache_stats) {
+  const int32_t N = lxu_cache_locations.size(0);
+  int64_t n_enforced_misses = 0;
+  CUDA_KERNEL_LOOP(n, N) {
+    if ((n & 0x00FF) < enforced_misses_per_256) {
+      if (lxu_cache_locations[n] >= 0) {
+        n_enforced_misses++;
+      }
+      lxu_cache_locations[n] = kCacheLocationMissing;
+    }
+  }
+  if (gather_cache_stats && n_enforced_misses > 0) {
+    atomicAdd(
+        &uvm_cache_stats[uvm_cache_stats_index::num_conflict_misses],
+        n_enforced_misses);
+  }
+}
+} // namespace
+
+Tensor emulate_cache_miss(
+    Tensor lxu_cache_locations,
+    const int64_t enforced_misses_per_256,
+    const bool gather_cache_stats,
+    Tensor uvm_cache_stats) {
+  TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+  TENSOR_ON_CUDA_GPU(uvm_cache_stats);
+
+  const auto N = lxu_cache_locations.numel();
+  if (lxu_cache_locations.numel() == 0) {
+    // nothing to do
+    return lxu_cache_locations;
+  }
+
+  const dim3 blocks(std::min(
+      div_round_up(N, kMaxThreads),
+      get_max_thread_blocks_for_cache_kernels_()));
+
+  AT_DISPATCH_INDEX_TYPES(
+      lxu_cache_locations.scalar_type(), "emulate_cache_miss", [&] {
+        emulate_cache_miss_kernel<<<
+            blocks,
+            kMaxThreads,
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+            lxu_cache_locations
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            enforced_misses_per_256,
+            gather_cache_stats,
+            uvm_cache_stats
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      });
+  return lxu_cache_locations;
+}
+
+namespace {
+template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         unique_indices,
@@ -622,19 +697,6 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
     }
   }
 }
-
-// Experiments showed that performance of lru/lxu_cache_find_uncached_kernel is
-// not sensitive to grid size as long as the number thread blocks per SM is not
-// too small nor too big.
-constexpr int MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS = 16;
-
-int get_max_thread_blocks_for_cache_kernels_() {
-  cudaDeviceProp* deviceProp =
-      at::cuda::getDeviceProperties(c10::cuda::current_device());
-  return deviceProp->multiProcessorCount *
-      MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS;
-}
-
 } // namespace
 
 std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
@@ -798,8 +860,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         uvm_cache_stats) {
   const int32_t C = lxu_cache_state.size(0);
-  int64_t n_conflict_misses = 0;
-  int64_t n_inserted = 0;
+  int32_t n_conflict_misses = 0;
+  int32_t n_inserted = 0;
   for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
