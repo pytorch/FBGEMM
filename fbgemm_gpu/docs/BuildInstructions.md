@@ -22,7 +22,7 @@ environment is recommended for reproducible builds:
 # Set the Miniconda prefix directory
 miniconda_prefix=$HOME/miniconda
 
-# Download the Miniconfs installer
+# Download the Miniconda installer
 wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
 
 # Run the installer
@@ -59,7 +59,7 @@ conda run -n "${env_name}" python -m pip install pyOpenSSL>22.1.0
 
 ### C/C++ Compiler
 
-Install the GCC toolchain.  Note that GCC (as opposed to LLVM for example) is
+Install the GCC toolchain.  Note that GCC (as opposed to Clang for example) is
 required for GPU (CUDA) builds because NVIDIA's `nvcc` relies on `gcc` and `g++`
 in the path.
 
@@ -71,7 +71,7 @@ Note that while newer versions of GCC can be used, binaries compiled under newer
 versions of GCC will not be compatible with older systems such as Ubuntu 20.04
 or CentOS Stream 8, because the compiled library will reference symbols from
 versions of `GLIBCXX` that the system's `libstdc++.so.6` will not support.  To
-see what versions of GLIBCXX that the available `libstdc++.so.6` supports:
+see what versions of GLIBCXX the available `libstdc++.so.6` supports:
 
 ```sh
 libcxx_path=/path/to/libstdc++.so.6
@@ -193,7 +193,7 @@ From there, the rest of the build environment may be constructed through Conda.
 
 ### Install ROCm
 
-Install the full ROCm package through the operating system package manger. The
+Install the full ROCm package through the operating system package manager. The
 full instructions can be found in the
 [ROCm installation guide](https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.4.3/page/How_to_Install_ROCm.html):
 
@@ -346,7 +346,7 @@ package_name=fbgemm_gpu
 
 # Build for SM70/80 (V100/A100 GPU); update as needed
 # If not specified, only the CUDA architecture supported by current system will be targeted
-# Ifo CUDA device is present either, all CUDA architectures will be targeted
+# If no CUDA device is present either, all CUDA architectures will be targeted
 cuda_arch_list=7.0;8.0
 
 # Build the wheel artifact only

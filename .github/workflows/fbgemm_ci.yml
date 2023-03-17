@@ -19,169 +19,105 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-posix:
-    runs-on: ${{ matrix.os }}
+  build-linux:
+    runs-on: linux.12xlarge
+    container:
+      image: ${{ matrix.container-image }}
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_DIR: build_${{ matrix.library-type }}
+      DEBIAN_FRONTEND: noninteractive
     strategy:
+      fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-latest ]
+        container-image: [ "ubuntu:20.04" ]
+        library-type: [ static, shared ]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Checkout submodules
-      shell: bash
+    - name: Setup Build Container
       run: |
-        auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-        git submodule sync --recursive
-        git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+        apt update -y
+        apt install -y binutils build-essential cmake git libblas-dev python3 sudo wget
+        git config --global --add safe.directory '*'
 
-    - name: Get CPU info on Ubuntu
-      if: contains(runner.os, 'linux')
-      run: |
-        cat /proc/cpuinfo
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
 
-    - name: Get CPU info on macOS
-      if: contains(runner.os, 'macOs')
-      run: |
-        sysctl -a | grep machdep.cpu
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
 
-    - name: Get env vars
-      run: |
-        echo GITHUB_WORKFLOW   = $GITHUB_WORKFLOW
-        echo HOME              = $HOME
-        echo GITHUB_ACTION     = $GITHUB_ACTION
-        echo GITHUB_ACTIONS    = $GITHUB_ACTIONS
-        echo GITHUB_REPOSITORY = $GITHUB_REPOSITORY
-        echo GITHUB_EVENT_NAME = $GITHUB_EVENT_NAME
-        echo GITHUB_EVENT_PATH = $GITHUB_EVENT_PATH
-        echo GITHUB_WORKSPACE  = $GITHUB_WORKSPACE
-        echo GITHUB_SHA        = $GITHUB_SHA
-        echo GITHUB_REF        = $GITHUB_REF
-        c++ --verbose
-
-    - name: Build static FBGEMM lib
+    - name: Build FBGEMM Library (${{ matrix.library-type }})
       run: |
         set -e
-        mkdir build_static
-        cd build_static
-        cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=static ..
-        make
+        mkdir $BUILD_DIR; cd $BUILD_DIR
+        cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DPYTHON_EXECUTABLE=/usr/bin/python3 ..
+        make -j
 
-    - name: Test static FBGEMM lib
-      if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
+    - name: Test FBGEMM Library (${{ matrix.library-type }})
       run: |
         set -e
-        cd build_static
+        cd $BUILD_DIR
         ctest --rerun-failed --output-on-failure
 
-    - name: Build shared FBGEMM lib
-      run: |
-        set -e
-        mkdir build_shared
-        cd build_shared
-        cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=shared ..
-        make
 
-    - name: Test shared FBGEMM lib
-      if: contains(runner.os, 'linux')   # not run on macos-latest now due to supporting AVX2
-      run: |
-        set -e
-        cd build_shared
-        ctest --rerun-failed --output-on-failure
-
-  build-windows:
+  build-macos:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_DIR: build_${{ matrix.library-type }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-2019]
+        os: [ macos-latest ]
+        library-type: [ static, shared ]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Checkout submodules
-      shell: bash
-      run: |
-        auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-        git submodule sync --recursive
-        git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
 
-    - name: Get CPU info on Windows
-      shell: cmd
-      run: |
-        wmic cpu list full
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
 
-    - name: Build static FBGEMM lib
-      shell: cmd
+    # Build but skip tests due to lack of support for AVX2
+    - name: Build FBGEMM Library (${{ matrix.library-type }})
       run: |
-        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-        echo "INSTALL NINJA:"
-        pip install ninja
-        which ninja
-        mkdir build_static
-        cd build_static
-        echo "STARTING CMAKE"
-        cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=static -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
-        ninja all
-        echo "Build Success"
+        set -e
+        mkdir $BUILD_DIR; cd $BUILD_DIR
+        cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} ..
+        make -j
 
-    - name: Test static FBGEMM lib
-      shell: cmd
-      run: |
-        echo %cd%
-        cd build_static
-        ctest --rerun-failed --output-on-failure
-        if errorlevel 1 exit /b 1
-
-    - name: Build shared FBGEMM lib
-      shell: cmd
-      run: |
-        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-        echo "INSTALL NINJA:"
-        pip install ninja
-        which ninja
-        mkdir build_shared
-        cd build_shared
-        echo "STARTING CMAKE"
-        cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=shared -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
-        ninja all
-        if errorlevel 1 exit /b 1
-
-    - name: Test shared FBGEMM lib
-      shell: cmd
-      run: |
-        echo %cd%
-        cd build_shared
-        set PATH=%PATH%;%cd%;%cd%\asmjit
-        echo %PATH%
-        ctest --rerun-failed --output-on-failure
-        if errorlevel 1 exit /b 1
 
   build-bazel:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
     strategy:
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest ]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Checkout submodules
-      shell: bash
-      run: |
-        auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-        git submodule sync --recursive
-        git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
 
-    - name: Get env vars
-      run: |
-        echo GITHUB_WORKFLOW   = $GITHUB_WORKFLOW
-        echo HOME              = $HOME
-        echo GITHUB_ACTION     = $GITHUB_ACTION
-        echo GITHUB_ACTIONS    = $GITHUB_ACTIONS
-        echo GITHUB_REPOSITORY = $GITHUB_REPOSITORY
-        echo GITHUB_EVENT_NAME = $GITHUB_EVENT_NAME
-        echo GITHUB_EVENT_PATH = $GITHUB_EVENT_PATH
-        echo GITHUB_WORKSPACE  = $GITHUB_WORKSPACE
-        echo GITHUB_SHA        = $GITHUB_SHA
-        echo GITHUB_REF        = $GITHUB_REF
-        c++ --verbose
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
 
     - name: Download bazel
       run: |
@@ -191,13 +127,57 @@ jobs:
         echo 'b2f002ea0e6194a181af6ac84cd94bd8dc797722eb2354690bebac92dda233ff bazel' | sha256sum --quiet -c
         chmod +x bazel
 
-
     - name: Build FBGEMM with bazel
-      run: |
-        set -e
-        ./bazel build --verbose_explanations --verbose_failures --compilation_mode opt :*
+      run: ./bazel build --verbose_explanations --verbose_failures --compilation_mode opt :*
 
     - name: Test FBGEMM bazel build
+      run: ./bazel test --test_output=all --verbose_explanations --verbose_failures --compilation_mode opt :*
+
+
+  build-windows:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: cmd
+    env:
+      BUILD_DIR: build_${{ matrix.library-type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-2019 ]
+        library-type: [ static, shared ]
+
+    steps:
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+
+    - name: Get CPU info on Windows
+      shell: cmd
       run: |
-        set -e
-        ./bazel test --test_output=all --verbose_explanations --verbose_failures --compilation_mode opt :*
+        wmic cpu list full
+
+    - name: Build FBGEMM Library (${{ matrix.library-type }})
+      shell: cmd
+      run: |
+        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+        echo "INSTALL NINJA:"
+        pip install ninja
+        which ninja
+        mkdir %BUILD_DIR%
+        cd %BUILD_DIR%
+        echo "STARTING CMAKE"
+        cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
+        ninja all
+        echo "Build Success"
+
+    - name: Test FBGEMM Library (${{ matrix.library-type }})
+      shell: cmd
+      run: |
+        echo %cd%
+        cd %BUILD_DIR%
+        set PATH=%PATH%;%cd%;%cd%\asmjit
+        echo %PATH%
+        ctest --rerun-failed --output-on-failure
+        if errorlevel 1 exit /b 1
