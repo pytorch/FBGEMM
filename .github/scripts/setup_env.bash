@@ -264,22 +264,13 @@ print_gpu_info () {
     if which nvidia-smi; then
       # If nvidia-smi is installed on a machine without GPUs, this will return error
       (print_exec nvidia-smi) || true
+    else
+      echo "[CHECK] nvidia-smi not found"
     fi
   fi
 }
 
-print_system_info () {
-  echo "################################################################################"
-  echo "# Print System Info"
-  echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
-  echo "################################################################################"
-  echo ""
-
-  echo "################################################################################"
-  echo "[INFO] Printing environment variables ..."
-  print_exec printenv
-
+__print_system_info_linux () {
   echo "################################################################################"
   echo "[INFO] Check ldd version ..."
   print_exec ldd --version
@@ -294,6 +285,36 @@ print_system_info () {
   print_exec uname -a
   print_exec cat /proc/version
   print_exec cat /etc/os-release
+}
+
+__print_system_info_macos () {
+  echo "################################################################################"
+  echo "[INFO] Check CPU info ..."
+  sysctl -a | grep machdep.cpu
+
+  echo "################################################################################"
+  echo "[INFO] Check MacOS version info ..."
+  print_exec uname -a
+  print_exec sw_vers
+}
+
+print_system_info () {
+  echo "################################################################################"
+  echo "# Print System Info"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "################################################################################"
+  echo ""
+
+  echo "################################################################################"
+  echo "[INFO] Printing environment variables ..."
+  print_exec printenv
+
+  if [[ $OSTYPE == 'darwin'* ]]; then
+    __print_system_info_macos
+  else
+    __print_system_info_linux
+  fi
 }
 
 print_ec2_info () {
@@ -314,6 +335,30 @@ print_ec2_info () {
   echo "ami-id: $(get_ec2_metadata ami-id)"
   echo "instance-id: $(get_ec2_metadata instance-id)"
   echo "instance-type: $(get_ec2_metadata instance-type)"
+}
+
+print_glibc_info () {
+  local library_path="$1"
+  if [ "$library_path" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} LIBRARY_PATH"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} /usr/lib/x86_64-linux-gnu/libstdc++.so.6"
+    return 1
+  fi
+
+  if [ -f "${library_path}" ]; then
+    echo "[CHECK] Listing out the GLIBC versions referenced by: ${library_path}"
+    objdump -TC "${library_path}" | grep GLIBC_ | sed 's/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g' | sort -Vu | cat
+    echo ""
+
+    echo "[CHECK] Listing out the GLIBCXX versions referenced by: ${library_path}"
+    objdump -TC "${library_path}" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+    echo ""
+
+  else
+    echo "[CHECK] No file at path: ${library_path}"
+    return 1
+  fi
 }
 
 
@@ -342,7 +387,7 @@ setup_miniconda () {
     print_exec mkdir -p "$miniconda_prefix"
 
     echo "[SETUP] Downloading the Miniconda installer ..."
-    print_exec wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+    (exec_with_retries wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh) || return 1
 
     echo "[SETUP] Installing Miniconda ..."
     print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
@@ -360,8 +405,15 @@ setup_miniconda () {
   print_exec conda info
 
   # These variables will be exported outside
+  echo "[SETUP] Exporting Miniconda variables ..."
   export PATH="${miniconda_prefix}/bin:${PATH}"
   export CONDA="${miniconda_prefix}"
+
+  if [ -f "${GITHUB_PATH}" ]; then
+    echo "[SETUP] Saving Miniconda variables to ${GITHUB_PATH} ..."
+    echo "${miniconda_prefix}/bin" >> "${GITHUB_PATH}"
+    echo "CONDA=${miniconda_prefix}" >> "${GITHUB_PATH}"
+  fi
 
   echo "[SETUP] Successfully set up Miniconda at ${miniconda_prefix}"
 }
@@ -448,9 +500,11 @@ install_pytorch_conda () {
   fi
 
   # Install PyTorch packages
+  # NOTE: Installation of large package might fail due to corrupt package download
+  # Use --force-reinstall to address this on retries - https://datascience.stackexchange.com/questions/41732/conda-verification-failed
   echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, CPU=${pytorch_cpu:-0}) through Conda using channel '${pytorch_channel}' ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda install -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}") || return 1
+  (exec_with_retries conda install --force-reinstall -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}") || return 1
 
   # Run check for GPU variant
   if [ "$pytorch_cpu" == "" ]; then
@@ -612,7 +666,7 @@ install_cuda () {
 
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
-  (exec_with_retries conda install -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
+  (exec_with_retries conda install --force-reinstall -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
 
   # Ensure that nvcc is properly installed
   (test_binpath "${env_name}" nvcc) || return 1
@@ -806,15 +860,19 @@ install_cxx_compiler () {
     install_system_packages gcc gcc-c++
 
   else
-    # Install gxx_linux-64 from main instead of cxx-compiler from conda-forge, as
-    # the latter breaks builds:
-    #   https://root-forum.cern.ch/t/error-timespec-get-has-not-been-declared-with-conda-root-package/45712/6
+    # Install gxx_linux-64 from conda-forge instead of from anaconda channel.
+    # sysroot_linux-64 needs to be installed alongside this:
     #
-    # NOTE: Install g++ 9.x instead of 11.x becaue 11.x builds libraries with
-    # references to GLIBCXX_3.4.29, which is not available on systems with older
+    #   https://root-forum.cern.ch/t/error-timespec-get-has-not-been-declared-with-conda-root-package/45712/6
+    #   https://github.com/conda-forge/conda-forge.github.io/issues/1625
+    #   https://conda-forge.org/docs/maintainer/knowledge_base.html#using-centos-7
+    #   https://github.com/conda/conda-build/issues/4371
+    #
+    # NOTE: We install g++ 10.x instead of 11.x becaue 11.x builds binaries that
+    # reference GLIBCXX_3.4.29, which may not be available on systems with older
     # versions of libstdc++.so.6 such as CentOS Stream 8 and Ubuntu 20.04
     echo "[INSTALL] Installing C/C++ compilers through Conda ..."
-    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-64=9.3.0) || return 1
+    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-64=10.4.0 sysroot_linux-64=2.17 -c conda-forge) || return 1
 
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
@@ -1055,7 +1113,7 @@ check_fbgemm_gpu_build () {
 
   for library in "${fbgemm_gpu_so_files[@]}"; do
     echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
-    objdump -TC "${library}" | grep GLIBCXX | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+    print_glibc_info "${library}"
 
     echo "[CHECK] Verifying sample subset of symbols in the library ..."
     for symbol in "${lib_symbols_to_check[@]}"; do
