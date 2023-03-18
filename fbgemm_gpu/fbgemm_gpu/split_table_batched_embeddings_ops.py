@@ -979,10 +979,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"N_conflict_unique_misses: {uvm_cache_stats[4]}\n"
             f"N_conflict_misses: {uvm_cache_stats[5]}\n"
         )
-        logging.info(
-            f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
-            f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
-        )
+        if uvm_cache_stats[1]:
+            logging.info(
+                f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
+                f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
+            )
 
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
@@ -2347,10 +2348,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"N_conflict_unique_misses: {uvm_cache_stats[4]}\n"
             f"N_conflict_misses: {uvm_cache_stats[5]}\n"
         )
-        logging.info(
-            f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
-            f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
-        )
+        if uvm_cache_stats[1]:
+            logging.info(
+                f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
+                f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
+            )
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
