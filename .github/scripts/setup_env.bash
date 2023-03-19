@@ -212,8 +212,10 @@ run_python_test () {
 
   if print_exec conda run -n "${env_name}" python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
+    echo ""
   else
     echo "[TEST] Python test suite FAILED: ${python_test_file}"
+    echo ""
     return 1
   fi
 }
@@ -366,6 +368,12 @@ print_glibc_info () {
 # Miniconda Setup Functions
 ################################################################################
 
+__conda_cleanup () {
+  echo "[SETUP] Cleaning up Conda packages ..."
+  (print_exec conda clean --packages --tarball -y) || return 1
+  (print_exec conda clean --all -y) || return 1
+}
+
 setup_miniconda () {
   local miniconda_prefix="$1"
   if [ "$miniconda_prefix" == "" ]; then
@@ -399,7 +407,10 @@ setup_miniconda () {
   print_exec . ~/.bashrc
 
   echo "[SETUP] Updating Miniconda base packages ..."
-  (exec_with_retries conda update -n base -c defaults -y conda) || return 1
+  (exec_with_retries conda update -n base -c defaults --update-deps -y conda) || return 1
+
+  # Clean up packages
+  __conda_cleanup
 
   # Print Conda info
   print_exec conda info
@@ -463,14 +474,14 @@ create_conda_environment () {
 install_pytorch_conda () {
   local env_name="$1"
   local pytorch_version="$2"
-  local pytorch_cpu="$3"
+  local pytorch_variant_type="$3"
   if [ "$pytorch_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VERSION [CPU]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env 1.11.0      # Install a specific version"
-    echo "    ${FUNCNAME[0]} build_env latest      # Install the latest stable release"
-    echo "    ${FUNCNAME[0]} build_env test        # Install the pre-release"
-    echo "    ${FUNCNAME[0]} build_env nightly 1   # Install the CPU variant of the nightly"
+    echo "    ${FUNCNAME[0]} build_env 1.11.0       # Install a specific version"
+    echo "    ${FUNCNAME[0]} build_env latest       # Install the latest stable release"
+    echo "    ${FUNCNAME[0]} build_env test         # Install the pre-release"
+    echo "    ${FUNCNAME[0]} build_env nightly cpu  # Install the CPU variant of the nightly"
     return 1
   else
     echo "################################################################################"
@@ -481,11 +492,11 @@ install_pytorch_conda () {
     echo ""
   fi
 
-  # Install cpuonly if needed
-  if [ "$pytorch_cpu" != "" ]; then
-    pytorch_cpu=1
+  # Install the cpuonly package if needed
+  if [ "$pytorch_variant_type" == "cpu" ]; then
     local pytorch_package="cpuonly pytorch"
   else
+    pytorch_variant_type="cuda"
     local pytorch_package="pytorch"
   fi
 
@@ -499,15 +510,25 @@ install_pytorch_conda () {
     local pytorch_channel="pytorch"
   fi
 
+  # Clean up packages before installation
+  __conda_cleanup
+
   # Install PyTorch packages
   # NOTE: Installation of large package might fail due to corrupt package download
   # Use --force-reinstall to address this on retries - https://datascience.stackexchange.com/questions/41732/conda-verification-failed
-  echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, CPU=${pytorch_cpu:-0}) through Conda using channel '${pytorch_channel}' ..."
+  echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, variant = ${pytorch_variant_type}) through Conda using channel '${pytorch_channel}' ..."
   # shellcheck disable=SC2086
   (exec_with_retries conda install --force-reinstall -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}") || return 1
 
+  # Check that PyTorch is importable
+  (test_python_import "${env_name}" torch.distributed) || return 1
+
+  # Print out the actual installed PyTorch version
+  installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
+  echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
+
   # Run check for GPU variant
-  if [ "$pytorch_cpu" == "" ]; then
+  if [ "$pytorch_variant_type" == "cuda" ]; then
     # Ensure that the PyTorch build is the GPU variant (i.e. contains cuDNN reference)
     # This test usually applies to the PyTorch nightly builds
     if conda list -n "${env_name}" pytorch | grep cudnn; then
@@ -526,13 +547,7 @@ install_pytorch_conda () {
     (test_filepath "${env_name}" cuda_cmake_macros.h) || return 1
   fi
 
-  # Check that PyTorch is importable
-  (test_python_import "${env_name}" torch.distributed) || return 1
-
-  # Print out the actual installed PyTorch version
-  installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
-  echo "[INSTALL] Installed PyTorch through Conda"
-  echo "[INSTALL] NOTE: The installed version is: ${installed_pytorch_version}"
+  echo "[INSTALL] Successfully installed PyTorch through Conda"
 }
 
 install_pytorch_pip () {
@@ -591,30 +606,31 @@ install_pytorch_pip () {
   # shellcheck disable=SC2086
   (exec_with_retries conda run -n "${env_name}" pip install ${pytorch_package} --extra-index-url ${pytorch_channel}) || return 1
 
-  if [ "$pytorch_variant_type" != "cpu" ]; then
-    if [ "$pytorch_variant_type" == "cuda" ]; then
-      # Ensure that the PyTorch-CUDA headers are properly installed
-      (test_filepath "${env_name}" cuda_cmake_macros.h) || return 1
-    fi
-
-    # Ensure that the PyTorch build is of the correct variant
-    # This test usually applies to the PyTorch nightly builds
-    if conda run -n build_binary pip list torch | grep torch | grep "${pytorch_variant}"; then
-      echo "[CHECK] The installed PyTorch ${pytorch_version} is the correct variant (${pytorch_variant})"
-    else
-      echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be an incorrect variant as it is missing references to ${pytorch_variant}!"
-      echo "[CHECK] This can happen if the variant of PyTorch (e.g. GPU, nightly) for the MAJOR.MINOR version of CUDA presently installed on the system has not been published yet."
-      return 1
-    fi
-  fi
-
   # Check that PyTorch is importable
   (test_python_import "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
   installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
-  echo "[INSTALL] Installed PyTorch through PIP"
-  echo "[INSTALL] NOTE: The installed version is: ${installed_pytorch_version}"
+  echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
+
+  if [ "$pytorch_variant_type" != "cpu" ]; then
+    # Ensure that the PyTorch build is of the correct variant
+    # This test usually applies to the PyTorch nightly builds
+    if conda run -n "${env_name}" pip list torch | grep torch | grep "${pytorch_variant}"; then
+      echo "[CHECK] The installed PyTorch ${pytorch_version} is the correct variant (${pytorch_variant})"
+    else
+      echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be an incorrect variant as it is missing references to ${pytorch_variant}!"
+      echo "[CHECK] This can happen if the variant of PyTorch (e.g. GPU, nightly) for the MAJOR.MINOR version of CUDA or ROCm presently installed on the system is not available."
+      return 1
+    fi
+  fi
+
+  if [ "$pytorch_variant_type" == "cuda" ]; then
+    # Ensure that the PyTorch-CUDA headers are properly installed
+    (test_filepath "${env_name}" cuda_cmake_macros.h) || return 1
+  fi
+
+  echo "[INSTALL] Successfully installed PyTorch through PIP"
 }
 
 
@@ -663,6 +679,9 @@ install_cuda () {
     echo "[ERROR] CUDA minor version number must be specified (i.e. X.Y.Z)"
     return 1
   fi
+
+  # Clean up packages before installation
+  __conda_cleanup
 
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
@@ -970,7 +989,7 @@ create_conda_pytorch_environment () {
 
   if [ "${cuda_version}" == "" ]; then
     # Install the CPU variant of PyTorch
-    install_pytorch_conda "${env_name}" "${pytorch_version}" 1
+    install_pytorch_conda "${env_name}" "${pytorch_version}" cpu
   else
     # Install CUDA and the GPU variant of PyTorch
     install_cuda "${env_name}" "${cuda_version}"
