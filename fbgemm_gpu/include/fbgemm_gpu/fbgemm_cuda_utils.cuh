@@ -62,6 +62,11 @@ static constexpr int32_t kWarpSize = 32;
 #endif
 // Max thread num in one thread block
 static constexpr int32_t kMaxThreads = 1024;
+// Max block size in Y dimension of a grid
+static constexpr int32_t kMaxBlockYDim = 65535;
+// Max block size in Z dimension of a grid
+static constexpr int32_t kMaxBlockZDim = 65535;
+
 static constexpr float kQParamEps = 1e-8f;
 
 /* For rowwise int8 quantization, two quantization parameters (qparams)
