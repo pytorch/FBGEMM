@@ -8,11 +8,11 @@ name: FBGEMM_GPU Lint
 on:
   push:
     branches:
-      - main
+      - mainx
 
   pull_request:
     branches:
-      - main
+      - mainx
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed

@@ -10,13 +10,13 @@ on:
   #
   pull_request:
     branches:
-      - main
+      - mainx
 
   # Push Trigger (enable to catch errors coming out of multiple merges)
   #
   push:
     branches:
-      - main
+      - mainx
 
   # Cron Trigger (UTC)
   #

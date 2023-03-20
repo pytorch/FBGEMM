@@ -3,7 +3,7 @@ name: Test Wheel
 on:
   pull_request:
     branches:
-      - main
+      - mainx
     types:
       - opened
       - synchronize

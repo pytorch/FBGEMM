@@ -7,7 +7,7 @@ name: FBGEMM Documentation
 on:
   push:
     branches:
-      - main
+      - mainx
 jobs:
   build_docs_job:
     runs-on: linux.2xlarge
