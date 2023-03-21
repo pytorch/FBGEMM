@@ -2105,7 +2105,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
   __shared__ scalar_t As[BLOCK_TILE_M][BLOCK_TILE_K];
   __shared__ scalar_t Bs[BLOCK_TILE_K][BLOCK_TILE_N];
 
-  for (auto b = blockIdx.z; b < B; b += gridDim.z) {
+  for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
     const index_t row_start = x_offsets[b];
     const index_t row_end = x_offsets[b + 1];
     const auto length = min(row_end - row_start, (index_t)max_L);
