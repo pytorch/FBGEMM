@@ -2083,10 +2083,10 @@ template <
     typename index_t,
     typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> __restrict__ x_values,
-    const at::PackedTensorAccessor32<index_t, 1> __restrict__ x_offsets,
-    const at::PackedTensorAccessor32<scalar_t, 3> __restrict__ y,
-    at::PackedTensorAccessor32<scalar_t, 2> __restrict__ output,
+    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
+    const at::PackedTensorAccessor32<index_t, 1> x_offsets,
+    const at::PackedTensorAccessor32<scalar_t, 3> y,
+    at::PackedTensorAccessor32<scalar_t, 2> output,
     const int max_L) {
   const int B = x_offsets.size(0) - 1;
   const int K = x_values.size(1);
