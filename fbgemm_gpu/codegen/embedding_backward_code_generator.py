@@ -41,7 +41,7 @@ env = jinja2.Environment(
 # BT_block_size * 4 * 4 * 32 * (max_D // 128) <= 64 * 1024 (V100) or 96 * 1024 (A100)
 # Since BT_block_size >= 1, max_D <= 16K (V100) or 24K (A100).
 # Note that if we increase max_D, it will increase the compilation time significantly.
-env.globals["max_embedding_dim"] = 1024
+env.globals["max_embedding_dim"] = 2048
 # An optimization for ROCm
 env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
 env.globals["dense"] = False
