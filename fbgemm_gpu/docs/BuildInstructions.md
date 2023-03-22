@@ -59,9 +59,11 @@ conda run -n "${env_name}" python -m pip install pyOpenSSL>22.1.0
 
 ### C/C++ Compiler
 
-Install the GCC toolchain.  Note that GCC (as opposed to Clang for example) is
-required for GPU (CUDA) builds because NVIDIA's `nvcc` relies on `gcc` and `g++`
-in the path.
+Install a version of the GCC toolchain that supports **C++17**.  Note that GCC
+(as opposed to Clang for example) is required for GPU (CUDA) builds because
+NVIDIA's `nvcc` relies on `gcc` and `g++` in the path.  The `sysroot` package
+will also need to be installed to avoid issues with missing versioned symbols
+when compiling FBGEMM_CPU:
 
 ```sh
 conda install -n "${env_name}" -y gxx_linux-64=9.3.0

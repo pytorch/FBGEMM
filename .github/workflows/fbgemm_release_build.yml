@@ -40,6 +40,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+    continue-on-error: true
     strategy:
       # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
@@ -98,7 +99,10 @@ jobs:
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    runs-on: ${{ matrix.os }}
+    runs-on: linux.g5.4xlarge.nvidia.gpu
+    container:
+      image: ${{ matrix.container-image }}
+      options: --user root --gpus all
     defaults:
       run:
         shell: bash
@@ -109,17 +113,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ linux.g5.4xlarge.nvidia.gpu ]
+        container-image: [ "nvidia/cuda:11.8.0-base-ubuntu20.04" ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0" ]
         # Specify exactly ONE CUDA version for artifact publish
         cuda-version-publish: [ "11.7.1" ]
     needs: build_artifact
+
     steps:
+    - name: Setup Build Container
+      run: |
+        apt update -y
+        apt install -y binutils curl git sudo wget
+        git config --global --add safe.directory '*'
+
     - name: Checkout the Repository
       uses: actions/checkout@v3
       with:
         submodules: true
+
+    - name: Download Wheel Artifact from GHA
+      uses: actions/download-artifact@v3
+      with:
+        name: fbgemm_gpu_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -142,15 +158,10 @@ jobs:
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
-    - name: Download Wheel Artifact from GHA
-      uses: actions/download-artifact@v3
-      with:
-        name: fbgemm_gpu_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
-
     - name: Install FBGEMM_GPU
       run: |
         . $PRELUDE
-        ls .
+        pwd; ls -la .
         install_fbgemm_gpu_package $BUILD_ENV *.whl
 
     - name: Test with PyTest

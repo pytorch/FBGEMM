@@ -6,12 +6,21 @@
 name: FBGEMM_GPU CI
 
 on:
-  push:
-    branches:
-      - main
+  # PR Trigger
+  #
   pull_request:
     branches:
       - main
+
+  # Push Trigger (enable to catch errors coming out of multiple merges)
+  #
+  push:
+    branches:
+      - main
+
+  # Manual Trigger (for testing only)
+  #
+  workflow_dispatch:
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -35,7 +44,7 @@ jobs:
       matrix:
         container-image: [ "ubuntu:20.04" ]
         python-version: [ "3.8", "3.9", "3.10" ]
-        rocm-version: [ "5.3" ]
+        rocm-version: [ "5.3", "5.4.2" ]
 
     steps:
     - name: Setup Build Container
