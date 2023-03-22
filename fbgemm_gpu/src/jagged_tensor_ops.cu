@@ -2083,10 +2083,10 @@ template <
     typename index_t,
     typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> __restrict__ x_values,
-    const at::PackedTensorAccessor32<index_t, 1> __restrict__ x_offsets,
-    const at::PackedTensorAccessor32<scalar_t, 3> __restrict__ y,
-    at::PackedTensorAccessor32<scalar_t, 2> __restrict__ output,
+    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
+    const at::PackedTensorAccessor32<index_t, 1> x_offsets,
+    const at::PackedTensorAccessor32<scalar_t, 3> y,
+    at::PackedTensorAccessor32<scalar_t, 2> output,
     const int max_L) {
   const int B = x_offsets.size(0) - 1;
   const int K = x_values.size(1);
@@ -2105,7 +2105,9 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
   __shared__ scalar_t As[BLOCK_TILE_M][BLOCK_TILE_K];
   __shared__ scalar_t Bs[BLOCK_TILE_K][BLOCK_TILE_N];
 
-  for (auto b = blockIdx.z; b < B; b += gridDim.z) {
+  // Once we remove ROCm<=5.3 support, we should replace uint32_t with auto.
+  // See #1655
+  for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
     const index_t row_start = x_offsets[b];
     const index_t row_end = x_offsets[b + 1];
     const auto length = min(row_end - row_start, (index_t)max_L);
