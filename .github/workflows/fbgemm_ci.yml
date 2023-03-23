@@ -56,8 +56,9 @@ jobs:
       run: |
         set -e
         mkdir $BUILD_DIR; cd $BUILD_DIR
+        cmake --version
         cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DPYTHON_EXECUTABLE=/usr/bin/python3 ..
-        make -j
+        make -j VERBOSE=1
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
       run: |
@@ -94,8 +95,9 @@ jobs:
       run: |
         set -e
         mkdir $BUILD_DIR; cd $BUILD_DIR
+        cmake --version
         cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} ..
-        make -j
+        make -j VERBOSE=1
 
 
   build-bazel:
@@ -128,10 +130,10 @@ jobs:
         chmod +x bazel
 
     - name: Build FBGEMM with bazel
-      run: ./bazel build --verbose_explanations --verbose_failures --compilation_mode opt :*
+      run: ./bazel build --cxxopt='-std=c++17' --verbose_explanations --verbose_failures --compilation_mode opt :*
 
     - name: Test FBGEMM bazel build
-      run: ./bazel test --test_output=all --verbose_explanations --verbose_failures --compilation_mode opt :*
+      run: ./bazel test --cxxopt='-std=c++17' --test_output=all --verbose_explanations --verbose_failures --compilation_mode opt :*
 
 
   build-windows:
@@ -168,8 +170,9 @@ jobs:
         mkdir %BUILD_DIR%
         cd %BUILD_DIR%
         echo "STARTING CMAKE"
+        cmake --version
         cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
-        ninja all
+        ninja -v all
         echo "Build Success"
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
