@@ -1986,7 +1986,7 @@ Tensor jagged_softmax_backward(
   return grad_input;
 }
 
-template <typename index_t, typename scalar_t>
+template <const int BLOCK_SIZE, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
     const at::PackedTensorAccessor32<scalar_t, 2> x_values,
     const at::PackedTensorAccessor32<scalar_t, 2> y_values,
@@ -1997,30 +1997,53 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
   const int M = x_values.size(1);
   const int N = y_values.size(1);
 
-  const int b_m_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int b_m_step = gridDim.x * blockDim.y;
-  for (int b_m = b_m_begin; b_m < B * M; b_m += b_m_step) {
-    const int b = b_m / M;
-    const int m = b_m % M;
+  const auto block_row = blockIdx.y;
+  const auto block_col = blockIdx.x;
+  const auto row = threadIdx.y;
+  const auto col = threadIdx.x;
+  __shared__ scalar_t Xs[BLOCK_SIZE][BLOCK_SIZE];
+  __shared__ scalar_t Ys[BLOCK_SIZE][BLOCK_SIZE];
 
-    const int row_start = offsets[b];
-    const int row_end = offsets[b + 1];
-    const int length = min(row_end - row_start, max_L);
-    if (length == 0) {
-      for (int n = threadIdx.x; n < N; n += blockDim.x) {
-        output[b][m][n] = 0;
+  for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
+    const index_t row_start = offsets[b];
+    const index_t row_end = offsets[b + 1];
+    const auto length = min(row_end - row_start, (index_t)max_L);
+    auto num_l_blocks = (length + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    at::acc_type<scalar_t, true> acc = 0;
+
+    const auto row_offset = block_row * BLOCK_SIZE + row;
+    const auto col_offset = block_col * BLOCK_SIZE + col;
+
+    // for loop block tile in length dimension
+    for (auto bk_l = 0; bk_l < num_l_blocks; bk_l++) {
+      Xs[row][col] = 0;
+      Ys[row][col] = 0;
+      const auto bk_offset = bk_l * BLOCK_SIZE;
+
+      // load data from global memory to shared memory
+      const auto l_x = bk_offset + col;
+      if (row_offset < M && l_x < length) {
+        Xs[row][col] = x_values[row_start + l_x][row_offset];
       }
-    } else {
-      // TODO: use shared memory and better reduction
-      for (int n = threadIdx.x; n < N; n += blockDim.x) {
-        at::acc_type<scalar_t, true> acc =
-            x_values[row_start][m] * y_values[row_start][n];
-        for (int l = 1; l < length; ++l) {
-          acc += x_values[row_start + l][m] * y_values[row_start + l][n];
-        }
-        output[b][m][n] = acc;
+
+      const auto l_y = bk_offset + row;
+      if (l_y < length && col_offset < N) {
+        Ys[row][col] = y_values[row_start + l_y][col_offset];
       }
+
+      __syncthreads();
+
+#pragma unroll
+      for (auto e = 0; e < BLOCK_SIZE; e++) {
+        acc += Xs[row][e] * Ys[e][col];
+      }
+      __syncthreads();
     }
+
+    // write the result to the output
+    if ((row_offset < M) && (col_offset < N))
+      output[b][row_offset][col_offset] = acc;
   }
 }
 
@@ -2042,9 +2065,16 @@ Tensor jagged_jagged_bmm_forward(
   auto output = at::zeros({B, M, N}, x_values.options());
 
   if (B > 0 && M > 0 && N > 0) {
-    const int block_dim_x =
-        std::min(div_round_up(N, kWarpSize) * kWarpSize, kMaxThreads);
-    const int block_dim_y = kMaxThreads / block_dim_x;
+    constexpr int BLOCK_SIZE = 16;
+    const dim3 block(BLOCK_SIZE, BLOCK_SIZE);
+    const auto grid_dim_x = div_round_up(N, BLOCK_SIZE);
+    const auto grid_dim_y = div_round_up(M, BLOCK_SIZE);
+    TORCH_CHECK(
+        grid_dim_y <= kMaxBlockYDim,
+        "M cannot be larger than",
+        grid_dim_y * BLOCK_SIZE + 1 - BLOCK_SIZE);
+    const auto grid_dim_z = std::min(B, kMaxBlockZDim);
+    const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
 
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
@@ -2054,11 +2084,8 @@ Tensor jagged_jagged_bmm_forward(
               x_values.scalar_type(),
               "jagged_jagged_bmm_kernel_2",
               [&] {
-                jagged_jagged_bmm_kernel<index_t, scalar_t>
-                    <<<div_round_up(B * M, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
+                jagged_jagged_bmm_kernel<BLOCK_SIZE, index_t, scalar_t>
+                    <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
                         x_values.packed_accessor32<scalar_t, 2>(),
                         y_values.packed_accessor32<scalar_t, 2>(),
                         offsets.packed_accessor32<index_t, 1>(),
