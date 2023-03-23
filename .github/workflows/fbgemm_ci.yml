@@ -101,18 +101,28 @@ jobs:
 
 
   build-bazel:
-    runs-on: ${{ matrix.os }}
+    runs-on: linux.12xlarge
+    container:
+      image: ${{ matrix.container-image }}
+      options: --user root
     defaults:
       run:
         shell: bash
     env:
       PRELUDE: .github/scripts/setup_env.bash
+      DEBIAN_FRONTEND: noninteractive
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest ]
+        container-image: [ "ubuntu:20.04" ]
 
     steps:
+    - name: Setup Build Container
+      run: |
+        apt update -y
+        apt install -y binutils build-essential cmake git libblas-dev python3 sudo unzip wget
+        git config --global --add safe.directory '*'
+
     - name: Checkout the Repository
       uses: actions/checkout@v3
       with:
@@ -122,18 +132,13 @@ jobs:
       run: . $PRELUDE; print_system_info
 
     - name: Download bazel
-      run: |
-        set -e
-        wget https://github.com/bazelbuild/bazel/releases/download/2.2.0/bazel-2.2.0-linux-x86_64 -O bazel
-        # verify content
-        echo 'b2f002ea0e6194a181af6ac84cd94bd8dc797722eb2354690bebac92dda233ff bazel' | sha256sum --quiet -c
-        chmod +x bazel
+      run: . $PRELUDE; setup_bazel
 
-    - name: Build FBGEMM with bazel
-      run: ./bazel build --cxxopt='-std=c++17' --verbose_explanations --verbose_failures --compilation_mode opt :*
+    - name: Build FBGEMM Library
+      run: bazel build -s :*
 
-    - name: Test FBGEMM bazel build
-      run: ./bazel test --cxxopt='-std=c++17' --test_output=all --verbose_explanations --verbose_failures --compilation_mode opt :*
+    - name: Test FBGEMM Library
+      run: bazel test -s :*
 
 
   build-windows:

@@ -8,9 +8,6 @@ cc_library(
     hdrs = glob([
         "deps/clog/include/*.h",
     ]),
-    copts = [
-        "-std=c++17",
-    ],
     includes = [
         "deps/clog/include/",
     ],
@@ -46,7 +43,6 @@ cc_library(
         "-DCPUINFO_LOG_LEVEL=2",
         "-DTH_BLAS_MKL",
         "-D_GNU_SOURCE=1",
-        "-std=c++17",
     ],
     includes = [
         "include",

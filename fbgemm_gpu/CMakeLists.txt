@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.21.0 FATAL_ERROR)
 
 # Set the default C++ standard to C++17
-# Individual targets can have this value overriden; see
+# Individual targets can have this value overridden; see
 # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Set the default C standard to C17
-# Individual targets can have this value overriden; see
+# Individual targets can have this value overridden; see
 # https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -69,7 +69,9 @@ if(DEFINED GLIBCXX_USE_CXX11_ABI)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
   endif()
   BLOCK_PRINT(
-    "Default C++ compiler flags (values may be overriden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
+    "Default C++ compiler flags"
+    "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
+    ""
     "${CMAKE_CXX_FLAGS}"
   )
 endif()
