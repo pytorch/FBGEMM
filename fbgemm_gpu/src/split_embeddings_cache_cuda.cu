@@ -507,9 +507,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
 
 namespace {
 
-template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void emulate_cache_miss_kernel(
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
     const int64_t enforced_misses_per_256,
     const bool gather_cache_stats,
@@ -541,8 +540,11 @@ Tensor emulate_cache_miss(
   TENSOR_ON_CUDA_GPU(lxu_cache_locations);
   TENSOR_ON_CUDA_GPU(uvm_cache_stats);
 
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(lxu_cache_locations.get_device());
+
   const auto N = lxu_cache_locations.numel();
-  if (lxu_cache_locations.numel() == 0) {
+  if (N == 0) {
     // nothing to do
     return lxu_cache_locations;
   }
@@ -551,21 +553,17 @@ Tensor emulate_cache_miss(
       div_round_up(N, kMaxThreads),
       get_max_thread_blocks_for_cache_kernels_()));
 
-  AT_DISPATCH_INDEX_TYPES(
-      lxu_cache_locations.scalar_type(), "emulate_cache_miss", [&] {
-        emulate_cache_miss_kernel<<<
-            blocks,
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            lxu_cache_locations
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            enforced_misses_per_256,
-            gather_cache_stats,
-            uvm_cache_stats
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      });
+  emulate_cache_miss_kernel<<<
+      blocks,
+      kMaxThreads,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      lxu_cache_locations
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      enforced_misses_per_256,
+      gather_cache_stats,
+      uvm_cache_stats.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return lxu_cache_locations;
 }
 
