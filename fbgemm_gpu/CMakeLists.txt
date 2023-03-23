@@ -318,7 +318,8 @@ if(NOT FBGEMM_CPU_ONLY)
     src/split_embeddings_utils.cpp
     src/split_table_batched_embeddings.cpp
     src/metric_ops_host.cpp
-    src/embedding_inplace_update_gpu.cpp)
+    src/embedding_inplace_update_gpu.cpp
+    src/input_combine_gpu.cpp)
 
   if(NVML_LIB_PATH)
     message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")
@@ -352,7 +353,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/split_embeddings_cache_cuda.cu
       src/split_embeddings_utils.cu
       src/metric_ops.cu
-      src/embedding_inplace_update.cu)
+      src/embedding_inplace_update.cu
+      src/input_combine.cu)
 
   set_source_files_properties(
     ${fbgemm_gpu_sources_gpu} PROPERTIES COMPILE_OPTIONS
