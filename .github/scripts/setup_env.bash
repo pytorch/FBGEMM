@@ -365,6 +365,38 @@ print_glibc_info () {
 
 
 ################################################################################
+# Bazel Setup Functions
+################################################################################
+
+setup_bazel () {
+  echo "################################################################################"
+  echo "# Setup Bazel"
+  echo "#"
+  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "################################################################################"
+  echo ""
+
+  local bazel_version="6.1.1"
+
+  if [[ $OSTYPE == 'darwin'* ]]; then
+    local bazel_variant="darwin-$(uname -m)"
+  else
+    local bazel_variant="linux-x86_64"
+  fi
+
+  echo "[SETUP] Downloading installer Bazel ${bazel_version} (${bazel_variant}) ..."
+  print_exec wget -q "https://github.com/bazelbuild/bazel/releases/download/${bazel_version}/bazel-${bazel_version}-installer-${bazel_variant}.sh" -O install-bazel.sh
+
+  echo "[SETUP] Installing Bazel ..."
+  print_exec bash install-bazel.sh
+  print_exec rm -f install-bazel.sh
+
+  print_exec bazel --version
+  echo "[SETUP] Successfully set up Bazel"
+}
+
+
+################################################################################
 # Miniconda Setup Functions
 ################################################################################
 
@@ -915,6 +947,15 @@ install_cxx_compiler () {
 
   # Print out the C++ version
   print_exec conda run -n "${env_name}" c++ --version
+
+  # https://stackoverflow.com/questions/2324658/how-to-determine-the-version-of-the-c-standard-used-by-the-compiler
+  echo "[INSTALL] Printing the default version of the C++ standard used by the compiler ..."
+  print_exec conda run -n "${env_name}" c++ -x c++ /dev/null -E -dM | grep __cplusplus
+
+  # https://stackoverflow.com/questions/4991707/how-to-find-my-current-compilers-standard-like-if-it-is-c90-etc
+  echo "[INSTALL] Printing the default version of the C standard used by the compiler ..."
+  print_exec conda run -n "${env_name}" cc -dM -E - < /dev/null | grep __STDC_VERSION__
+
   echo "[INSTALL] Successfully installed C/C++ compilers"
 }
 

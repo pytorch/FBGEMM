@@ -104,7 +104,7 @@ void run_benchmark(
   // please note we generate unique indices
   for (int i = 0; i < batch_size; ++i) {
     iota(container.begin(), container.end(), 0);
-    random_shuffle(container.begin(), container.end());
+    shuffle(container.begin(), container.end(), generator);
     copy(
         container.begin(),
         container.begin() + (offsets[i + 1] - offsets[i]),

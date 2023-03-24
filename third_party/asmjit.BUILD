@@ -16,9 +16,7 @@ cc_library(
     copts = [
         "-DASMJIT_STATIC",
         "-fno-tree-vectorize",
-        "-std=c++17",
         "-fmerge-all-constants",
-        "-std=gnu++11",
         "-DTH_BLAS_MKL",
     ],
     includes = [

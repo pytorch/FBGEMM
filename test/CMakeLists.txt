@@ -1,4 +1,12 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   #Download Googletest framework from github if
@@ -38,12 +46,9 @@ macro(add_gtest TESTNAME)
     EmbeddingSpMDMTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
-  set_target_properties(${TESTNAME} PROPERTIES
-          CXX_STANDARD 11
-          CXX_EXTENSIONS NO)
-  #To compile test files with AVX2 turned on
-  #For static build, defining FBGEMM_STATIC to avoid generating
-  #functions with _dllimport attributes.
+  # To compile test files with AVX2 turned on
+  # For static build, defining FBGEMM_STATIC to avoid generating
+  # functions with _dllimport attributes.
   if(MSVC)
     target_compile_options(${TESTNAME} PRIVATE
       "/arch:AVX2" "/wd4244" "/wd4267" "/wd4305" "/wd4309")

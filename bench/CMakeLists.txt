@@ -1,4 +1,12 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 find_package(MKL)
 if (NOT ${MKL_FOUND})
@@ -21,15 +29,12 @@ if (${BLAS_FOUND})
   message(STATUS "BLAS_LIBRARIES= ${BLAS_LIBRARIES}")
 endif()
 
-#benchmarks
+# Benchmarks
 macro(add_benchmark BENCHNAME)
   add_executable(${BENCHNAME} ${ARGN}
     BenchUtils.cc
     ../test/QuantizationHelpers.cc
     ../test/EmbeddingSpMDMTestUtils.cc)
-  set_target_properties(${BENCHNAME} PROPERTIES
-          CXX_STANDARD 11
-          CXX_EXTENSIONS NO)
   target_compile_options(${BENCHNAME} PRIVATE
     "-m64" "-mavx2" "-mfma" "-masm=intel")
   target_link_libraries(${BENCHNAME} fbgemm)

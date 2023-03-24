@@ -159,14 +159,14 @@ cc_library(
 )
 
 [
-  cc_test(
-      name = paths.split_extension(paths.basename(filename))[0],
-      size = "medium",
-      srcs = [
-          filename,
-      ],
-      deps = [
-          ":test_utils",
-      ],
-  ) for filename in get_fbgemm_tests()
+    cc_test(
+        name = paths.split_extension(paths.basename(filename))[0],
+        size = "medium",
+        srcs = [
+            filename,
+        ],
+        deps = [
+            ":test_utils",
+        ],
+    ) for filename in get_fbgemm_tests()
 ]

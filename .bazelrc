@@ -1,0 +1,48 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+################################################################################
+# FBGEMM Bazel configuration file
+#
+# Based on MozoLM build options:
+#   https://github.com/google-research/mozolm/blob/main/.bazelrc
+#
+# Documentation for Bazel configuration options can be found in:
+#   https://bazel.build/reference/command-line-reference
+################################################################################
+
+# Automatically picks up host-OS-specific config lines from bazelrc files
+# Enabling this is equivalent to auto-calling --config=linux on Linux, --config=windows, etc
+build --enable_platform_specific_config
+
+# Print logs for all tests
+test --test_output=all
+
+# Build with verbose logging
+build --verbose_explanations --verbose_failures
+test  --verbose_explanations --verbose_failures
+
+# Build with optimization mode turned on
+build  --compilation_mode opt
+test   --compilation_mode opt
+
+# Build FBGEMM with C17 and C++17
+build:linux --cxxopt=-std=c++17
+build:linux --host_cxxopt=-std=c++17
+build:linux --conlyopt=-std=c17
+build:linux --host_conlyopt=-std=c17
+build:macos --cxxopt=-std=c++17
+build:macos --host_cxxopt=-std=c++17
+build:macos --conlyopt=-std=c17
+build:macos --host_conlyopt=-std=c17
+build:windows --cxxopt=/std:c++17
+build:windows --host_cxxopt=/std:c++17
+build:windows --conlyopt=/std:c17
+build:windows --host_conlyopt=/std:c17
+
+# Generation of `runfiles` directories on Windows has to be explicitly enabled.
+# See https://github.com/bazelbuild/bazel/issues/8843.
+build:windows --enable_runfiles
+test:windows --enable_runfiles
