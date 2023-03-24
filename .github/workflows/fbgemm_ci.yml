@@ -161,12 +161,10 @@ jobs:
         submodules: true
 
     - name: Get CPU info on Windows
-      shell: cmd
       run: |
         wmic cpu list full
 
     - name: Build FBGEMM Library (${{ matrix.library-type }})
-      shell: cmd
       run: |
         call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
         echo "INSTALL NINJA:"
@@ -181,7 +179,6 @@ jobs:
         echo "Build Success"
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
-      shell: cmd
       run: |
         echo %cd%
         cd %BUILD_DIR%
@@ -189,3 +186,32 @@ jobs:
         echo %PATH%
         ctest --rerun-failed --output-on-failure
         if errorlevel 1 exit /b 1
+
+  build-windows-test:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUILD_DIR: build_${{ matrix.library-type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-2019 ]
+        library-type: [ static, shared ]
+
+    steps:
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+
+    - name: Get CPU info on Windows
+      run: |
+        ls -la
+        if which wget; then
+          echo "have wget"
+        fi
+        if which choco; then
+          echo "have choco"
+        fi

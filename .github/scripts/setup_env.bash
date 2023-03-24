@@ -379,6 +379,7 @@ setup_bazel () {
   local bazel_version="6.1.1"
 
   if [[ $OSTYPE == 'darwin'* ]]; then
+    # shellcheck disable=SC2155
     local bazel_variant="darwin-$(uname -m)"
   else
     local bazel_variant="linux-x86_64"
