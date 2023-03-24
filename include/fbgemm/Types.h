@@ -27,14 +27,14 @@ constexpr uint32_t f16_num_exponent_bits = 5;
 constexpr uint32_t f16_num_mantissa_bits = 10;
 constexpr uint32_t f16_num_non_sign_bits =
     f16_num_exponent_bits + f16_num_mantissa_bits;
-constexpr uint32_t f16_exponent_mask = 0x1F; // 5 bits
+constexpr uint32_t f16_exponent_mask = 0b1'1111; // 5 bits
 constexpr uint32_t f16_sign_bit = 1u
     << (f16_num_exponent_bits + f16_num_mantissa_bits);
 constexpr uint32_t f16_exponent_bits = f16_exponent_mask
     << f16_num_mantissa_bits;
-constexpr uint32_t f16_mantissa_mask = 0x3FF; // 10 bits
+constexpr uint32_t f16_mantissa_mask = 0b11'1111'1111; // 10 bits
 constexpr uint32_t f16_exponent_bias = 15;
-constexpr uint32_t f16_nan = 0x7FFF;
+constexpr uint32_t f16_nan = 0x7F'FF;
 
 // The IEEE754 standard specifies a binary32 as having:
 // SEEEEEEEEMMMMMMMMMMMMMMMMMMMMMMM
@@ -44,10 +44,10 @@ constexpr uint32_t f16_nan = 0x7FFF;
 //  * 23 mantissa/significand bits (a 24th bit is implicit)
 constexpr uint32_t f32_num_exponent_bits = 8;
 constexpr uint32_t f32_num_mantissa_bits = 23;
-constexpr uint32_t f32_exponent_mask = 0xFF; // 8 bits
-constexpr uint32_t f32_mantissa_mask = 0x7FFFFF; // 23 bits
+constexpr uint32_t f32_exponent_mask = 0b1111'1111; // 8 bits
+constexpr uint32_t f32_mantissa_mask = 0x7F'FF'FF; // 23 bits
 constexpr uint32_t f32_exponent_bias = 127;
-constexpr uint32_t f32_all_non_sign_mask = 0x7FFFFFFF; // 31 bits
+constexpr uint32_t f32_all_non_sign_mask = 0x7F'FF'FF'FF; // 31 bits
 constexpr uint32_t f32_most_significant_bit = 1u << 22; // Turn on 23rd bit
 constexpr uint32_t f32_num_non_sign_bits =
     f32_num_exponent_bits + f32_num_mantissa_bits;

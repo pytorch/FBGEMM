@@ -1,4 +1,19 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+
+# Set the default C++ standard to C++17
+# Individual targets can have this value overridden; see
+# https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+
+# Set the default C standard to C11
+# Individual targets can have this value overridden; see
+# https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
@@ -114,17 +129,11 @@ add_dependencies(fbgemm_generic defs.bzl)
 add_dependencies(fbgemm_avx2 defs.bzl)
 add_dependencies(fbgemm_avx512 defs.bzl)
 
-set_target_properties(fbgemm_generic fbgemm_avx2 fbgemm_avx512 PROPERTIES
-      CXX_STANDARD 14
-      CXX_STANDARD_REQUIRED YES
-      CXX_EXTENSIONS NO
-      CXX_VISIBILITY_PRESET hidden)
-
-#On Windows:
-#1) Adding definition of ASMJIT_STATIC to avoid generating asmjit function
-#calls with _dllimport attribute
-#2) MSVC uses /MD in default cxx compiling flags,
-#need to change it to /MT in static case
+# On Windows:
+# 1)  Adding definition of ASMJIT_STATIC to avoid generating asmjit function
+#     calls with _dllimport attribute
+# 2)  MSVC uses /MD in default cxx compiling flags,
+# Need to change it to /MT in static case
 if(MSVC)
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
   if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
@@ -267,8 +276,6 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
   set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_target_properties(fbgemm PROPERTIES
-    CXX_VISIBILITY_PRESET hidden)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
   add_library(fbgemm STATIC
     $<TARGET_OBJECTS:fbgemm_generic>

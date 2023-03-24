@@ -66,18 +66,23 @@ will also need to be installed to avoid issues with missing versioned symbols
 when compiling FBGEMM_CPU:
 
 ```sh
-conda install -n "${env_name}" -y gxx_linux-64=9.3.0
+conda install -n "${env_name}" -y gxx_linux-64=10.4.0 sysroot_linux-64=2.17 -c conda-forge
 ```
 
-Note that while newer versions of GCC can be used, binaries compiled under newer
-versions of GCC will not be compatible with older systems such as Ubuntu 20.04
-or CentOS Stream 8, because the compiled library will reference symbols from
-versions of `GLIBCXX` that the system's `libstdc++.so.6` will not support.  To
-see what versions of GLIBCXX the available `libstdc++.so.6` supports:
+While newer versions of GCC can be used, binaries compiled under newer versions
+of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
+Stream 8, because the compiled library will reference symbols from versions of
+`GLIBCXX` that the system's `libstdc++.so.6` will not support.  To see what
+versions of GLIBC and GLIBCXX the available `libstdc++.so.6` supports:
 
 ```sh
 libcxx_path=/path/to/libstdc++.so.6
-objdump -TC "${libcxx_path}" | grep GLIBCXX | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+
+# Print supported for GLIBC versions
+objdump -TC "${libcxx_path}" | grep GLIBC_ | sed 's/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g' | sort -Vu | cat
+
+# Print supported for GLIBCXX versions
+objdump -TC "${libcxx_path}" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
 ```
 
 ### Other Build Tools
