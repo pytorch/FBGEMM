@@ -215,3 +215,8 @@ jobs:
         if which choco; then
           echo "have choco"
         fi
+        if which unzip; then
+          echo "have unzip"
+        fi
+        choco install bazelisk
+        USE_BAZEL_VERSION=6.1.0 bazelisk --version
