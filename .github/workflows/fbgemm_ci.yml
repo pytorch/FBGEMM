@@ -220,3 +220,6 @@ jobs:
         fi
         choco install bazelisk
         USE_BAZEL_VERSION=6.1.0 bazelisk --version
+        echo "OSTYPE IS: $OSTYPE"
+        uname -a
+        uname -m
