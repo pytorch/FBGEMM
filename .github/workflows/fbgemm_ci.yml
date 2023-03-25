@@ -194,6 +194,7 @@ jobs:
         shell: bash
     env:
       BUILD_DIR: build_${{ matrix.library-type }}
+      USE_BAZEL_VERSION: latest
     strategy:
       fail-fast: false
       matrix:
@@ -206,7 +207,7 @@ jobs:
       with:
         submodules: true
 
-    - name: Get CPU info on Windows
+    - name: Setup
       run: |
         ls -la
         if which wget; then
@@ -219,7 +220,13 @@ jobs:
           echo "have unzip"
         fi
         choco install bazelisk
-        USE_BAZEL_VERSION=6.1.0 bazelisk --version
+        bazelisk --version
         echo "OSTYPE IS: $OSTYPE"
         uname -a
         uname -m
+
+    - name: Build FBGEMM Library
+      run: bazelisk build -s :*
+
+    - name: Test FBGEMM Library
+      run: bazelisk test -s :*
