@@ -46,3 +46,5 @@ build:windows --host_conlyopt=/std:c17
 # See https://github.com/bazelbuild/bazel/issues/8843.
 build:windows --enable_runfiles
 test:windows --enable_runfiles
+
+build:windows --copt="/nologo /TP /DWIN32 /D_WINDOWS /GR /EHsc /openmp /wd4244 /wd4267 /wd4305 /wd4309 /Ob2 /DNDEBUG /MD /arch:AVX2 /showIncludes"
