@@ -43,14 +43,22 @@ cc_library(
 
 cc_library(
     name = "fbgemm_avx2",
-    srcs = get_fbgemm_avx2_srcs(),
+    srcs = select({
+        "@bazel_tools//src/conditions:host_windows": get_fbgemm_avx2_srcs(True),
+        "//conditions:default": get_fbgemm_avx2_srcs(False),
+    }),
     hdrs = glob(["src/*.h"]),
-    copts = [
-        "-m64",
-        "-mavx2",
-        "-mfma",
-        "-mf16c",
-    ],
+    copts = select({
+        "@bazel_tools//src/conditions:host_windows": [
+            "/arch:AVX2"
+        ],
+        "//conditions:default": [
+            "-m64",
+            "-mavx2",
+            "-mfma",
+            "-mf16c",
+        ],
+    }),
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
@@ -60,15 +68,23 @@ cc_library(
 
 cc_library(
     name = "fbgemm_inline_avx2",
-    srcs = get_fbgemm_inline_avx2_srcs(),
+    srcs = select({
+        "@bazel_tools//src/conditions:host_windows": get_fbgemm_inline_avx2_srcs(msvc=True),
+        "//conditions:default": get_fbgemm_inline_avx2_srcs(msvc=False),
+    }),
     hdrs = glob(["src/*.h"]),
-    copts = [
-        "-m64",
-        "-mavx2",
-        "-mfma",
-        "-mf16c",
-        "-masm=intel",
-    ],
+    copts = select({
+        "@bazel_tools//src/conditions:host_windows": [
+            "/arch:AVX2"
+        ],
+        "//conditions:default": [
+            "-m64",
+            "-mavx2",
+            "-mfma",
+            "-mf16c",
+            "-masm=intel",
+        ],
+    }),
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
@@ -78,16 +94,24 @@ cc_library(
 
 cc_library(
     name = "fbgemm_avx512",
-    srcs = get_fbgemm_avx512_srcs(),
+    srcs = select({
+        "@bazel_tools//src/conditions:host_windows": get_fbgemm_avx512_srcs(msvc=True),
+        "//conditions:default": get_fbgemm_avx512_srcs(msvc=False),
+    }),
     hdrs = glob(["src/*.h"]),
-    copts = [
-        "-m64",
-        "-mfma",
-        "-mavx512f",
-        "-mavx512bw",
-        "-mavx512dq",
-        "-mavx512vl",
-    ],
+    copts = select({
+        "@bazel_tools//src/conditions:host_windows": [
+            "/arch:AVX512"
+        ],
+        "//conditions:default": [
+            "-m64",
+            "-mfma",
+            "-mavx512f",
+            "-mavx512bw",
+            "-mavx512dq",
+            "-mavx512vl",
+        ],
+    }),
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
@@ -97,17 +121,25 @@ cc_library(
 
 cc_library(
     name = "fbgemm_inline_avx512",
-    srcs = get_fbgemm_inline_avx512_srcs(),
+    srcs = select({
+        "@bazel_tools//src/conditions:host_windows": get_fbgemm_inline_avx512_srcs(msvc=True),
+        "//conditions:default": get_fbgemm_inline_avx512_srcs(msvc=False),
+    }),
     hdrs = glob(["src/*.h"]),
-    copts = [
-        "-m64",
-        "-mfma",
-        "-mavx512f",
-        "-mavx512bw",
-        "-mavx512dq",
-        "-mavx512vl",
-        "-masm=intel",
-    ],
+    copts = select({
+        "@bazel_tools//src/conditions:host_windows": [
+            "/arch:AVX512"
+        ],
+        "//conditions:default": [
+            "-m64",
+            "-mfma",
+            "-mavx512f",
+            "-mavx512bw",
+            "-mavx512dq",
+            "-mavx512vl",
+            "-masm=intel",
+        ],
+    }),
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
