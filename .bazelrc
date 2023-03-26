@@ -39,8 +39,8 @@ build:macos --conlyopt=-std=c17
 build:macos --host_conlyopt=-std=c17
 build:windows --cxxopt=/std:c++17
 build:windows --host_cxxopt=/std:c++17
-build:windows --conlyopt=/std:c17
-build:windows --host_conlyopt=/std:c17
+# build:windows --conlyopt=/std:c17
+# build:windows --host_conlyopt=/std:c17
 
 # Generation of `runfiles` directories on Windows has to be explicitly enabled.
 # See https://github.com/bazelbuild/bazel/issues/8843.
