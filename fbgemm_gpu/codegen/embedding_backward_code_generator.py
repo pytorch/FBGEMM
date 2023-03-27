@@ -127,52 +127,59 @@ def int_arg(name: str, default: int = 0) -> str:
 def generate(**kwargs: Any) -> None:
     gen_args = kwargs["args"]
 
-    # Generates CUDA variants.
     kwargs["args"] = gen_args["cuda"]
+    if kwargs.get("has_gpu_support"):
+        # Generates CUDA variants.
+        template = env.get_template("embedding_backward_split_template.cu")
+        src_cu = template.render(weighted=False, **kwargs)
+        write(
+            f"gen_embedding_backward_{kwargs.get('optimizer')}_split_unweighted_cuda.cu",
+            src_cu,
+        )
+        src_cu = template.render(weighted=True, **kwargs)
+        write(
+            f"gen_embedding_backward_{kwargs.get('optimizer')}_split_weighted_cuda.cu",
+            src_cu,
+        )
+        if not kwargs.get("dense"):
+            template = env.get_template("embedding_backward_split_host_template.cpp")
+            src_cpp = template.render(**kwargs)
+            write(
+                f"gen_embedding_backward_split_{kwargs.get('optimizer')}.cpp", src_cpp
+            )
 
-    template = env.get_template("embedding_backward_split_template.cu")
-    src_cu = template.render(weighted=False, **kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_unweighted_cuda.cu",
-        src_cu,
-    )
-    src_cu = template.render(weighted=True, **kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_weighted_cuda.cu",
-        src_cu,
-    )
     if not kwargs.get("dense"):
-        template = env.get_template("embedding_backward_split_host_template.cpp")
-        src_cpp = template.render(**kwargs)
-        write(f"gen_embedding_backward_split_{kwargs.get('optimizer')}.cpp", src_cpp)
-
         # Generates Python invoker for CUDA + CPU
         template = env.get_template("split_embedding_codegen_lookup_invoker.template")
         src_py = template.render(is_fbcode=args.is_fbcode, **kwargs)
         write(f"lookup_{kwargs.get('optimizer')}.py", src_py)
 
-    # Generates CPU variants.
-    kwargs["args"] = gen_args["cpu"]
+    if kwargs.get("has_cpu_support"):
+        # Generates CPU variants.
+        kwargs["args"] = gen_args["cpu"]
 
-    is_approx = "approx" in kwargs.get("optimizer")
-    template = (
-        env.get_template("embedding_backward_split_cpu_approx_template.cpp")
-        if is_approx
-        else env.get_template("embedding_backward_split_cpu_template.cpp")
-    )
+        is_approx = "approx" in kwargs.get("optimizer")
+        template = (
+            env.get_template("embedding_backward_split_cpu_approx_template.cpp")
+            if is_approx
+            else env.get_template("embedding_backward_split_cpu_template.cpp")
+        )
 
-    src_cpp = template.render(**kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_cpu.cpp",
-        src_cpp,
-    )
-
-    if not kwargs.get("dense"):
-        template = env.get_template("embedding_backward_split_host_cpu_template.cpp")
         src_cpp = template.render(**kwargs)
         write(
-            f"gen_embedding_backward_split_{kwargs.get('optimizer')}_cpu.cpp", src_cpp
+            f"gen_embedding_backward_{kwargs.get('optimizer')}_split_cpu.cpp",
+            src_cpp,
         )
+
+        if not kwargs.get("dense"):
+            template = env.get_template(
+                "embedding_backward_split_host_cpu_template.cpp"
+            )
+            src_cpp = template.render(**kwargs)
+            write(
+                f"gen_embedding_backward_split_{kwargs.get('optimizer')}_cpu.cpp",
+                src_cpp,
+            )
 
 
 @dataclass
@@ -369,6 +376,8 @@ def adagrad() -> None:
         split_precomputation="",
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -490,6 +499,8 @@ def rowwise_adagrad() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
     approx_split_weight_update = """
@@ -512,6 +523,8 @@ def rowwise_adagrad() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=False,
     )
 
 
@@ -611,6 +624,9 @@ def rowwise_adagrad_with_weight_decay() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        # Disable both CPU and GPU support
+        has_cpu_support=False,
+        has_gpu_support=False,
     )
 
     approx_split_weight_update = """
@@ -633,6 +649,9 @@ def rowwise_adagrad_with_weight_decay() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        # Disable both CPU and GPU support
+        has_cpu_support=False,
+        has_gpu_support=False,
     )
 
 
@@ -771,6 +790,8 @@ def rowwise_adagrad_with_counter() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
     approx_split_weight_update = """
@@ -804,6 +825,8 @@ def rowwise_adagrad_with_counter() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=False,
     )
 
 
@@ -874,6 +897,8 @@ def rowwise_weighted_adagrad() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -893,6 +918,8 @@ def sgd() -> None:
         split_precomputation="",
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
     approx_split_weight_update = """
@@ -908,6 +935,8 @@ def sgd() -> None:
         split_precomputation="",
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -978,6 +1007,8 @@ def lamb() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=False,
+        has_gpu_support=True,
     )
 
 
@@ -1064,6 +1095,8 @@ def partial_rowwise_lamb() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=False,
+        has_gpu_support=True,
     )
 
 
@@ -1114,6 +1147,8 @@ def adam() -> None:
         split_precomputation="",
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=False,
+        has_gpu_support=True,
     )
 
 
@@ -1174,6 +1209,8 @@ def partial_rowwise_adam() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=False,
+        has_gpu_support=True,
     )
 
 
@@ -1232,6 +1269,8 @@ def lars_sgd() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=False,
+        has_gpu_support=True,
     )
 
 
@@ -1296,6 +1335,8 @@ def backward_dense() -> None:
                 (FLOAT, "unused"),
             ]
         ),
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -1323,7 +1364,7 @@ def emb_codegen(
     partial_rowwise_adam()
     partial_rowwise_lamb()
     rowwise_adagrad()
-    rowwise_adagrad_with_weight_decay()
+    # rowwise_adagrad_with_weight_decay() # Disabled
     rowwise_adagrad_with_counter()
     rowwise_weighted_adagrad()
     sgd()
