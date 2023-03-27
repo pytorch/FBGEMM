@@ -7,6 +7,43 @@ load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_inline_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_inline_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers", "get_fbgemm_tests")
 
+CXX_FLAGS = select({
+    "@bazel_tools//src/conditions:windows": [
+        "/std:c++17"
+    ],
+    "//conditions:default": [
+        "-std=c++17"
+    ],
+})
+
+AVX2_FLAGS = select({
+    "@bazel_tools//src/conditions:windows": [
+        "/arch:AVX2"
+     ],
+    "//conditions:default": [
+        "-m64",
+        "-mavx2",
+        "-mfma",
+        "-mf16c",
+        "-masm=intel",
+     ],
+})
+
+AVX512_FLAGS = select({
+    "@bazel_tools//src/conditions:host_windows": [
+        "/arch:AVX512"
+    ],
+    "//conditions:default": [
+        "-m64",
+        "-mfma",
+        "-mavx512f",
+        "-mavx512bw",
+        "-mavx512dq",
+        "-mavx512vl",
+        "-masm=intel",
+    ],
+})
+
 cc_library(
     name = "fbgemm_base",
     srcs = get_fbgemm_base_srcs(),
@@ -19,6 +56,7 @@ cc_library(
         "@cpuinfo",
         "@asmjit",
     ],
+    copts = CXX_FLAGS,
     linkstatic = 1,
 )
 
@@ -30,6 +68,7 @@ cc_library(
     includes = [
         "src",
     ],
+    copts = CXX_FLAGS,
     deps = [
         ":fbgemm_avx2",
         ":fbgemm_inline_avx2",
@@ -48,17 +87,7 @@ cc_library(
         "//conditions:default": get_fbgemm_avx2_srcs(False),
     }),
     hdrs = glob(["src/*.h"]),
-    copts = select({
-        "@bazel_tools//src/conditions:host_windows": [
-            "/arch:AVX2"
-        ],
-        "//conditions:default": [
-            "-m64",
-            "-mavx2",
-            "-mfma",
-            "-mf16c",
-        ],
-    }),
+    copts = CXX_FLAGS + AVX2_FLAGS,
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
@@ -73,18 +102,7 @@ cc_library(
         "//conditions:default": get_fbgemm_inline_avx2_srcs(msvc=False),
     }),
     hdrs = glob(["src/*.h"]),
-    copts = select({
-        "@bazel_tools//src/conditions:host_windows": [
-            "/arch:AVX2"
-        ],
-        "//conditions:default": [
-            "-m64",
-            "-mavx2",
-            "-mfma",
-            "-mf16c",
-            "-masm=intel",
-        ],
-    }),
+    copts = CXX_FLAGS + AVX2_FLAGS,
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
@@ -99,19 +117,7 @@ cc_library(
         "//conditions:default": get_fbgemm_avx512_srcs(msvc=False),
     }),
     hdrs = glob(["src/*.h"]),
-    copts = select({
-        "@bazel_tools//src/conditions:host_windows": [
-            "/arch:AVX512"
-        ],
-        "//conditions:default": [
-            "-m64",
-            "-mfma",
-            "-mavx512f",
-            "-mavx512bw",
-            "-mavx512dq",
-            "-mavx512vl",
-        ],
-    }),
+    copts = CXX_FLAGS + AVX512_FLAGS,
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
@@ -126,20 +132,7 @@ cc_library(
         "//conditions:default": get_fbgemm_inline_avx512_srcs(msvc=False),
     }),
     hdrs = glob(["src/*.h"]),
-    copts = select({
-        "@bazel_tools//src/conditions:host_windows": [
-            "/arch:AVX512"
-        ],
-        "//conditions:default": [
-            "-m64",
-            "-mfma",
-            "-mavx512f",
-            "-mavx512bw",
-            "-mavx512dq",
-            "-mavx512vl",
-            "-masm=intel",
-        ],
-    }),
+    copts = CXX_FLAGS + AVX512_FLAGS,
     deps = [
         ":fbgemm_base",
         ":fbgemm_headers",
@@ -153,6 +146,7 @@ cc_library(
     includes = [
         "include",
     ],
+    copts = CXX_FLAGS,
     visibility = ["//visibility:public"],
 )
 
@@ -163,6 +157,7 @@ cc_library(
         "src/RefImplementations.h",
     ],
     include_prefix = "fbgemm",
+    copts = CXX_FLAGS,
     visibility = ["//visibility:public"],
 )
 
@@ -183,6 +178,7 @@ cc_library(
     linkopts = [
         "-lrt",
     ],
+    copts = CXX_FLAGS,
     linkstatic = 1,
     deps = [
           ":fbgemm",
@@ -197,6 +193,7 @@ cc_library(
         srcs = [
             filename,
         ],
+        copts = CXX_FLAGS,
         deps = [
             ":test_utils",
         ],

@@ -1,5 +1,14 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+CXX_FLAGS = select({
+    "@bazel_tools//src/conditions:windows": [
+        "/std:c++17"
+    ],
+    "//conditions:default": [
+        "-std=c++17"
+    ],
+})
+
 cc_library(
     name = "asmjit",
     srcs = glob([
@@ -18,7 +27,7 @@ cc_library(
         "-fno-tree-vectorize",
         "-fmerge-all-constants",
         "-DTH_BLAS_MKL",
-    ],
+    ] + CXX_FLAGS,
     includes = [
         "asmjit/",
         "src/",
