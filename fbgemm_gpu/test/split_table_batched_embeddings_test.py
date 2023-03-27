@@ -1291,13 +1291,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         exact: bool,
         output_dtype: SparseType,
     ) -> None:
+        # Approx SGD is deprecated
+        assume(exact)
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
         assume(not (use_cpu and weights_precision == SparseType.FP16))
-        # GPU only does exact sgd
-        assume((use_cpu and not long_segments) or exact)
         # No bag ops only work on GPUs, no mixed, no weighted
         assume(
             not use_cpu
@@ -1454,7 +1454,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
             ],
-            optimizer=OptimType.EXACT_SGD if exact else OptimType.SGD,
+            optimizer=OptimType.EXACT_SGD,
             feature_table_map=feature_table_map,
             learning_rate=lr,
             weights_precision=weights_precision,
@@ -1522,7 +1522,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1545,7 +1544,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
-        exact: bool,
     ) -> None:
         self.execute_backward_sgd_(
             T,
@@ -1561,7 +1559,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             long_segments,
             pooling_mode,
             use_cpu,
-            exact,
+            True,  # exact
             SparseType.FP32,  # output_dtype
         )
 
@@ -1635,10 +1633,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         output_dtype: SparseType,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
     ) -> None:
+        # Approx AdaGrad is deprecated
+        assume(exact)
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
-        # Approx AdaGrad only works with row_wise on CPU
-        assume((use_cpu and row_wise) or exact)
 
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
@@ -1794,9 +1792,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         eps = 0.2
 
         optimizer = (
-            (OptimType.EXACT_ROWWISE_ADAGRAD if exact else OptimType.ROWWISE_ADAGRAD)
-            if row_wise
-            else OptimType.EXACT_ADAGRAD
+            OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
         )
         cc = emb_op(
             embedding_specs=[
@@ -1964,7 +1960,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -1989,7 +1984,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
-        exact: bool,
         output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
@@ -2008,7 +2002,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             split_table_batched_embeddings_ops.PoolingMode.SUM,
             use_cpu,
-            exact,
+            True,  # exact
             output_dtype,
         )
 
@@ -2033,7 +2027,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -2058,7 +2051,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
-        exact: bool,
         output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
@@ -2077,7 +2069,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             split_table_batched_embeddings_ops.PoolingMode.MEAN,
             use_cpu,
-            exact,
+            True,  # exact
             output_dtype,
         )
 
@@ -2102,7 +2094,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -2127,7 +2118,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
-        exact: bool,
         output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
@@ -2146,7 +2136,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             split_table_batched_embeddings_ops.PoolingMode.NONE,
             use_cpu,
-            exact,
+            True,  # exact
             output_dtype,
         )
 
@@ -2171,7 +2161,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -2196,7 +2185,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
-        exact: bool,
         output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
@@ -2215,7 +2203,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             split_table_batched_embeddings_ops.PoolingMode.SUM,
             use_cpu,
-            exact,
+            True,  # exact
             output_dtype,
         )
 
@@ -2240,7 +2228,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -2265,7 +2252,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
-        exact: bool,
         output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
@@ -2284,7 +2270,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             split_table_batched_embeddings_ops.PoolingMode.MEAN,
             use_cpu,
-            exact,
+            True,  # exact
             output_dtype,
         )
 
@@ -2309,7 +2295,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -2334,7 +2319,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         use_cache: bool,
         cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
         use_cpu: bool,
-        exact: bool,
         output_dtype: SparseType,
     ) -> None:
         self.execute_backward_adagrad_(
@@ -2353,7 +2337,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm,
             split_table_batched_embeddings_ops.PoolingMode.NONE,
             use_cpu,
-            exact,
+            True,  # exact
             output_dtype,
         )
 
@@ -2473,7 +2457,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
-                OptimType.SGD,
             ]
         )
 

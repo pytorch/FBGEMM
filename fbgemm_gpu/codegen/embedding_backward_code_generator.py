@@ -158,12 +158,7 @@ def generate(**kwargs: Any) -> None:
         # Generates CPU variants.
         kwargs["args"] = gen_args["cpu"]
 
-        is_approx = "approx" in kwargs.get("optimizer")
-        template = (
-            env.get_template("embedding_backward_split_cpu_approx_template.cpp")
-            if is_approx
-            else env.get_template("embedding_backward_split_cpu_template.cpp")
-        )
+        template = env.get_template("embedding_backward_split_cpu_template.cpp")
 
         src_cpp = template.render(**kwargs)
         write(
@@ -503,157 +498,6 @@ def rowwise_adagrad() -> None:
         has_gpu_support=True,
     )
 
-    approx_split_weight_update = """
-      // dummy computation to avoid unused variable warning
-      weight_new.fma_(grad, -multiplier);
-      assert(false); // approx rowwise AdaGrad is not supported on GPU
-    """
-
-    generate(
-        optimizer="approx_rowwise_adagrad",
-        args=make_args(
-            [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 0),
-            ]
-        ),
-        split_precomputation=split_precomputation,
-        split_weight_update=approx_split_weight_update,
-        split_weight_update_cpu=split_weight_update_cpu,
-        has_cpu_support=True,
-        has_gpu_support=False,
-    )
-
-
-def rowwise_adagrad_with_weight_decay() -> None:
-    split_weight_update = """
-        weight_new.acc.x = correction * weight_new.acc.x - multiplier * grad.acc.x;
-        weight_new.acc.y = correction * weight_new.acc.y - multiplier * grad.acc.y;
-        weight_new.acc.z = correction * weight_new.acc.z - multiplier * grad.acc.z;
-        weight_new.acc.w = correction * weight_new.acc.w - multiplier * grad.acc.w;
-    """
-    split_precomputation = """
-    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
-    #pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
-        ++i) {
-        auto gx = grad_sum[i].acc.x;
-        auto gy = grad_sum[i].acc.y;
-        auto gz = grad_sum[i].acc.z;
-        auto gw = grad_sum[i].acc.w;
-        if (weight_decay_mode == 1) {
-            // L2 regularization
-            int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-            Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
-            gx += weight_decay * weight.acc.x;
-            gy += weight_decay * weight.acc.y;
-            gz += weight_decay * weight.acc.z;
-            gw += weight_decay * weight.acc.w;
-        }
-        g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
-    }
-    const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
-
-    at::acc_type<cache_t, true> multiplier;
-    at::acc_type<cache_t, true> correction;
-    if (threadIdx.x == 0) {
-        at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
-        momentum1[idx] = new_sum_square_grads;
-        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        if (weight_decay_mode == 1) {
-            // L2 regularization
-            correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 2) {
-            // Decoupled weight decay
-            correction = 1.0 - learning_rate * weight_decay;
-        } else {
-            // default value
-            correction = 1.0;
-        }
-    }
-    multiplier = SHFL_SYNC(multiplier, 0);
-    correction = SHFL_SYNC(correction, 0);
-    """
-    split_weight_update_cpu = """
-        at::acc_type<grad_t, true> g_local_sum_square = 0.0;
-        for (int64_t d = 0; d < D; ++d) {
-            auto grad = grad_buffer[d];
-            if (weight_decay_mode == 1) {
-                // L2 regularization
-                grad += weight_decay * host_weights_data[embedding_begin + d];
-            }
-            g_local_sum_square += grad * grad;
-        }
-        auto g_avg_square = g_local_sum_square / D;
-        at::acc_type<grad_t, true> new_sum_square_grads = momentum1_host[momentum1_offsets_data[feature_begin] + idx] + g_avg_square;
-        momentum1_host[momentum1_offsets_data[feature_begin] + idx] = new_sum_square_grads;
-        at::acc_type<grad_t, true> multiplier;
-        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        at::acc_type<grad_t, true> correction;
-        if (weight_decay_mode == 1) {
-            // L2 regularization
-            correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 2) {
-            // Decoupled weight decay
-            correction = 1.0 - learning_rate * weight_decay;
-        } else {
-            // default value
-            correction = 1.0;
-        }
-        for (int64_t d = 0; d < D; ++d) {
-            host_weights_data[embedding_begin + d] = correction * host_weights_data[embedding_begin + d] - grad_buffer[d] * multiplier;
-        }
-    """
-
-    generate(
-        optimizer="rowwise_adagrad_with_weight_decay",
-        args=make_args(
-            [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 0),
-            ]
-        ),
-        split_precomputation=split_precomputation,
-        split_weight_update=split_weight_update,
-        split_weight_update_cpu=split_weight_update_cpu,
-        # Disable both CPU and GPU support
-        has_cpu_support=False,
-        has_gpu_support=False,
-    )
-
-    approx_split_weight_update = """
-      // dummy computation to avoid unused variable warning
-      weight_new.fma_(grad, -multiplier);
-      assert(false); // approx rowwise AdaGrad is not supported on GPU
-    """
-
-    generate(
-        optimizer="approx_rowwise_adagrad_with_weight_decay",
-        args=make_args(
-            [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 0),
-            ]
-        ),
-        split_precomputation=split_precomputation,
-        split_weight_update=approx_split_weight_update,
-        split_weight_update_cpu=split_weight_update_cpu,
-        # Disable both CPU and GPU support
-        has_cpu_support=False,
-        has_gpu_support=False,
-    )
-
 
 def rowwise_adagrad_with_counter() -> None:
     split_weight_update = """
@@ -794,41 +638,6 @@ def rowwise_adagrad_with_counter() -> None:
         has_gpu_support=True,
     )
 
-    approx_split_weight_update = """
-      // dummy computation to avoid unused variable warning
-      weight_new.fma_(grad, -multiplier);
-      assert(false); // approx rowwise AdaGrad is not supported on GPU
-    """
-
-    generate(
-        optimizer="approx_rowwise_adagrad_with_counter",
-        args=make_args(
-            [
-                (TENSOR, "momentum1"),
-                (TENSOR, "prev_iter"),
-                (TENSOR, "row_counter"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "iter"),
-                (INT, "counter_halflife", -1),
-                (INT, "adjustment_iter", -1),
-                (FLOAT, "adjustment_ub", 1.0),
-                (INT, "learning_rate_mode", -1),
-                (INT, "weight_decay_mode", 1),
-                (INT, "grad_sum_decay", -1),
-                (FLOAT, "max_counter"),
-                (FLOAT, "tail_id_threshold", 0.0),
-                (INT, "is_tail_id_thresh_ratio", 0),
-            ]
-        ),
-        split_precomputation=split_precomputation,
-        split_weight_update=approx_split_weight_update,
-        split_weight_update_cpu=split_weight_update_cpu,
-        has_cpu_support=True,
-        has_gpu_support=False,
-    )
-
 
 def rowwise_weighted_adagrad() -> None:
     split_weight_update = """
@@ -917,23 +726,6 @@ def sgd() -> None:
         args=make_args([(FLOAT, "learning_rate")]),
         split_precomputation="",
         split_weight_update=split_weight_update,
-        split_weight_update_cpu=split_weight_update_cpu,
-        has_cpu_support=True,
-        has_gpu_support=True,
-    )
-
-    approx_split_weight_update = """
-      // approx_sgd not supported for GPU.
-      // Just do the same thing as exact sgd to avoid unused variable warning.
-      weight_new.fma_(grad, -learning_rate);
-      assert(false); // approx SGD is not supported on GPU
-    """
-
-    generate(
-        optimizer="approx_sgd",
-        args=make_args([(FLOAT, "learning_rate")]),
-        split_precomputation="",
-        split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -1364,7 +1156,6 @@ def emb_codegen(
     partial_rowwise_adam()
     partial_rowwise_lamb()
     rowwise_adagrad()
-    # rowwise_adagrad_with_weight_decay() # Disabled
     rowwise_adagrad_with_counter()
     rowwise_weighted_adagrad()
     sgd()

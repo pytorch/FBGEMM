@@ -323,6 +323,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 SparseType.FP16,
                 SparseType.BF16,
             ], "Fused pooled embedding quantization only supported for cuda."
+        assert optimizer not in (
+            OptimType.ROWWISE_ADAGRAD,
+            OptimType.SGD,
+        ), f"Optimizer {optimizer} is deprecated."
 
         if device is None:
             # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
@@ -428,8 +432,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_SGD,
-                OptimType.ROWWISE_ADAGRAD,
-                OptimType.SGD,
             ), f"Optimizer {optimizer} is not supported in cpu mode."
         else:
             assert optimizer in (
@@ -442,7 +444,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.LARS_SGD,
                 OptimType.PARTIAL_ROWWISE_ADAM,
                 OptimType.PARTIAL_ROWWISE_LAMB,
-                OptimType.SGD,
             ), f"Optimizer {optimizer} is not supported."
 
         self.stochastic_rounding = stochastic_rounding
@@ -775,9 +776,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.EXACT_SGD:
             return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
-        elif self.optimizer == OptimType.SGD:
-            assert self.use_cpu, "Approx SGD is only supported in CPU mode"
-            return invokers.lookup_approx_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
             # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
@@ -931,23 +929,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
             else:
                 return invokers.lookup_rowwise_adagrad.invoke(
-                    common_args, self.optimizer_args, momentum1
-                )
-        if self.optimizer == OptimType.ROWWISE_ADAGRAD:
-            assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
-            if self._used_rowwise_adagrad_with_counter:
-                return invokers.lookup_approx_rowwise_adagrad_with_counter.invoke(
-                    common_args,
-                    self.optimizer_args,
-                    momentum1,
-                    prev_iter,
-                    row_counter,
-                    # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                    self.iter.item(),
-                    self.max_counter.item(),
-                )
-            else:
-                return invokers.lookup_approx_rowwise_adagrad.invoke(
                     common_args, self.optimizer_args, momentum1
                 )
 

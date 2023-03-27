@@ -103,15 +103,10 @@ endif()
 
 set(OPTIMIZERS
     adagrad
-    approx_sgd
     rowwise_adagrad
     rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
     sgd)
-
-set(CPU_ONLY_OPTIMIZERS
-    approx_rowwise_adagrad
-    approx_rowwise_adagrad_with_counter)
 
 set(GPU_ONLY_OPTIMIZERS
     adam
@@ -120,9 +115,9 @@ set(GPU_ONLY_OPTIMIZERS
     partial_rowwise_adam
     partial_rowwise_lamb)
 
-set(CPU_OPTIMIZERS ${OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS})
+set(CPU_OPTIMIZERS ${OPTIMIZERS})
 set(GPU_OPTIMIZERS ${OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
-set(ALL_OPTIMIZERS ${OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
+set(ALL_OPTIMIZERS ${OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 
 set(gen_gpu_source_files
     "gen_embedding_forward_dense_weighted_codegen_cuda.cu"
@@ -170,7 +165,6 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py
     ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host_cpu.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_approx_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_template.cpp
