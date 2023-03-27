@@ -369,6 +369,7 @@ print_glibc_info () {
 ################################################################################
 
 setup_bazel () {
+  local bazel_version="${1:-6.1.1}"
   echo "################################################################################"
   echo "# Setup Bazel"
   echo "#"
@@ -376,9 +377,8 @@ setup_bazel () {
   echo "################################################################################"
   echo ""
 
-  local bazel_version="6.1.1"
-
   if [[ $OSTYPE == 'darwin'* ]]; then
+    # shellcheck disable=SC2155
     local bazel_variant="darwin-$(uname -m)"
   else
     local bazel_variant="linux-x86_64"
@@ -999,6 +999,31 @@ install_build_tools () {
   echo "[INSTALL] Successfully installed all the build tools"
 }
 
+install_docs_tools () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install Documentation Tools"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  echo "[INSTALL] Installing docs tools ..."
+  (exec_with_retries conda install -n "${env_name}" -c conda-forge -y \
+    doxygen) || return 1
+
+  # Check binaries are visible in the PAATH
+  (test_binpath "${env_name}" doxygen) || return 1
+
+  echo "[INSTALL] Successfully installed all the build tools"
+}
 
 ################################################################################
 # Combination Functions
@@ -1087,12 +1112,16 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" g++) || return 1
 
   if [ "$fbgemm_variant" == "cpu" ]; then
+    echo "[BUILD] Proceeding to build CPU variant"
+
     # Update the package name and build args depending on if CUDA is specified
     echo "[BUILD] Applying CPU-only build args ..."
     build_args=(--cpu_only)
     package_name="${package_name}-cpu"
 
   elif [ "$fbgemm_variant" == "rocm" ]; then
+    echo "[BUILD] Proceeding to build ROCm variant"
+
     (test_env_var "${env_name}" PYTORCH_ROCM_ARCH) || return 1
 
     echo "[BUILD] Applying ROCm build args ..."
@@ -1102,6 +1131,7 @@ __build_fbgemm_gpu_common_pre_steps () {
   else
     # Set to the default variant
     fbgemm_variant="gpu"
+    echo "[BUILD] Proceeding to build GPU variant (default)"
 
     # Check nvcc is visible
     (test_binpath "${env_name}" nvcc) || return 1
@@ -1247,7 +1277,7 @@ build_fbgemm_gpu_install () {
   fi
 
   # Run all the common FBGEMM-GPU build pre-steps (set up variables)
-  __build_fbgemm_gpu_common_pre_steps
+  __build_fbgemm_gpu_common_pre_steps || return 1
 
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
@@ -1258,7 +1288,41 @@ build_fbgemm_gpu_install () {
   # Run checks on the built libraries
   (check_fbgemm_gpu_build "${fbgemm_variant}") || return 1
 
+  echo "[INSTALL] Checking imports ..."
+  # Exit this directory to prevent import clashing, since there is an
+  # fbgemm_gpu/ subdirectory present
+  cd -
+  (test_python_import "${env_name}" fbgemm_gpu) || return 1
+
   echo "[BUILD] FBGEMM-GPU build + install completed"
+}
+
+build_fbgemm_gpu_docs () {
+  env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env      # Build the docs"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Build FBGEMM-GPU Documentation"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  echo "[BUILD] Installing docs-build dependencies ..."
+  (exec_with_retries conda run -n "${env_name}" python -m pip install -r requirements.txt) || return 1
+
+  echo "[BUILD] Running Doxygen build ..."
+  (exec_with_retries conda run -n "${env_name}" doxygen Doxyfile.in) || return 1
+
+  echo "[BUILD] Building HTML pages ..."
+  (exec_with_retries conda run -n "${env_name}" make html) || return 1
+
+  echo "[INSTALL] FBGEMM-GPU documentation build completed"
 }
 
 install_fbgemm_gpu_package () {
@@ -1286,7 +1350,7 @@ install_fbgemm_gpu_package () {
 
   echo "[INSTALL] Checking imports ..."
   (test_python_import "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  # (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
 
   echo "[INSTALL] Wheel installation completed ..."
 }

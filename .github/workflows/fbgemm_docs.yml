@@ -3,89 +3,87 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-name: FBGEMM Documentation
+name: FBGEMM GPU Documentation
+
 on:
+  # PR Trigger
+  #
+  pull_request:
+    branches:
+      - main
+
+  # Push Trigger (enable to catch errors coming out of multiple merges)
+  #
   push:
     branches:
       - main
+
+  # Manual Trigger (for testing only)
+  #
+  workflow_dispatch:
+
 jobs:
-  build_docs_job:
+  build-docs:
     runs-on: linux.2xlarge
+    container:
+      image: amazonlinux:2023
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.11" ]
+
     steps:
-    # Checkout the repository to the GitHub Actions runner
-    - name: Checkout
+    - name: Setup Build Container
+      run: yum update -y; yum install -y binutils findutils git rsync sudo tar wget which
+
+    - name: Checkout the Repository
       uses: actions/checkout@v3
       with:
         submodules: true
-    # Update references
-    # TODO: update the git submodule sync after we fixed the auto-sync part
-    - name: Git Sumbodule Update
-      run: |
-        git submodule init
-        git submodule update --remote --recursive
-        git log
-    - name: Update pip
-      run: |
-        sudo yum update -y
-        sudo yum -y install git python3-pip
-        sudo pip3 install --upgrade pip
-    - name: Setup conda
-      run: |
-        wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
-        bash ~/miniconda.sh -b -p $HOME/miniconda -u
-    - name: setup Path
-      run: |
-        echo "/home/ec2-user/miniconda/bin" >> $GITHUB_PATH
-        echo "CONDA=/home/ec2-user/miniconda" >> $GITHUB_PATH
-    - name: create conda env
-      run: |
-        conda create --name build_binary python=3.9
-        conda info
-    - name: check python version
-      run: |
-        conda run -n build_binary python --version
-    - name: Install gcc
-      shell: bash
-      run: |
-        sudo yum group install -y "Development Tools"
-    - name: Setup Path
-      run: |
-        echo /usr/local/bin >> $GITHUB_PATH
-    - name: Install PyTorch
-      shell: bash
-      run: |
-        conda run -n build_binary python -m pip install --pre torch -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
-    - name: Test PyTorch Installation
-      run: |
-        conda run -n build_binary python -c "import torch.distributed"
-        echo "torch.distributed succeeded"
-    - name: Install fbgemm_gpu nightly
-      run: |
-        cd ./fbgemm_gpu
-        conda run -n build_binary python -m pip install -r requirements.txt
-        conda run -n build_binary python setup.py install --cpu_only
-    - name: Test fbgemm_gpu installation
-      shell: bash
-      run: |
-        cd ./fbgemm_gpu/docs
-        conda run -n build_binary \
-          python -c "import fbgemm_gpu"
-    - name: Install Doxygen
-      run: |
-        conda install -n build_binary -c conda-forge doxygen
-        which doxygen
-    - name: Build the docset
-      run: |
-        cd ./fbgemm_gpu/docs
-        conda run -n build_binary python -m pip install -r requirements.txt
-        conda run -n build_binary doxygen Doxyfile.in
-        conda run -n build_binary make html
-        cd ..
-    - name: Get output time
-      run: echo "The time was ${{ steps.build.outputs.time }}"
-    - name: Deploy
-      uses: JamesIves/github-pages-deploy-action@releases/v3
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install Documentation Tools
+      run: . $PRELUDE; install_docs_tools $BUILD_ENV
+
+    - name: Install PyTorch-CPU Nightly
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cpu
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build + Install FBGEMM_GPU (CPU version)
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV cpu
+
+    - name: Build FBGEMM_GPU Documentation
+      run: . $PRELUDE; cd fbgemm_gpu/docs; build_fbgemm_gpu_docs $BUILD_ENV
+
+    - name: Deploy FBGEMM_GPU Documentation
+      if: ${{ github.event_name != 'pull_request' }}
+      uses: JamesIves/github-pages-deploy-action@releases/v4
       with:
-          ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: gh-pages # The branch the action should deploy to.
-          FOLDER: fbgemm_gpu/docs/build/html # The folder the action should deploy.
+        branch: gh-pages                    # The branch the action should deploy to
+        folder: fbgemm_gpu/docs/build/html  # The folder the action should deploy
