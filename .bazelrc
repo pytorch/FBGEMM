@@ -47,4 +47,4 @@ build:windows --host_cxxopt=/std:c++17
 build:windows --enable_runfiles
 test:windows --enable_runfiles
 
-build:windows --copt=/nologo --copt=/TP --copt=/DWIN32 --copt=/D_WINDOWS --copt=/GR --copt=/EHsc --copt=/openmp --copt=/wd4244 --copt=/wd4267 --copt=/wd4305 --copt=/wd4309 --copt=/Ob2 --copt=/DNDEBUG --copt=/MD --copt=/showIncludes
+build:windows --copt=/nologo --copt=/DWIN32 --copt=/D_WINDOWS --copt=/GR --copt=/EHsc --copt=/openmp --copt=/wd4244 --copt=/wd4267 --copt=/wd4305 --copt=/wd4309 --copt=/Ob2 --copt=/DNDEBUG --copt=/MD --copt=/showIncludes
