@@ -20,6 +20,7 @@ cc_library(
     includes = [
         "deps/clog/include/",
     ],
+    copts = C_FLAGS,
     linkstatic = True,
     visibility = ["//visibility:public"],
 )
