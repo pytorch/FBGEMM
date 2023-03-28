@@ -1291,7 +1291,7 @@ build_fbgemm_gpu_install () {
   echo "[INSTALL] Checking imports ..."
   # Exit this directory to prevent import clashing, since there is an
   # fbgemm_gpu/ subdirectory present
-  cd -
+  cd - || return 1
   (test_python_import "${env_name}" fbgemm_gpu) || return 1
 
   echo "[BUILD] FBGEMM-GPU build + install completed"
@@ -1350,7 +1350,7 @@ install_fbgemm_gpu_package () {
 
   echo "[INSTALL] Checking imports ..."
   (test_python_import "${env_name}" fbgemm_gpu) || return 1
-  # (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
 
   echo "[INSTALL] Wheel installation completed ..."
 }
