@@ -3,7 +3,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-name: FBGEMM_GPU Release Build
+name: FBGEMM_GPU-CUDA Nightly Build
 
 on:
   # PR Trigger (enabled only for debugging)
@@ -17,6 +17,14 @@ on:
   push:
     branches:
       - main
+
+  # Cron Trigger (UTC)
+  #
+  # Based on the Conda page for PyTorch-nightly, the GPU nightly releases appear
+  # around 02:30 PST every day (roughly 2 hours after the CPU releases)
+  #
+  schedule:
+    - cron:  '45 12 * * *'
 
   # Manual Trigger
   #
@@ -78,8 +86,9 @@ jobs:
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
-    - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test
+    # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
+    - name: Install PyTorch Nightly
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda ${{ matrix.cuda-version }}
 
     - name: Install cuDNN
       run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
@@ -87,14 +96,14 @@ jobs:
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
-    - name: Build FBGEMM_GPU
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV fbgemm_gpu
+    - name: Build FBGEMM_GPU Nightly
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV fbgemm_gpu_nightly
 
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v3
       with:
-        name: fbgemm_gpu_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu-*.whl
+        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+        path: fbgemm_gpu/dist/fbgemm_gpu_nightly-*.whl
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
@@ -135,7 +144,7 @@ jobs:
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v3
       with:
-        name: fbgemm_gpu_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -152,13 +161,14 @@ jobs:
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
-    - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test
+    # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
+    - name: Install PyTorch Nightly
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda ${{ matrix.cuda-version }}
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
-    - name: Install FBGEMM_GPU
+    - name: Install FBGEMM_GPU Nightly
       run: |
         . $PRELUDE
         pwd; ls -la .
@@ -168,8 +178,8 @@ jobs:
       timeout-minutes: 10
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV
 
-    - name: Push FBGEMM_GPU Binary to PYPI
+    - name: Push FBGEMM_GPU Nightly Binary to PYPI
       if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && matrix.cuda-version == matrix.cuda-version-publish }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu-*.whl "$PYPI_TOKEN"
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_nightly-*.whl "$PYPI_TOKEN"
