@@ -42,9 +42,9 @@ AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
       }
     }
     if (paths.empty()) {
-      LOG(WARNING)
-          << "Expect very bad performance for p2p copies, we are going via sys path for GPU "
-          << i << " -> GPU " << j;
+      LOG(WARNING) << "Expect very bad performance for p2p copies, we are "
+                      "going via sys path for GPU "
+                   << i << " -> GPU " << j;
       return std::vector<Node>{-1};
     }
     auto mp = std::max_element(
@@ -122,7 +122,7 @@ void all_to_one(
   static auto intermediate_nodes =
       get_intermediate_node(fbgemm_gpu::get_nvlink_matrix());
   for (auto& ten : input_tensors) {
-    Node src_device_id = ten.get_device();
+    const Node src_device_id = ten.get_device();
     auto intermediate_node =
         intermediate_nodes(src_device_id, target_device.index());
     if (intermediate_node != -1) {
@@ -146,7 +146,7 @@ void all_to_one(
     // do this for non-contig copies. This mimics the behavior of cross-device
     // cudaMemcpyAsync on the default stream.
 
-    at::cuda::CUDAStream copy_stream =
+    at::cuda::CUDAStream const copy_stream =
         at::cuda::getCurrentCUDAStream(device_id);
     // This is a cross-device copy on the src current stream and dst current
     // stream. We perform a two-way barrier between both devices' streams
@@ -186,7 +186,7 @@ void all_to_one(
       if (src.device() == target_device) {
         auto& dst = output_tensors[i];
         // single device memcpy, not that src_device == dst_device.
-        at::cuda::CUDAStream copy_stream =
+        at::cuda::CUDAStream const copy_stream =
             at::cuda::getCurrentCUDAStream(target_device.index());
         AT_CUDA_CHECK(cudaMemcpy2DAsync(
             dst.data_ptr(),
@@ -207,7 +207,7 @@ void all_to_one(
       auto src_device = at::Device(at::kCUDA, device_id);
       // Still on src_device, record stream event
       at::cuda::CUDAGuard device_guard(src_device);
-      at::cuda::CUDAStream copy_stream =
+      at::cuda::CUDAStream const copy_stream =
           at::cuda::getCurrentCUDAStream(device_id);
 
       auto& src_ready = copy_completion_events[device_id];
@@ -262,7 +262,10 @@ Tensor cat_dim_2d(
         output.slice(cat_dim, cumulative_dims[i], cumulative_dims[i + 1]));
   }
   all_to_one(
-      tensors, output_tensors, output_device, /* skip_if_same_device */ false);
+      tensors,
+      output_tensors,
+      output_device,
+      /* skip_if_same_device */ false);
 
   return output;
 }
@@ -273,7 +276,7 @@ void init_p2p_access() {
     for (const auto i : c10::irange(at::cuda::getNumGPUs())) {
       for (const auto j : c10::irange(at::cuda::getNumGPUs())) {
         if (i != j) {
-          at::cuda::CUDAGuard g(i);
+          at::cuda::CUDAGuard const g(i);
           const auto err =
               C10_CUDA_ERROR_HANDLED(cudaDeviceEnablePeerAccess(j, 0));
           if (err == cudaErrorPeerAccessAlreadyEnabled) {
@@ -298,7 +301,7 @@ Tensor merge_pooled_embeddings(
     at::Device target_device,
     int64_t cat_dim = 1) {
   init_p2p_access();
-  at::cuda::CUDAGuard g(target_device);
+  at::cuda::CUDAGuard const g(target_device);
 
   TORCH_CHECK(!pooled_embeddings.empty());
   return cat_dim_2d(pooled_embeddings, uncat_dim_size, target_device, cat_dim);
@@ -308,7 +311,7 @@ std::vector<Tensor> all_to_one_device(
     std::vector<Tensor> input_tensors,
     at::Device target_device) {
   init_p2p_access();
-  at::cuda::CUDAGuard g(target_device);
+  at::cuda::CUDAGuard const g(target_device);
 
   std::vector<Tensor> output_tensors;
   output_tensors.reserve(input_tensors.size());
@@ -332,10 +335,12 @@ std::vector<Tensor> all_to_one_device(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "merge_pooled_embeddings(Tensor[] pooled_embeddings, int uncat_dim_size, Device target_device, int cat_dim=1) -> Tensor");
+      "merge_pooled_embeddings(Tensor[] pooled_embeddings, int "
+      "uncat_dim_size, Device target_device, int cat_dim=1) -> Tensor");
   DISPATCH_TO_CUDA(
       "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings);
   m.def(
-      "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
+      "all_to_one_device(Tensor[] input_tensors, Device target_device) -> "
+      "Tensor[]");
   DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
 }

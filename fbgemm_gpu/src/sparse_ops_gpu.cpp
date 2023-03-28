@@ -207,7 +207,7 @@ class IndexSelectDim0GPUOp
     TORCH_CHECK(grad_outputs.size() == 1);
     TENSOR_ON_CUDA_GPU(grad_outputs[0]);
 
-    bool skip_indices_sorting_fwd =
+    const bool skip_indices_sorting_fwd =
         ctx->saved_data["skip_indices_sorting_fwd"].toBool();
 
     const auto saved = ctx->get_saved_variables();
@@ -216,7 +216,7 @@ class IndexSelectDim0GPUOp
     Tensor orig_indices;
     if (skip_indices_sorting_fwd) {
       // Sort indices
-      Tensor indices = *savedItr++;
+      const Tensor indices = *savedItr++;
       std::tie(sorted_indices, orig_indices) = indices.sort();
     } else {
       sorted_indices = *savedItr++;
@@ -224,15 +224,15 @@ class IndexSelectDim0GPUOp
     }
     TENSOR_ON_CUDA_GPU(sorted_indices);
     TENSOR_ON_CUDA_GPU(orig_indices);
-    Tensor grad_output = grad_outputs[0];
+    const Tensor grad_output = grad_outputs[0];
     TENSORS_ON_SAME_DEVICE(grad_output, sorted_indices);
     auto input_shape = ctx->saved_data["input_shape"].toIntVector();
-    int consecutive_range_start =
+    const int consecutive_range_start =
         ctx->saved_data["consecutive_range_start"].toInt();
-    int consecutive_range_length =
+    const int consecutive_range_length =
         ctx->saved_data["consecutive_range_length"].toInt();
 
-    Tensor undef;
+    const Tensor undef;
     return {
         index_add_with_unique_indices_cuda(
             grad_output,
@@ -287,7 +287,7 @@ class GroupIndexSelectDim0GPUOp
     const int input_dim = first_input.dim();
     const int num_output_rows = first_indices.size(0);
     const int num_input_rows = first_input.size(0);
-    Tensor input_reshaped = first_input.reshape({num_input_rows, -1});
+    const Tensor input_reshaped = first_input.reshape({num_input_rows, -1});
     const int num_cols = input_reshaped.size(1);
     const int cols_per_warp = get_group_index_select_cols_per_warp();
     int64_t warp_offset = 0;
@@ -304,7 +304,8 @@ class GroupIndexSelectDim0GPUOp
       // Verify that all input tensors have the same number of dimensions
       TORCH_CHECK(
           input_dim == input.dim(),
-          "All inputs in group_index_select must have the same number of dimensions");
+          "All inputs in group_index_select must have the same number "
+          "of dimensions");
 
       // Verify that all tensors are on the same GPU
       TENSOR_ON_CUDA_GPU(input);
@@ -316,11 +317,13 @@ class GroupIndexSelectDim0GPUOp
       // Verify that all input tensors have the same shape[0]
       TORCH_CHECK(
           num_output_rows == num_output_rows_,
-          "The number of indices to be selected must be the same for the entire group");
+          "The number of indices to be selected must be the same for "
+          "the entire group");
       TORCH_CHECK(
           num_input_rows == input.size(0),
-          "The number of rows in the input must be the same for the entire group");
-      Tensor input_reshaped_ = input.reshape({num_input_rows, -1});
+          "The number of rows in the input must be the same for the "
+          "entire group");
+      const Tensor input_reshaped_ = input.reshape({num_input_rows, -1});
 
       // Number of columns can be different
       auto num_cols_ = input_reshaped_.size(1);
@@ -337,7 +340,7 @@ class GroupIndexSelectDim0GPUOp
 
       // Create output pointers
       input_shape[0] = num_output_rows_;
-      Tensor output = at::empty(input_shape, input.options());
+      const Tensor output = at::empty(input_shape, input.options());
       outputs.push_back(output);
 
       // Store args
@@ -422,8 +425,8 @@ class GroupIndexSelectDim0GPUOp
 
     const auto saved = ctx->get_saved_variables();
     const auto saved_itr = std::begin(saved);
-    Tensor first_indices = *saved_itr;
-    Tensor fwd_input = *(saved_itr + 1);
+    const Tensor first_indices = *saved_itr;
+    const Tensor fwd_input = *(saved_itr + 1);
 
     std::vector<Tensor> output_group;
     output_group.reserve(group_size + 1);
@@ -435,14 +438,15 @@ class GroupIndexSelectDim0GPUOp
     int64_t* grad_output_ptrs = args_tensor.data_ptr<int64_t>();
     int64_t* grad_input_ptrs = args_tensor.data_ptr<int64_t>() + group_size;
     for (int i = 0; i < group_size; i++) {
-      Tensor& grad = grad_output_group[i];
+      const Tensor& grad = grad_output_group[i];
       TENSOR_ON_CUDA_GPU(grad);
       TENSORS_ON_SAME_DEVICE(grad, first_indices);
 
       auto grad_input_shape = std::vector<int64_t>(
           output_shape_group.begin() + i * output_dim,
           output_shape_group.begin() + (i + 1) * output_dim);
-      Tensor grad_input = at::zeros(grad_input_shape, fwd_input.options());
+      const Tensor grad_input =
+          at::zeros(grad_input_shape, fwd_input.options());
       output_group.push_back(grad_input);
 
       // Put all grad output/input pointers in an array
@@ -486,7 +490,7 @@ Tensor index_select_dim0_gpu(
     c10::optional<int64_t> consecutive_range_start,
     c10::optional<int64_t> consecutive_range_length,
     c10::optional<bool> skip_indices_sorting_fwd) {
-  bool user_skip_indices_sorting_fwd =
+  const bool user_skip_indices_sorting_fwd =
       skip_indices_sorting_fwd ? *skip_indices_sorting_fwd : false;
   return IndexSelectDim0GPUOp::apply(
       input,
@@ -522,7 +526,8 @@ std::vector<Tensor> group_index_select_dim0_gpu(
 
   for (size_t start = 0; start < group_size; start += max_group_size) {
     const auto end = std::min(start + max_group_size, group_size);
-    std::vector<Tensor> input_subgroup(input_itr + start, input_itr + end);
+    const std::vector<Tensor> input_subgroup(
+        input_itr + start, input_itr + end);
     std::vector<Tensor> indices_subgroup(
         indices_itr + start, indices_itr + end);
     std::vector<Tensor> output_subgroup;

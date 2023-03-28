@@ -11,7 +11,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 TEST(tensor_assert_test, gpu_asserts) {
-  at::Tensor on_cpu_empty;
+  at::Tensor const on_cpu_empty;
 
   ASSERT_EQ(on_cpu_empty.numel(), 0);
   EXPECT_NO_THROW(TENSOR_EMPTY_OR_ON_CPU(on_cpu_empty));

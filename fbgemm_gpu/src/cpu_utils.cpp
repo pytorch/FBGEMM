@@ -28,9 +28,9 @@ void radix_sort_kernel(
     int* histogram,
     int* histogram_ps,
     int pass) {
-  int tid = omp_get_thread_num();
-  int nthreads = omp_get_num_threads();
-  int elements_count_4 = elements_count / 4 * 4;
+  const int tid = omp_get_thread_num();
+  const int nthreads = omp_get_num_threads();
+  const int elements_count_4 = elements_count / 4 * 4;
 
   int* local_histogram = &histogram[RDX_HIST_SIZE * tid];
   int* local_histogram_ps = &histogram_ps[RDX_HIST_SIZE * tid];
@@ -82,10 +82,10 @@ void radix_sort_kernel(
     K key_3 = input_keys[i + 2];
     K key_4 = input_keys[i + 3];
 
-    int bin_1 = (key_1 >> (pass * 8)) & 0xFF;
-    int bin_2 = (key_2 >> (pass * 8)) & 0xFF;
-    int bin_3 = (key_3 >> (pass * 8)) & 0xFF;
-    int bin_4 = (key_4 >> (pass * 8)) & 0xFF;
+    const int bin_1 = (key_1 >> (pass * 8)) & 0xFF;
+    const int bin_2 = (key_2 >> (pass * 8)) & 0xFF;
+    const int bin_3 = (key_3 >> (pass * 8)) & 0xFF;
+    const int bin_4 = (key_4 >> (pass * 8)) & 0xFF;
 
     int pos;
     pos = local_histogram_ps[bin_1]++;
@@ -104,7 +104,7 @@ void radix_sort_kernel(
   if (tid == (nthreads - 1)) {
     for (int64_t i = elements_count_4; i < elements_count; ++i) {
       K key = input_keys[i];
-      int pos = local_histogram_ps[(key >> (pass * 8)) & 0xFF]++;
+      const int pos = local_histogram_ps[(key >> (pass * 8)) & 0xFF]++;
       output_keys[pos] = key;
       output_values[pos] = input_values[i];
     }
@@ -120,14 +120,14 @@ std::pair<K*, V*> radix_sort_parallel(
     V* tmp_value_buf,
     int64_t elements_count,
     int64_t max_value) {
-  int maxthreads = omp_get_max_threads();
+  const int maxthreads = omp_get_max_threads();
   alignas(64) int histogram[RDX_HIST_SIZE * maxthreads];
   alignas(64) int histogram_ps[RDX_HIST_SIZE * maxthreads + 1];
   if (max_value == 0) {
     return std::make_pair(inp_key_buf, inp_value_buf);
   }
-  int num_bits = sizeof(K) * 8 - __builtin_clz(max_value);
-  unsigned int num_passes = (num_bits + 7) / 8;
+  const int num_bits = sizeof(K) * 8 - __builtin_clz(max_value);
+  const unsigned int num_passes = (num_bits + 7) / 8;
 
 #pragma omp parallel
   {

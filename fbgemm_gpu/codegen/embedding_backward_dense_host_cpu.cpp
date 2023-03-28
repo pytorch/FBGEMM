@@ -48,8 +48,8 @@ class SplitLookupFunction_Dense_Op
       int64_t pooling_mode,
       c10::optional<Tensor> indice_weights,
       c10::optional<Tensor> feature_requires_grad) {
-    Tensor indice_weights_value = indice_weights.value_or(Tensor());
-    Tensor feature_requires_grad_value =
+    const Tensor indice_weights_value = indice_weights.value_or(Tensor());
+    const Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
     ctx->save_for_backward({
         host_weights,
@@ -180,7 +180,11 @@ Tensor split_embedding_codegen_lookup_dense_function(
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0) -> Tensor");
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor "
+      "weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor "
+      "hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor "
+      "offsets, int pooling_mode, Tensor? indice_weights, Tensor? "
+      "feature_requires_grad, int output_dtype=0) -> Tensor");
   DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
       split_embedding_codegen_lookup_dense_function);
@@ -188,7 +192,11 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0) -> Tensor");
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor "
+      "weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor "
+      "hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor "
+      "offsets, int pooling_mode, Tensor? indice_weights, Tensor? "
+      "feature_requires_grad, int output_dtype=0) -> Tensor");
   DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
       split_embedding_codegen_lookup_dense_function);

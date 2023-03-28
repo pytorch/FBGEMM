@@ -93,7 +93,8 @@ Tensor _float_to_fusednbitrowwise_cpu(
   const int32_t num_elem_per_byte = 8 / bit_rate;
   TORCH_CHECK(
       ncols % (2 * num_elem_per_byte) == 0,
-      "ncols needs to be multiple of 2 Bytes (half type size) to make the address aligned");
+      "ncols needs to be multiple of 2 Bytes (half type size) to make "
+      "the address aligned");
   const int64_t output_columns =
       (ncols + num_elem_per_byte - 1) / num_elem_per_byte +
       2 * sizeof(at::Half);
@@ -213,7 +214,7 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
     const int64_t output_dtype) {
   Tensor output;
 
-  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  const SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
       output = at::empty({0}, input.options().dtype(at::kFloat));
@@ -265,7 +266,7 @@ Tensor fusednbitrowwise_to_float_or_half_cpu(
     const int64_t output_dtype) {
   Tensor output;
 
-  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  const SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
       output = _fusednbitrowwise_to_float_cpu<float>(input, bit_rate);
@@ -405,38 +406,52 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("FloatToFP8RowwiseQuantized(Tensor t, bool forward) -> Tensor");
   m.def(
-      "FloatToFused8BitRowwiseQuantizedOut(Tensor output, Tensor input) -> Tensor");
+      "FloatToFused8BitRowwiseQuantizedOut(Tensor output, Tensor input) -> "
+      "Tensor");
   m.def("HalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("FloatOrHalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("Fused8BitRowwiseQuantizedToFloat(Tensor input) -> Tensor");
   m.def("FP8RowwiseQuantizedToFloat(Tensor input, bool forward) -> Tensor");
   m.def("Fused8BitRowwiseQuantizedToHalf(Tensor input) -> Tensor");
   m.def(
-      "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int output_dtype=0) -> Tensor");
+      "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int "
+      "output_dtype=0) -> Tensor");
   m.def(
-      "Fused8BitRowwiseQuantizedToFloatOut(Tensor output, Tensor input) -> Tensor");
+      "Fused8BitRowwiseQuantizedToFloatOut(Tensor output, Tensor input) -> "
+      "Tensor");
   m.def(
-      "Fused8BitRowwiseQuantizedToFloatMixedDim(Tensor input, Tensor D_offsets, int output_dtype) -> Tensor");
+      "Fused8BitRowwiseQuantizedToFloatMixedDim(Tensor input, Tensor "
+      "D_offsets, int output_dtype) -> Tensor");
   m.def(
-      "FloatToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor");
+      "FloatToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> "
+      "Tensor");
   m.def(
-      "HalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor");
+      "HalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> "
+      "Tensor");
   m.def(
-      "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor");
+      "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int "
+      "bit_rate) -> Tensor");
   m.def(
-      "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> Tensor");
+      "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> "
+      "Tensor");
   m.def(
-      "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> Tensor");
+      "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> "
+      "Tensor");
   m.def(
-      "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0) -> Tensor");
+      "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(Tensor input, int "
+      "bit_rate, int output_dtype=0) -> Tensor");
   m.def(
-      "FloatToHFP8Quantized(Tensor input, int ebits, int exponent_bias, float max_pos) -> Tensor");
+      "FloatToHFP8Quantized(Tensor input, int ebits, int exponent_bias, "
+      "float max_pos) -> Tensor");
   m.def(
-      "HFP8QuantizedToFloat(Tensor input, int ebits, int exponent_bias) -> Tensor");
+      "HFP8QuantizedToFloat(Tensor input, int ebits, int exponent_bias) -> "
+      "Tensor");
   m.def(
-      "FloatToMSFPQuantized(Tensor input, int bounding_box_size, int ebits, int mbits, int bias, float min_pos, float max_pos) -> Tensor");
+      "FloatToMSFPQuantized(Tensor input, int bounding_box_size, int ebits, "
+      "int mbits, int bias, float min_pos, float max_pos) -> Tensor");
   m.def(
-      "MSFPQuantizedToFloat(Tensor input, int ebits, int mbits, int bias) -> Tensor");
+      "MSFPQuantizedToFloat(Tensor input, int ebits, int mbits, int bias) -> "
+      "Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
