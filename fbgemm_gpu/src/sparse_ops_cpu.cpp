@@ -94,11 +94,12 @@ void _permute_2D_indices_weights_kernel_cpu(
       0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         offsets_t output_start = output_offsets_per_thread_cumsum
             [at::get_thread_num() * FALSE_SHARING_PAD];
-        int64_t t_begin = tb_begin / B;
-        int64_t t_end = (tb_end + B - 1) / B;
+        int64_t const t_begin = tb_begin / B;
+        int64_t const t_end = (tb_end + B - 1) / B;
         for (const auto t : c10::irange(t_begin, t_end)) {
-          int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
-          int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+          int64_t const b_begin = (t == t_begin) ? tb_begin % B : 0;
+          int64_t const b_end =
+              (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
           for (const auto b : c10::irange(b_begin, b_end)) {
             offsets_t permuted_length = permuted_lengths[t * B + b];
             const offsets_t input_start = input_offsets[permute[t] * B + b];
@@ -124,7 +125,7 @@ void _permute_2D_lengths_cpu_kernel(
     index_t* const __restrict__ permuted_lengths,
     index_t* const __restrict__ input_offsets,
     int64_t* const __restrict__ output_offsets_per_thread_cumsum) {
-  int num_threads = at::get_num_threads();
+  const int num_threads = at::get_num_threads();
   std::vector<int> input_offsets_per_thread_cumsum(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
@@ -141,11 +142,12 @@ void _permute_2D_lengths_cpu_kernel(
         }
 
         index_t current_output_offset = 0;
-        int64_t t_begin = tb_begin / B;
-        int64_t t_end = (tb_end + B - 1) / B;
+        int64_t const t_begin = tb_begin / B;
+        int64_t const t_end = (tb_end + B - 1) / B;
         for (const auto t : c10::irange(t_begin, t_end)) {
-          int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
-          int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+          int64_t const b_begin = (t == t_begin) ? tb_begin % B : 0;
+          int64_t const b_end =
+              (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
           for (const auto b : c10::irange(b_begin, b_end)) {
             auto permuted_length = lengths[permute[t] * B + b];
             permuted_lengths[t * B + b] = permuted_length;
@@ -261,8 +263,8 @@ void _block_bucketize_sparse_features_cpu(
         // bucketization can distribute them into different ranks and within
         // range of blk_size, we expect the later embedding module to take care
         // of hashing indices calculation.
-        uindex_t idx = static_cast<uindex_t>(indices_data[i]);
-        uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
+        const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        const uindex_t p = idx < static_cast<uindex_t>(blk_size * my_size)
             ? idx / blk_size
             : idx % my_size;
         new_lengths_data[p * lengths_size + b_t]++;
@@ -330,7 +332,7 @@ void BFloat16QuantizedToFloat_ref(
     const at::BFloat16* input_elem = input + idx;
     float* output_elem = output + idx;
 
-    uint32_t val_fp32 =
+    const uint32_t val_fp32 =
         static_cast<uint32_t>(*reinterpret_cast<const uint16_t*>(input_elem))
         << 16;
     *reinterpret_cast<uint32_t*>(output_elem) = val_fp32;
@@ -483,7 +485,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
   const auto lengths_size = lengths.numel();
   auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
 
-  int num_threads = at::get_num_threads();
+  const int num_threads = at::get_num_threads();
   std::vector<int64_t> output_offsets_per_thread_cumsum(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
@@ -647,8 +649,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
   const auto permuted_lengths_size = permute.numel();
   permuted_lengths = at::empty({permuted_lengths_size}, lengths.options());
 
-  int num_threads = at::get_num_threads();
-  std::vector<int64_t> output_offsets_per_thread_cumsum(
+  const int num_threads = at::get_num_threads();
+  const std::vector<int64_t> output_offsets_per_thread_cumsum(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
   AT_DISPATCH_INDEX_TYPES(
@@ -1881,11 +1883,12 @@ void _permute_data_kernel_cpu(
       0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         index_t output_start = output_offsets_per_thread_cumsum
             [at::get_thread_num() * FALSE_SHARING_PAD];
-        int64_t t_begin = tb_begin / B;
-        int64_t t_end = (tb_end + B - 1) / B;
+        int64_t const t_begin = tb_begin / B;
+        int64_t const t_end = (tb_end + B - 1) / B;
         for (const auto t : c10::irange(t_begin, t_end)) {
-          int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
-          int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+          int64_t const b_begin = (t == t_begin) ? tb_begin % B : 0;
+          int64_t const b_end =
+              (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
           for (const auto b : c10::irange(b_begin, b_end)) {
             index_t permuted_length = permuted_lengths[t * B + b];
             const index_t input_start = input_offsets[permute[t] * B + b];
@@ -1919,7 +1922,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
 
   TORCH_CHECK(
       lengths.dim() == 2,
-      "The dimension of lengths tensor should be equal to 2 to correctly infer number of features and batch size.");
+      "The dimension of lengths tensor should be equal to 2 to "
+      "correctly infer number of features and batch size.");
 
   const auto permute_contig = permute.expect_contiguous();
   const auto lengths_contig = lengths.expect_contiguous();
@@ -1938,7 +1942,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
   const auto lengths_size = lengths.numel();
   auto input_offsets = at::empty({lengths_size + 1}, lengths.options());
 
-  int num_threads = at::get_num_threads();
+  const int num_threads = at::get_num_threads();
   std::vector<int64_t> output_offsets_per_thread_cumsum(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
@@ -2044,7 +2048,7 @@ void _permute_lengths_cpu_kernel(
     index_t* const __restrict__ permuted_lengths,
     index_t* const __restrict__ input_offsets,
     int64_t* const __restrict__ output_offsets_per_thread_cumsum) {
-  int num_threads = at::get_num_threads();
+  const int num_threads = at::get_num_threads();
   std::vector<int> input_offsets_per_thread_cumsum(
       (num_threads + 1) * FALSE_SHARING_PAD, 0);
 
@@ -2062,11 +2066,12 @@ void _permute_lengths_cpu_kernel(
         }
 
         index_t current_output_offset = 0;
-        int64_t t_begin = tb_begin / B;
-        int64_t t_end = (tb_end + B - 1) / B;
+        int64_t const t_begin = tb_begin / B;
+        int64_t const t_end = (tb_end + B - 1) / B;
         for (const auto t : c10::irange(t_begin, t_end)) {
-          int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
-          int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+          int64_t const b_begin = (t == t_begin) ? tb_begin % B : 0;
+          int64_t const b_end =
+              (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
           for (const auto b : c10::irange(b_begin, b_end)) {
             auto permuted_length = lengths[permute[t] * B + b];
             permuted_lengths[t * B + b] = permuted_length;
@@ -2130,11 +2135,12 @@ void _permute_embeddings_kernel_cpu(
       0, T * B, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
         index_t output_start = output_offsets_per_thread_cumsum
             [at::get_thread_num() * FALSE_SHARING_PAD];
-        int64_t t_begin = tb_begin / B;
-        int64_t t_end = (tb_end + B - 1) / B;
+        int64_t const t_begin = tb_begin / B;
+        int64_t const t_end = (tb_end + B - 1) / B;
         for (const auto t : c10::irange(t_begin, t_end)) {
-          int64_t b_begin = (t == t_begin) ? tb_begin % B : 0;
-          int64_t b_end = (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
+          int64_t const b_begin = (t == t_begin) ? tb_begin % B : 0;
+          int64_t const b_end =
+              (t == t_end - 1 && tb_end % B != 0) ? tb_end % B : B;
           for (const auto b : c10::irange(b_begin, b_end)) {
             index_t permuted_length = permuted_lengths[t * B + b];
             const index_t input_start = input_offsets[permute[t] * B + b];
@@ -2164,8 +2170,8 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
 
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
-  c10::optional<Tensor> weights_dummy;
-  c10::optional<int64_t> permuted_lengths_sum_dummy;
+  const c10::optional<Tensor> weights_dummy;
+  const c10::optional<int64_t> permuted_lengths_sum_dummy;
 
   const auto T = permute.numel();
   const auto B = lengths.size(1);
@@ -2217,7 +2223,8 @@ Tensor pack_segments_forward_cpu(
         auto shape = t_in_cont->sizes().vec(); // Get copy of current shape
         shape[0] = max_length; // Set first element to max_len
         shape.insert(
-            shape.begin(), lengths.numel()); // Insert batch size at beginning
+            shape.begin(),
+            lengths.numel()); // Insert batch size at beginning
         packed_tensor = at::zeros(shape, t_in_cont->options());
 
         if (t_in_cont->sizes()[0] == 0) {
@@ -2273,7 +2280,8 @@ Tensor pack_segments_backward_cpu(
       "data must be of type float or double");
   TORCH_CHECK(
       max_length == data.sizes()[1],
-      "max_length should be equal to the second dimension of the packed segments");
+      "max_length should be equal to the second dimension of the "
+      "packed segments");
 
   Tensor unpacked_tensor; // The output tensor
 
@@ -2325,7 +2333,7 @@ class PackSegmentsFunction
       const Tensor& t_in,
       const Tensor& lengths,
       const int64_t max_length) {
-    int64_t total_length = t_in.expect_contiguous()->sizes()[0];
+    const int64_t total_length = t_in.expect_contiguous()->sizes()[0];
     ctx->saved_data["max_length"] = max_length;
     ctx->saved_data["total_length"] = total_length;
     ctx->save_for_backward({lengths});
@@ -2377,7 +2385,7 @@ Tensor index_select_dim0(
 std::vector<Tensor> group_index_select_dim0(
     const std::vector<Tensor>& input_group,
     const std::vector<Tensor>& indices_group) {
-  int num_groups = input_group.size();
+  const int num_groups = input_group.size();
   TORCH_CHECK(num_groups == (int)indices_group.size())
   std::vector<Tensor> output_group;
   for (int i = 0; i < num_groups; i++) {
@@ -2392,7 +2400,7 @@ Tensor bottom_k_per_row(
     const Tensor& k_offsets,
     const bool requires_unique) {
   auto num_cols = input.size(-1);
-  Tensor input_reshaped = input.reshape({-1, num_cols});
+  const Tensor input_reshaped = input.reshape({-1, num_cols});
   auto input_accessor = input_reshaped.accessor<int64_t, 2>();
   auto k_offsets_accessor = k_offsets.accessor<int64_t, 1>();
 
@@ -2402,7 +2410,7 @@ Tensor bottom_k_per_row(
       use_fixed_k ? k_offsets_accessor[1] - k_offsets_accessor[0] : 0;
 
   // Create output tensor
-  Tensor output = at::empty(
+  const Tensor output = at::empty(
       {use_fixed_k ? input_reshaped.size(0) * fixed_k
                    : k_offsets_accessor[k_offsets.numel() - 1]},
       input.options());
@@ -2434,7 +2442,7 @@ Tensor bottom_k_per_row(
                 s.size() == static_cast<size_t>(k),
                 "too skewed distribution (alpha too big)")
             int j = 0;
-            for (int64_t x : s) {
+            for (int64_t const x : s) {
               output_accessor[start_k_offset + j] = x;
               ++j;
             }
@@ -2455,49 +2463,82 @@ Tensor bottom_k_per_row(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, "
+      "Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, "
+      "Tensor, Tensor?)");
   m.def(
-      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, "
+      "Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, "
+      "Tensor, Tensor?)");
   m.def(
-      "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, "
+      "Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, "
+      "Tensor, Tensor?)");
   m.def("invert_permute(Tensor permute) -> Tensor");
   m.def(
-      "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, int output_size) -> Tensor");
+      "expand_into_jagged_permute(Tensor permute, Tensor input_offset, "
+      "Tensor output_offset, int output_size) -> Tensor");
   m.def(
-      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool "
+      "bucketize_pos, bool sequence, Tensor block_sizes, int my_size, "
+      "Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
-      "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
+      "bucketize_sparse_features(Tensor lengths, Tensor indices, bool "
+      "bucketize_pos, int my_size, Tensor? weights=None) -> (Tensor, Tensor, "
+      "Tensor?, Tensor?)");
   m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
   m.def("asynchronous_inclusive_cumsum(Tensor t_in) -> Tensor");
   m.def("asynchronous_complete_cumsum(Tensor t_in) -> Tensor");
   m.def(
-      "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor batch_offsets, int num_ads_in_batch) -> Tensor");
+      "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor "
+      "batch_offsets, int num_ads_in_batch) -> Tensor");
   m.def(
-      "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, int num_ads_in_batch) -> Tensor");
+      "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor "
+      "cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor "
+      "batch_offsets, int num_ads_in_batch) -> Tensor");
   m.def("offsets_range(Tensor offsets, int range_size) -> Tensor");
   m.def(
-      "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
+      "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor "
+      "offsets, Tensor indices) -> Tensor");
   m.def(
-      "histogram_binning_calibration(Tensor logit, Tensor bin_num_examples, Tensor bin_num_positives, float positive_weight, float lower_bound, float upper_bound, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
+      "histogram_binning_calibration(Tensor logit, Tensor bin_num_examples, "
+      "Tensor bin_num_positives, float positive_weight, float lower_bound, "
+      "float upper_bound, int bin_ctr_in_use_after, float "
+      "bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
-      "histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, int num_segments, Tensor bin_num_examples, Tensor bin_num_positives, int num_bins, float positive_weight, float lower_bound, float upper_bound, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
+      "histogram_binning_calibration_by_feature(Tensor logit, Tensor "
+      "segment_value, Tensor segment_lengths, int num_segments, Tensor "
+      "bin_num_examples, Tensor bin_num_positives, int num_bins, float "
+      "positive_weight, float lower_bound, float upper_bound, int "
+      "bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
-      "generic_histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, int num_segments, Tensor bin_num_examples, Tensor bin_num_positives, Tensor bin_boundaries, float positive_weight, int bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
+      "generic_histogram_binning_calibration_by_feature(Tensor logit, Tensor "
+      "segment_value, Tensor segment_lengths, int num_segments, Tensor "
+      "bin_num_examples, Tensor bin_num_positives, Tensor bin_boundaries, "
+      "float positive_weight, int bin_ctr_in_use_after, float "
+      "bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
-      "segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> Tensor");
+      "segment_sum_csr(int batch_size, Tensor csr_seg, Tensor values) -> "
+      "Tensor");
   m.def(
-      "embedding_bag_rowwise_prune(Tensor weight, Tensor indicator, float threshold, ScalarType compressed_indices_dtype, bool abs=True, int min_num_rows=0, float? min_save_ratio=1.0) -> (Tensor, Tensor)");
+      "embedding_bag_rowwise_prune(Tensor weight, Tensor indicator, float "
+      "threshold, ScalarType compressed_indices_dtype, bool abs=True, int "
+      "min_num_rows=0, float? min_save_ratio=1.0) -> (Tensor, Tensor)");
   m.def("lengths_range(Tensor t_in, int[]? shape=None) -> Tensor");
   m.def(
-      "lengths_range_out(Tensor output, Tensor t_in, int[]? shape=None) -> Tensor");
+      "lengths_range_out(Tensor output, Tensor t_in, int[]? shape=None) -> "
+      "Tensor");
   m.def(
-      "permute_sparse_features(Tensor permute, Tensor lengths, Tensor indices, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_sparse_features(Tensor permute, Tensor lengths, Tensor "
+      "indices, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)");
   m.def("Bfloat16QuantizedToFloat(Tensor input) -> Tensor");
   m.def("FloatToBfloat16Quantized(Tensor input) -> Tensor");
   m.def(
-      "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> Tensor");
+      "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> "
+      "Tensor");
   m.def(
-      "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
+      "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor "
+      "embeddings) -> (Tensor, Tensor)");
   m.def("pack_segments(Tensor t_in, Tensor lengths, int max_length) -> Tensor");
   // A specialization of at::index_select for selecting dim 0
   //
@@ -2517,9 +2558,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   //
   // skip_indices_sorting_fwd is for skipping indices sorting in forward
   m.def(
-      "index_select_dim0(Tensor input, Tensor indices, int? consecutive_range_start=0, int? consecutive_range_length=0, bool? skip_indices_sorting_fwd=None) -> Tensor");
+      "index_select_dim0(Tensor input, Tensor indices, int? "
+      "consecutive_range_start=0, int? consecutive_range_length=0, bool? "
+      "skip_indices_sorting_fwd=None) -> Tensor");
   m.def(
-      "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]");
+      "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) "
+      "-> Tensor[]");
   // This is an one-off op to be used in split_embedding_utils.py for zipf
   // generation w/o replacement along dim=-1. If requires_unique=True, find
   // smallest unique k.  If the number of unique elements is less than k,
@@ -2528,9 +2572,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // 2 instead of 1 to trigger the fixed-k assumption to keep the k_offsets
   // semantic).
   m.def(
-      "bottom_k_per_row(Tensor input, Tensor k_offsets, bool requires_unique) -> Tensor");
+      "bottom_k_per_row(Tensor input, Tensor k_offsets, bool "
+      "requires_unique) -> Tensor");
   m.def(
-      "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, int batch_size, Tensor? weights=None) -> Tensor[]");
+      "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor "
+      "offsets, Tensor indices, int batch_size, Tensor? weights=None) -> "
+      "Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

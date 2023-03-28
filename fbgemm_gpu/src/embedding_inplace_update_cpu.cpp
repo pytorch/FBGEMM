@@ -32,16 +32,16 @@ void embedding_inplace_update_cpu_kernel(
     const at::TensorAccessor<int64_t, 1>& update_offsets,
     int64_t row_alignment) {
   for (int64_t n = 0; n < update_row_idx.size(0); n++) {
-    int32_t t = update_table_idx[n];
+    const int32_t t = update_table_idx[n];
     auto row_idx = update_row_idx[n];
 
-    SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+    const SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
     const int32_t D_start = D_offsets[t];
     const int32_t D_end = D_offsets[t + 1];
     const int32_t D = D_end - D_start;
     const int32_t D_bytes =
         nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
-    int64_t weight_offset = weights_offsets[t];
+    const int64_t weight_offset = weights_offsets[t];
 
     uint8_t* __restrict__ weight_row;
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
@@ -57,7 +57,7 @@ void embedding_inplace_update_cpu_kernel(
                static_cast<int64_t>(D_bytes) * static_cast<int64_t>(row_idx)];
     }
 
-    int64_t update_weight_offset = update_offsets[n];
+    const int64_t update_weight_offset = update_offsets[n];
 
     const uint8_t* __restrict__ update_weight_row =
         &update_weights[update_weight_offset];
@@ -94,7 +94,7 @@ void embedding_inplace_update_cpu(
   TENSOR_ON_CPU(update_offsets);
   TENSOR_ON_CPU(update_weights);
 
-  int64_t N = update_row_idx.numel();
+  const int64_t N = update_row_idx.numel();
   if (N == 0) {
     return;
   }
@@ -120,7 +120,12 @@ void embedding_inplace_update_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "emb_inplace_update(Tensor(a!) dev_weights, Tensor(b!) uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, Tensor update_weights, Tensor update_table_indices, Tensor update_row_indices, Tensor update_offsets, int row_alignment=1, Tensor(c!)? lxu_cache_weights=None, Tensor? lxu_cache_locations=None) -> ()");
+      "emb_inplace_update(Tensor(a!) dev_weights, Tensor(b!) uvm_weights, "
+      "Tensor weights_placements, Tensor weights_offsets, Tensor "
+      "weights_tys, Tensor D_offsets, Tensor update_weights, Tensor "
+      "update_table_indices, Tensor update_row_indices, Tensor "
+      "update_offsets, int row_alignment=1, Tensor(c!)? "
+      "lxu_cache_weights=None, Tensor? lxu_cache_locations=None) -> ()");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

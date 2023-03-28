@@ -33,8 +33,8 @@ TEST(cpu_kernel_test, radix_sort_parallel_test) {
       keys.size(),
       10);
 
-  std::array<int, 8> expect_keys_tmp = {1, 2, 2, 3, 4, 4, 5, 9};
-  std::array<int, 8> expect_values_tmp = {0, 0, 1, 1, 0, 1, 0, 1};
+  const std::array<int, 8> expect_keys_tmp = {1, 2, 2, 3, 4, 4, 5, 9};
+  const std::array<int, 8> expect_values_tmp = {0, 0, 1, 1, 0, 1, 0, 1};
   EXPECT_EQ(sorted_keys, keys_tmp.data());
   EXPECT_EQ(sorted_values, values_tmp.data());
   EXPECT_EQ(keys_tmp, expect_keys_tmp);
@@ -43,12 +43,12 @@ TEST(cpu_kernel_test, radix_sort_parallel_test) {
 
 TEST(cpu_kernel_test, csr2csc_test) {
   internal::HyperCompressedSparseColumn csc;
-  int B = 2;
-  at::Tensor offsets = torch::tensor({0, 4, 8});
-  at::Tensor indices = torch::tensor({1, 2, 4, 5, 4, 3, 2, 9});
-  int64_t pooling_mode = (int64_t)fbgemm_gpu::PoolingMode::SUM;
+  const int B = 2;
+  at::Tensor const offsets = torch::tensor({0, 4, 8});
+  at::Tensor const indices = torch::tensor({1, 2, 4, 5, 4, 3, 2, 9});
+  const int64_t pooling_mode = (int64_t)fbgemm_gpu::PoolingMode::SUM;
   int table_to_feature_offset[2] = {0, 1};
-  int num_embeddings = 10;
+  const int num_embeddings = 10;
 
   ::internal::csr2csc(
       csc,
@@ -82,7 +82,7 @@ TEST(cpu_kernel_test, csr2csc_test) {
   }
 
   internal::HyperCompressedSparseColumn csc_weighted;
-  at::Tensor indice_weights = torch::tensor(
+  at::Tensor const indice_weights = torch::tensor(
       {1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f}, torch::kFloat32);
   ::internal::csr2csc(
       csc_weighted,

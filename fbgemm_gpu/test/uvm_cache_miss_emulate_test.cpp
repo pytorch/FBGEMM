@@ -29,7 +29,7 @@ std::pair<at::Tensor, at::Tensor> run_emulate_cache_miss(
     at::Tensor lxu_cache_locations,
     const int64_t enforced_misses_per_256,
     const bool gather_uvm_stats = false) {
-  at::Tensor lxu_cache_locations_copy = at::_to_copy(lxu_cache_locations);
+  at::Tensor const lxu_cache_locations_copy = at::_to_copy(lxu_cache_locations);
   const auto options =
       lxu_cache_locations.options().device(at::kCUDA).dtype(at::kInt);
   const auto uvm_cache_stats =
@@ -96,7 +96,7 @@ TEST(uvm_cache_miss_emulate_test, enforced_cache_miss) {
             enforced_misses++;
           }
         }
-        int64_t num_requests_over_256 =
+        const int64_t num_requests_over_256 =
             static_cast<int64_t>(num_requests / 256);
         int64_t expected_misses = num_requests_over_256 *
                 enforced_misses_per_256 +

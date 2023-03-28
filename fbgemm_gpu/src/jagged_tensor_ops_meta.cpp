@@ -46,7 +46,7 @@ Tensor jagged_to_padded_dense_backward_meta(
     const int64_t total_L) {
   auto grad_padded_values = grad_output;
 
-  int32_t D = grad_padded_values.size(-1);
+  const int32_t D = grad_padded_values.size(-1);
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
   auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
@@ -76,8 +76,8 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_add_backward_meta(
     const std::vector<Tensor>& x_offsets,
     const Tensor& y,
     const Tensor& x_values) {
-  Tensor x_values_grad = at::empty_like(grad_output);
-  Tensor y_grad = at::empty_like(y);
+  const Tensor x_values_grad = at::empty_like(grad_output);
+  const Tensor y_grad = at::empty_like(y);
 
   return {x_values_grad, y_grad};
 }
@@ -87,9 +87,9 @@ Tensor dense_to_jagged_forward_meta(
     const std::vector<Tensor>& offsets,
     const c10::optional<int64_t>& total_L) {
   auto dense_values = dense;
-  int32_t D = dense_values.size(-1);
+  const int32_t D = dense_values.size(-1);
   TORCH_CHECK(total_L.has_value(), "total_L is required for meta backend");
-  int64_t total_L_computed = total_L.value();
+  const int64_t total_L_computed = total_L.value();
   auto values = at::zeros({total_L_computed, D}, dense_values.options());
 
   TORCH_CHECK(values.is_meta());
@@ -108,8 +108,8 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward_meta(
     const std::vector<Tensor>& x_offsets,
     const Tensor& y,
     const Tensor& x_values) {
-  Tensor x_values_grad = at::empty_like(grad_output);
-  Tensor y_grad = at::empty_like(y);
+  const Tensor x_values_grad = at::empty_like(grad_output);
+  const Tensor y_grad = at::empty_like(y);
 
   return {x_values_grad, y_grad};
 }
@@ -143,8 +143,8 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward_meta(
     const Tensor& v,
     const Tensor& a_values,
     const Tensor& a_offsets) {
-  Tensor a_values_grad = at::zeros_like(a_values);
-  Tensor v_grad = at::empty_like(v);
+  const Tensor a_values_grad = at::zeros_like(a_values);
+  const Tensor v_grad = at::empty_like(v);
   return {v_grad, a_values_grad};
 }
 

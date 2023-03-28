@@ -34,7 +34,7 @@ void split_embedding_forward_cpu_kernel(
     int64_t pooling_mode,
     Tensor indice_weights,
     Tensor output) {
-  int64_t T = D_offsets.numel() - 1;
+  const int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
@@ -123,7 +123,7 @@ void split_embedding_forward_cpu_kernel(
           const auto L = pool_end - pool_begin;
           memset(output_buf, 0, D * sizeof(at::acc_type<output_t, true>));
           for (auto p = pool_begin; p < pool_end; ++p) {
-            int64_t idx = indices_data[p];
+            int64_t const idx = indices_data[p];
             if (idx < 0 || idx >= hash_size) {
               success = false;
               break;
@@ -175,10 +175,10 @@ Tensor split_embedding_codegen_forward_cpu(
     int64_t pooling_mode,
     Tensor indice_weights,
     int64_t output_dtype) {
-  int64_t T = D_offsets.numel() - 1;
+  const int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
-  int64_t B = (offsets.size(0) - 1) / T;
+  const int64_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(B >= 0);
 
   Tensor output;
@@ -237,7 +237,7 @@ void split_embedding_grad_indice_weights_cpu_kernel(
     Tensor offsets,
     Tensor feature_requires_grad,
     Tensor grad_indice_weights) {
-  int64_t T = D_offsets.numel() - 1;
+  const int64_t T = D_offsets.numel() - 1;
   TORCH_CHECK(T > 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
@@ -332,25 +332,25 @@ void csr2csc_template_(
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
   csc.num_non_zero_columns = 0;
-  int64_t nnz = csr_offsets[table_to_feature_offset[1] * B] -
+  const int64_t nnz = csr_offsets[table_to_feature_offset[1] * B] -
       csr_offsets[table_to_feature_offset[0] * B];
   if (nnz == 0) {
     return;
   }
   csc.row_indices =
       static_cast<int*>(fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(int)));
-  bool has_weights = csr_weights.data() != nullptr;
+  const bool has_weights = csr_weights.data() != nullptr;
   if (IS_VALUE_PAIR) {
     csc.weights = static_cast<float*>(
         fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float)));
   }
 
   int column_ptr_curr = 0;
-  bool is_shared_table =
+  const bool is_shared_table =
       table_to_feature_offset[1] > table_to_feature_offset[0] + 1;
   auto NS = csr_offsets[table_to_feature_offset[1] * B] -
       csr_offsets[table_to_feature_offset[0] * B];
-  int num_non_empty_segments = 0;
+  const int num_non_empty_segments = 0;
 
   using pair_t = std::pair<int, scalar_t>;
   using value_t = typename std::conditional<IS_VALUE_PAIR, pair_t, int>::type;
@@ -374,11 +374,11 @@ void csr2csc_template_(
 #pragma omp parallel for
     for (int b = 0; b < B; ++b) {
       const auto FBb = feature * B + b;
-      int64_t pool_begin = csr_offsets[FBb];
-      int64_t pool_end = csr_offsets[FBb + 1];
-      int64_t L = pool_end - pool_begin;
+      const int64_t pool_begin = csr_offsets[FBb];
+      const int64_t pool_end = csr_offsets[FBb + 1];
+      const int64_t L = pool_end - pool_begin;
       // MEAN pooling will not work with indice_weights!
-      double scale_factor =
+      const double scale_factor =
           (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN &&
            !has_weights && L > 0)
           ? 1.0 / L
@@ -408,7 +408,7 @@ void csr2csc_template_(
           NS,
           num_embeddings);
 
-  int max_thds = omp_get_max_threads();
+  const int max_thds = omp_get_max_threads();
   int num_uniq[max_thds][64];
   for (int i = 0; i < max_thds; i++) {
     num_uniq[i][0] = 0;
@@ -419,7 +419,7 @@ void csr2csc_template_(
     // This block is not needed for single thread
 #pragma omp parallel
     {
-      int tid = omp_get_thread_num();
+      const int tid = omp_get_thread_num();
       num_uniq[tid][0] = 0;
 #pragma omp for schedule(static)
       for (int i = 1; i < NS; i++) {
@@ -456,7 +456,7 @@ void csr2csc_template_(
 
 #pragma omp parallel
   {
-    int tid = omp_get_thread_num();
+    const int tid = omp_get_thread_num();
     int* tstart =
         (tid == 0 ? csc.column_segment_indices + 1
                   : csc.column_segment_indices + num_uniq[tid - 1][0]);
@@ -476,15 +476,15 @@ void csr2csc_template_(
                                                           : &tmpBuf1Values));
     } else {
 #ifdef FBCODE_CAFFE2
-      libdivide::divider<int> divisor(B);
+      const libdivide::divider<int> divisor(B);
 #endif
 
 #pragma omp for schedule(static)
       for (int i = 1; i < NS; ++i) {
-        int v = IS_VALUE_PAIR ? sorted_col_row_index_values_pair[i].first
-                              : sorted_col_row_index_values_int[i];
+        const int v = IS_VALUE_PAIR ? sorted_col_row_index_values_pair[i].first
+                                    : sorted_col_row_index_values_int[i];
 #ifdef FBCODE_CAFFE2
-        int q = v / divisor;
+        const int q = v / divisor;
 #else
         int q = v / B;
 #endif
@@ -562,7 +562,7 @@ void csr2csc(
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
-  bool has_weights = csr_weights.data() != nullptr;
+  const bool has_weights = csr_weights.data() != nullptr;
   if (has_weights ||
       static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
     csr2csc_template_<scalar_t, /*IS_VALUE_PAIR=*/true>(

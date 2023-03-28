@@ -108,7 +108,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
         max_float8_D ? *max_float8_D : 0,
         max_float16_D,
         max_float32_D};
-    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
+    const int64_t max_D =
+        *std::max_element(max_D_list.begin(), max_D_list.end());
     return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
         dev_weights,
         uvm_weights,
@@ -190,8 +191,8 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu(
     c10::optional<Tensor> cache_index_table_map [[maybe_unused]],
     c10::optional<Tensor> lxu_cache_state [[maybe_unused]],
     c10::optional<Tensor> lxu_state [[maybe_unused]]) {
-  LOG(WARNING)
-      << "int_nbit_split_embedding_uvm_caching_codegen_lookup_function shouldn't be called for CPU; it is only for GPU.";
+  LOG(WARNING) << "int_nbit_split_embedding_uvm_caching_codegen_lookup_"
+                  "function shouldn't be called for CPU; it is only for GPU.";
   return int_nbit_split_embedding_codegen_lookup_function_cpu(
       dev_weights,
       uvm_weights,
@@ -249,13 +250,31 @@ Tensor pruned_array_lookup_from_row_idx_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, "
+      "Tensor uvm_weights, Tensor weights_placements, Tensor "
+      "weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, "
+      "int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, "
+      "int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, "
+      "Tensor? indice_weights, int output_dtype=1, Tensor? "
+      "lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? "
+      "row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, "
+      "int? fp8_exponent_bias=-1) -> Tensor");
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function_cpu);
 
   m.def(
-      "int_nbit_split_embedding_uvm_caching_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights=None, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment=-1, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1, Tensor? cache_hash_size_cumsum=None, int? total_cache_hash_size=-1, Tensor? cache_index_table_map=None, Tensor? lxu_cache_state=None, Tensor? lxu_state=None) -> Tensor");
+      "int_nbit_split_embedding_uvm_caching_codegen_lookup_function(Tensor "
+      "dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor "
+      "weights_offsets, Tensor weights_tys, Tensor D_offsets, int total_D, "
+      "int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, "
+      "int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, "
+      "Tensor? indice_weights=None, int output_dtype=1, Tensor? "
+      "lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? "
+      "row_alignment=-1, int? max_float8_D=0, int? fp8_exponent_bits=-1, "
+      "int? fp8_exponent_bias=-1, Tensor? cache_hash_size_cumsum=None, int? "
+      "total_cache_hash_size=-1, Tensor? cache_index_table_map=None, Tensor? "
+      "lxu_cache_state=None, Tensor? lxu_state=None) -> Tensor");
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_uvm_caching_codegen_lookup_function",
       int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu);
@@ -263,25 +282,30 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // GPU version of pruned_hashmap needs to use CPU version of
   // pruned_hashmap_insert
   m.def(
-      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor offsets, Tensor(a!) hash_table, Tensor hash_table_offsets) -> ()");
+      "pruned_hashmap_insert(Tensor indices, Tensor dense_indices, Tensor "
+      "offsets, Tensor(a!) hash_table, Tensor hash_table_offsets) -> ()");
   DISPATCH_TO_CPU(
       "pruned_hashmap_insert", pruned_hashmap_insert_unweighted_cpu);
 
   // CPU version of hashmap Lookup isn't used. For CPUs, we should use
   // PrunedMapCPU below.
   m.def(
-      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor hash_table, Tensor hash_table_offsets) -> Tensor");
+      "pruned_hashmap_lookup(Tensor indices, Tensor offsets, Tensor "
+      "hash_table, Tensor hash_table_offsets) -> Tensor");
   DISPATCH_TO_CPU(
       "pruned_hashmap_lookup", pruned_hashmap_lookup_unweighted_cpu);
 
   // CPU version of array lookup.
   m.def(
-      "pruned_array_lookup(Tensor indices, Tensor offsets, Tensor index_remappings, Tensor index_remappings_offsets) -> Tensor");
+      "pruned_array_lookup(Tensor indices, Tensor offsets, Tensor "
+      "index_remappings, Tensor index_remappings_offsets) -> Tensor");
   DISPATCH_TO_CPU("pruned_array_lookup", pruned_array_lookup_cpu);
 
   // GPU version of array lookup.
   m.def(
-      "pruned_array_lookup_from_row_idx(Tensor update_row_indices, Tensor update_table_indices, Tensor index_remappings, Tensor index_remappings_offsets) -> Tensor");
+      "pruned_array_lookup_from_row_idx(Tensor update_row_indices, Tensor "
+      "update_table_indices, Tensor index_remappings, Tensor "
+      "index_remappings_offsets) -> Tensor");
   DISPATCH_TO_CPU(
       "pruned_array_lookup_from_row_idx", pruned_array_lookup_from_row_idx_cpu);
 }
@@ -316,7 +340,7 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
   std::string serialize() const {
     torch::serialize::OutputArchive archive(
         std::make_shared<torch::jit::CompilationUnit>());
-    int64_t T = maps_.size();
+    const int64_t T = maps_.size();
     auto table_offsets =
         at::empty({T + 1}, at::TensorOptions(at::kCPU).dtype(at::kLong));
     auto table_offsets_acc = table_offsets.accessor<int64_t, 1>();
@@ -349,7 +373,7 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
   }
 
   void insert(Tensor indices, Tensor dense_indices, Tensor offsets, int64_t T) {
-    int32_t B = (offsets.size(0) - 1) / T;
+    const int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
@@ -358,9 +382,9 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     for (int32_t t = 0; t < T; ++t) {
       auto& map = maps_[t];
       for (int32_t b = 0; b < B; ++b) {
-        int32_t indices_start = offsets_acc[t * B + b];
-        int32_t indices_end = offsets_acc[t * B + b + 1];
-        int32_t L = indices_end - indices_start;
+        const int32_t indices_start = offsets_acc[t * B + b];
+        const int32_t indices_end = offsets_acc[t * B + b + 1];
+        const int32_t L = indices_end - indices_start;
         for (int32_t l = 0; l < L; ++l) {
           int32_t slot_sparse_index = indices_acc[indices_start + l];
           int32_t slot_dense_index = dense_indices_acc[indices_start + l];
@@ -375,9 +399,9 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
   }
 
   Tensor lookup(Tensor indices, Tensor offsets) const {
-    int32_t T = maps_.size();
+    const int32_t T = maps_.size();
     TORCH_CHECK(T > 0);
-    int32_t B = (offsets.size(0) - 1) / T;
+    const int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(maps_.size() == T);
     auto dense_indices = empty_like(indices);
@@ -387,11 +411,11 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     for (int32_t t = 0; t < T; ++t) {
       auto& map = maps_[t];
       for (int32_t b = 0; b < B; ++b) {
-        int32_t indices_start = offsets_acc[t * B + b];
-        int32_t indices_end = offsets_acc[t * B + b + 1];
-        int32_t L = indices_end - indices_start;
+        const int32_t indices_start = offsets_acc[t * B + b];
+        const int32_t indices_end = offsets_acc[t * B + b + 1];
+        const int32_t L = indices_end - indices_start;
         for (int32_t l = 0; l < L; ++l) {
-          int32_t slot_sparse_index = indices_acc[indices_start + l];
+          const int32_t slot_sparse_index = indices_acc[indices_start + l];
           auto it = map.find(slot_sparse_index);
           dense_indices_acc[indices_start + l] =
               it != map.end() ? it->second : -1;
@@ -489,17 +513,17 @@ struct TensorQueue : torch::CustomClassHolder {
     Tensor size_tensor;
     size_tensor = dict.at(std::string(key + "/size")).cpu();
     const auto* size_tensor_acc = size_tensor.data_ptr<int64_t>();
-    int64_t queue_size = size_tensor_acc[0];
+    const int64_t queue_size = size_tensor_acc[0];
 
     for (const auto index : c10::irange(queue_size)) {
-      Tensor val;
+      const Tensor val;
       queue_[index] = dict.at(key + "/" + c10::to_string(index));
       queue_.push_back(val);
     }
   }
 
   c10::Dict<std::string, at::Tensor> serialize() const {
-    c10::Dict<std::string, at::Tensor> dict;
+    const c10::Dict<std::string, at::Tensor> dict;
     dict.insert(std::string("init_tensor"), init_tensor_);
     const std::string key = "queue";
     dict.insert(
@@ -512,14 +536,14 @@ struct TensorQueue : torch::CustomClassHolder {
   // Push the element to the rear of queue.
   // Lock is added for thread safe.
   void push(Tensor x) {
-    std::lock_guard<std::mutex> guard(mutex_);
+    const std::lock_guard<std::mutex> guard(mutex_);
     queue_.push_back(x);
   }
   // Pop the front element of queue and return it.
   // If empty, return init_tensor_.
   // Lock is added for thread safe.
   Tensor pop() {
-    std::lock_guard<std::mutex> guard(mutex_);
+    const std::lock_guard<std::mutex> guard(mutex_);
     if (!queue_.empty()) {
       auto val = queue_.front();
       queue_.pop_front();
@@ -531,7 +555,7 @@ struct TensorQueue : torch::CustomClassHolder {
   // Return front element of queue, read-only.
   // We might further optimize with read-write lock.
   Tensor top() {
-    std::lock_guard<std::mutex> guard(mutex_);
+    const std::lock_guard<std::mutex> guard(mutex_);
     if (!queue_.empty()) {
       auto val = queue_.front();
       return val;

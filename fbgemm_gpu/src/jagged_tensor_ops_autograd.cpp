@@ -43,7 +43,8 @@ class JaggedToPaddedDenseOp
                 const std::vector<Tensor>& offsets,
                 const std::vector<int64_t>& max_lengths,
                 const double padding_value)>();
-    Tensor padded_values = op.call(values, offsets, max_lengths, padding_value);
+    const Tensor padded_values =
+        op.call(values, offsets, max_lengths, padding_value);
 
     return {padded_values};
   }
@@ -52,7 +53,7 @@ class JaggedToPaddedDenseOp
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
-    int32_t total_L = ctx->saved_data["total_L"].toInt();
+    const int32_t total_L = ctx->saved_data["total_L"].toInt();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     TORCH_CHECK(total_L >= 0);
@@ -86,17 +87,17 @@ class JaggedDenseDenseAddJaggedOutputOp
     ctx->save_for_backward(offsets);
     ctx->saved_data["dense_shape"] = dense_0.sizes();
 
-    static auto op =
-        c10::Dispatcher::singleton()
-            .findSchemaOrThrow(
-                "fbgemm::jagged_dense_dense_elementwise_add_jagged_output_forward",
-                "")
-            .typed<at::Tensor(
-                const at::Tensor& x_values,
-                const std::vector<at::Tensor>& x_offsets,
-                const at::Tensor& y_0,
-                const at::Tensor& y_1)>();
-    Tensor output = op.call(x_values, offsets, dense_0, dense_1);
+    static auto op = c10::Dispatcher::singleton()
+                         .findSchemaOrThrow(
+                             "fbgemm::jagged_dense_dense_elementwise_add_"
+                             "jagged_output_forward",
+                             "")
+                         .typed<at::Tensor(
+                             const at::Tensor& x_values,
+                             const std::vector<at::Tensor>& x_offsets,
+                             const at::Tensor& y_0,
+                             const at::Tensor& y_1)>();
+    const Tensor output = op.call(x_values, offsets, dense_0, dense_1);
 
     return {output};
   }
@@ -116,12 +117,12 @@ class JaggedDenseDenseAddJaggedOutputOp
                 const std::vector<Tensor>& offsets,
                 const std::vector<int64_t>& max_lengths,
                 const double padding_value)>();
-    Tensor dense_values_grad_0 = op.call(
+    const Tensor dense_values_grad_0 = op.call(
         grad_outputs[0],
         offsets,
         std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
         /*padding_value=*/0);
-    Tensor dense_values_grad_1 = dense_values_grad_0;
+    const Tensor dense_values_grad_1 = dense_values_grad_0;
 
     return {
         grad_outputs[0],
@@ -152,7 +153,7 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
                              const Tensor& x_values,
                              const std::vector<Tensor>& x_offsets,
                              const Tensor& y)>();
-    Tensor output = op.call(x_values, x_offsets, y);
+    const Tensor output = op.call(x_values, x_offsets, y);
 
     return {output};
   }
@@ -165,7 +166,7 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
     for (size_t i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
       x_offsets.push_back(ctx->get_saved_variables()[i]);
     }
-    Tensor y = ctx->get_saved_variables().back();
+    const Tensor y = ctx->get_saved_variables().back();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -207,7 +208,7 @@ class BatchedDenseVecJagged2DMulOp
                 const Tensor& v,
                 const Tensor& a_values,
                 const Tensor& a_offsets)>();
-    Tensor output = op.call(v, a_values, a_offsets);
+    const Tensor output = op.call(v, a_values, a_offsets);
 
     return {output};
   }
@@ -322,9 +323,9 @@ class JaggedSoftmaxOp : public torch::autograd::Function<JaggedSoftmaxOp> {
       torch::autograd::variable_list grad_outputs) {
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
-    Tensor output = *savedItr++;
-    Tensor offsets = *savedItr++;
-    int64_t max_L = ctx->saved_data["max_L"].toInt();
+    const Tensor output = *savedItr++;
+    const Tensor offsets = *savedItr++;
+    const int64_t max_L = ctx->saved_data["max_L"].toInt();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -376,10 +377,10 @@ class JaggedJaggedBmmOp : public torch::autograd::Function<JaggedJaggedBmmOp> {
       torch::autograd::variable_list grad_outputs) {
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
-    Tensor x_values = *savedItr++;
-    Tensor y_values = *savedItr++;
-    Tensor offsets = *savedItr++;
-    int64_t max_L = ctx->saved_data["max_L"].toInt();
+    const Tensor x_values = *savedItr++;
+    const Tensor y_values = *savedItr++;
+    const Tensor offsets = *savedItr++;
+    const int64_t max_L = ctx->saved_data["max_L"].toInt();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -434,10 +435,10 @@ class JaggedDenseBmmOp : public torch::autograd::Function<JaggedDenseBmmOp> {
       torch::autograd::variable_list grad_outputs) {
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
-    Tensor x_values = *savedItr++;
-    Tensor offsets = *savedItr++;
-    Tensor y = *savedItr++;
-    int64_t max_L = ctx->saved_data["max_L"].toInt();
+    const Tensor x_values = *savedItr++;
+    const Tensor offsets = *savedItr++;
+    const Tensor y = *savedItr++;
+    const int64_t max_L = ctx->saved_data["max_L"].toInt();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -485,11 +486,11 @@ class JaggedIndexSelect2dOp
     TENSORS_ON_SAME_DEVICE(lengths, indices);
     TENSORS_ON_SAME_DEVICE(values, indices);
 
-    Tensor output_lengths = at::index_select(lengths, 0, indices);
-    Tensor output_offsets = output_lengths.cumsum(0);
-    Tensor input_offsets = lengths.cumsum(0);
+    const Tensor output_lengths = at::index_select(lengths, 0, indices);
+    const Tensor output_offsets = output_lengths.cumsum(0);
+    const Tensor input_offsets = lengths.cumsum(0);
 
-    int64_t num_dense_output_rows =
+    const int64_t num_dense_output_rows =
         output_offsets[output_offsets.numel() - 1].item<int64_t>();
 
     ctx->save_for_backward({indices, output_offsets, input_offsets});
@@ -523,16 +524,16 @@ class JaggedIndexSelect2dOp
 
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
-    Tensor indices = *savedItr++;
-    Tensor grad_offsets = *savedItr++;
-    Tensor output_offsets = *savedItr++;
-    Tensor grad = grad_outputs[0];
+    const Tensor indices = *savedItr++;
+    const Tensor grad_offsets = *savedItr++;
+    const Tensor output_offsets = *savedItr++;
+    const Tensor grad = grad_outputs[0];
 
     TENSORS_ON_SAME_DEVICE(grad, indices);
 
-    int64_t num_dense_grad_rows =
+    const int64_t num_dense_grad_rows =
         ctx->saved_data["num_dense_grad_rows"].toInt();
-    int64_t num_output_rows = ctx->saved_data["num_input_rows"].toInt();
+    const int64_t num_output_rows = ctx->saved_data["num_input_rows"].toInt();
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -587,7 +588,10 @@ Tensor jagged_dense_elementwise_add(
 
   // Convert x to dense (assume padding is 0.0)
   auto xd = JaggedToPaddedDenseOp::apply(
-      x_values, x_offsets, max_lengths, /* padding_value */ 0.0)[0];
+      x_values,
+      x_offsets,
+      max_lengths,
+      /* padding_value */ 0.0)[0];
 
   auto dense_output = xd + y;
   return dense_output;

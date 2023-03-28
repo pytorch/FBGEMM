@@ -66,20 +66,24 @@ DEFINE_quantile_stat(
 DEFINE_int32(
     tbe_uvm_cache_stat_report,
     -1,
-    "If set to a positive number, it enables UVMCacheStats reporting, and this FLAG value is "
+    "If set to a positive number, it enables UVMCacheStats reporting, "
+    "and this FLAG value is "
     "stats collecting period");
 
 DEFINE_int32(
     tbe_uvm_cache_stats_print_out_period,
     -1,
-    "If tbe_uvm_cache_stat_report is enabled, more detailed raw stats will be printed with this "
+    "If tbe_uvm_cache_stat_report is enabled, more detailed raw stats will be "
+    "printed with this "
     "period. This should be an integer multiple of tbe_uvm_cache_stat_report.");
 
 DEFINE_int32(
     tbe_uvm_cache_enforced_misses,
     0,
-    "If set to non-zero, some cache lookups (tbe_uvm_cache_enforced_misses / 256) are enforced to be misses; "
-    "this is performance evaluation purposes only; and should be zero otherwise.");
+    "If set to non-zero, some cache lookups "
+    "(tbe_uvm_cache_enforced_misses / 256) are enforced to be misses; "
+    "this is performance evaluation purposes only; and should be zero "
+    "otherwise.");
 
 // TODO: align this with uvm_cache_stats_index in
 // split_embeddings_cache_cuda.cu.
@@ -120,7 +124,7 @@ void process_uvm_cache_stats(
       // Report cache stats in per-mille.
       {
         // Add cache stats values into the culmulated variables.
-        std::lock_guard<std::mutex> guard(cache_mutex);
+        const std::lock_guard<std::mutex> guard(cache_mutex);
         std::transform(
             uvm_cache_stats_counters.begin(),
             uvm_cache_stats_counters.end(),
@@ -290,7 +294,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_float8_D ? *max_float8_D : 0,
         max_float16_D,
         max_float32_D};
-    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
+    const int64_t max_D =
+        *std::max_element(max_D_list.begin(), max_D_list.end());
     return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
         dev_weights,
         uvm_weights,
@@ -440,10 +445,10 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     Tensor uvm_cache_stats =
         at::empty({0}, lxu_cache_weights.value().options().dtype(at::kInt));
 #ifdef FBCODE_CAFFE2
-    size_t signature = reinterpret_cast<size_t>(uvm_weights.data_ptr());
+    const size_t signature = reinterpret_cast<size_t>(uvm_weights.data_ptr());
     int64_t call_count = 0;
     {
-      std::lock_guard<std::mutex> guard(uvm_cache_stats_mutex);
+      const std::lock_guard<std::mutex> guard(uvm_cache_stats_mutex);
       if (tbe_call_count.count(signature) == 0) {
         tbe_call_count[signature] = 0;
       }
