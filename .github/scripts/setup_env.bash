@@ -261,13 +261,27 @@ print_gpu_info () {
       echo "[CHECK] NVIDIA driver is required, but does not appear to have been installed.  This will cause FBGEMM_GPU installation to fail!"
       return 1
     fi
-
   else
     if which nvidia-smi; then
       # If nvidia-smi is installed on a machine without GPUs, this will return error
       (print_exec nvidia-smi) || true
     else
       echo "[CHECK] nvidia-smi not found"
+    fi
+  fi
+
+  if [[ "${ENFORCE_AMD_GPU}" ]]; then
+    # Ensure that nvidia-smi is available and returns GPU entries
+    if ! rocm-smi; then
+      echo "[CHECK] AMD driver is required, but does not appear to have been installed.  This will cause FBGEMM_GPU installation to fail!"
+      return 1
+    fi
+  else
+    if which rocm-smi; then
+      # If nvidia-smi is installed on a machine without GPUs, this will return error
+      (print_exec rocm-smi) || true
+    else
+      echo "[CHECK] rocm-smi not found"
     fi
   fi
 }

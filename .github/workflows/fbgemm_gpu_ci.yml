@@ -102,52 +102,70 @@ jobs:
   test_amd_gpu:
     if: ${{ false }}  # Disable the job for now
     runs-on: rocm
+    container:
+      image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
+      options: --user root --device=/dev/kfd --device=/dev/dri --ipc=host --shm-size 16G --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+      ENFORCE_AMD_GPU: 1
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        python-version: [ "3.8", "3.9", "3.10" ]
+        rocm-version: [ "5.3", "5.4.2" ]
 
     steps:
-    - name: pre-checkout
-      shell: bash
+    - name: Setup Build Container
       run: |
-        if [ -d ${{ github.workspace }} ]
-        then
-          sudo chown -R $USER:$USER ${{ github.workspace }}
-        fi
-        sudo add-apt-repository ppa:git-core/ppa
-        sudo apt update
-        sudo apt -y install --only-upgrade git
+        apt update -y
+        apt install -y git rocrand-dev wget
+        git config --global --add safe.directory '*'
 
-    - uses: actions/checkout@v3
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
       with:
-        ref: ${{ github.ref }}
-        submodules: 'true'
+        submodules: true
 
-    - name: build fbgemm_gpu and test
-      shell: bash
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Free Disk Space
+      run: . $PRELUDE; free_disk_space
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install PyTorch-ROCm Nightly
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build FBGEMM_GPU-ROCM Nightly
       run: |
-        set -eux
-        env
-        ls -l
-        DOCKER_IMAGE=rocm/pytorch:rocm5.4_ubuntu20.04_py3.8_pytorch_staging_base
-        docker pull $DOCKER_IMAGE
-        JENKINS_REPO_DIR=fbgemm-private-jenkins
-        JENKINS_REPO_DIR_BAREMETAL=$PWD
-        JENKINS_REPO_DIR_DOCKER=/workspace/$JENKINS_REPO_DIR
-        DOCKER_OPTIONS="\
-        --user 0 \
-        --network=host \
-        --ipc=host \
-        --shm-size 16G \
-        --group-add video \
-        --cap-add=SYS_PTRACE \
-        --security-opt seccomp=unconfined \
-        --device=/dev/kfd \
-        --device=/dev/dri \
-        -v $JENKINS_REPO_DIR_BAREMETAL:$JENKINS_REPO_DIR_DOCKER
-        "
-        docker run $DOCKER_OPTIONS $DOCKER_IMAGE $JENKINS_REPO_DIR_DOCKER/.jenkins/rocm/build_and_test.sh $JENKINS_REPO_DIR_DOCKER
+        . $PRELUDE
+        cd fbgemm_gpu
+
+        # Build for MI250 only to save time.
+        print_exec conda env config vars set -n $BUILD_ENV PYTORCH_ROCM_ARCH=gfx90a
+        print_exec conda run -n $BUILD_ENV python setup.py build develop
+
+    - name: Test FBGEMM_GPU-ROCM Nightly Installation
+      timeout-minutes: 10
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm
 
 
   build_and_test_cpu:
