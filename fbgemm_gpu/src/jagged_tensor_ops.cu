@@ -811,9 +811,9 @@ void jagged_dense_elementwise_jagged_output_opt_(
                   threads_bs,
                   dynamic_smem_size,
                   at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PACKED_TENSOR_ACCESSOR(func_name, x_offsets[0], index_t, 1, at::RestrictPtrTraits, 32),
-                    MAKE_PACKED_TENSOR_ACCESSOR(func_name, t_rows_after_bs, int, 1, at::RestrictPtrTraits, 32),
-                    MAKE_PACKED_TENSOR_ACCESSOR(func_name, t_cols_after_bs, int, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR(x_offsets[0], index_t, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR(t_rows_after_bs, int, 1, at::RestrictPtrTraits, 32),
+                    MAKE_PACKED_TENSOR_ACCESSOR(t_cols_after_bs, int, 1, at::RestrictPtrTraits, 32),
                     nnz,
                     B);
           }
