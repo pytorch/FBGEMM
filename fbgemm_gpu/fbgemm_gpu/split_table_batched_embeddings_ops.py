@@ -2182,9 +2182,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uvm_size: int = weight_split.uvm_size
         self.enforce_hbm: bool = enforce_hbm
 
-        # Assign weights after weights and weights_offsets are initialized.
-        if weight_lists:
-            self._apply_split(
+        self._apply_split(
                 self.dev_size,
                 self.host_size,
                 self.uvm_size,
@@ -2192,6 +2190,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights_physical_offsets,
                 self.enforce_hbm,
             )
+        # Assign weights after weights and weights_offsets are initialized.
+        if weight_lists:
             self.assign_embedding_weights(weight_lists)  # type: ignore
 
         # Handle index remapping for embedding pruning.
