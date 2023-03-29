@@ -75,4 +75,28 @@ void embedding_inplace_update_cpu(
         c10::nullopt // Not used, to match cache interface for CUDA op
 );
 
+/**
+ * Index remapping function that returns the remapped indices.
+ *
+ * Args:
+ *    update_row_indices: row indices for every new row
+ *    update_table_indices: table indices for every new row
+ *    index_remappings: concated index remapping for every embedding table
+ *    index_remappings_offsets: offset for each embedding table
+ *
+ * Returns:
+ *    remapped indices for each new row.
+ */
+Tensor pruned_array_lookup_from_row_idx_cuda(
+    const Tensor& update_row_indices,
+    const Tensor& update_table_indices,
+    const Tensor& index_remappings,
+    const Tensor& index_remappings_offsets);
+
+Tensor pruned_array_lookup_from_row_idx_cpu(
+    const Tensor& update_row_indices,
+    const Tensor& update_table_indices,
+    const Tensor& index_remappings,
+    const Tensor& index_remappings_offsets);
+
 } // namespace fbgemm_gpu
