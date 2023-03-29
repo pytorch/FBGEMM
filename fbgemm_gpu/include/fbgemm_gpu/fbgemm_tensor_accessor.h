@@ -561,7 +561,12 @@ make_packed_tensor_accessor64(
       at::acc_type<T, true>,                          \
       N,                                              \
       PTR_TRAITS>(TENSOR, #TENSOR, FUNC_NAME)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__)
+
 #else
+
 #define MAKE_PACKED_TENSOR_ACCESSOR_BASE(             \
     FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
   make_packed_tensor_accessor##INDEX_NBITS<T, N, PTR_TRAITS>(TENSOR)
@@ -572,4 +577,8 @@ make_packed_tensor_accessor64(
       at::acc_type<T, true>,                          \
       N,                                              \
       PTR_TRAITS>(TENSOR)
+
+#define MAKE_PACKED_TENSOR_ACCESSOR(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE( __VA_ARGS__)
+
 #endif
