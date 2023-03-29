@@ -42,7 +42,12 @@ void bounds_check_indices_cpu(
     Tensor& offsets,
     int64_t bounds_check_mode_,
     Tensor& warning,
-    c10::optional<Tensor> weights) {
+    const c10::optional<Tensor>& weights,
+    const c10::optional<Tensor>& vbe_metadata,
+    const int64_t /*max_B*/) {
+  TORCH_CHECK(
+      !vbe_metadata.has_value(),
+      "bounds_check_indices on CPU does not support variable length (batch size)");
   auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
     warning.zero_();
@@ -163,7 +168,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
   m.def(
-      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None) -> ()");
+      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None, Tensor? vbe_metadata=None, int max_B=-1) -> ()");
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
 }
 
@@ -171,6 +176,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
   m.def(
-      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None) -> ()");
+      "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None, Tensor? vbe_metadata=None, int max_B=-1) -> ()");
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
 }

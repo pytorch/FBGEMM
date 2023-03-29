@@ -23,7 +23,9 @@ void bounds_check_indices_cuda(
     Tensor& offsets,
     int64_t bounds_check_mode,
     Tensor& warning,
-    c10::optional<Tensor> weights);
+    const c10::optional<Tensor>& weights,
+    const c10::optional<Tensor>& vbe_metadata,
+    const int64_t max_B);
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
