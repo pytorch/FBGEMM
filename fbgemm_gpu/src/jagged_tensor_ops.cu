@@ -248,14 +248,14 @@ void jagged_dense_elementwise_dense_output_(
       x_offset_ptrs.vals[d] =                                                 \
           x_offsets_contig[d].template data_ptr<index_t>();                   \
     }                                                                         \
+    const char* func_name =                                                   \
+      "jagged_dense_elementwise_dense_output_kernel_";                        \
     jagged_dense_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, index_t>    \
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
-            x_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
+            MAKE_PACKED_TENSOR_ACCESSOR(x_values, scalar_t, 2, at::RestrictPtrTraits, 32),        \
             x_offset_ptrs,                                                    \
-            y_reshaped                                                        \
-                .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
-            output_reshaped                                                   \
-                .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
+            MAKE_PACKED_TENSOR_ACCESSOR(y_reshaped, scalar_t, 3, at::RestrictPtrTraits, 32),      \
+            MAKE_PACKED_TENSOR_ACCESSOR(output_reshaped, scalar_t, 3, at::RestrictPtrTraits, 32), \
             jagged_dims_tensor,                                               \
             f,                                                                \
             padding_value);                                                   \
