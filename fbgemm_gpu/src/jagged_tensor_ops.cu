@@ -21,6 +21,7 @@
 // clang-format on
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -111,11 +112,11 @@ DEVICE_INLINE bool walk_down_tensor_storage_tree_(
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
 __global__
 __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel_(
-    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     StackArray<index_t*> x_offsets,
-    const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
-    at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
+    const pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
+    pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
     StackArray<int64_t> jagged_dims,
     F f,
     const scalar_t padding_value) {
@@ -282,13 +283,13 @@ Tensor jagged_dense_elementwise_dense_output_(
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
 __global__
 __launch_bounds__(kMaxThreads) void jagged_dense_dense_elementwise_jagged_output_kernel_(
-    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     StackArray<index_t*> x_offsets,
     StackArray<int64_t> x_offsets_sizes,
-    const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y_0,
-    const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y_1,
-    at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y_0,
+    const pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y_1,
+    pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         output_values,
     StackArray<int64_t> jagged_dims,
     F f) {
@@ -373,9 +374,9 @@ __launch_bounds__(kMaxThreads) void jagged_dense_dense_elementwise_jagged_output
 
 template <typename index_t>
 __global__ void jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> rows,
-    at::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> cols,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    pta::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> rows,
+    pta::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> cols,
     int nnz,
     int B) {
   struct SharedMemory<index_t> smem;
@@ -511,13 +512,13 @@ fh(__half& v_out, const __half& x, const __half& y0, const __half& y1, F f) {
 
 template <typename index_t, typename F>
 __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
-    at::PackedTensorAccessor32<c10::Half, 2, at::RestrictPtrTraits> values,
-    const at::PackedTensorAccessor32<c10::Half, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<c10::Half, 2, at::RestrictPtrTraits> values,
+    const pta::PackedTensorAccessor32<c10::Half, 2, at::RestrictPtrTraits>
         x_values,
-    const at::PackedTensorAccessor32<c10::Half, 3, at::RestrictPtrTraits> y0,
-    const at::PackedTensorAccessor32<c10::Half, 3, at::RestrictPtrTraits> y1,
-    const at::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> rows,
-    const at::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> cols,
+    const pta::PackedTensorAccessor32<c10::Half, 3, at::RestrictPtrTraits> y0,
+    const pta::PackedTensorAccessor32<c10::Half, 3, at::RestrictPtrTraits> y1,
+    const pta::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> rows,
+    const pta::PackedTensorAccessor32<int, 1, at::RestrictPtrTraits> cols,
     const int nnz,
     const int E,
     F f) {
@@ -1406,12 +1407,12 @@ jagged_dense_elementwise_add_jagged_output(
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
 __global__
 __launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kernel_(
-    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     StackArray<index_t*> x_offsets,
-    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         y_values,
-    at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
     StackArray<int64_t> jagged_dims,
     F f,
     const scalar_t padding_value) {
@@ -1592,10 +1593,10 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
 
 template <typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
-    const at::PackedTensorAccessor32<scalar_t, 2> v,
-    const at::PackedTensorAccessor32<scalar_t, 2> a_values,
-    const at::PackedTensorAccessor32<index_t, 1> a_offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output) {
+    const pta::PackedTensorAccessor32<scalar_t, 2> v,
+    const pta::PackedTensorAccessor32<scalar_t, 2> a_values,
+    const pta::PackedTensorAccessor32<index_t, 1> a_offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = v.size(1);
@@ -1631,10 +1632,10 @@ __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
 template <typename index_t, typename scalar_t>
 __global__
 __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
-    const at::PackedTensorAccessor32<scalar_t, 2> v,
-    const at::PackedTensorAccessor32<scalar_t, 2> a_values,
-    const at::PackedTensorAccessor32<index_t, 1> a_offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output) {
+    const pta::PackedTensorAccessor32<scalar_t, 2> v,
+    const pta::PackedTensorAccessor32<scalar_t, 2> a_values,
+    const pta::PackedTensorAccessor32<index_t, 1> a_offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = output.size(1);
@@ -1672,10 +1673,10 @@ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
 
 template <typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
-    const at::PackedTensorAccessor32<scalar_t, 2> x,
-    const at::PackedTensorAccessor32<scalar_t, 2> y,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output_values) {
+    const pta::PackedTensorAccessor32<scalar_t, 2> x,
+    const pta::PackedTensorAccessor32<scalar_t, 2> y,
+    const pta::PackedTensorAccessor32<index_t, 1> offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2> output_values) {
   const int B = offsets.size(0) - 1;
   const int H = x.size(0) / B;
   const int max_L = x.size(1);
@@ -1827,9 +1828,9 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
 
 template <const int THREADS_PER_BLOCK, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> values,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output,
+    const pta::PackedTensorAccessor32<scalar_t, 2> values,
+    const pta::PackedTensorAccessor32<index_t, 1> offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2> output,
     const int max_L) {
   const auto B = offsets.size(0) - 1;
   const auto D = output.size(1);
@@ -1970,10 +1971,10 @@ Tensor jagged_softmax_forward(
 
 template <const int THREADS_PER_BLOCK, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> grad_output,
-    const at::PackedTensorAccessor32<scalar_t, 2> output,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> grad_input,
+    const pta::PackedTensorAccessor32<scalar_t, 2> grad_output,
+    const pta::PackedTensorAccessor32<scalar_t, 2> output,
+    const pta::PackedTensorAccessor32<index_t, 1> offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2> grad_input,
     const int max_L) {
   const auto B = offsets.size(0) - 1;
   const auto D = grad_output.size(1);
@@ -2093,10 +2094,10 @@ Tensor jagged_softmax_backward(
 
 template <const int BLOCK_SIZE, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
-    const at::PackedTensorAccessor32<scalar_t, 2> y_values,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 3> output,
+    const pta::PackedTensorAccessor32<scalar_t, 2> x_values,
+    const pta::PackedTensorAccessor32<scalar_t, 2> y_values,
+    const pta::PackedTensorAccessor32<index_t, 1> offsets,
+    pta::PackedTensorAccessor32<scalar_t, 3> output,
     const int max_L) {
   const int B = offsets.size(0) - 1;
   const int M = x_values.size(1);
@@ -2215,10 +2216,10 @@ template <
     typename index_t,
     typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
-    const at::PackedTensorAccessor32<index_t, 1> x_offsets,
-    const at::PackedTensorAccessor32<scalar_t, 3> y,
-    at::PackedTensorAccessor32<scalar_t, 2> output,
+    const pta::PackedTensorAccessor32<scalar_t, 2> x_values,
+    const pta::PackedTensorAccessor32<index_t, 1> x_offsets,
+    const pta::PackedTensorAccessor32<scalar_t, 3> y,
+    pta::PackedTensorAccessor32<scalar_t, 2> output,
     const int max_L) {
   const int B = x_offsets.size(0) - 1;
   const int K = x_values.size(1);
