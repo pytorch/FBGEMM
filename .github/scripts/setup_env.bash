@@ -271,14 +271,14 @@ print_gpu_info () {
   fi
 
   if [[ "${ENFORCE_AMD_GPU}" ]]; then
-    # Ensure that nvidia-smi is available and returns GPU entries
+    # Ensure that rocm-smi is available and returns GPU entries
     if ! rocm-smi; then
       echo "[CHECK] AMD driver is required, but does not appear to have been installed.  This will cause FBGEMM_GPU installation to fail!"
       return 1
     fi
   else
     if which rocm-smi; then
-      # If nvidia-smi is installed on a machine without GPUs, this will return error
+      # If rocm-smi is installed on a machine without GPUs, this will return error
       (print_exec rocm-smi) || true
     else
       echo "[CHECK] rocm-smi not found"
@@ -1181,9 +1181,11 @@ __configure_fbgemm_gpu_build () {
   if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} cpu"
-    echo "    ${FUNCNAME[0]} cuda"
-    echo "    ${FUNCNAME[0]} rocm"
+    echo "    ${FUNCNAME[0]} cpu                          # CPU-only variant"
+    echo "    ${FUNCNAME[0]} cuda                         # CUDA variant for default target(s)"
+    echo "    ${FUNCNAME[0]} cuda '7.0;8.0'               # CUDA variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} rocm                         # ROCm variant for default target(s)"
+    echo "    ${FUNCNAME[0]} rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
     return 1
   else
     echo "################################################################################"
@@ -1283,6 +1285,7 @@ run_fbgemm_gpu_postbuild_checks () {
     # merge_pooled_embeddings is missing in ROCm builds bc it requires NVML
     lib_symbols_to_check+=(
       fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
+      fbgemm_gpu::merge_pooled_embeddings
     )
   fi
 
@@ -1531,6 +1534,7 @@ run_fbgemm_gpu_tests () {
       uvm_test.py
     )
   elif [ "$fbgemm_variant" == "rocm" ]; then
+    # https://github.com/pytorch/FBGEMM/issues/1559
     local ignored_tests=(
       batched_unary_embeddings_test.py
     )
