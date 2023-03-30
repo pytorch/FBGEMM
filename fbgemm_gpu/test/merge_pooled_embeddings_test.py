@@ -100,7 +100,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         r=st.randoms(use_true_random=False),
     )
     # Can instantiate 8 contexts which takes a long time.
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_all_to_one_device(
         self,
         num_inputs,

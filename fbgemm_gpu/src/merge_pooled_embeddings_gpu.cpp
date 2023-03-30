@@ -23,72 +23,85 @@
 using Tensor = at::Tensor;
 
 namespace {
-// Hilariously unoptimized, but algorithmic correctness matters more here, and
-// we only do it once.
-AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
-  auto world_size = at::cuda::getNumGPUs();
-  auto intermediate_node = [&](Node i, Node j) {
-    if (i == j) {
-      return std::vector<Node>{-1};
-    }
-    if (links(i, j) != 0) {
-      return std::vector<Node>{-1};
-    }
+struct DirectConnectedPeer {
+  int64_t num_peer_links;
+  int64_t peer_id;
+  // number of transfers from peer
+  int32_t peer_transfers;
+};
 
-    std::vector<std::pair<Node, Links>> paths;
-    for (const auto k : c10::irange(world_size)) {
-      if (k != i && k != j && links(i, k) != 0 && links(k, j) != 0) {
-        paths.push_back({k, links(i, k) + links(k, j)});
-      }
-    }
-    if (paths.empty()) {
-      LOG(WARNING)
-          << "Expect very bad performance for p2p copies, we are going via sys path for GPU "
-          << i << " -> GPU " << j;
-      return std::vector<Node>{-1};
-    }
-    auto mp = std::max_element(
-                  paths.begin(),
-                  paths.end(),
-                  [](std::pair<Node, Links> a, std::pair<Node, Links> b) {
-                    return a.second < b.second;
-                  })
-                  ->second;
-    std::vector<Node> candidates;
-    for (const auto& p : paths) {
-      if (p.second == mp) {
-        candidates.push_back(p.first);
-      }
-    }
-    return candidates;
-  };
+struct TwoHopTransferContainer {
+  Tensor intermediate_tensor;
+  uint64_t output_idx;
+  std::unique_ptr<at::cuda::CUDAEvent> transfer_cuda_event;
+};
 
-  std::vector<Node> assignments(world_size * world_size);
-  // Use a two-phase assignment protocol as the greedy approach
-  // can lead to unbalanced usage.
-  std::unordered_map<Node, int64_t> uses;
+AdjacencyMatrix<Node> get_intermediate_node(
+    const AdjacencyMatrix<Links>& links) {
+  const auto world_size = at::cuda::getNumGPUs();
+  std::vector<Node> link_vec(static_cast<size_t>(world_size * world_size));
   for (const auto i : c10::irange(world_size)) {
     for (const auto j : c10::irange(world_size)) {
-      auto ims = intermediate_node(i, j);
-      if (ims.size() == 1) {
-        auto v = ims.front();
-        if (v != -1) {
-          uses[v] += 1;
-        }
-        assignments[i * world_size + j] = v;
-      }
+      link_vec[i * world_size + j] = links(i, j);
     }
   }
+  auto link_tensor = at::from_blob(
+      link_vec.data(),
+      {world_size, world_size},
+      at::TensorOptions().dtype(at::kLong));
+  LOG(INFO) << "NVLink Topology Matrix: \n" << link_tensor;
+  std::vector<Node> assignments(
+      static_cast<size_t>(world_size * world_size), -1);
+  for (const auto dst_rank_id : c10::irange(world_size)) {
+    std::vector<int> non_direct_src_ids;
+    non_direct_src_ids.reserve(world_size);
+    std::vector<DirectConnectedPeer> direct_connected_peers;
+    direct_connected_peers.reserve(world_size);
+    for (const auto src_rank_id : c10::irange(world_size)) {
+      if (dst_rank_id == src_rank_id) {
+        continue;
+      }
 
-  for (const auto i : c10::irange(world_size)) {
-    for (const auto j : c10::irange(world_size)) {
-      auto ims = intermediate_node(i, j);
-      if (ims.size() > 1) {
-        auto v = *std::min_element(ims.begin(), ims.end(), [&](Node a, Node b) {
-          return uses[a] < uses[b];
-        });
-        uses[v] += 1;
-        assignments[i * world_size + j] = v;
+      const auto num_peer_links = links(dst_rank_id, src_rank_id);
+      if (num_peer_links > 0) {
+        direct_connected_peers.push_back(
+            {.num_peer_links = num_peer_links,
+             .peer_id = src_rank_id,
+             .peer_transfers = 1});
+      } else {
+        non_direct_src_ids.push_back(src_rank_id);
+      }
+    }
+
+    // Assign intermediate hop ranks for non-directly connected peers.
+    // Assigns intermediate hops based on the number of links from the
+    //  potential intermediate rank to target rank, as well as
+    //  the number of two_hop connections already assigned to the
+    //  intermediate rank.
+    for (const auto i : c10::irange(non_direct_src_ids.size())) {
+      std::sort(
+          direct_connected_peers.begin(),
+          direct_connected_peers.end(),
+          [](const auto& a, const auto& b) {
+            if (a.num_peer_links > b.num_peer_links) {
+              return true;
+            } else if (a.num_peer_links == b.num_peer_links) {
+              return a.peer_transfers < b.peer_transfers;
+            } else {
+              return false;
+            }
+          });
+      const auto non_direct_src_id = non_direct_src_ids.at(i);
+      for (auto& j : direct_connected_peers) {
+        const auto potential_hop_id = j.peer_id;
+        const auto potential_hop_peer_links =
+            links(potential_hop_id, non_direct_src_id);
+        if (potential_hop_peer_links > 0) {
+          assignments[dst_rank_id * world_size + non_direct_src_id] =
+              potential_hop_id;
+          j.peer_transfers += 1;
+          break;
+        }
       }
     }
   }
@@ -100,7 +113,8 @@ AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
         {world_size, world_size},
         at::TensorOptions().dtype(at::kLong));
     LOG(INFO) << "Detected a multi-hop NVLink configuration: \n" << tensor;
-    return [=](Node i, Node j) { return assignments[i * world_size + j]; };
+    return
+        [=](Node src, Node dst) { return assignments[dst * world_size + src]; };
   } else {
     return [](Node, Node) { return -1; };
   }
@@ -111,7 +125,7 @@ AdjacencyMatrix<Node> get_intermediate_node(AdjacencyMatrix<Links> links) {
 // tensor in `input_tensors` is already in the `target_device`, we will skip
 // copy it if `skip_if_same_device` is true.
 void all_to_one(
-    std::vector<Tensor>& input_tensors,
+    const std::vector<Tensor>& input_tensors,
     std::vector<Tensor>& output_tensors,
     at::Device target_device,
     bool skip_if_same_device) {
@@ -119,19 +133,48 @@ void all_to_one(
   std::vector<at::cuda::CUDAEvent> copy_begin_events(num_gpus);
   std::vector<at::cuda::CUDAEvent> copy_completion_events(num_gpus);
 
+  std::vector<TwoHopTransferContainer> two_hop_transfers;
+  two_hop_transfers.reserve(input_tensors.size());
+  std::vector<bool> is_two_hop_transfer;
+  is_two_hop_transfer.reserve(input_tensors.size());
+
   static auto intermediate_nodes =
       get_intermediate_node(fbgemm_gpu::get_nvlink_matrix());
-  for (auto& ten : input_tensors) {
-    Node src_device_id = ten.get_device();
+  for (const auto i : c10::irange(input_tensors.size())) {
+    const auto& src = input_tensors.at(i);
+    Node src_device_id = src.get_device();
     auto intermediate_node =
         intermediate_nodes(src_device_id, target_device.index());
     if (intermediate_node != -1) {
-      ten = ten.to(at::Device(at::kCUDA, intermediate_node));
+      two_hop_transfers.push_back(
+          {.intermediate_tensor = at::empty(
+               src.sizes(),
+               src.options().device(at::Device(at::kCUDA, intermediate_node))),
+           .output_idx = i,
+           .transfer_cuda_event =
+               std::make_unique<at::cuda::CUDAEvent>(cudaEventDisableTiming)});
+      auto& dst = two_hop_transfers.back().intermediate_tensor;
+      at::cuda::CUDAStream copy_stream =
+          at::cuda::getCurrentCUDAStream(src_device_id);
+      AT_CUDA_CHECK(cudaMemcpy2DAsync(
+          dst.data_ptr(),
+          dst.stride(0) * dst.element_size(),
+          src.data_ptr(),
+          src.stride(0) * src.element_size(),
+          src.size(1) * src.element_size(),
+          src.size(0),
+          cudaMemcpyDeviceToDevice,
+          copy_stream));
+      two_hop_transfers.back().transfer_cuda_event->record(copy_stream);
+      is_two_hop_transfer.push_back(true);
+    } else {
+      is_two_hop_transfer.push_back(false);
     }
   }
 
-  // For each source device, we sync its current stream and launch all the
-  // copies that are from that device.
+  // For each source device directly connected to the destination device, we
+  // sync its current stream and launch all the copies that are from that
+  // device.
   for (const auto device_id : c10::irange(num_gpus)) {
     auto src_device = at::Device(at::kCUDA, device_id);
     if (src_device == target_device) {
@@ -160,6 +203,13 @@ void all_to_one(
     device_guard.set_device(src_device);
     dst_ready.block(copy_stream);
     for (const auto i : c10::irange(input_tensors.size())) {
+      const auto metadata = is_two_hop_transfer.at(i);
+      // Initiate all transfer for tensors with direct
+      // NVLink connection to target rank
+      if (metadata) {
+        continue;
+      }
+
       auto& src = input_tensors[i];
       if (src.device() != src_device) {
         continue;
@@ -177,6 +227,43 @@ void all_to_one(
           cudaMemcpyDeviceToDevice,
           copy_stream));
     }
+  }
+
+  // Complete 2-hop transfers to target rank
+  for (auto& two_hop_transfer : two_hop_transfers) {
+    const auto& src = two_hop_transfer.intermediate_tensor;
+    const auto src_device_id = src.get_device();
+    const auto src_device = at::Device(at::kCUDA, src_device_id);
+    if (src_device == target_device) {
+      continue;
+    }
+
+    // intermediate rank
+    at::cuda::CUDAGuard device_guard(src_device);
+    // intermediate rank stream
+    at::cuda::CUDAStream copy_stream =
+        at::cuda::getCurrentCUDAStream(src_device_id);
+    // wait on first hop transfer
+    two_hop_transfer.transfer_cuda_event->block(copy_stream);
+    // synchronize with target rank
+    auto& dst_ready = copy_begin_events[src_device_id];
+    device_guard.set_device(target_device);
+    dst_ready.record(at::cuda::getCurrentCUDAStream(target_device.index()));
+    device_guard.set_device(src_device);
+    dst_ready.block(copy_stream);
+    // originating tensor output position
+    const auto output_index = two_hop_transfer.output_idx;
+    auto& dst = output_tensors.at(output_index);
+    // on source device, launch memcpy.
+    AT_CUDA_CHECK(cudaMemcpy2DAsync(
+        dst.data_ptr(),
+        dst.stride(0) * dst.element_size(),
+        src.data_ptr(),
+        src.stride(0) * src.element_size(),
+        src.size(1) * src.element_size(),
+        src.size(0),
+        cudaMemcpyDeviceToDevice,
+        copy_stream));
   }
 
   // Do the same-GPU cases.
