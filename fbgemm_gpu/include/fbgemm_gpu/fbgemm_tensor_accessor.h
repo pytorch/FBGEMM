@@ -576,6 +576,3 @@ make_packed_tensor_accessor64(
       PTR_TRAITS>(TENSOR)
 
 #endif
-
-#define MAKE_PACKED_TENSOR_ACCESSOR(...) \
-  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__)
