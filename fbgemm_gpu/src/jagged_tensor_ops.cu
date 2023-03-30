@@ -1491,13 +1491,14 @@ void jagged_jagged_elementwise_dense_output_(
       x_offset_ptrs.vals[d] =                                                 \
           x_offsets_contig[d].template data_ptr<index_t>();                   \
     }                                                                         \
+    const char* func_name =                                                   \
+      "jagged_jagged_elementwise_dense_output_kernel_";                       \
     jagged_jagged_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, index_t>   \
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
-            x_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
+            MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, scalar_t, 2),            \
             x_offset_ptrs,                                                    \
-            y_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
-            output_reshaped                                                   \
-                .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
+            MAKE_PACKED_TENSOR_ACCESSOR_32(y_values, scalar_t, 2),            \
+            MAKE_PACKED_TENSOR_ACCESSOR_32(output_reshaped, scalar_t, 3),     \
             jagged_dims_tensor,                                               \
             f,                                                                \
             padding_value);                                                   \
@@ -1737,15 +1738,16 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
               a_values.scalar_type(),
               "dense_vec_jagged_2d_bmm_kernel_2",
               [&] {
+                const char* func_name = "dense_vec_jagged_2d_bmm";
                 dense_vec_jagged_2d_bmm<index_t, scalar_t>
                     <<<div_round_up(B * H, block_dim_y),
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        v.packed_accessor32<scalar_t, 2>(),
-                        a_values.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 2>());
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2));
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
@@ -1793,30 +1795,36 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
                     div_round_up(max_L, kWarpSize) * kWarpSize, kMaxThreads);
                 int block_dim_y = kMaxThreads / block_dim_x;
 
-                dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>
-                    <<<div_round_up(B * H, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        a_values.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        v_grad.packed_accessor32<scalar_t, 2>());
+                {
+                  const char* func_name = "dense_vec_jagged_2d_transposed_bmm";
+                  dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>
+                      <<<div_round_up(B * H, block_dim_y),
+                        dim3(block_dim_x, block_dim_y),
+                        0,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(grad_output, scalar_t, 2),
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(v_grad, scalar_t, 2));
+                }
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
 
                 block_dim_x = std::min(
                     div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
                 block_dim_y = kMaxThreads / block_dim_x;
 
-                outer_prod_jagged_2d_output<index_t, scalar_t>
-                    <<<div_round_up(B * H * max_L, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        v.packed_accessor32<scalar_t, 2>(),
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        a_values_grad.packed_accessor32<scalar_t, 2>());
+                {
+                  const char* func_name = "outer_prod_jagged_2d_output";
+                  outer_prod_jagged_2d_output<index_t, scalar_t>
+                      <<<div_round_up(B * H * max_L, block_dim_y),
+                        dim3(block_dim_x, block_dim_y),
+                        0,
+                        at::cuda::getCurrentCUDAStream()>>>(
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(grad_output, scalar_t, 2),
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
+                          MAKE_PACKED_TENSOR_ACCESSOR_32(a_values_grad, scalar_t, 2));
+                }
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
