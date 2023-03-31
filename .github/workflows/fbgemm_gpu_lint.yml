@@ -6,10 +6,14 @@
 name: FBGEMM_GPU Lint
 
 on:
+  # PR Trigger
+  #
   push:
     branches:
       - main
 
+  # Push Trigger (enable to catch errors coming out of multiple merges)
+  #
   pull_request:
     branches:
       - main
@@ -20,11 +24,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  run_pylint:
+  run-lint:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [ "3.8" ]
+        python-version: [ "3.10" ]
     steps:
     - uses: actions/checkout@v3
 
@@ -38,7 +42,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install click flake8 ufmt
 
-    - name: Analyzing the code with flake8
+    - name: Analyzing the Code with flake8
       run: |
         echo "::add-matcher::fbgemm_gpu/test/lint/flake8_problem_matcher.json"
         flake8 --ignore=E501,W503,E203 .
@@ -46,13 +50,13 @@ jobs:
         # W503 = line break before binary operator (deprecated)
         # E203 = whitespace before ":"
 
-    - name: Analyzing the code with ufmt
+    - name: Analyzing the Code with ufmt
       run: |
         ufmt diff fbgemm_gpu/fbgemm_gpu
         ufmt diff fbgemm_gpu/test
         ufmt diff fbgemm_gpu/bench
 
-    - name: Check Meta copyright header
+    - name: Check Meta Copyright Header
       run: |
         python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/fbgemm_gpu --fixit=False
         python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/test --fixit=False
