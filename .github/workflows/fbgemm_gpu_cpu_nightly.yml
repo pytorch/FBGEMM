@@ -58,7 +58,7 @@ jobs:
 
     steps:
     - name: Setup Build Container
-      run: yum update -y; yum install -y binutils findutils git sudo wget which
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
 
     - name: Checkout the Repository
       uses: actions/checkout@v3
@@ -119,7 +119,7 @@ jobs:
 
     steps:
     - name: Setup Build Container
-      run: yum update -y; yum install -y binutils findutils git sudo wget which
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
 
     - name: Checkout the Repository
       uses: actions/checkout@v3
