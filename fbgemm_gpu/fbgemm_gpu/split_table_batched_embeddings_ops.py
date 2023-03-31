@@ -71,43 +71,6 @@ class WeightDecayMode(enum.IntEnum):
     NONE = 0
     L2 = 1
     DECOUPLE = 2
-    COUNTER = 3
-
-
-class CounterWeightDecayMode(enum.IntEnum):
-    NONE = 0
-    L2 = 1
-    DECOUPLE = 2
-
-
-class LearningRateMode(enum.IntEnum):
-    EQUAL = -1
-    TAIL_ID_LR_INCREASE = 0
-    TAIL_ID_LR_DECREASE = 1
-    COUNTER_SGD = 2
-
-
-class GradSumDecay(enum.IntEnum):
-    NO_DECAY = -1
-    CTR_DECAY = 0
-
-
-@dataclass
-class TailIdThreshold:
-    val: float = 0
-    is_ratio: bool = False
-
-
-@dataclass
-class CounterBasedRegularizationDefinition:
-    counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE
-    counter_halflife: int = -1
-    adjustment_iter: int = -1
-    adjustment_ub: float = 1.0
-    learning_rate_mode: LearningRateMode = LearningRateMode.EQUAL
-    grad_sum_decay: GradSumDecay = GradSumDecay.NO_DECAY
-    tail_id_threshold: TailIdThreshold = field(default_factory=TailIdThreshold)
-    max_counter_update_freq: int = 1000
 
 
 RecordCacheMetrics: NamedTuple = NamedTuple(
@@ -274,9 +237,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
-        counter_based_regularization: Optional[
-            CounterBasedRegularizationDefinition
-        ] = None,  # used by Rowwise Adagrad
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
@@ -450,34 +410,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.stochastic_rounding = stochastic_rounding
         self.optimizer = optimizer
 
-        self.weight_decay_mode = weight_decay_mode
-        if (
-            weight_decay_mode == WeightDecayMode.COUNTER
-            and counter_based_regularization is None
-        ):
-            raise AssertionError(
-                "weight_decay_mode is set to WeightDecayMode.COUNTER but counter_based_regularization is None"
-            )
-
-        self._used_rowwise_adagrad_with_counter: bool = (
-            optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD)
-            and weight_decay_mode == WeightDecayMode.COUNTER
-            and counter_based_regularization is not None
-        )
-
-        if counter_based_regularization is None:
-            counter_based_regularization = CounterBasedRegularizationDefinition()
-        self._max_counter_update_freq: int = -1
-        if self._used_rowwise_adagrad_with_counter:
-            self._max_counter_update_freq = (
-                counter_based_regularization.max_counter_update_freq
-            )
-            opt_arg_weight_decay_mode = (
-                counter_based_regularization.counter_weight_decay_mode
-            )
-        else:
-            opt_arg_weight_decay_mode = weight_decay_mode
-
         self.optimizer_args = invokers.lookup_args.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
@@ -487,18 +419,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             beta1=beta1,
             beta2=beta2,
             weight_decay=weight_decay,
-            weight_decay_mode=opt_arg_weight_decay_mode.value,
+            weight_decay_mode=weight_decay_mode.value,
             eta=eta,
             momentum=momentum,
-            counter_halflife=counter_based_regularization.counter_halflife,
-            adjustment_iter=counter_based_regularization.adjustment_iter,
-            adjustment_ub=counter_based_regularization.adjustment_ub,
-            learning_rate_mode=counter_based_regularization.learning_rate_mode.value,
-            grad_sum_decay=counter_based_regularization.grad_sum_decay.value,
-            tail_id_threshold=counter_based_regularization.tail_id_threshold.val,
-            is_tail_id_thresh_ratio=int(
-                counter_based_regularization.tail_id_threshold.is_ratio
-            ),
         )
 
         if optimizer in (
@@ -506,7 +429,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.EXACT_SGD,
         ):
             # NOTE: make TorchScript work!
-            self._register_nonpersistent_buffers("momentum1")
+            self.register_buffer(
+                "momentum1_dev", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum1_host", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum1_uvm", torch.tensor([0], dtype=torch.int64), persistent=False
+            )
+            self.register_buffer(
+                "momentum1_placements",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_buffer(
+                "momentum1_offsets",
+                torch.tensor([0], dtype=torch.int64),
+                persistent=False,
+            )
         else:
             self._apply_split(
                 construct_split_state(
@@ -545,40 +486,29 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         else:
             # NOTE: make TorchScript work!
-            self._register_nonpersistent_buffers("momentum2")
-        if self._used_rowwise_adagrad_with_counter:
-            self._apply_split(
-                construct_split_state(
-                    embedding_specs,
-                    rowwise=True,
-                    cacheable=False,
-                ),
-                prefix="prev_iter",
-                # TODO: ideally we should use int64 to track iter but it failed to compile.
-                # It may be related to low precision training code. Currently using float32
-                # as a workaround while investigating the issue.
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
-            )
-            self._apply_split(
-                construct_split_state(
-                    embedding_specs,
-                    rowwise=True,
-                    cacheable=False,
-                ),
-                prefix="row_counter",
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
-            )
-            self.register_buffer("max_counter", torch.tensor([1], dtype=torch.float32))
-        else:
-            self._register_nonpersistent_buffers("prev_iter")
-            self._register_nonpersistent_buffers("row_counter")
             self.register_buffer(
-                "max_counter",
-                torch.ones(1, dtype=torch.float32, device=self.current_device),
+                "momentum2_dev",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "momentum2_host",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "momentum2_uvm",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "momentum2_placements",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                persistent=False,
+            )
+            self.register_buffer(
+                "momentum2_offsets",
+                torch.zeros(1, dtype=torch.int64, device=self.current_device),
                 persistent=False,
             )
         if optimizer in (
@@ -591,7 +521,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.register_buffer(
                 "iter", torch.zeros(1, dtype=torch.int64, device=self.current_device)
             )
-
         else:
             self.register_buffer(
                 "iter",
@@ -645,34 +574,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.step = 0
 
-    def _register_nonpersistent_buffers(self, prefix: str) -> None:
-        # NOTE: make TorchScript work!
-        self.register_buffer(
-            f"{prefix}_dev",
-            torch.zeros(1, dtype=torch.int64, device=self.current_device),
-            persistent=False,
-        )
-        self.register_buffer(
-            f"{prefix}_host",
-            torch.zeros(1, dtype=torch.int64, device=self.current_device),
-            persistent=False,
-        )
-        self.register_buffer(
-            f"{prefix}_uvm",
-            torch.zeros(1, dtype=torch.int64, device=self.current_device),
-            persistent=False,
-        )
-        self.register_buffer(
-            f"{prefix}_placements",
-            torch.zeros(1, dtype=torch.int64, device=self.current_device),
-            persistent=False,
-        )
-        self.register_buffer(
-            f"{prefix}_offsets",
-            torch.zeros(1, dtype=torch.int64, device=self.current_device),
-            persistent=False,
-        )
-
     def get_states(self, prefix: str) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         if not hasattr(self, f"{prefix}_physical_placements"):
             raise DoesNotHavePrefix()
@@ -691,7 +592,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def get_all_states(self) -> List[Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]]:
         all_states = []
-        for prefix in ["weights", "momentum1", "momentum2", "prev_iter", "row_counter"]:
+        for prefix in ["weights", "momentum1", "momentum2"]:
             try:
                 all_states.append(self.get_states(prefix))
             except DoesNotHavePrefix:
@@ -782,20 +683,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return invokers.lookup_approx_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
             dev=self.momentum1_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
             host=self.momentum1_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
             uvm=self.momentum1_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
             offsets=self.momentum1_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
             placements=self.momentum1_placements,
         )
 
@@ -807,22 +698,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return invokers.lookup_adagrad.invoke(
                 common_args, self.optimizer_args, momentum1
             )
+        if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+            return invokers.lookup_rowwise_adagrad.invoke(
+                common_args, self.optimizer_args, momentum1
+            )
+        if self.optimizer == OptimType.ROWWISE_ADAGRAD:
+            assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
+            return invokers.lookup_approx_rowwise_adagrad.invoke(
+                common_args, self.optimizer_args, momentum1
+            )
 
         momentum2 = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
             dev=self.momentum2_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
             host=self.momentum2_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
             uvm=self.momentum2_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
             offsets=self.momentum2_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
             placements=self.momentum2_placements,
         )
         # Ensure iter is always on CPU so the increment doesn't synchronize.
@@ -879,79 +769,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 #  int]`.
                 self.iter.item(),
             )
-
-        prev_iter = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
-            dev=self.prev_iter_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
-            host=self.prev_iter_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
-            uvm=self.prev_iter_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
-            offsets=self.prev_iter_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
-            placements=self.prev_iter_placements,
-        )
-        row_counter = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
-            dev=self.row_counter_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
-            host=self.row_counter_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
-            uvm=self.row_counter_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
-            offsets=self.row_counter_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
-            placements=self.row_counter_placements,
-        )
-        if self._used_rowwise_adagrad_with_counter:
-            if self.iter.item() % self._max_counter_update_freq == 0:
-                max_counter = torch.max(self.row_counter_dev.detach())
-                self.max_counter = max_counter.cpu() + 1
-
-        if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
-            if self._used_rowwise_adagrad_with_counter:
-                return invokers.lookup_rowwise_adagrad_with_counter.invoke(
-                    common_args,
-                    self.optimizer_args,
-                    momentum1,
-                    prev_iter,
-                    row_counter,
-                    # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                    self.iter.item(),
-                    self.max_counter.item(),
-                )
-            else:
-                return invokers.lookup_rowwise_adagrad.invoke(
-                    common_args, self.optimizer_args, momentum1
-                )
-        if self.optimizer == OptimType.ROWWISE_ADAGRAD:
-            assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
-            if self._used_rowwise_adagrad_with_counter:
-                return invokers.lookup_approx_rowwise_adagrad_with_counter.invoke(
-                    common_args,
-                    self.optimizer_args,
-                    momentum1,
-                    prev_iter,
-                    row_counter,
-                    # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                    self.iter.item(),
-                    self.max_counter.item(),
-                )
-            else:
-                return invokers.lookup_approx_rowwise_adagrad.invoke(
-                    common_args, self.optimizer_args, momentum1
-                )
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
@@ -1199,12 +1016,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             or self.optimizer == OptimType.ROWWISE_ADAGRAD
             or self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD
         ):
-            split_optimizer_states = self.split_optimizer_states()
             list_of_state_dict = [
-                {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
-                if self._used_rowwise_adagrad_with_counter
-                else {"sum": states[0]}
-                for states in split_optimizer_states
+                {"sum": _sum[0]} for _sum in self.split_optimizer_states()
             ]
         else:
             raise NotImplementedError(
@@ -1214,9 +1027,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         return list_of_state_dict
 
     @torch.jit.ignore
-    def split_optimizer_states(
-        self,
-    ) -> List[List[torch.Tensor]]:
+    def split_optimizer_states(self) -> List[Tuple[torch.Tensor]]:
         """
         Returns a list of states, split by table
         """
@@ -1254,14 +1065,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_uvm,
                     # pyre-fixme[6]: Expected `Tensor` for 4th param but got
                     #  `Union[Tensor, nn.Module]`.
@@ -1285,14 +1090,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_uvm,
                     # pyre-fixme[6]: Expected `Tensor` for 4th param but got
                     #  `Union[Tensor, nn.Module]`.
@@ -1304,49 +1103,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
                 )
             )
-        if self._used_rowwise_adagrad_with_counter:
-            states.append(
-                get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.prev_iter_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.prev_iter_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.prev_iter_uvm,
-                    # pyre-fixme[6]: Expected `Tensor` for 4th param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.prev_iter_physical_offsets,
-                    # pyre-fixme[6]: Expected `Tensor` for 5th param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.prev_iter_physical_placements,
-                    rowwise=True,
-                )
-            )
-            states.append(
-                get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.row_counter_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.row_counter_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.row_counter_uvm,
-                    # pyre-fixme[6]: Expected `Tensor` for 4th param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.row_counter_physical_offsets,
-                    # pyre-fixme[6]: Expected `Tensor` for 5th param but got
-                    #  `Union[Tensor, nn.Module]`.
-                    self.row_counter_physical_placements,
-                    rowwise=True,
-                )
-            )
-        return_states = [list(s) for s in zip(*states)]
-        return return_states
+        return list(zip(*states))
 
     @torch.jit.export
     def set_learning_rate(self, lr: float) -> None:
