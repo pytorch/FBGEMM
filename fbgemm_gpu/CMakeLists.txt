@@ -344,6 +344,10 @@ if(NOT FBGEMM_CPU_ONLY)
 
   if(NVML_LIB_PATH)
     message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")
+  endif()
+
+  if(NVML_LIB_PATH OR USE_ROCM)
+    message(STATUS "Adding merge_pooled_embeddings sources")
     list(
       APPEND
       fbgemm_gpu_sources_cpu
@@ -351,8 +355,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/merge_pooled_embeddings_gpu.cpp
       src/topology_utils.cpp)
   else()
-    message(STATUS
-    "Could not find NVML_LIB_PATH; skipping certain sources into the build")
+    message(STATUS "Skipping merge_pooled_embeddings sources")
   endif()
 endif()
 
