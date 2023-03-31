@@ -550,8 +550,8 @@ make_packed_tensor_accessor64(
 }
 
 #ifdef FBGEMM_GPU_MEMCHECK
-#define MAKE_PACKED_TENSOR_ACCESSOR_BASE(                     \
-    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS)         \
+#define MAKE_PACKED_TENSOR_ACCESSOR_BASE(             \
+    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
   make_packed_tensor_accessor##INDEX_NBITS<T, N, PTR_TRAITS>( \
       TENSOR, #TENSOR, FUNC_NAME)
 
@@ -566,7 +566,6 @@ make_packed_tensor_accessor64(
 
 #define MAKE_PACKED_TENSOR_ACCESSOR_BASE(             \
     FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
-  #pragma message ("[" ##FUNC_NAME,  ##TENSOR,  ##T  ##N  ##PTR_TRAITS  ##INDEX_NBITS "]") \
   make_packed_tensor_accessor##INDEX_NBITS<T, N, PTR_TRAITS>(TENSOR)
 
 #define MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE(    \
