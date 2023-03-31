@@ -2684,11 +2684,32 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def reset_weights_placements_and_offsets(
-        self,
+        self, device: torch.device, location: int
     ) -> None:
+        # Reset device/location denoted in embedding specs
+        self.reset_embedding_spec_location(device, location)
         # Initialize all physical/logical weights placements and offsets without initializing large dev weights tensor
         self.initialize_physical_weights_placements_and_offsets()
         self.initialize_logical_weights_placements_and_offsets()
+
+    def reset_embedding_spec_location(
+        self, device: torch.device, location: int
+    ) -> None:
+        # Overwrite location in embedding_specs with new location
+        # Use map since can't script enum call (ie. EmbeddingLocation(value))
+        INT_TO_EMBEDDING_LOCATION = {
+            0: EmbeddingLocation.DEVICE,
+            1: EmbeddingLocation.MANAGED,
+            2: EmbeddingLocation.MANAGED_CACHING,
+            3: EmbeddingLocation.HOST,
+        }
+        target_location = INT_TO_EMBEDDING_LOCATION[location]
+        self.current_device = device
+        self.row_alignment = 1 if target_location == EmbeddingLocation.HOST else 16
+        self.embedding_specs = [
+            (spec[0], spec[1], spec[2], spec[3], target_location)
+            for spec in self.embedding_specs
+        ]
 
     def _apply_split(
         self,
