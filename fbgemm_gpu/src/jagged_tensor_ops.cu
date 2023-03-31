@@ -1961,14 +1961,15 @@ Tensor jagged_softmax_forward(
               values.scalar_type(),
               "jagged_softmax_kernel_2",
               [&] {
+                const char* func_name = "jagged_softmax_kernel";
                 jagged_softmax_kernel<THREADS_PER_BLOCK, index_t, scalar_t>
                     <<<grid,
                        THREADS_PER_BLOCK,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        values.packed_accessor32<scalar_t, 2>(),
-                        offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 2>(),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
@@ -2081,6 +2082,7 @@ Tensor jagged_softmax_backward(
               grad_output.scalar_type(),
               "jagged_softmax_backward_kernel_2",
               [&] {
+                const char* func_name = "jagged_softmax_backward_kernel";
                 jagged_softmax_backward_kernel<
                     THREADS_PER_BLOCK,
                     index_t,
@@ -2089,10 +2091,10 @@ Tensor jagged_softmax_backward(
                        THREADS_PER_BLOCK,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        output.packed_accessor32<scalar_t, 2>(),
-                        offsets.packed_accessor32<index_t, 1>(),
-                        grad_input.packed_accessor32<scalar_t, 2>(),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(grad_output, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(grad_input, scalar_t, 2),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
@@ -2199,12 +2201,13 @@ Tensor jagged_jagged_bmm_forward(
               x_values.scalar_type(),
               "jagged_jagged_bmm_kernel_2",
               [&] {
+                const char* func_name = "jagged_jagged_bmm_kernel";
                 jagged_jagged_bmm_kernel<BLOCK_SIZE, index_t, scalar_t>
                     <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
-                        x_values.packed_accessor32<scalar_t, 2>(),
-                        y_values.packed_accessor32<scalar_t, 2>(),
-                        offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 3>(),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(y_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 3),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
@@ -2399,6 +2402,7 @@ Tensor jagged_dense_bmm_forward(
               x_values.scalar_type(),
               "jagged_dense_bmm_kernel_2",
               [&] {
+                const char* func_name = "jagged_dense_bmm_kernel";
                 jagged_dense_bmm_kernel<
                     BLOCK_TILE_M,
                     BLOCK_TILE_N,
@@ -2408,11 +2412,11 @@ Tensor jagged_dense_bmm_forward(
                     index_t,
                     scalar_t>
                     <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
-                        x_values.packed_accessor32<scalar_t, 2>(),
-                        x_offsets.packed_accessor32<index_t, 1>(),
-                        y.packed_accessor32<scalar_t, 3>(),
-                        output.packed_accessor32<scalar_t, 2>(),
-                        (int)max_L);
+                      MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, scalar_t, 2),
+                      MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets, index_t, 1),
+                      MAKE_PACKED_TENSOR_ACCESSOR_32(y, scalar_t, 3),
+                      MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2),
+                      (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
