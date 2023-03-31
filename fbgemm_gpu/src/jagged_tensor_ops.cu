@@ -1747,10 +1747,15 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
-                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
-                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
-                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2));
+                        make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(v),
+                        make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(a_values),
+                        make_packed_tensor_accessor32<index_t, 1, at::RestrictPtrTraits>(a_offsets),
+                        make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(output)
+                        // MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
+                        // MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
+                        // MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
+                        // MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2)
+                      );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
