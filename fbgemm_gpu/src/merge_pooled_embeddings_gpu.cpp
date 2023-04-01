@@ -20,14 +20,6 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/topology_utils.h"
 
-// For some reason, hipify fails to replace the macro names when compiling for
-// ROCm, so we manually replace it here.  Name mapping based on:
-// https://github.com/pytorch/pytorch/blob/master/torch/utils/hipify/cuda_to_hip_mappings.py
-#ifdef __HIP_PLATFORM_HCC__
-#define C10_CUDA_CLEAR_ERROR C10_HIP_CLEAR_ERROR
-#define C10_CUDA_ERROR_HANDLED C10_HIP_ERROR_HANDLED
-#endif
-
 using Tensor = at::Tensor;
 
 namespace {
