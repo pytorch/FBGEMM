@@ -248,12 +248,14 @@ free_disk_space () {
 
 print_gpu_info () {
   echo "################################################################################"
-  echo "[INFO] Check GPU info ..."
+  echo "[INFO] Printing general display info ..."
   install_system_packages lshw
   print_exec sudo lshw -C display
 
   echo "################################################################################"
-  echo "[INFO] Check NVIDIA GPU info ..."
+  echo "[INFO] Printing NVIDIA GPU info ..."
+
+  (lspci -v | grep -e 'controller.*NVIDIA') || true
 
   if [[ "${ENFORCE_NVIDIA_GPU}" ]]; then
     # Ensure that nvidia-smi is available and returns GPU entries
@@ -269,6 +271,11 @@ print_gpu_info () {
       echo "[CHECK] nvidia-smi not found"
     fi
   fi
+
+  echo "################################################################################"
+  echo "[INFO] Printing AMD GPU info ..."
+
+  (lspci -v | grep -e 'Display controller: Advanced') || true
 
   if [[ "${ENFORCE_AMD_GPU}" ]]; then
     # Ensure that rocm-smi is available and returns GPU entries
@@ -288,16 +295,20 @@ print_gpu_info () {
 
 __print_system_info_linux () {
   echo "################################################################################"
-  echo "[INFO] Check ldd version ..."
+  echo "[INFO] Print ldd version ..."
   print_exec ldd --version
 
   echo "################################################################################"
-  echo "[INFO] Check CPU info ..."
+  echo "[INFO] Print CPU info ..."
   print_exec nproc
   print_exec cat /proc/cpuinfo
 
   echo "################################################################################"
-  echo "[INFO] Check Linux distribution info ..."
+  echo "[INFO] Print PCI info ..."
+  print_exec lspci -v
+
+  echo "################################################################################"
+  echo "[INFO] Print Linux distribution info ..."
   print_exec uname -a
   print_exec cat /proc/version
   print_exec cat /etc/os-release
@@ -305,11 +316,11 @@ __print_system_info_linux () {
 
 __print_system_info_macos () {
   echo "################################################################################"
-  echo "[INFO] Check CPU info ..."
+  echo "[INFO] Print CPU info ..."
   sysctl -a | grep machdep.cpu
 
   echo "################################################################################"
-  echo "[INFO] Check MacOS version info ..."
+  echo "[INFO] Print MacOS version info ..."
   print_exec uname -a
   print_exec sw_vers
 }
@@ -683,23 +694,6 @@ install_pytorch_pip () {
 ################################################################################
 # CUDA Setup Functions
 ################################################################################
-
-install_nvidia_drivers_centos () {
-  echo "################################################################################"
-  echo "# Install NVIDIA Drivers"
-  echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
-  echo "################################################################################"
-  echo ""
-
-  echo "[SETUP] Adding NVIDIA repos to yum ..."
-  print_exec sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-  print_exec sudo yum-config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel7/x86_64/cuda-rhel7.repo
-  print_exec sudo yum clean expire-cache
-
-  echo "[SETUP] Installing NVIDIA drivers ..."
-  install_system_packages nvidia-driver-latest-dkms
-}
 
 install_cuda () {
   local env_name="$1"

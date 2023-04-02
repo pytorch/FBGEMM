@@ -41,7 +41,7 @@ jobs:
     - name: Setup Build Container
       run: |
         apt update -y
-        apt install -y binutils build-essential cmake git libblas-dev python3 sudo wget
+        apt install -y binutils build-essential cmake git libblas-dev pciutils python3 sudo wget
         git config --global --add safe.directory '*'
 
     - name: Checkout the Repository
@@ -120,7 +120,7 @@ jobs:
     - name: Setup Build Container
       run: |
         apt update -y
-        apt install -y binutils build-essential cmake git libblas-dev python3 sudo unzip wget
+        apt install -y binutils build-essential cmake git libblas-dev pciutils python3 sudo unzip wget
         git config --global --add safe.directory '*'
 
     - name: Checkout the Repository

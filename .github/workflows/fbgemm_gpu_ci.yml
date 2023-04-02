@@ -50,7 +50,7 @@ jobs:
     - name: Setup Build Container
       run: |
         apt update -y
-        apt install -y binutils git sudo wget
+        apt install -y binutils git pciutils sudo wget
         git config --global --add safe.directory '*'
 
     - name: Checkout the Repository
@@ -177,7 +177,7 @@ jobs:
     - name: Setup Build Container
       run: |
         apt update -y
-        apt install -y binutils build-essential git sudo wget
+        apt install -y binutils build-essential git pciutils sudo wget
         git config --global --add safe.directory '*'
 
     - name: Checkout the Repository

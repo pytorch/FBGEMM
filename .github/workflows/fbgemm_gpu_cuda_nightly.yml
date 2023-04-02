@@ -58,7 +58,7 @@ jobs:
 
     steps:
     - name: Setup Build Container
-      run: yum update -y; yum install -y binutils findutils git sudo tar wget which
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo tar wget which
 
     - name: Checkout the Repository
       uses: actions/checkout@v3
@@ -108,10 +108,9 @@ jobs:
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
+    # runs-on: linux.4xlarge.nvidia.gpu
+    # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
     runs-on: linux.g5.4xlarge.nvidia.gpu
-    container:
-      image: ${{ matrix.container-image }}
-      options: --user root --gpus all
     defaults:
       run:
         shell: bash
@@ -122,7 +121,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        container-image: [ "nvidia/cuda:11.8.0-base-ubuntu20.04" ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0" ]
         # Specify exactly ONE CUDA version for artifact publish
@@ -130,12 +128,6 @@ jobs:
     needs: build_artifact
 
     steps:
-    - name: Setup Build Container
-      run: |
-        apt update -y
-        apt install -y binutils curl git sudo wget
-        git config --global --add safe.directory '*'
-
     - name: Checkout the Repository
       uses: actions/checkout@v3
       with:
@@ -145,6 +137,10 @@ jobs:
       uses: actions/download-artifact@v3
       with:
         name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+
+    # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
+    - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
+      uses: pytorch/test-infra/.github/actions/setup-nvidia@main
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -169,10 +165,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Install FBGEMM_GPU Nightly
-      run: |
-        . $PRELUDE
-        pwd; ls -la .
-        install_fbgemm_gpu_package $BUILD_ENV *.whl
+      run: . $PRELUDE; install_fbgemm_gpu_package $BUILD_ENV *.whl
 
     - name: Test with PyTest
       timeout-minutes: 10
