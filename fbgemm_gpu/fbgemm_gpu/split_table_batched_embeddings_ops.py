@@ -140,9 +140,9 @@ def construct_split_state(
     host_size: int = 0
     uvm_size: int = 0
     for num_embeddings, embedding_dim, location, _ in embedding_specs:
-        assert (
+        assert location == EmbeddingLocation.HOST or (
             embedding_dim % 4 == 0
-        ), f"embedding_dim must be a multiple of 4, but got {embedding_dim}"
+        ), f"On device embedding_dim must be a multiple of 4, but got {embedding_dim}"
         if precision == SparseType.INT8:
             embedding_dim += int8_emb_row_dim_offset
         state_size = num_embeddings * embedding_dim if not rowwise else num_embeddings
