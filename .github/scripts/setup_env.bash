@@ -503,6 +503,17 @@ create_conda_environment () {
     echo ""
   fi
 
+  echo "[SETUP] Listing existing Conda environments ..."
+  print_exec conda info --envs
+
+  # Occasionally, we run into `CondaValueError: Value error: prefix already exists`
+  # We resolve this by pre-deleting the directory, if it exists:
+  # https://stackoverflow.com/questions/40180652/condavalueerror-value-error-prefix-already-exists
+  echo "[SETUP] Deleting the prefix directory if it exists ..."
+  # shellcheck disable=SC2155
+  local conda_prefix=$(conda run -n base printenv CONDA_PREFIX)
+  print_exec rm -rf "${conda_prefix}/envs/${env_name}"
+
   # The `-y` flag removes any existing Conda environment with the same name
   echo "[SETUP] Creating new Conda environment (Python ${python_version}) ..."
   (exec_with_retries conda create -y --name "${env_name}" python="${python_version}") || return 1
@@ -1007,6 +1018,41 @@ install_build_tools () {
   echo "[INSTALL] Successfully installed all the build tools"
 }
 
+install_lint_tools () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install Lint Tools"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  echo "[INSTALL] Installing lint tools ..."
+  (exec_with_retries conda install -n "${env_name}" -c conda-forge -y \
+    click \
+    flake8 \
+    ufmt) || return 1
+
+  # Check binaries are visible in the PAATH
+  (test_binpath "${env_name}" flake8) || return 1
+  (test_binpath "${env_name}" ufmt) || return 1
+
+  # Check Python packages are importable
+  local import_tests=( click )
+  for p in "${import_tests[@]}"; do
+    (test_python_import "${env_name}" "${p}") || return 1
+  done
+
+  echo "[INSTALL] Successfully installed all the lint tools"
+}
+
 install_docs_tools () {
   local env_name="$1"
   if [ "$env_name" == "" ]; then
@@ -1030,7 +1076,7 @@ install_docs_tools () {
   # Check binaries are visible in the PAATH
   (test_binpath "${env_name}" doxygen) || return 1
 
-  echo "[INSTALL] Successfully installed all the build tools"
+  echo "[INSTALL] Successfully installed all the docs tools"
 }
 
 ################################################################################
@@ -1558,6 +1604,89 @@ run_fbgemm_gpu_tests () {
     else
       return 1
     fi
+  done
+}
+
+
+################################################################################
+# FBGEMM_GPU Lint Functions
+################################################################################
+
+lint_fbgemm_gpu_flake8 () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Run FBGEMM_GPU Lint: flake8"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  echo "::add-matcher::fbgemm_gpu/test/lint/flake8_problem_matcher.json"
+
+  # E501 = line too long
+  # W503 = line break before binary operator (deprecated)
+  # E203 = whitespace before ":"
+  (print_exec conda run -n "${env_name}" flake8 --ignore=E501,W503,E203 .) || return 1
+}
+
+lint_fbgemm_gpu_ufmt () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Run FBGEMM_GPU Lint: ufmt"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  local lint_paths=(
+    fbgemm_gpu/fbgemm_gpu
+    fbgemm_gpu/test
+    fbgemm_gpu/bench
+  )
+
+  for p in "${lint_paths[@]}"; do
+    (print_exec conda run -n "${env_name}" ufmt diff "${p}") || return 1
+  done
+}
+
+lint_fbgemm_gpu_copyright () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Run FBGEMM_GPU Lint: Meta Copyright Headers"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  local lint_paths=(
+    fbgemm_gpu/fbgemm_gpu
+    fbgemm_gpu/test
+    fbgemm_gpu/bench
+  )
+
+  for p in "${lint_paths[@]}"; do
+    (print_exec conda run -n "${env_name}" python fbgemm_gpu/test/lint/check_meta_header.py --path="${p}" --fixit=False) || return 1
   done
 }
 
