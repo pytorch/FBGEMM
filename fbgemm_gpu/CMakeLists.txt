@@ -103,20 +103,21 @@ endif()
 
 set(OPTIMIZERS
     adagrad
-    adam
-    approx_rowwise_adagrad
-    approx_rowwise_adagrad_with_weight_decay
-    approx_rowwise_adagrad_with_counter
-    approx_sgd
-    lamb
-    lars_sgd
-    partial_rowwise_adam
-    partial_rowwise_lamb
     rowwise_adagrad
-    rowwise_adagrad_with_weight_decay
     rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
     sgd)
+
+set(GPU_ONLY_OPTIMIZERS
+    adam
+    lamb
+    lars_sgd
+    partial_rowwise_adam
+    partial_rowwise_lamb)
+
+set(CPU_OPTIMIZERS ${OPTIMIZERS})
+set(GPU_OPTIMIZERS ${OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
+set(ALL_OPTIMIZERS ${OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 
 set(gen_gpu_source_files
     "gen_embedding_forward_dense_weighted_codegen_cuda.cu"
@@ -137,21 +138,25 @@ set(gen_cpu_source_files
 
 set(gen_python_files ${CMAKE_BINARY_DIR}/__init__.py)
 
-foreach(optimizer ${OPTIMIZERS})
-  list(APPEND gen_gpu_host_source_files
-       "gen_embedding_backward_split_${optimizer}.cpp")
-
+foreach(optimizer ${CPU_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
        "gen_embedding_backward_split_${optimizer}_cpu.cpp")
   list(APPEND gen_cpu_source_files
        "gen_embedding_backward_${optimizer}_split_cpu.cpp")
+endforeach()
 
-  list(APPEND gen_python_files "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
+foreach(optimizer ${GPU_OPTIMIZERS})
+  list(APPEND gen_gpu_host_source_files
+       "gen_embedding_backward_split_${optimizer}.cpp")
 
   foreach(weight weighted unweighted)
     list(APPEND gen_gpu_source_files
          "gen_embedding_backward_${optimizer}_split_${weight}_cuda.cu")
   endforeach()
+endforeach()
+
+foreach(optimizer ${ALL_OPTIMIZERS})
+  list(APPEND gen_python_files "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
 endforeach()
 
 set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
@@ -160,7 +165,6 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py
     ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host_cpu.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_approx_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_template.cpp
