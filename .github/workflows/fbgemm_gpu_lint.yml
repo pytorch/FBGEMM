@@ -26,38 +26,35 @@ concurrency:
 jobs:
   run-lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
     strategy:
+      fail-fast: false
       matrix:
         python-version: [ "3.10" ]
+
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install click flake8 ufmt
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
-    - name: Analyzing the Code with flake8
-      run: |
-        echo "::add-matcher::fbgemm_gpu/test/lint/flake8_problem_matcher.json"
-        flake8 --ignore=E501,W503,E203 .
-        # E501 = line too long
-        # W503 = line break before binary operator (deprecated)
-        # E203 = whitespace before ":"
+    - name: Install Lint Tools
+      run: . $PRELUDE; install_lint_tools $BUILD_ENV
 
-    - name: Analyzing the Code with ufmt
-      run: |
-        ufmt diff fbgemm_gpu/fbgemm_gpu
-        ufmt diff fbgemm_gpu/test
-        ufmt diff fbgemm_gpu/bench
+    - name: Linting the Codebase with flake8
+      run: . $PRELUDE; lint_fbgemm_gpu_flake8 $BUILD_ENV
 
-    - name: Check Meta Copyright Header
-      run: |
-        python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/fbgemm_gpu --fixit=False
-        python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/test --fixit=False
-        python fbgemm_gpu/test/lint/check_meta_header.py --path=./fbgemm_gpu/bench --fixit=False
+    - name: Linting the Codebase with ufmt
+      run: . $PRELUDE; lint_fbgemm_gpu_ufmt $BUILD_ENV
+
+    - name: Check Meta Copyright Headers
+      run: . $PRELUDE; lint_fbgemm_gpu_copyright $BUILD_ENV
