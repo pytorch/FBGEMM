@@ -25,11 +25,11 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-#define MAKE_PACKED_TENSOR_ACCESSOR_32(...) \
-  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__, at::RestrictPtrTraits, 32)
+// #define MAKE_PACKED_TENSOR_ACCESSOR_32(...) \
+//   MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__, at::RestrictPtrTraits, 32)
 
-// #define MAKE_PACKED_TENSOR_ACCESSOR_32(TENSOR, T, N) \
-//   make_packed_tensor_accessor32<T, N, at::RestrictPtrTraits>(TENSOR)
+#define MAKE_PACKED_TENSOR_ACCESSOR_32(TENSOR, T, N) \
+  make_packed_tensor_accessor32<T, N, at::RestrictPtrTraits>(TENSOR)
 
 using Tensor = at::Tensor;
 
