@@ -26,7 +26,7 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 #define MAKE_PACKED_TENSOR_ACCESSOR_32(TENSOR, T, N) \
-  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, TENSOR, T, N, at::RestrictPtrTraits, 32)
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE(__func__, TENSOR, T, N, at::RestrictPtrTraits, 32)
 
 using Tensor = at::Tensor;
 
@@ -804,20 +804,17 @@ void jagged_dense_elementwise_jagged_output_opt_(
           }
           dim3 threads_bs = dim3(1024, 1, 1);
           dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
-          {
-            const char* func_name = "jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_";
-            jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
-                index_t>
-                <<<blocks_bs,
-                  threads_bs,
-                  dynamic_smem_size,
-                  at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets[0], index_t, 1),
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(t_rows_after_bs, int, 1),
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(t_cols_after_bs, int, 1),
-                    nnz,
-                    B);
-          }
+          jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
+              index_t>
+              <<<blocks_bs,
+                threads_bs,
+                dynamic_smem_size,
+                at::cuda::getCurrentCUDAStream()>>>(
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets[0], index_t, 1),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_rows_after_bs, int, 1),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_cols_after_bs, int, 1),
+                  nnz,
+                  B);
           C10_CUDA_KERNEL_LAUNCH_CHECK();
           // Gather kernel
           dim3 threads = dim3(16, 16, 1);
@@ -825,35 +822,20 @@ void jagged_dense_elementwise_jagged_output_opt_(
           if (blocks.y > 65535) {
             blocks.y = 65535;
           }
-          {
-            const char* func_name = "jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_";
-            jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_<
-                index_t>
-                <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(output_values, c10::Half, 2),
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, c10::Half, 2),
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, c10::Half, 3),
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, c10::Half, 3),
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(t_rows_after_bs, int, 1),
-                    MAKE_PACKED_TENSOR_ACCESSOR_32(t_cols_after_bs, int, 1),
-                    // output_values
-                    //     .packed_accessor32<c10::Half, 2, at::RestrictPtrTraits>(),
-                    // x_values
-                    //     .packed_accessor32<c10::Half, 2, at::RestrictPtrTraits>(),
-                    // y_reshaped
-                    //     .packed_accessor32<c10::Half, 3, at::RestrictPtrTraits>(),
-                    // y_reshaped
-                    //     .packed_accessor32<c10::Half, 3, at::RestrictPtrTraits>(),
-                    // t_rows_after_bs
-                    //     .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
-                    // t_cols_after_bs
-                    //     .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
-                    nnz,
-                    E,
-                    [f] __device__(__half x, __half y0, __half) -> __half {
-                      return f(x, y0);
-                    });
-          }
+          jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_<
+              index_t>
+              <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(output_values, c10::Half, 2),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, c10::Half, 2),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, c10::Half, 3),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, c10::Half, 3),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_rows_after_bs, int, 1),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_cols_after_bs, int, 1),
+                  nnz,
+                  E,
+                  [f] __device__(__half x, __half y0, __half) -> __half {
+                    return f(x, y0);
+                  });
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         }); // AT_DISPATCH
   } else {
@@ -915,7 +897,6 @@ void jagged_dense_elementwise_jagged_output_(
           x_offsets_contig[d].template data_ptr<index_t>();                    \
       x_offset_sizes.vals[d] = x_offsets[d].numel();                           \
     }                                                                          \
-    const char* func_name = "jagged_dense_dense_elementwise_jagged_output_kernel_"; \
     jagged_dense_dense_elementwise_jagged_output_kernel_<                      \
         NUM_JAGGED_DIM,                                                        \
         index_t><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(    \
