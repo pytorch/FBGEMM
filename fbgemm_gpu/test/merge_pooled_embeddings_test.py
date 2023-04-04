@@ -96,7 +96,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
     @given(
         num_inputs=st.integers(min_value=1, max_value=10),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
-        non_default_stream=st.booleans(),
         r=st.randoms(use_true_random=False),
     )
     # Can instantiate 8 contexts which takes a long time.
@@ -105,7 +104,6 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         self,
         num_inputs,
         num_gpus,
-        non_default_stream,
         r,
     ) -> None:
         dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
@@ -130,6 +128,31 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         )
         self.assertFalse(output_meta.is_cpu)
         self.assertTrue(output_meta.is_meta)
+
+    @given(
+        num_inputs=st.integers(min_value=1, max_value=10),
+        num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
+        r=st.randoms(use_true_random=False),
+    )
+    # Can instantiate 8 contexts which takes a long time.
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_sum_reduce_to_one(
+        self,
+        num_inputs,
+        num_gpus,
+        r,
+    ) -> None:
+        dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
+        with torch.cuda.device(dst_device):
+            inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
+            cuda_inputs = [
+                input.to(f"cuda:{i % num_gpus}") for i, input in enumerate(inputs)
+            ]
+            cuda_output = torch.ops.fbgemm.sum_reduce_to_one(cuda_inputs, dst_device)
+            self.assertEqual(cuda_output.device, dst_device)
+            torch.testing.assert_close(
+                cuda_output.cpu(), torch.stack(inputs).sum(dim=0)
+            )
 
 
 if __name__ == "__main__":

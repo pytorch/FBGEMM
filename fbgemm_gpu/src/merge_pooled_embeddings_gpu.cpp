@@ -307,6 +307,178 @@ void all_to_one(
   AT_CUDA_CHECK(cudaGetLastError());
 }
 
+Tensor sum_reduce_to_one(
+    std::vector<Tensor> input_tensors,
+    at::Device target_device) {
+  auto num_gpus = at::cuda::getNumGPUs();
+  std::vector<at::cuda::CUDAEvent> copy_completion_events(num_gpus);
+
+  // Local reduction for tensors residing the same GPU.
+  // And if there's a tensor already in target device, use it for output tensor.
+  Tensor output_tensor;
+  for (const auto i : c10::irange(input_tensors.size())) {
+    auto& ten = input_tensors[i];
+    if (!ten.has_storage()) {
+      continue;
+    }
+    TENSOR_ON_CUDA_GPU(ten);
+    if (ten.device() == target_device && !output_tensor.has_storage()) {
+      output_tensor = ten;
+    }
+    for (auto j = i + 1; j < input_tensors.size(); ++j) {
+      if (input_tensors[j].has_storage() &&
+          ten.device() == input_tensors[j].device()) {
+        ten.add_(input_tensors[j]);
+        // Replace with a dummy tensor without storage to mark reduced away
+        input_tensors[j] = Tensor();
+      }
+    }
+  }
+
+  // First copy from GPUs that are in 2-hop distance to their intermediate
+  // GPUs.
+  static auto intermediate_nodes =
+      get_intermediate_node(fbgemm_gpu::get_nvlink_matrix());
+  std::vector<Tensor> copied_tensors(input_tensors.size());
+  for (const auto i : c10::irange(input_tensors.size())) {
+    auto& src = input_tensors[i];
+    if (!src.has_storage()) {
+      continue;
+    }
+    auto intermediate_node =
+        intermediate_nodes(src.get_device(), target_device.index());
+    if (intermediate_node == -1) {
+      continue;
+    }
+    auto intermediate_device = at::Device(at::kCUDA, intermediate_node);
+    Tensor dst = at::empty_like(src, intermediate_device);
+
+    // This is a cross-device copy on the src current stream and dst current
+    // stream.
+    // Unlike all_to_one case, we don't need to wait for dst ready to worry
+    // about write-after-write and write-after-read dependencies because we're
+    // creating a temp tensor, dst.
+
+    at::cuda::CUDAGuard device_guard(src.device());
+    // on source device, launch memcpy.
+    AT_CUDA_CHECK(cudaMemcpy2DAsync(
+        dst.data_ptr(),
+        dst.stride(0) * dst.element_size(),
+        src.data_ptr(),
+        src.stride(0) * src.element_size(),
+        src.size(1) * src.element_size(),
+        src.size(0),
+        cudaMemcpyDeviceToDevice,
+        at::cuda::getCurrentCUDAStream(src.get_device())));
+    copied_tensors[i] = dst;
+  }
+
+  // Wait for cross-device copies to complete, then reduce
+  for (const auto device_id : c10::irange(num_gpus)) {
+    auto intermediate_node =
+        intermediate_nodes(device_id, target_device.index());
+    if (intermediate_node == -1) {
+      continue;
+    }
+    auto intermediate_device = at::Device(at::kCUDA, intermediate_node);
+
+    auto src_device = at::Device(at::kCUDA, device_id);
+    // Still on src_device, record stream event
+    at::cuda::CUDAGuard device_guard(src_device);
+    at::cuda::CUDAStream copy_stream =
+        at::cuda::getCurrentCUDAStream(device_id);
+
+    auto& src_ready = copy_completion_events[device_id];
+    src_ready.record(copy_stream);
+
+    device_guard.set_device(intermediate_device);
+    src_ready.block(at::cuda::getCurrentCUDAStream(intermediate_node));
+
+    // Find any tensor in the intermediate GPU to reduce to.
+    Tensor ten_at_intermediate_node;
+    for (const auto i : c10::irange(input_tensors.size())) {
+      if (input_tensors[i].has_storage() &&
+          input_tensors[i].device() == intermediate_device) {
+        ten_at_intermediate_node = input_tensors[i];
+        break;
+      }
+    }
+
+    for (const auto i : c10::irange(copied_tensors.size())) {
+      auto& ten = copied_tensors[i];
+      if (!ten.has_storage() || ten.device() != intermediate_device ||
+          !input_tensors[i].has_storage() ||
+          input_tensors[i].device() != src_device) {
+        continue;
+      }
+      if (ten_at_intermediate_node.has_storage()) {
+        ten_at_intermediate_node.add_(ten);
+        input_tensors[i] = Tensor();
+      } else {
+        // No tensor to reduce to, so we just replace input_tensors[i] with
+        // the version copied to the intermediate GPU.
+        input_tensors[i] = ten;
+      }
+    }
+  }
+
+  // Final hop.
+  for (const auto i : c10::irange(input_tensors.size())) {
+    auto& src = input_tensors[i];
+    if (!src.has_storage() || src.device() == target_device) {
+      continue;
+    }
+
+    Tensor dst = at::empty_like(src, target_device);
+
+    at::cuda::CUDAGuard device_guard(src.device());
+    AT_CUDA_CHECK(cudaMemcpy2DAsync(
+        dst.data_ptr(),
+        dst.stride(0) * dst.element_size(),
+        src.data_ptr(),
+        src.stride(0) * src.element_size(),
+        src.size(1) * src.element_size(),
+        src.size(0),
+        cudaMemcpyDeviceToDevice,
+        at::cuda::getCurrentCUDAStream(src.get_device())));
+    copied_tensors[i] = dst;
+  }
+
+  // Wait for cross-device copies to complete, then reduce
+  for (const auto device_id : c10::irange(num_gpus)) {
+    if (device_id != target_device.index()) {
+      auto src_device = at::Device(at::kCUDA, device_id);
+      // Still on src_device, record stream event
+      at::cuda::CUDAGuard device_guard(src_device);
+      at::cuda::CUDAStream copy_stream =
+          at::cuda::getCurrentCUDAStream(device_id);
+
+      auto& src_ready = copy_completion_events[device_id];
+      src_ready.record(copy_stream);
+
+      device_guard.set_device(target_device);
+      src_ready.block(at::cuda::getCurrentCUDAStream(target_device.index()));
+
+      for (const auto i : c10::irange(input_tensors.size())) {
+        auto& src = input_tensors[i];
+        if (!src.has_storage() || src.device() != src_device) {
+          continue;
+        }
+
+        if (output_tensor.has_storage()) {
+          output_tensor.add_(copied_tensors[i]);
+        } else {
+          // Very first reduction at the target device is just a shallow copy.
+          output_tensor = copied_tensors[i];
+        }
+      }
+    }
+  }
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  return output_tensor;
+}
+
 Tensor cat_dim_2d(
     std::vector<Tensor>& tensors,
     int64_t uncat_dim_size,
@@ -415,6 +587,16 @@ std::vector<Tensor> all_to_one_device(
   return output_tensors;
 }
 
+Tensor sum_reduce_to_one_device(
+    std::vector<Tensor> input_tensors,
+    at::Device target_device) {
+  TORCH_CHECK(input_tensors.size() > 0, "reducing no tensor is undefined");
+
+  init_p2p_access();
+
+  return sum_reduce_to_one(input_tensors, target_device);
+};
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -425,4 +607,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
   DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
+  m.def(
+      "sum_reduce_to_one(Tensor[] input_tensors, Device target_device) -> Tensor");
+  DISPATCH_TO_CUDA("sum_reduce_to_one", fbgemm_gpu::sum_reduce_to_one_device);
 }
