@@ -485,7 +485,7 @@ template <
     typename index_t = int64_t>
 const fbgemm_gpu::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>
 make_generic_packed_tensor_accessor(
-    at::Tensor& tensor,
+    const at::Tensor& tensor,
     const char* const ptr_name,
     const char* const func_name) {
   static_assert(
