@@ -709,8 +709,8 @@ bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
         MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, scalar_t, 2),                 \
         x_offset_ptrs,                                                         \
         x_offset_sizes,                                                        \
-        MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, scalar_t, 2),               \
-        MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, scalar_t, 2),               \
+        MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, scalar_t, 3),               \
+        MAKE_PACKED_TENSOR_ACCESSOR_32(y_reshaped, scalar_t, 3),               \
         MAKE_PACKED_TENSOR_ACCESSOR_32(output_values, scalar_t, 2),            \
         jagged_dims_tensor,                                                    \
         [f] __device__(scalar_t x, scalar_t y, scalar_t /*unused*/)            \
