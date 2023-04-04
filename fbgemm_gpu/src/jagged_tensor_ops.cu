@@ -25,8 +25,8 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-#define MAKE_PACKED_TENSOR_ACCESSOR_32(...) \
-  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__, at::RestrictPtrTraits, 32)
+#define MAKE_PACKED_TENSOR_ACCESSOR_32(TENSOR, T, N) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, TENSOR, T, N, at::RestrictPtrTraits, 32)
 
 using Tensor = at::Tensor;
 
@@ -811,7 +811,7 @@ void jagged_dense_elementwise_jagged_output_opt_(
                  threads_bs,
                  dynamic_smem_size,
                  at::cuda::getCurrentCUDAStream()>>>(
-                  MAKE_PACKED_TENSOR_ACCESSOR_BASE(x_offsets[0], index_t, 1),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets[0], index_t, 1),
                   // make_packed_tensor_accessor32<index_t, 1, at::RestrictPtrTraits>(x_offsets[0]),
                   // x_offsets[0]
                   //     .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
