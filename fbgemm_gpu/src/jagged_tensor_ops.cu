@@ -804,23 +804,24 @@ void jagged_dense_elementwise_jagged_output_opt_(
           }
           dim3 threads_bs = dim3(1024, 1, 1);
           dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
-          const char* func_name = "jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_";
-          jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
-              index_t>
-              <<<blocks_bs,
-                 threads_bs,
-                 dynamic_smem_size,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets[0], index_t, 1),
-                  // make_packed_tensor_accessor32<index_t, 1, at::RestrictPtrTraits>(x_offsets[0]),
-                  // x_offsets[0]
-                  //     .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  t_rows_after_bs
-                      .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
-                  t_cols_after_bs
-                      .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
-                  nnz,
-                  B);
+          {
+            const char* func_name = "jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_";
+            jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
+                index_t>
+                <<<blocks_bs,
+                  threads_bs,
+                  dynamic_smem_size,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                    MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets[0], index_t, 1),
+                    MAKE_PACKED_TENSOR_ACCESSOR_32(t_rows_after_bs, int, 1),
+                    MAKE_PACKED_TENSOR_ACCESSOR_32(t_cols_after_bs, int, 1),
+                    // t_rows_after_bs
+                    //     .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
+                    // t_cols_after_bs
+                    //     .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
+                    nnz,
+                    B);
+          }
           C10_CUDA_KERNEL_LAUNCH_CHECK();
           // Gather kernel
           dim3 threads = dim3(16, 16, 1);
