@@ -512,7 +512,7 @@ const pta::PackedTensorAccessor32<T, N, PtrTraits> make_packed_tensor_accessor32
       tensor.numel() <=
           static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
       "numel needs to be smaller than int32_t max; otherwise, please use packed_accessor64");
-  return tensor.packed_accessor32<index_t, 1, at::DefaultPtrTraits>();
+  return tensor.packed_accessor32<T, 1, at::DefaultPtrTraits>();
 }
 
 
