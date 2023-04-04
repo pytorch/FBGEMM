@@ -230,6 +230,7 @@ def print_p2p_bandwidth(
 
 def benchmark(
     all_to_one_only: bool,
+    sum_reduce_to_one_only: bool,
     num_ads: int,
     embedding_dimension: int,
     ads_tables: int,
@@ -306,6 +307,10 @@ def benchmark(
                 return torch.ops.fbgemm.all_to_one_device(
                     pooled_ad_embeddings, batch_indices.device
                 )
+            elif sum_reduce_to_one_only:
+                return torch.ops.fbgemm.sum_reduce_to_one(
+                    pooled_ad_embeddings, batch_indices.device
+                )
             else:
                 return torch.ops.fbgemm.merge_pooled_embeddings(
                     embedding_results, batch_indices.size(0), batch_indices.device
@@ -368,6 +373,8 @@ def benchmark(
             skip_dequantization,
             data_type,
         )
+        if all_to_one_only:
+            merged = torch.stack(merged)
         t, _ = benchmark_torch_function(
             pool_func_with_quantization,
             (
@@ -419,6 +426,7 @@ def benchmark(
 
 @click.command()
 @click.option("--all-to-one-only", is_flag=True, default=False)
+@click.option("--sum-reduce-to-one-only", is_flag=True, default=False)
 @click.option("--num_ads", default=1024, type=int)
 @click.option("--embedding_dimension", default=300, type=int)
 @click.option("--ads_tables", default=100, type=int)
@@ -446,6 +454,7 @@ def benchmark(
 @click.option("--sweep", is_flag=True, default=False)
 def main(
     all_to_one_only: bool,
+    sum_reduce_to_one_only: bool,
     num_ads: int,
     embedding_dimension: int,
     ads_tables: int,
@@ -487,6 +496,7 @@ def main(
                     try:
                         result = benchmark(
                             all_to_one_only,
+                            sum_reduce_to_one_only,
                             num_ads,
                             embedding_dimension,
                             ads_tables,
@@ -510,6 +520,7 @@ def main(
 
     result = benchmark(
         all_to_one_only,
+        sum_reduce_to_one_only,
         num_ads,
         embedding_dimension,
         ads_tables,
