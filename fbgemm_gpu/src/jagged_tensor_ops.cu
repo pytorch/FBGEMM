@@ -21,6 +21,7 @@
 // clang-format on
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -806,8 +807,9 @@ void jagged_dense_elementwise_jagged_output_opt_(
                  threads_bs,
                  dynamic_smem_size,
                  at::cuda::getCurrentCUDAStream()>>>(
-                  x_offsets[0]
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                  make_packed_tensor_accessor32<index_t, 1, at::RestrictPtrTraits>(x_offsets[0]),
+                  // x_offsets[0]
+                  //     .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
                   t_rows_after_bs
                       .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
                   t_cols_after_bs
