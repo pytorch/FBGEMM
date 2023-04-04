@@ -506,30 +506,45 @@ make_generic_packed_tensor_accessor(
 }
 #endif
 
+
 template <
     typename T,
     size_t N,
     template <typename U> class PtrTraits = at::DefaultPtrTraits>
-const pta::PackedTensorAccessor32<T, N, PtrTraits>
-make_packed_tensor_accessor32(
-#ifdef FBGEMM_GPU_MEMCHECK
-    at::Tensor& tensor,
-    const char* const ptr_name,
-    const char* const func_name) {
-#else
-    at::Tensor& tensor) {
-#endif
+const pta::PackedTensorAccessor32<T, N, PtrTraits> make_packed_tensor_accessor32(at::Tensor& tensor) {
   TORCH_CHECK(
       tensor.numel() <=
           static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
       "numel needs to be smaller than int32_t max; otherwise, please use packed_accessor64");
-#ifdef FBGEMM_GPU_MEMCHECK
-  return make_generic_packed_tensor_accessor<T, N, PtrTraits, int32_t>(
-      tensor, ptr_name, func_name);
-#else
   return tensor.packed_accessor32<T, N, PtrTraits>();
-#endif
 }
+
+
+
+// template <
+//     typename T,
+//     size_t N,
+//     template <typename U> class PtrTraits = at::DefaultPtrTraits>
+// const pta::PackedTensorAccessor32<T, N, PtrTraits>
+// make_packed_tensor_accessor32(
+// #ifdef FBGEMM_GPU_MEMCHECK
+//     at::Tensor& tensor,
+//     const char* const ptr_name,
+//     const char* const func_name) {
+// #else
+//     at::Tensor& tensor) {
+// #endif
+//   TORCH_CHECK(
+//       tensor.numel() <=
+//           static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
+//       "numel needs to be smaller than int32_t max; otherwise, please use packed_accessor64");
+// #ifdef FBGEMM_GPU_MEMCHECK
+//   return make_generic_packed_tensor_accessor<T, N, PtrTraits, int32_t>(
+//       tensor, ptr_name, func_name);
+// #else
+//   return tensor.packed_accessor32<T, N, PtrTraits>();
+// #endif
+// }
 
 template <
     typename T,
