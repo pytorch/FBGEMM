@@ -807,7 +807,7 @@ void jagged_dense_elementwise_jagged_output_opt_(
                  threads_bs,
                  dynamic_smem_size,
                  at::cuda::getCurrentCUDAStream()>>>(
-                  make_packed_tensor_accessor32<index_t, 1>(x_offsets[0]),
+                  make_packed_tensor_accessor32<index_t, 1, at::RestrictPtrTraits>(x_offsets[0]),
                   // x_offsets[0]
                   //     .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
                   t_rows_after_bs
