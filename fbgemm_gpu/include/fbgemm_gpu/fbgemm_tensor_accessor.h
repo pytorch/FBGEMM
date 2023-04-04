@@ -513,11 +513,11 @@ template <
 const pta::PackedTensorAccessor32<T, N, PtrTraits>
 make_packed_tensor_accessor32(
 #ifdef FBGEMM_GPU_MEMCHECK
-    at::Tensor& tensor,
+    const at::Tensor& tensor,
     const char* const ptr_name,
     const char* const func_name) {
 #else
-    at::Tensor& tensor) {
+    const at::Tensor& tensor) {
 #endif
   TORCH_CHECK(
       tensor.numel() <=
@@ -538,13 +538,13 @@ template <
 const pta::PackedTensorAccessor64<T, N, PtrTraits>
 make_packed_tensor_accessor64(
 #ifdef FBGEMM_GPU_MEMCHECK
-    at::Tensor& tensor,
+    const at::Tensor& tensor,
     const char* const ptr_name,
     const char* const func_name) {
   return make_generic_packed_tensor_accessor<T, N, PtrTraits, int64_t>(
       tensor, ptr_name, func_name);
 #else
-    at::Tensor& tensor) {
+    const at::Tensor& tensor) {
   return tensor.packed_accessor64<T, N, PtrTraits>();
 #endif
 }

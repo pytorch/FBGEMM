@@ -25,11 +25,11 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-// #define MAKE_PACKED_TENSOR_ACCESSOR_32(...) \
-//   MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__, at::RestrictPtrTraits, 32)
+#define MAKE_PACKED_TENSOR_ACCESSOR_32(...) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE(func_name, __VA_ARGS__, at::RestrictPtrTraits, 32)
 
-#define MAKE_PACKED_TENSOR_ACCESSOR_32(TENSOR, T, N) \
-  make_packed_tensor_accessor32<T, N, at::RestrictPtrTraits>(TENSOR)
+// #define MAKE_PACKED_TENSOR_ACCESSOR_32(TENSOR, T, N) \
+//   make_packed_tensor_accessor32<T, N, at::RestrictPtrTraits>(TENSOR)
 
 using Tensor = at::Tensor;
 
@@ -1747,14 +1747,14 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(v),
-                        make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(a_values),
-                        make_packed_tensor_accessor32<index_t, 1, at::RestrictPtrTraits>(a_offsets),
-                        make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(output)
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2)
+                        // make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(v),
+                        // make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(a_values),
+                        // make_packed_tensor_accessor32<index_t, 1, at::RestrictPtrTraits>(a_offsets),
+                        // make_packed_tensor_accessor32<scalar_t, 2, at::RestrictPtrTraits>(output)
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2)
                       );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
