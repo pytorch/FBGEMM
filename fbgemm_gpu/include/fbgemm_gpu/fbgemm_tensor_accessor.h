@@ -485,7 +485,7 @@ template <
     typename index_t = int64_t>
 const fbgemm_gpu::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>
 make_generic_packed_tensor_accessor(
-    at::Tensor& tensor,
+    const at::Tensor& tensor,
     const char* const ptr_name,
     const char* const func_name) {
   static_assert(
@@ -513,11 +513,11 @@ template <
 const pta::PackedTensorAccessor32<T, N, PtrTraits>
 make_packed_tensor_accessor32(
 #ifdef FBGEMM_GPU_MEMCHECK
-    at::Tensor& tensor,
+    const at::Tensor& tensor,
     const char* const ptr_name,
     const char* const func_name) {
 #else
-    at::Tensor& tensor) {
+    const at::Tensor& tensor) {
 #endif
   TORCH_CHECK(
       tensor.numel() <=
@@ -538,20 +538,20 @@ template <
 const pta::PackedTensorAccessor64<T, N, PtrTraits>
 make_packed_tensor_accessor64(
 #ifdef FBGEMM_GPU_MEMCHECK
-    at::Tensor& tensor,
+    const at::Tensor& tensor,
     const char* const ptr_name,
     const char* const func_name) {
   return make_generic_packed_tensor_accessor<T, N, PtrTraits, int64_t>(
       tensor, ptr_name, func_name);
 #else
-    at::Tensor& tensor) {
+    const at::Tensor& tensor) {
   return tensor.packed_accessor64<T, N, PtrTraits>();
 #endif
 }
 
 #ifdef FBGEMM_GPU_MEMCHECK
-#define MAKE_PACKED_TENSOR_ACCESSOR_BASE(                     \
-    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS)         \
+#define MAKE_PACKED_TENSOR_ACCESSOR_BASE(             \
+    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
   make_packed_tensor_accessor##INDEX_NBITS<T, N, PTR_TRAITS>( \
       TENSOR, #TENSOR, FUNC_NAME)
 
@@ -561,7 +561,9 @@ make_packed_tensor_accessor64(
       at::acc_type<T, true>,                          \
       N,                                              \
       PTR_TRAITS>(TENSOR, #TENSOR, FUNC_NAME)
+
 #else
+
 #define MAKE_PACKED_TENSOR_ACCESSOR_BASE(             \
     FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
   make_packed_tensor_accessor##INDEX_NBITS<T, N, PTR_TRAITS>(TENSOR)
@@ -572,4 +574,5 @@ make_packed_tensor_accessor64(
       at::acc_type<T, true>,                          \
       N,                                              \
       PTR_TRAITS>(TENSOR)
+
 #endif
