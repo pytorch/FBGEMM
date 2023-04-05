@@ -1655,10 +1655,10 @@ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
 
 template <typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
-    const at::PackedTensorAccessor32<scalar_t, 2> x,
-    const at::PackedTensorAccessor32<scalar_t, 2> y,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output_values) {
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> x,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> y,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output_values) {
   const int B = offsets.size(0) - 1;
   const int H = x.size(0) / B;
   const int max_L = x.size(1);
@@ -1796,10 +1796,11 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        v.packed_accessor32<scalar_t, 2>(),
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        a_values_grad.packed_accessor32<scalar_t, 2>());
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(grad_output, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_values_grad, scalar_t, 2)
+                      );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
@@ -1812,9 +1813,9 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
 
 template <const int THREADS_PER_BLOCK, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> values,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> values,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output,
     const int max_L) {
   const auto B = offsets.size(0) - 1;
   const auto D = output.size(1);
@@ -1941,9 +1942,9 @@ Tensor jagged_softmax_forward(
                        THREADS_PER_BLOCK,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        values.packed_accessor32<scalar_t, 2>(),
-                        offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 2>(),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
