@@ -9,6 +9,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <mma.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <ATen/cuda/Atomic.cuh>
@@ -2204,6 +2205,173 @@ Tensor jagged_jagged_bmm_forward(
 }
 
 template <
+    const int WMMA_M, // MMA tile dimension M
+    const int WMMA_N, // MMA tile dimension N
+    const int WMMA_K, // MMA tile dimension K
+    const int TILE_WIDTH_M, // tile dimension M processed by one thread block
+    const int TILE_WIDTH_N, // tile dimension N processed by one thread block
+    const int TILE_WIDTH_K, // tile dimension K processed by one thread block
+    const int THREADS_PER_BLOCK, // thread block size
+    const int WARP_SIZE,
+    typename index_t,
+    typename scalar_t>
+__global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_tf32_kernel(
+    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
+    const at::PackedTensorAccessor32<index_t, 1> x_offsets,
+    const at::PackedTensorAccessor32<scalar_t, 3> y,
+    at::PackedTensorAccessor32<scalar_t, 2> output,
+    const int max_L) {
+#if __CUDA_ARCH__ >= 800
+  using namespace nvcuda;
+  const auto B = x_offsets.size(0) - 1;
+  const auto K = x_values.size(1);
+  const auto N = y.size(2);
+
+  __shared__ scalar_t As[TILE_WIDTH_M][TILE_WIDTH_K];
+  __shared__ scalar_t Bs[TILE_WIDTH_K][TILE_WIDTH_N];
+  // The reason of using shared memory for the output matrix is to handle
+  // arbitrary sizes, otherwise the matrix sizes need to be multiple of WMMA
+  // tile sizes
+  __shared__ scalar_t Cs[TILE_WIDTH_M][TILE_WIDTH_N];
+
+  const auto tx = threadIdx.x;
+  const auto ty = threadIdx.y;
+  // thread id in the current thread block
+  const auto tid = threadIdx.y * blockDim.x + threadIdx.x;
+
+  // The start row of the current thread block in matrix A
+  const auto a_block_row = blockIdx.y * TILE_WIDTH_M;
+  // The start col of the current thread block in matrix B
+  const auto b_block_col = blockIdx.x * TILE_WIDTH_N;
+
+  // Once we remove ROCm<=5.3 support, we should replace uint32_t with auto.
+  // See #1655
+  for (uint32_t b = blockIdx.z; b < B; b += gridDim.z) {
+    const index_t row_start = x_offsets[b];
+    const index_t row_end = x_offsets[b + 1];
+    const auto length = min(row_end - row_start, (index_t)max_L);
+    if (length == 0) {
+      return;
+    }
+
+    // The following code performs matrix multiplication between
+    // x_values[length][K] and y[b][K][N]
+
+    // Declare the fragments
+    wmma::fragment<
+        wmma::matrix_a,
+        WMMA_M,
+        WMMA_N,
+        WMMA_K,
+        wmma::precision::tf32,
+        wmma::row_major>
+        a_frag;
+    wmma::fragment<
+        wmma::matrix_b,
+        WMMA_M,
+        WMMA_N,
+        WMMA_K,
+        wmma::precision::tf32,
+        wmma::row_major>
+        b_frag;
+    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> acc_frag;
+    wmma::fill_fragment(acc_frag, 0.0f);
+
+    // Loop for block tiles in K dimension
+    for (auto k = 0; k < K; k += TILE_WIDTH_K) {
+      // Load a tile of A from global memory to shared memory
+      for (auto i = 0; i < TILE_WIDTH_M * TILE_WIDTH_K;
+           i += THREADS_PER_BLOCK) {
+        const auto idx = tid + i;
+        // The index within the current tile
+        const auto a_col = idx % TILE_WIDTH_K;
+        const auto a_row = idx / TILE_WIDTH_K;
+
+        if (((a_block_row + a_row) < length) && ((k + a_col) < K)) {
+          As[a_row][a_col] =
+              x_values[(row_start + a_block_row + a_row)][(k + a_col)];
+        } else {
+          As[a_row][a_col] = 0.0f;
+        }
+      }
+
+      // Load a tile of B from global memory to shared memory
+      for (auto i = 0; i < TILE_WIDTH_K * TILE_WIDTH_N;
+           i += THREADS_PER_BLOCK) {
+        const auto idx = tid + i;
+        const auto b_col = idx % TILE_WIDTH_N;
+        const auto b_row = idx / TILE_WIDTH_N;
+
+        if (((b_block_col + b_col) < N) && ((k + b_row) < K)) {
+          Bs[b_row][b_col] = y[b][(k + b_row)][(b_block_col + b_col)];
+        } else {
+          Bs[b_row][b_col] = 0.0f;
+        }
+      }
+
+      // Wait for the data in shared memory be available
+      __syncthreads();
+
+      // Accumulate the matrix multiply results between WMMA tiles
+      // (tile_A[WMMA_M][WMMA_K] x tile_B[WMMA_K][WMMA_N]) for the current
+      // thread block. This loop must not be parallelized
+      for (auto i = 0; i < TILE_WIDTH_K; i += WMMA_K) {
+        const auto wmma_tile_a_row = WMMA_M * ty;
+        const auto wmma_tile_a_col = i;
+
+        const auto wmma_tile_b_row = i;
+        const auto wmma_tile_b_col = WMMA_N * (tx / WARP_SIZE);
+
+        // Load the data from shared memory to registers
+        wmma::load_matrix_sync(
+            a_frag,
+            (scalar_t*)As + wmma_tile_a_row * TILE_WIDTH_K + wmma_tile_a_col,
+            TILE_WIDTH_K);
+        wmma::load_matrix_sync(
+            b_frag,
+            (scalar_t*)Bs + wmma_tile_b_row * TILE_WIDTH_N + wmma_tile_b_col,
+            TILE_WIDTH_N);
+
+#pragma unroll
+        for (auto t = 0; t < a_frag.num_elements; t++) {
+          a_frag.x[t] = wmma::__float_to_tf32(a_frag.x[t]);
+        }
+
+#pragma unroll
+        for (auto t = 0; t < b_frag.num_elements; t++) {
+          b_frag.x[t] = wmma::__float_to_tf32(b_frag.x[t]);
+        }
+
+        // Perform the matrix multiply
+        wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
+      }
+    }
+
+    // Write the accumulated results from registers to shared memory
+    const auto wmma_tile_c_row = WMMA_M * ty;
+    const auto wmma_tile_c_col = WMMA_N * (tx / WARP_SIZE);
+    wmma::store_matrix_sync(
+        (scalar_t*)Cs + wmma_tile_c_row * TILE_WIDTH_N + wmma_tile_c_col,
+        acc_frag,
+        TILE_WIDTH_N,
+        wmma::mem_row_major);
+
+    // Move the results from shared memory to global memory
+    for (auto i = 0; i < TILE_WIDTH_M * TILE_WIDTH_N; i += THREADS_PER_BLOCK) {
+      const auto idx = tid + i;
+      // The col and row index in the current thread block
+      const auto c_col = idx % TILE_WIDTH_N;
+      const auto c_row = idx / TILE_WIDTH_N;
+      if (((a_block_row + c_row) < length) && ((b_block_col + c_col) < N)) {
+        output[(row_start + a_block_row + c_row)][(b_block_col + c_col)] =
+            Cs[c_row][c_col];
+      }
+    }
+  }
+#endif
+}
+
+template <
     const int BLOCK_TILE_M, // tile height of C that each thread block
                             // calculates
     const int BLOCK_TILE_N, // tile width of C that each thread block
@@ -2357,55 +2525,108 @@ Tensor jagged_dense_bmm_forward(
   const int total_L = x_values.size(0);
   auto output = at::zeros({total_L, N}, x_values.options());
   if (B > 0 && M > 0 && N > 0) {
-    // The shared memory size is (BLOCK_TILE_M + BLOCK_TILE_N) * BLOCK_TILE_K
-    // BLOCK_TILE_M needs to be multiple of THREAD_TILE_M, and
-    // BLOCK_TILE_N needs to be multiple of THREAD_TILE_N
-    // The setting of these parameters needs to balance the hardware's shared
-    // memory size limit and occupancy
-    // TODO: autotune these parameters based on max_L and input and output
-    // tensor sizes
-    constexpr int BLOCK_TILE_M = 64;
-    constexpr int BLOCK_TILE_N = 8;
-    constexpr int BLOCK_TILE_K = 8;
-    constexpr int THREAD_TILE_M = 4;
-    constexpr int THREAD_TILE_N = 4;
+    auto device = x_values.get_device();
+    cudaDeviceProp* deviceProp = at::cuda::getDeviceProperties(device);
 
-    const dim3 block(
-        (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N));
-    const auto grid_dim_x = div_round_up(N, BLOCK_TILE_N);
-    const auto grid_dim_y = div_round_up(max_L, BLOCK_TILE_M);
-    TORCH_CHECK(
-        grid_dim_y <= kMaxBlockYDim,
-        "max_L cannot be larger than",
-        grid_dim_y * BLOCK_TILE_M + 1 - BLOCK_TILE_M);
-    const auto grid_dim_z = std::min(B, kMaxBlockZDim);
-    const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
+    if (deviceProp->major >= 8) {
+      // Use TF32 mode when the GPU's compute capability is >= 80
+      constexpr int WMMA_M = 16;
+      constexpr int WMMA_N = 16;
+      constexpr int WMMA_K = 8;
+      constexpr int BLOCK_ROW_WARPS = 4;
+      constexpr int BLOCK_COL_WARPS = 1;
+      constexpr int BLOCK_ROW_TILES = BLOCK_ROW_WARPS;
+      constexpr int BLOCK_COL_TILES = BLOCK_COL_WARPS;
+      constexpr int WARPS_PER_BLOCK = BLOCK_ROW_WARPS * BLOCK_COL_WARPS;
+      constexpr int THREADS_PER_BLOCK = kWarpSize * WARPS_PER_BLOCK;
+      constexpr int TILE_WIDTH_M = BLOCK_ROW_TILES * WMMA_M;
+      constexpr int TILE_WIDTH_N = BLOCK_COL_TILES * WMMA_N;
+      constexpr int TILE_WIDTH_K = BLOCK_COL_TILES * WMMA_K;
 
-    AT_DISPATCH_INDEX_TYPES(
-        x_offsets.scalar_type(), "jagged_dense_bmm_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              x_values.scalar_type(),
-              "jagged_dense_bmm_kernel_2",
-              [&] {
-                jagged_dense_bmm_kernel<
-                    BLOCK_TILE_M,
-                    BLOCK_TILE_N,
-                    BLOCK_TILE_K,
-                    THREAD_TILE_M,
-                    THREAD_TILE_N,
-                    index_t,
-                    scalar_t>
-                    <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
-                        x_values.packed_accessor32<scalar_t, 2>(),
-                        x_offsets.packed_accessor32<index_t, 1>(),
-                        y.packed_accessor32<scalar_t, 3>(),
-                        output.packed_accessor32<scalar_t, 2>(),
-                        (int)max_L);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-              });
-        });
+      const dim3 block(BLOCK_COL_TILES * kWarpSize, BLOCK_ROW_TILES);
+      const auto grid_dim_x = div_round_up(N, TILE_WIDTH_N);
+      const auto grid_dim_y = div_round_up(max_L, TILE_WIDTH_M);
+      const auto grid_dim_z = std::min(B, kMaxBlockZDim);
+      const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
+
+      // Only dispatch Float type as TF32 can only be converted from Float
+      AT_DISPATCH_INDEX_TYPES(
+          x_offsets.scalar_type(), "jagged_dense_bmm_tf32_kernel_1", [&] {
+            AT_DISPATCH_SWITCH(
+                x_values.scalar_type(),
+                "jagged_dense_bmm_tf32_kernel_2",
+                AT_DISPATCH_CASE(at::ScalarType::Float, [&] {
+                  jagged_dense_bmm_tf32_kernel<
+                      WMMA_M,
+                      WMMA_N,
+                      WMMA_K,
+                      TILE_WIDTH_M,
+                      TILE_WIDTH_N,
+                      TILE_WIDTH_K,
+                      THREADS_PER_BLOCK,
+                      kWarpSize,
+                      index_t,
+                      scalar_t>
+                      <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
+                          x_values.packed_accessor32<scalar_t, 2>(),
+                          x_offsets.packed_accessor32<index_t, 1>(),
+                          y.packed_accessor32<scalar_t, 3>(),
+                          output.packed_accessor32<scalar_t, 2>(),
+                          (int)max_L);
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                })); // case Float
+          });
+    } else {
+      // The shared memory size is (BLOCK_TILE_M + BLOCK_TILE_N) * BLOCK_TILE_K
+      // BLOCK_TILE_M needs to be multiple of THREAD_TILE_M, and
+      // BLOCK_TILE_N needs to be multiple of THREAD_TILE_N
+      // The setting of these parameters needs to balance the hardware's shared
+      // memory size limit and occupancy
+      // TODO: autotune these parameters based on max_L and input and output
+      // tensor sizes
+      constexpr int BLOCK_TILE_M = 64;
+      constexpr int BLOCK_TILE_N = 8;
+      constexpr int BLOCK_TILE_K = 8;
+      constexpr int THREAD_TILE_M = 4;
+      constexpr int THREAD_TILE_N = 4;
+
+      const dim3 block(
+          (BLOCK_TILE_M * BLOCK_TILE_N) / (THREAD_TILE_M * THREAD_TILE_N));
+      const auto grid_dim_x = div_round_up(N, BLOCK_TILE_N);
+      const auto grid_dim_y = div_round_up(max_L, BLOCK_TILE_M);
+      TORCH_CHECK(
+          grid_dim_y <= kMaxBlockYDim,
+          "max_L cannot be larger than",
+          grid_dim_y * BLOCK_TILE_M + 1 - BLOCK_TILE_M);
+      const auto grid_dim_z = std::min(B, kMaxBlockZDim);
+      const dim3 grid(grid_dim_x, grid_dim_y, grid_dim_z);
+
+      AT_DISPATCH_INDEX_TYPES(
+          x_offsets.scalar_type(), "jagged_dense_bmm_kernel_1", [&] {
+            AT_DISPATCH_FLOATING_TYPES_AND2(
+                at::ScalarType::Half,
+                at::ScalarType::BFloat16,
+                x_values.scalar_type(),
+                "jagged_dense_bmm_kernel_2",
+                [&] {
+                  jagged_dense_bmm_kernel<
+                      BLOCK_TILE_M,
+                      BLOCK_TILE_N,
+                      BLOCK_TILE_K,
+                      THREAD_TILE_M,
+                      THREAD_TILE_N,
+                      index_t,
+                      scalar_t>
+                      <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
+                          x_values.packed_accessor32<scalar_t, 2>(),
+                          x_offsets.packed_accessor32<index_t, 1>(),
+                          y.packed_accessor32<scalar_t, 3>(),
+                          output.packed_accessor32<scalar_t, 2>(),
+                          (int)max_L);
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                });
+          });
+    }
   }
 
   return output;
