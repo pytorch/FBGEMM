@@ -1003,12 +1003,9 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
                  threads_bs,
                  dynamic_smem_size,
                  at::cuda::getCurrentCUDAStream()>>>(
-                  x_offsets[0]
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  t_rows_after_bs
-                      .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
-                  t_cols_after_bs
-                      .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets[0], index_t, 1),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_rows_after_bs, int, 1),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_cols_after_bs, int, 1),
                   nnz,
                   B);
           C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -1021,18 +1018,12 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
           jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_<
               index_t>
               <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  output_values
-                      .packed_accessor32<c10::Half, 2, at::RestrictPtrTraits>(),
-                  x_values
-                      .packed_accessor32<c10::Half, 2, at::RestrictPtrTraits>(),
-                  y_0_reshaped
-                      .packed_accessor32<c10::Half, 3, at::RestrictPtrTraits>(),
-                  y_1_reshaped
-                      .packed_accessor32<c10::Half, 3, at::RestrictPtrTraits>(),
-                  t_rows_after_bs
-                      .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
-                  t_cols_after_bs
-                      .packed_accessor32<int, 1, at::RestrictPtrTraits>(),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(output_values, c10::Half, 2),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, c10::Half, 2),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(y_0_reshaped, c10::Half, 3),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(y_1_reshaped, c10::Half, 3),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_rows_after_bs, int, 1),
+                  MAKE_PACKED_TENSOR_ACCESSOR_32(t_cols_after_bs, int, 1),
                   nnz,
                   E,
                   [f] __device__(__half x, __half y0, __half y1) -> __half {
