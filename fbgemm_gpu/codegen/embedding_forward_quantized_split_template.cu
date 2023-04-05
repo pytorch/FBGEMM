@@ -14,140 +14,6 @@ using Tensor = at::Tensor;
 
 namespace nbit {
 
-constexpr int32_t kCacheLocationMissing = -1;
-
-// "Effective" number of elements in the row when we include the row-wise quantization parameters.
-__device__ inline int32_t padded_D(int32_t dim, SparseType weight_ty) {
-    if (weight_ty == SparseType::FP32) { return dim; }
-    if (weight_ty == SparseType::FP16) { return dim; }
-    if (weight_ty == SparseType::FP8) { return dim; }
-    if (weight_ty == SparseType::INT8) { return dim + 4; }
-    if (weight_ty == SparseType::INT4) { return dim + 8; }
-    if (weight_ty == SparseType::INT2) { return dim + 16; }
-    return 0;
-}
-
-// ---------------------- start cp.async helpers, copied from CUTLASS
-
-/// CUTLASS helper to get SMEM pointer
-inline __device__ unsigned cutlass_get_smem_pointer(void *ptr) {
-
-// We prefer to use the new CVTA intrinsics if they are available, otherwise we will fall back to
-// the previous internal intrinsics if they are available.
-#if (! defined (__clang__) && defined(__CUDA_ARCH__) && __CUDACC_VER_MAJOR__ >= 11)
-  //
-  // This NVVM intrinsic converts an address in shared memory to a plain
-  // unsigned integer. This is necessary to pass to shared memory instructions
-  // in inline PTX.
-  //
-  // In CUDA 11 and beyond, this replaces __nvvm_get_smem_pointer()  [only available in 10.2].
-  //
-  //__device__ size_t __cvta_generic_to_shared(void* ptr);
-  /// CUTLASS helper to get SMEM pointer
-  return static_cast<unsigned>(__cvta_generic_to_shared(ptr));
-#elif (! defined (__clang__) && defined(__CUDA_ARCH__) &&  __CUDACC_VER_MAJOR__ == 10 && __CUDACC_VER_MINOR__ >= 2)
-  return __nvvm_get_smem_pointer(ptr);
-#elif defined(__CUDA_ARCH__)
-  uint32_t smem_ptr;
-  asm(
-  "{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }\n"
-    : "=r"(smem_ptr) : "l"(ptr));
-  return smem_ptr;
-#else
-    return 0;
-#endif
-}
-
-/// CUTLASS helper to get SMEM pointer
-inline __device__ unsigned cutlass_get_smem_pointer(void const *ptr) {
-  return cutlass_get_smem_pointer(const_cast<void *>(ptr));
-}
-
-__device__ __forceinline__ void cp_async_fence() {
-  #if __CUDA_ARCH__ >= 800
-  asm volatile("cp.async.commit_group;\n" ::);
-  #endif
-}
-
-/// Partial specialization
-
-/// Blocks until all but <N> previous cp.async.commit_group operations have committed.
-template <int N>
-__device__ __forceinline__ void cp_async_wait() {
-  #if __CUDA_ARCH__ >= 800
-  asm volatile("cp.async.wait_group %0;\n" ::"n"(N));
-  #endif
-}
-
-/// Blocks until all previous cp.async.commit_group operations have committed.
-template <>
-__device__ __forceinline__ void cp_async_wait<0>() {
-  #if __CUDA_ARCH__ >= 800
-  asm volatile("cp.async.wait_all;\n" ::);
-  #endif
-}
-
-/// Partial specialization
-template <int SizeInBytes>
-__device__ __forceinline__
-void cp_async_zfill_cg(void *smem_ptr, void const *global_ptr, bool pred_guard) {
-#if __CUDA_ARCH__ >= 800
-    static_assert(SizeInBytes == 16,
-    "cp.async only supports CacheOperation::Global when access size is 16B.");
-
-    unsigned smem_int_ptr = cutlass_get_smem_pointer(smem_ptr);
-    int src_in_bytes = (pred_guard ? SizeInBytes : 0);
-    asm volatile(
-    "cp.async.cg.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
-    "l"(global_ptr), "n"(SizeInBytes), "r"(src_in_bytes));
-#else
-    static_assert(SizeInBytes == 16, "");
-    using AccessType = uint4;
-    if (pred_guard) {
-      *static_cast<AccessType *>(smem_ptr) = *static_cast<AccessType const *>(global_ptr);
-    } else {
-      AccessType zeros;
-      zeros.x = 0;
-      zeros.y = 0;
-      zeros.z = 0;
-      zeros.w = 0;
-      *static_cast<AccessType *>(smem_ptr) = zeros;
-    }
-#endif
-}
-
-
-/// Copy with zero fill
-template <int SizeInBytes>
-__device__ __forceinline__
-void cp_async_zfill(void *smem_ptr, void const *global_ptr, bool pred_guard) {
-#if __CUDA_ARCH__ >= 800
-    // Make sure the size is supported.
-    static_assert((SizeInBytes == 4 || SizeInBytes == 8 || SizeInBytes == 16),
-            "Size is not supported");
-
-    unsigned smem_int_ptr = cutlass_get_smem_pointer(smem_ptr);
-    const int src_in_bytes = pred_guard ? SizeInBytes : 0;
-
-    asm volatile(
-    "cp.async.ca.shared.global [%0], [%1], %2, %3;\n" ::"r"(smem_int_ptr),
-    "l"(global_ptr), "n"(SizeInBytes), "r"(src_in_bytes));
-#else
-    static_assert(SizeInBytes == 16, "");
-    using AccessType = uint4;
-    if (pred_guard) {
-      *static_cast<AccessType *>(smem_ptr) = *static_cast<AccessType const *>(global_ptr);
-    } else {
-      AccessType zeros;
-      zeros.x = 0;
-      zeros.y = 0;
-      zeros.z = 0;
-      zeros.w = 0;
-      *static_cast<AccessType *>(smem_ptr) = zeros;
-    }
-#endif
-}
-
 {% for nobag in [True, False] %}
 {% if not nobag or not weighted %}
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
@@ -197,7 +63,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     return;
   }
   static_assert(
-    std::is_same<output_t, float>::value || std::is_same<output_t, at::BFloat16>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, uint8_t>::value,
+    std::is_same_v<output_t, float> || std::is_same_v<output_t, at::BFloat16> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, uint8_t>,
     "output_t can only be float or half or bytes now"
   );
 
@@ -331,7 +197,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
         }
         {% else %}
         const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
-        if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, at::BFloat16>::value) {
+        if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
             // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
@@ -346,11 +212,11 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
               acc.store(&output[output_j][output_d], num_valid_outputs);
             }
           }
-        } else if (std::is_same<output_t, uint8_t>::value) {
+        } else if constexpr (std::is_same_v<output_t, uint8_t>) {
           // INT8:
           // apply per feature row-wise int8
-          float thread_local_min = std::numeric_limits<float>::max();
-          float thread_local_max = std::numeric_limits<float>::lowest();
+          auto thread_local_min = std::numeric_limits<float>::max();
+          auto thread_local_max = std::numeric_limits<float>::lowest();
           float2 qparams;
           #pragma unroll MaxNum128BRows
           for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
@@ -388,7 +254,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     const uint32_t b = min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
     const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i]: static_cast<float>(1.0);
 
-    if (std::is_same<output_t, float>::value || std::is_same<output_t, at::Half>::value || std::is_same<output_t, at::BFloat16>::value) {
+    if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
       #pragma unroll MaxNum128BRows
       for (uint32_t j = 0; j < MaxNum128BRows; ++j) {
         const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
@@ -400,7 +266,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
         }
 
       }
-    } else if (std::is_same<output_t, uint8_t>::value) {
+    } else if constexpr (std::is_same_v<output_t, uint8_t>) {
       // INT8:
       // apply per feature row-wise int8
       float thread_local_min = std::numeric_limits<float>::max();
@@ -439,16 +305,6 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
 {% endfor %} // for emb_weight_type in ["FP32", "FP16", "FP8", "INT8", "INT4", "INT2"]
 {% endif %} // if not nobag or not weighted
 {% endfor %} // for nobag in [True, False]
-
-__device__ inline uint32_t pruned_hash_function(uint32_t h) {
-    // MurmorHash3 32-bit mixing function.
-    h ^= h >> 16;
-    h *= 0x85ebca6b;
-    h ^= h >> 13;
-    h *= 0xc2b2ae35;
-    h ^= h >> 16;
-    return h;
-}
 
 __global__ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_{{ wdesc }}_kernel(
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
