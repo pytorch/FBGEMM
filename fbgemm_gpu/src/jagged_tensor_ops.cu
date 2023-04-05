@@ -1959,7 +1959,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> grad_output,
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> grad_input,
+    at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> grad_input,
     const int max_L) {
   const auto B = offsets.size(0) - 1;
   const auto D = grad_output.size(1);
