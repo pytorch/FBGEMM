@@ -1575,10 +1575,10 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
 
 template <typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
-    const at::PackedTensorAccessor32<scalar_t, 2> v,
-    const at::PackedTensorAccessor32<scalar_t, 2> a_values,
-    const at::PackedTensorAccessor32<index_t, 1> a_offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output) {
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> v,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> a_values,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> a_offsets,
+    at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = v.size(1);
@@ -1723,14 +1723,10 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
-                        // MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2)
-                        v.packed_accessor32<scalar_t, 2>(),
-                        a_values.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 2>()
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(v, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(a_offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2)
                        );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });

@@ -483,7 +483,7 @@ template <
     size_t N,
     template <typename U> class PtrTraits = at::DefaultPtrTraits,
     typename index_t = int64_t>
-const fbgemm_gpu::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>
+fbgemm_gpu::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>
 make_generic_packed_tensor_accessor(
     const at::Tensor& tensor,
     const char* const ptr_name,
@@ -510,7 +510,7 @@ template <
     typename T,
     size_t N,
     template <typename U> class PtrTraits = at::DefaultPtrTraits>
-const pta::PackedTensorAccessor32<T, N, PtrTraits>
+pta::PackedTensorAccessor32<T, N, PtrTraits>
 make_packed_tensor_accessor32(
 #ifdef FBGEMM_GPU_MEMCHECK
     const at::Tensor& tensor,
@@ -535,7 +535,7 @@ template <
     typename T,
     size_t N,
     template <typename U> class PtrTraits = at::DefaultPtrTraits>
-const pta::PackedTensorAccessor64<T, N, PtrTraits>
+pta::PackedTensorAccessor64<T, N, PtrTraits>
 make_packed_tensor_accessor64(
 #ifdef FBGEMM_GPU_MEMCHECK
     const at::Tensor& tensor,
