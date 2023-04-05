@@ -1956,9 +1956,9 @@ Tensor jagged_softmax_forward(
 
 template <const int THREADS_PER_BLOCK, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> grad_output,
-    const at::PackedTensorAccessor32<scalar_t, 2> output,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> grad_output,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     at::PackedTensorAccessor32<scalar_t, 2> grad_input,
     const int max_L) {
   const auto B = offsets.size(0) - 1;
@@ -2065,10 +2065,10 @@ Tensor jagged_softmax_backward(
                        THREADS_PER_BLOCK,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        output.packed_accessor32<scalar_t, 2>(),
-                        offsets.packed_accessor32<index_t, 1>(),
-                        grad_input.packed_accessor32<scalar_t, 2>(),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(grad_output, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(grad_input, scalar_t, 2),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
@@ -2079,10 +2079,10 @@ Tensor jagged_softmax_backward(
 
 template <const int BLOCK_SIZE, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
-    const at::PackedTensorAccessor32<scalar_t, 2> y_values,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 3> output,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> x_values,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> y_values,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
     const int max_L) {
   const int B = offsets.size(0) - 1;
   const int M = x_values.size(1);
@@ -2177,10 +2177,10 @@ Tensor jagged_jagged_bmm_forward(
               [&] {
                 jagged_jagged_bmm_kernel<BLOCK_SIZE, index_t, scalar_t>
                     <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
-                        x_values.packed_accessor32<scalar_t, 2>(),
-                        y_values.packed_accessor32<scalar_t, 2>(),
-                        offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 3>(),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(y_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 3),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
@@ -2201,10 +2201,10 @@ template <
     typename index_t,
     typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_dense_bmm_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
-    const at::PackedTensorAccessor32<index_t, 1> x_offsets,
-    const at::PackedTensorAccessor32<scalar_t, 3> y,
-    at::PackedTensorAccessor32<scalar_t, 2> output,
+    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> x_values,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> x_offsets,
+    const at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> y,
+    at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output,
     const int max_L) {
   const int B = x_offsets.size(0) - 1;
   const int K = x_values.size(1);
@@ -2384,10 +2384,10 @@ Tensor jagged_dense_bmm_forward(
                     index_t,
                     scalar_t>
                     <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
-                        x_values.packed_accessor32<scalar_t, 2>(),
-                        x_offsets.packed_accessor32<index_t, 1>(),
-                        y.packed_accessor32<scalar_t, 3>(),
-                        output.packed_accessor32<scalar_t, 2>(),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(x_values, scalar_t, 2),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(x_offsets, index_t, 1),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(y, scalar_t, 3),
+                        MAKE_PACKED_TENSOR_ACCESSOR_32(output, scalar_t, 2),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
