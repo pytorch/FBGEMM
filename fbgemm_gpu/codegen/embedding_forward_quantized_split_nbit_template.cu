@@ -13,8 +13,6 @@ using Tensor = at::Tensor;
 
 namespace nbit {
 
-{% for nobag in [True, False] %}
-{% if not nobag or not weighted %}
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
 {% for emb_weight_type in ["FP32", "FP16", "FP8", "INT8", "INT4", "INT2"] %}
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly>
@@ -302,13 +300,9 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   {% endif %}
 }
 {% endfor %} // for emb_weight_type in ["FP32", "FP16", "FP8", "INT8", "INT4", "INT2"]
-{% endif %} // if not nobag or not weighted
-{% endfor %} // for nobag in [True, False]
 
 }
 
-{% for nobag in [True, False] %}
-{% if not nobag or not weighted %}
 Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -743,7 +737,5 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     return output;
 }
-{% endif %}  // if not nobag or not weighted
-{% endfor %}  // for nobag in [True, False]
 
 // clang-format on

@@ -124,6 +124,7 @@ set(gen_gpu_source_files
     "gen_embedding_forward_quantized_split_lookup_weighted_codegen_cuda.cu"
     "gen_embedding_forward_quantized_split_lookup_unweighted_codegen_cuda.cu"
     "gen_embedding_forward_quantized_split_nbit_weighted_codegen_cuda.cu"
+    "gen_embedding_forward_quantized_split_nbit_unweighted_nobag_codegen_cuda.cu"
     "gen_embedding_forward_quantized_split_nbit_unweighted_codegen_cuda.cu"
     "gen_embedding_forward_split_weighted_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_codegen_cuda.cu"

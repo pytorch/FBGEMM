@@ -1273,11 +1273,12 @@ def forward_quantized() -> None:
         print(f"[Forward Quantized]: {filename}")
 
     template = env.get_template("embedding_forward_quantized_split_nbit_template.cu")
-    #     for [_, elem_type] in type_map.items():
     for weighted in [True, False]:
-        filename = f"gen_embedding_forward_quantized_split_nbit_{ 'weighted' if weighted else 'unweighted' }_codegen_cuda.cu"
-        write(filename, template.render(weighted=weighted, type_map=type_map))
-        print(f"[Forward Quantized]: {filename}")
+        for nobag in [True, False]:
+            if not nobag or not weighted:
+                filename = f"gen_embedding_forward_quantized_split_nbit_{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else ''}_codegen_cuda.cu"
+                write(filename, template.render(weighted=weighted, nobag=nobag, type_map=type_map))
+                print(f"[Forward Quantized]: {filename}")
 
     template = env.get_template("embedding_forward_quantized_cpu_template.cpp")
     for weighted in [True, False]:
