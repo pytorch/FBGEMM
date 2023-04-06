@@ -105,7 +105,6 @@ set(OPTIMIZERS
     adagrad
     adam
     approx_rowwise_adagrad
-    approx_rowwise_adagrad_with_weight_decay
     approx_rowwise_adagrad_with_counter
     approx_sgd
     lamb
@@ -113,7 +112,6 @@ set(OPTIMIZERS
     partial_rowwise_adam
     partial_rowwise_lamb
     rowwise_adagrad
-    rowwise_adagrad_with_weight_decay
     rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
     sgd)
@@ -146,10 +144,12 @@ foreach(optimizer ${OPTIMIZERS})
   list(APPEND gen_cpu_source_files
        "gen_embedding_backward_${optimizer}_split_cpu.cpp")
 
-  list(APPEND gen_python_files "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
+  list(APPEND gen_python_files
+       "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
 
   foreach(weight weighted unweighted)
-    list(APPEND gen_gpu_source_files
+    list(APPEND
+         gen_gpu_source_files
          "gen_embedding_backward_${optimizer}_split_${weight}_cuda.cu")
   endforeach()
 endforeach()
