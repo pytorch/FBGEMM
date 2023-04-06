@@ -1266,17 +1266,24 @@ def forward_quantized() -> None:
         "INT2": elem_type("INT2", "uint32_t", "INT", 2),
     }
 
-    template = env.get_template("embedding_forward_quantized_split_template.cu")
-    src_cu = template.render(weighted=False, type_map=type_map)
-    write("gen_embedding_forward_quantized_split_unweighted_codegen_cuda.cu", src_cu)
-    src_cu = template.render(weighted=True, type_map=type_map)
-    write("gen_embedding_forward_quantized_split_weighted_codegen_cuda.cu", src_cu)
+    template = env.get_template("embedding_forward_quantized_split_lookup_template.cu")
+    for weighted in [True, False]:
+        filename = f"gen_embedding_forward_quantized_split_lookup_{ 'weighted' if weighted else 'unweighted' }_codegen_cuda.cu"
+        write(filename, template.render(weighted=weighted))
+        print(f"[Forward Quantized]: {filename}")
+
+    template = env.get_template("embedding_forward_quantized_split_nbit_template.cu")
+    #     for [_, elem_type] in type_map.items():
+    for weighted in [True, False]:
+        filename = f"gen_embedding_forward_quantized_split_nbit_{ 'weighted' if weighted else 'unweighted' }_codegen_cuda.cu"
+        write(filename, template.render(weighted=weighted, type_map=type_map))
+        print(f"[Forward Quantized]: {filename}")
 
     template = env.get_template("embedding_forward_quantized_cpu_template.cpp")
-    src_cu = template.render(weighted=False, type_map=type_map)
-    write("gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp", src_cu)
-    src_cu = template.render(weighted=True, type_map=type_map)
-    write("gen_embedding_forward_quantized_weighted_codegen_cpu.cpp", src_cu)
+    for weighted in [True, False]:
+        filename = f"gen_embedding_forward_quantized_{ 'weighted' if weighted else 'unweighted' }_codegen_cpu.cpp"
+        write(filename, template.render(weighted=weighted, type_map=type_map))
+        print(f"[Forward Quantized]: {filename}")
 
 
 def backward_indices() -> None:
