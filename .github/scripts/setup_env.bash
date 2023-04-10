@@ -386,6 +386,10 @@ install_cuda () {
   local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
   print_exec conda env config vars set -n "${env_name}" NVML_LIB_PATH="${nvml_lib_path}"
 
+  # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
+  echo "[INFO] Printing out all preprocessor defines in nvcc ..."
+  print_exec conda run -n "${env_name}" nvcc --compiler-options -dM -E -x cu - < /dev/null
+
   # Print nvcc version
   print_exec conda run -n "${env_name}" nvcc --version
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
@@ -595,16 +599,24 @@ install_cxx_compiler () {
   (test_binpath "${env_name}" c++) || return 1
   (test_binpath "${env_name}" g++) || return 1
 
+  # https://stackoverflow.com/questions/2224334/gcc-dump-preprocessor-defines
+  echo "[INFO] Printing out all preprocessor defines in the C compiler ..."
+  print_exec conda run -n "${env_name}" cc -dM -E -
+
+  # https://stackoverflow.com/questions/2224334/gcc-dump-preprocessor-defines
+  echo "[INFO] Printing out all preprocessor defines in the C++ compiler ..."
+  print_exec conda run -n "${env_name}" c++ -dM -E -x c++ -
+
   # Print out the C++ version
   print_exec conda run -n "${env_name}" c++ --version
 
-  # https://stackoverflow.com/questions/2324658/how-to-determine-the-version-of-the-c-standard-used-by-the-compiler
-  echo "[INSTALL] Printing the default version of the C++ standard used by the compiler ..."
-  print_exec conda run -n "${env_name}" c++ -x c++ /dev/null -E -dM | grep __cplusplus
-
   # https://stackoverflow.com/questions/4991707/how-to-find-my-current-compilers-standard-like-if-it-is-c90-etc
-  echo "[INSTALL] Printing the default version of the C standard used by the compiler ..."
-  print_exec conda run -n "${env_name}" cc -dM -E - < /dev/null | grep __STDC_VERSION__
+  echo "[INFO] Printing the default version of the C standard used by the compiler ..."
+  print_exec conda run -n "${env_name}" cc -dM -E - | grep __STDC_VERSION__
+
+  # https://stackoverflow.com/questions/2324658/how-to-determine-the-version-of-the-c-standard-used-by-the-compiler
+  echo "[INFO] Printing the default version of the C++ standard used by the compiler ..."
+  print_exec conda run -n "${env_name}" c++ -dM -E -x c++ - | grep __cplusplus
 
   echo "[INSTALL] Successfully installed C/C++ compilers"
 }
