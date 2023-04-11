@@ -1459,6 +1459,8 @@ Tensor jagged_dense_bmm_forward(
   const int N = y.size(-1);
   const int total_L = x_values.size(0);
   auto output = at::zeros({total_L, N}, x_values.options());
+  // sometimes autocast can cause x_values and y dype mismatch
+  auto y_dtype = y.to(x_values.options().dtype());
   if (B > 0 && M > 0 && N > 0) {
     AT_DISPATCH_INDEX_TYPES(
         x_offsets.scalar_type(), "jagged_dense_bmm_kernel_1", [&] {
@@ -1471,7 +1473,7 @@ Tensor jagged_dense_bmm_forward(
                 jagged_dense_bmm_kernel<index_t, scalar_t>(
                     x_values.accessor<scalar_t, 2>(),
                     x_offsets.accessor<index_t, 1>(),
-                    y.accessor<scalar_t, 3>(),
+                    y_dtype.accessor<scalar_t, 3>(),
                     output.accessor<scalar_t, 2>(),
                     (int)max_L);
               });

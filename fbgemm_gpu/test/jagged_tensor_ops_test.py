@@ -1953,7 +1953,11 @@ class JaggedTensorOpsTest(unittest.TestCase):
         x_values = torch.rand(
             (total_length, M), requires_grad=True, dtype=dtype, device=device
         )
-        y = torch.rand((B, M, N), requires_grad=True, dtype=dtype, device=device)
+        # force a float type to make sure we have dtype conversion to make sure
+        # y matches with x_values
+        y = torch.rand(
+            (B, M, N), requires_grad=True, dtype=torch.float32, device=device
+        )
 
         output, _ = torch.ops.fbgemm.jagged_dense_bmm(
             x_values,
@@ -1969,7 +1973,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             max_lengths=[max_L],
         )
         y_ref = y.detach().clone().requires_grad_(True)
-        output_dense = torch.bmm(x_dense_ref, y_ref)
+        output_dense = torch.bmm(x_dense_ref, y_ref.to(x_dense_ref.dtype))
 
         output_ref, _ = torch.ops.fbgemm.dense_to_jagged(
             output_dense, [offsets], total_length
