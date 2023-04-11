@@ -1835,16 +1835,34 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc.flush()
         split_optimizer_states = cc.split_optimizer_states()
         assert len(split_optimizer_states) == T
+
+        get_optimizer_states = None
+        if row_wise:
+            # get_optimizer_state should/must be implemented for rowwise
+            get_optimizer_states = cc.get_optimizer_state()
+            assert len(get_optimizer_states) == T
+
         tolerance = (
             1.0e-4
             if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
             else 1.0e-2
         )
+
         for t in range(T):
+            expected_keys = {"sum"}
             if row_wise and weight_decay_mode == WeightDecayMode.COUNTER:
                 (m1, c1, c2) = split_optimizer_states[t]
+                expected_keys.update(
+                    [
+                        "prev_iter",
+                        "row_counter",
+                    ]
+                )
             else:
                 (m1,) = split_optimizer_states[t]
+            if get_optimizer_states is not None:
+                optimizer_states_dict = get_optimizer_states[t]
+                assert set(optimizer_states_dict.keys()) == expected_keys
             # pyre-fixme[16]: `Optional` has no attribute `float`.
             ref_optimizer_state = bs[t].weight.grad.float().cpu().to_dense().pow(2)
             torch.testing.assert_close(
@@ -2680,8 +2698,27 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         cc.flush()
 
         split_optimizer_states = cc.split_optimizer_states()
+
         self.assertEqual(len(split_optimizer_states), T)
         split_weights = cc.split_embedding_weights()
+
+        get_optimizer_states = None
+
+        try:
+            get_optimizer_states = cc.get_optimizer_state()
+            assert len(get_optimizer_states) == T
+        except NotImplementedError:
+            assert optimizer not in (
+                OptimType.ADAM,
+                OptimType.PARTIAL_ROWWISE_ADAM,
+                OptimType.LAMB,
+                OptimType.PARTIAL_ROWWISE_LAMB,
+                OptimType.SGD,
+                OptimType.EXACT_SGD,
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.ROWWISE_ADAGRAD,
+                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+            )
 
         if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
             rowwise = optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
@@ -2774,6 +2811,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-2,
                 )
 
+                if get_optimizer_states is not None:
+                    optimizer_states_dict = get_optimizer_states[t]
+                    expected_keys = {"sum"}
+                    if rowwise and weight_decay_mode == WeightDecayMode.COUNTER:
+                        expected_keys.update(["prev_iter", "row_counter"])
+                    assert set(optimizer_states_dict.keys()) == expected_keys
+
         if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
             for t in range(T):
                 (m1,) = split_optimizer_states[t]
@@ -2804,6 +2848,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     atol=1.0e-4,
                     rtol=1.0e-4,
                 )
+
+                if get_optimizer_states is not None:
+                    optimizer_states_dict = get_optimizer_states[t]
+                    assert set(optimizer_states_dict.keys()) == {"sum"}
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_ADAM
@@ -2839,6 +2887,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-3,
                 )
 
+                if get_optimizer_states is not None:
+                    optimizer_states_dict = get_optimizer_states[t]
+                    assert set(optimizer_states_dict.keys()) == {
+                        "exp_avg",
+                        "exp_avg_sq",
+                    }
+
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_LAMB
             for t in range(T):
@@ -2870,6 +2925,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     atol=1.0e-3,
                     rtol=1.0e-3,
                 )
+                if get_optimizer_states is not None:
+                    optimizer_states_dict = get_optimizer_states[t]
+                    assert set(optimizer_states_dict.keys()) == {
+                        "exp_avg",
+                        "exp_avg_sq",
+                    }
 
         if optimizer == OptimType.LARS_SGD:
             for t in range(T):

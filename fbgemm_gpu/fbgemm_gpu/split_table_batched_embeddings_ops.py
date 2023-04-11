@@ -1194,16 +1194,30 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Get the optimizer state dict that matches the OSS Pytorch optims
         TODO: populate the supported list of optimizers
         """
+        split_optimizer_states = self.split_optimizer_states()
         if (
             self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             or self.optimizer == OptimType.ROWWISE_ADAGRAD
             or self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD
         ):
-            split_optimizer_states = self.split_optimizer_states()
             list_of_state_dict = [
                 {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
                 if self._used_rowwise_adagrad_with_counter
                 else {"sum": states[0]}
+                for states in split_optimizer_states
+            ]
+        elif self.optimizer == OptimType.SGD or self.optimizer == OptimType.EXACT_SGD:
+            list_of_state_dict = [
+                {"momentum_buffer": states[0]} for states in split_optimizer_states
+            ]
+        elif (
+            self.optimizer == OptimType.ADAM
+            or self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM
+            or self.optimizer == OptimType.LAMB
+            or self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB
+        ):
+            list_of_state_dict = [
+                {"exp_avg": states[0], "exp_avg_sq": states[1]}
                 for states in split_optimizer_states
             ]
         else:
