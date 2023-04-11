@@ -119,14 +119,22 @@ set(OPTIMIZERS
 set(gen_gpu_source_files
     "gen_embedding_forward_dense_weighted_codegen_cuda.cu"
     "gen_embedding_forward_dense_unweighted_codegen_cuda.cu"
-    "gen_embedding_forward_quantized_split_unweighted_codegen_cuda.cu"
-    "gen_embedding_forward_quantized_split_weighted_codegen_cuda.cu"
     "gen_embedding_forward_split_weighted_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_codegen_cuda.cu"
     "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_dense_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_dense_split_unweighted_cuda.cu"
     "gen_embedding_backward_dense_split_weighted_cuda.cu")
+
+foreach(wdesc weighted unweighted_nobag unweighted)
+  list(APPEND gen_gpu_source_files
+      "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu")
+
+  foreach(etype fp32 fp16 fp8 int8 int4 int2)
+    list(APPEND gen_gpu_source_files
+       "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
+  endforeach()
+endforeach()
 
 set(gen_cpu_source_files
     "gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp"
@@ -169,7 +177,8 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host_cpu.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_split_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_split_nbit_host_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_split_nbit_kernel_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.h
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_template.cu
@@ -366,6 +375,7 @@ set_source_files_properties(
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gpu
       codegen/embedding_bounds_check.cu
+      codegen/embedding_forward_quantized_split_lookup.cu
       src/cumem_utils.cu
       src/histogram_binning_calibration_ops.cu
       src/jagged_tensor_ops.cu
