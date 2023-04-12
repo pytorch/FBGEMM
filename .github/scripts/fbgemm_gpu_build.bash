@@ -93,7 +93,23 @@ __configure_fbgemm_gpu_build_cuda () {
   (test_env_var "${env_name}" CUDNN_LIBRARY) || return 1
   (test_env_var "${env_name}" NVML_LIB_PATH) || return 1
 
-  local arch_list="${fbgemm_variant_targets:-7.0;8.0}"
+  if [ "$fbgemm_variant_targets" != "" ]; then
+    echo "[BUILD] Using the user-supplied CUDA targets ..."
+    local arch_list="${fbgemm_variant_targets}"
+
+  elif [ "$TORCH_CUDA_ARCH_LIST" != "" ]; then
+    echo "[BUILD] Using the environment-supplied TORCH_CUDA_ARCH_LIST as the CUDA targets ..."
+    local arch_list="${TORCH_CUDA_ARCH_LIST}"
+
+  else
+    echo "[BUILD] Using the default CUDA targets ..."
+    local arch_list="7.0;8.0"
+  fi
+
+  # Unset the environment-supplied TORCH_CUDA_ARCH_LIST because it will take
+  # precedence over cmake -DTORCH_CUDA_ARCH_LIST
+  unset TORCH_CUDA_ARCH_LIST
+
   echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
 
   # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
@@ -223,6 +239,9 @@ run_fbgemm_gpu_postbuild_checks () {
   for library in "${fbgemm_gpu_so_files[@]}"; do
     echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
     print_glibc_info "${library}"
+
+    echo "[CHECK] Listing out undefined symbols in the library: ${library}"
+    print_exec nm -gDCu "${library}"
 
     echo "[CHECK] Verifying sample subset of symbols in the library ..."
     for symbol in "${lib_symbols_to_check[@]}"; do

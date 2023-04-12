@@ -1,7 +1,6 @@
 # FBGEMM
 
-[![FBGEMMCI](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemmci.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemmci.yml)
-[![Nightly Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_nightly_build.yml)
+[![FBGEMM CI](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_ci.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_ci.yml)
 
 FBGEMM (Facebook GEneral Matrix Multiplication) is a low-precision,
 high-performance matrix-matrix multiplications and convolution library for
@@ -113,7 +112,12 @@ recommend citing our
 ```
 
 ## Join the FBGEMM community
-See the [`CONTRIBUTING`](CONTRIBUTING.md) file for how to help out.
+For questions or feature requests, please file a ticket over on
+[GitHub Issues](https://github.com/pytorch/FBGEMM/issues) or reach out to us on
+the `#fbgemm` channel in [PyTorch Slack](https://bit.ly/ptslack).
+
+For contributions, please see the [`CONTRIBUTING`](../CONTRIBUTING.md) file for
+ways to help out.
 
 ## License
 FBGEMM is BSD licensed, as found in the [`LICENSE`](LICENSE) file.
