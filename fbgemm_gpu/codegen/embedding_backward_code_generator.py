@@ -127,52 +127,59 @@ def int_arg(name: str, default: int = 0) -> str:
 def generate(**kwargs: Any) -> None:
     gen_args = kwargs["args"]
 
-    # Generates CUDA variants.
     kwargs["args"] = gen_args["cuda"]
+    if kwargs.get("has_gpu_support"):
+        # Generates CUDA variants.
+        template = env.get_template("embedding_backward_split_template.cu")
+        src_cu = template.render(weighted=False, **kwargs)
+        write(
+            f"gen_embedding_backward_{kwargs.get('optimizer')}_split_unweighted_cuda.cu",
+            src_cu,
+        )
+        src_cu = template.render(weighted=True, **kwargs)
+        write(
+            f"gen_embedding_backward_{kwargs.get('optimizer')}_split_weighted_cuda.cu",
+            src_cu,
+        )
+        if not kwargs.get("dense"):
+            template = env.get_template("embedding_backward_split_host_template.cpp")
+            src_cpp = template.render(**kwargs)
+            write(
+                f"gen_embedding_backward_split_{kwargs.get('optimizer')}.cpp", src_cpp
+            )
 
-    template = env.get_template("embedding_backward_split_template.cu")
-    src_cu = template.render(weighted=False, **kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_unweighted_cuda.cu",
-        src_cu,
-    )
-    src_cu = template.render(weighted=True, **kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_weighted_cuda.cu",
-        src_cu,
-    )
     if not kwargs.get("dense"):
-        template = env.get_template("embedding_backward_split_host_template.cpp")
-        src_cpp = template.render(**kwargs)
-        write(f"gen_embedding_backward_split_{kwargs.get('optimizer')}.cpp", src_cpp)
-
         # Generates Python invoker for CUDA + CPU
         template = env.get_template("split_embedding_codegen_lookup_invoker.template")
         src_py = template.render(is_fbcode=args.is_fbcode, **kwargs)
         write(f"lookup_{kwargs.get('optimizer')}.py", src_py)
 
-    # Generates CPU variants.
-    kwargs["args"] = gen_args["cpu"]
+    if kwargs.get("has_cpu_support"):
+        # Generates CPU variants.
+        kwargs["args"] = gen_args["cpu"]
 
-    is_approx = "approx" in kwargs.get("optimizer")
-    template = (
-        env.get_template("embedding_backward_split_cpu_approx_template.cpp")
-        if is_approx
-        else env.get_template("embedding_backward_split_cpu_template.cpp")
-    )
+        is_approx = "approx" in kwargs.get("optimizer")
+        template = (
+            env.get_template("embedding_backward_split_cpu_approx_template.cpp")
+            if is_approx
+            else env.get_template("embedding_backward_split_cpu_template.cpp")
+        )
 
-    src_cpp = template.render(**kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_cpu.cpp",
-        src_cpp,
-    )
-
-    if not kwargs.get("dense"):
-        template = env.get_template("embedding_backward_split_host_cpu_template.cpp")
         src_cpp = template.render(**kwargs)
         write(
-            f"gen_embedding_backward_split_{kwargs.get('optimizer')}_cpu.cpp", src_cpp
+            f"gen_embedding_backward_{kwargs.get('optimizer')}_split_cpu.cpp",
+            src_cpp,
         )
+
+        if not kwargs.get("dense"):
+            template = env.get_template(
+                "embedding_backward_split_host_cpu_template.cpp"
+            )
+            src_cpp = template.render(**kwargs)
+            write(
+                f"gen_embedding_backward_split_{kwargs.get('optimizer')}_cpu.cpp",
+                src_cpp,
+            )
 
 
 @dataclass
