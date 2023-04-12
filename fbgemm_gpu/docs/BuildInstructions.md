@@ -105,10 +105,10 @@ conda install -n "${env_name}" -y \
 ## Set Up for CUDA Build
 
 The CUDA build of FBGEMM_GPU requires `nvcc` that supports compute capability
-3.5+.  Setting the machine up for CUDA builds of FBGEMM_GPU can be done either
-through pre-built Docker images or through Conda installation on bare metal.
-Note that neither a GPU nor the NVIDIA drivers need to be present for builds,
-since they are only used at runtime.
+**`3.5+`**.  Setting the machine up for CUDA builds of FBGEMM_GPU can be done
+either through pre-built Docker images or through Conda installation on bare
+metal.  Note that neither a GPU nor the NVIDIA drivers need to be present for
+builds, since they are only used at runtime.
 
 ### Docker Image
 
@@ -182,8 +182,9 @@ wget -q https://github.com/NVIDIA/cub/archive/1.10.0.tar.gz
 
 ## Set Up for ROCm Build
 
-Setting the machine up for ROCm builds of FBGEMM_GPU can be done either through
-pre-built Docker images or through bare metal.
+FBGEMM_GPU supports running on AMD (ROCm) devices.  Setting the machine up for
+ROCm builds of FBGEMM_GPU can be done either through pre-built Docker images or
+through bare metal.
 
 ### Docker Image
 
@@ -356,6 +357,10 @@ package_name=fbgemm_gpu
 # If no CUDA device is present either, all CUDA architectures will be targeted
 cuda_arch_list=7.0;8.0
 
+# Unset TORCH_CUDA_ARCH_LIST if it exists, bc it takes precedence over
+# -DTORCH_CUDA_ARCH_LIST during the invocation of setup.py
+unset TORCH_CUDA_ARCH_LIST
+
 # Build the wheel artifact only
 python setup.py bdist_wheel \
     --package_name="${package_name}" \
@@ -415,11 +420,30 @@ python setup.py bdist_wheel \
 python setup.py install --cpu_only
 ```
 
-### Post-Build Checks
+### Post-Build Checks (For Developers)
 
-After the build completes, it is useful to check the built library and verify
-the version numbers of GLIBCXX referenced as well as the availability of certain
-function symbols:
+After the build completes, it is useful to run some checks that verify that the
+build is actually correct.
+
+#### Undefined Symbols Check
+
+Because FBGEMM_GPU contains a lot of template functions and their instantiations,
+it is important to make sure that there are no undefined template instantiations:
+
+```sh
+# !! Run in fbgemm_gpu/ directory inside the Conda environment !!
+
+# Locate the built .SO file
+fbgemm_gpu_lib_path=$(find . -name fbgemm_gpu_py.so)
+
+# Check that the undefined symbols don't include fbgemm_gpu-defined functions
+nm -gDCu "${fbgemm_gpu_lib_path}"
+```
+
+#### GLIBC Version Compatibility Check
+
+It is also useful to verify that the version numbers of GLIBCXX referenced as
+well as the availability of certain function symbols:
 
 ```sh
 # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
