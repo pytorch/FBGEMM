@@ -13,40 +13,88 @@ fusion opportunities in order to overcome the unique challenges of matrix
 multiplication at lower precision with bandwidth-bound operations.
 
 FBGEMM is used as a backend of Caffe2 and PyTorch quantized operators for x86 machines:
-* Caffe2: https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server
-* PyTorch: https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu
 
-## What's New?
-* [New Features and Recent Improvements](https://github.com/pytorch/FBGEMM/wiki/Recent-feature-additions-and-improvements-in-FBGEMM) (January, 2020)
+  * Caffe2: https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server
+  * PyTorch: https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu
 
-## Examples
 
-The tests (in test folder) and benchmarks (in bench folder) are some great
-examples of using FBGEMM. For instance, SpMDMTest test in
-test/PackedRequantizeAcc16Test.cc shows how to combine row offset calculations
-with packing of A (PackAWithRowOffset), how to pack B matrix (PackBMatrix) and
-construct output pipeline (sparse\_matrix\*dense\_matrix --> requantization -->
-nop) fused with inner GEMM macro kernel.
 
-## Build Notes
-FBGEMM uses the standard CMAKE-based build flow.
+## Build Instructions
+
+### Build with CMake
+
+The general instructions for building with Cmake are as follows:
+
+```sh
+# Clone the repo
+git clone --recursive https://github.com/pytorch/FBGEMM.git
+cd FBGEMM
+
+# Pull down the submodules
+git submodule sync
+git submodule update --init --recursive
+
+# Create a build directory
+mkdir build
+cd build
+
+# Set up the build
+cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=shared -DPYTHON_EXECUTABLE=/usr/bin/python3 ..
+
+# Run the build
+make -C build -j VERBOSE=1
+
+# Run all tests
+make test
+
+# Install the package
+make install
+```
+
+##### Build Issues with GCC 12
+
+As of time of writing, compilation of FBGEMM on GCC 12 will fail due to a
+[known compiler regression](https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105593).
+To work around the issue, simply add the following exports prior to running CMake:
+
+```sh
+export CFLAGS+=" -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict"
+export CXXFLAGS+=" -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict"
+```
+
+Please see GitHub issues [77939](https://github.com/pytorch/pytorch/issues/77939),
+[1094](https://github.com/pytorch/FBGEMM/issues/1094), and
+[1666](https://github.com/pytorch/FBGEMM/issues/1666) for more details.
+
+### Run Examples
+
+The tests in the `test/` directory and benchmarks in the `bench/` directory are
+some great examples of using FBGEMM. For instance, the `SpMDMTest` test in
+`test/PackedRequantizeAcc16Test.cc` shows how to combine row offset calculations
+with packing of A (`PackAWithRowOffset`), how to pack B matrix (`PackBMatrix`)
+and construct output pipeline `(sparse_matrix*dense_matrix --> requantization -->
+nop)` fused with inner GEMM macro kernel.
 
 ### Dependencies
-FBGEMM requires gcc 5+ and a CPU with support for avx2 instruction set or
-higher. It's been tested on Mac OS X and Linux.
 
-+ ###### asmjit
+FBGEMM requires gcc 5+ and a CPU with support for AVX2 instruction set or
+higher. It has been tested on Mac OS X and Linux.
+
+#### asmjit
+
 With inner kernels, FBGEMM takes a “one size doesn't fit all” approach, so the
 implementation dynamically generates efficient matrix-shape specific vectorized
 code using a third-party library called [asmjit][1]. **asmjit is required** to
 build FBGEMM.
 
-+ ###### cpuinfo
+#### cpuinfo
+
 FBGEMM detects CPU instruction set support at runtime using cpuinfo library and
 dispatches optimized kernels for the detected instruction set. Therefore,
 **cpuinfo is required** to detect CPU type.
 
-+ ###### googletest
+#### googletest
+
 googletest is required to build and run FBGEMM's tests. **googletest is not
 required** if you don't want to run FBGEMM tests. By default, building of tests
 is **on**. Turn it off by setting FBGEMM\_BUILD\_TESTS to off.
@@ -62,45 +110,28 @@ MKL path is provided with INTEL\_MKL\_DIR benchmarks are built with MKL and
 performance numbers are reported for MKL functions as well. However, if MKL is
 not found, the benchmarks are not built.
 
-General build instructions are as follows:
 
-```
-git clone --recursive https://github.com/pytorch/FBGEMM.git
-cd FBGEMM
-# if you are updating an existing checkout
-git submodule sync
-git submodule update --init --recursive
-cmake -B build
-make -C build
-```
+## Documentation
 
-To run the tests after building FBGEMM (if tests are built), use the following
-command:
-```
-make test
-```
-
-## Installing  FBGEMM
-```
-make install
-```
-
-## How FBGEMM works
 For a high-level overview, design philosophy and brief descriptions of various
-parts of FBGEMM please see [our blog][4].
+parts of FBGEMM please see [our blog post][4].
 
-## Full documentation
+### What's New?
+
+* [New Features and Recent Improvements](https://github.com/pytorch/FBGEMM/wiki/Recent-feature-additions-and-improvements-in-FBGEMM) (January, 2020)
+
+### API Docs
+
 We have extensively used comments in our source files. The best and up-do-date
 documentation is available in the source files.
 
 You can also turn on the option to generate the documentation (using [Doxygen][5]
-and [Sphinx][6] by setting FBGEMM\_BUILD\_DOCS to ON, and then follow the above
-cmake build process.
+and [Sphinx][6] by setting the `-DFBGEMM_BUILD_DOCS=ON` flag when invoking CMake.
 
-## Citation
+### Citation
+
 For those looking for the appropriate article to cite regarding FBGEMM, we
-recommend citing our
-[paper](https://arxiv.org/pdf/2101.05615.pdf):
+recommend citing our [paper](https://arxiv.org/pdf/2101.05615.pdf):
 
 ```
 @article{fbgemm,
@@ -112,6 +143,7 @@ recommend citing our
 ```
 
 ## Join the FBGEMM community
+
 For questions or feature requests, please file a ticket over on
 [GitHub Issues](https://github.com/pytorch/FBGEMM/issues) or reach out to us on
 the `#fbgemm` channel in [PyTorch Slack](https://bit.ly/ptslack).
@@ -120,6 +152,7 @@ For contributions, please see the [`CONTRIBUTING`](../CONTRIBUTING.md) file for
 ways to help out.
 
 ## License
+
 FBGEMM is BSD licensed, as found in the [`LICENSE`](LICENSE) file.
 
 

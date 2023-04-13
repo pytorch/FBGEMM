@@ -165,7 +165,7 @@ void SparseDenseInt8MMAvx2(
                 C_i32 + i * ldc + j + idx1 * 8));
           }
           int rem_int32 = rem - idx1 * VLEN_INT32;
-          __m256i mask_int32_v;
+          __m256i mask_int32_v = _mm256_setzero_si256();
           if (rem_int32 > 0) {
             mask_int32_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
                 &avx2_ps_or_epi32_combined_mask[VLEN_INT32 - rem_int32]));
