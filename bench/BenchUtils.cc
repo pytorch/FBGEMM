@@ -175,8 +175,6 @@ aligned_vector<T> getRandomBlockSparseMatrix(
   int rowBlocks = (Rows + RowBlockSize - 1) / RowBlockSize;
   int colBlocks = (Cols + ColBlockSize - 1) / ColBlockSize;
 
-  int fnzb = 0;
-
   for (int i = 0; i < rowBlocks; ++i) {
     for (int j = 0; j < colBlocks; ++j) {
       if (bernDis(gen)) {
@@ -190,17 +188,9 @@ aligned_vector<T> getRandomBlockSparseMatrix(
                 dis(gen);
           }
         }
-        fnzb++;
       }
     }
   }
-
-  // std::cout << "Requested non-zero fraction: " << fractionNonZerosBlocks
-  // << " , generated non-zero fraction: "
-  // << static_cast<float>(fnzb) / rowBlocks / colBlocks << std::endl;
-  // std::cout << "Requested non-zero blocks: "
-  // << rowBlocks * colBlocks * fractionNonZerosBlocks
-  // << ", generated non-zero blocks: " << fnzb << std::endl;
 
   return res;
 }
