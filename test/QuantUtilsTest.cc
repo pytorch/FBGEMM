@@ -640,7 +640,7 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
     };
     assert(float_test_input.size() == row * col);
 
-    float16_test_input.reserve(float_test_input.size());
+    float16_test_input.resize(float_test_input.size());
     std::transform(
         float_test_input.begin(),
         float_test_input.end(),
