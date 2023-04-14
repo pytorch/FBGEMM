@@ -42,7 +42,7 @@ cd build
 cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=shared -DPYTHON_EXECUTABLE=/usr/bin/python3 ..
 
 # Run the build
-make -C build -j VERBOSE=1
+make -j VERBOSE=1
 
 # Run all tests
 make test
