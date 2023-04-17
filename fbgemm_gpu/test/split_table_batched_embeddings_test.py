@@ -2718,6 +2718,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.ROWWISE_ADAGRAD,
                 OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+                OptimType.EXACT_ADAGRAD,
             )
 
         if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
@@ -2811,12 +2812,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-2,
                 )
 
-                if get_optimizer_states is not None:
-                    optimizer_states_dict = get_optimizer_states[t]
-                    expected_keys = {"sum"}
-                    if rowwise and weight_decay_mode == WeightDecayMode.COUNTER:
-                        expected_keys.update(["prev_iter", "row_counter"])
-                    assert set(optimizer_states_dict.keys()) == expected_keys
+                optimizer_states_dict = get_optimizer_states[t]
+                expected_keys = {"sum"}
+                if rowwise and weight_decay_mode == WeightDecayMode.COUNTER:
+                    expected_keys.update(["prev_iter", "row_counter"])
+                assert set(optimizer_states_dict.keys()) == expected_keys
 
         if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
             for t in range(T):

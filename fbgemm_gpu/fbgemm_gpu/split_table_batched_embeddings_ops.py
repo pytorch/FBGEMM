@@ -1199,6 +1199,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             or self.optimizer == OptimType.ROWWISE_ADAGRAD
             or self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD
+            or self.optimizer == OptimType.EXACT_ADAGRAD
         ):
             list_of_state_dict = [
                 {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
