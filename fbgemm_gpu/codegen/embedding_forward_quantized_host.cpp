@@ -545,7 +545,7 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
 }
 
 ///@ingroup embedding-cuda
-Tensor pruned_hashmap_lookup_unweighted_cuda(
+Tensor pruned_hashmap_lookup_cuda(
     Tensor indices,
     Tensor offsets,
     Tensor hash_table,
@@ -565,8 +565,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "int_nbit_split_embedding_uvm_caching_codegen_lookup_function",
       int_nbit_split_embedding_uvm_caching_codegen_lookup_function);
-  DISPATCH_TO_CUDA(
-      "pruned_hashmap_lookup", pruned_hashmap_lookup_unweighted_cuda);
-
+  DISPATCH_TO_CUDA("pruned_hashmap_lookup", pruned_hashmap_lookup_cuda);
   DISPATCH_TO_CUDA("pruned_array_lookup", pruned_array_lookup_cuda);
 }

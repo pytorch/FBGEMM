@@ -2079,7 +2079,7 @@ struct VecNT<1, PrimitiveType::FP> {
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
-      int num_valid_outputs = 1) {
+      const int num_valid_outputs = 1) {
     __nv_bfloat16 val = to_bfloat16(acc);
     *reinterpret_cast<__nv_bfloat16*>(output_ptr) = val;
   }
@@ -2172,7 +2172,7 @@ struct VecNT<2, PrimitiveType::FP> {
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
-      int num_valid_outputs = 2) {
+      const int num_valid_outputs = 2) {
     __nv_bfloat162 val = to_bfloat16_2(acc);
     // num_valid_outputs can be any integer for half.
     if (uintptr_t(output_ptr) % 4 == 0 && num_valid_outputs == 2) {
@@ -2310,7 +2310,7 @@ struct VecNT<4, PrimitiveType::FP> {
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
-      int num_valid_outputs = 4) {
+      const int num_valid_outputs = 4) {
     bfloat16_4 val = to_bfloat16_4(acc);
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
     bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
@@ -2465,7 +2465,7 @@ struct VecNT<4, PrimitiveType::INT> {
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
-      int num_valid_outputs = 4) {
+      const int num_valid_outputs = 4) {
     bfloat16_4 val = to_bfloat16_4(acc);
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
     bool aligned_4b = intptr_t(output_ptr) % 4 == 0;
@@ -2635,7 +2635,7 @@ struct VecNT<8, PrimitiveType::INT> {
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
-      int num_valid_outputs = 8) {
+      const int num_valid_outputs = 8) {
     bfloat16_8 val = to_bfloat16_8(acc);
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
@@ -2822,7 +2822,7 @@ struct VecNT<16, PrimitiveType::INT> {
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
-      int num_valid_outputs = 16) {
+      const int num_valid_outputs = 16) {
     bfloat16_16 val = to_bfloat16_16(acc);
     bool aligned_16b = intptr_t(output_ptr) % 16 == 0;
     bool aligned_8b = intptr_t(output_ptr) % 8 == 0;
