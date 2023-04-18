@@ -1415,7 +1415,8 @@ bool EmbeddingSpMDMNBit_ref(
     bool use_offsets,
     int64_t output_stride,
     int64_t input_stride,
-    bool scale_bias_last) {
+    bool scale_bias_last,
+    bool no_bag) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
   int num_elem_per_byte = 8 / bit_rate;
 
@@ -1432,6 +1433,49 @@ bool EmbeddingSpMDMNBit_ref(
   }
   int64_t current = 0;
   vector<float> buf(block_size);
+
+  if (no_bag) {
+    for (int m = 0; m < output_size; ++m) {
+      memset(buf.data(), 0, sizeof(float) * block_size);
+      int64_t idx = indices[m];
+      if (idx < 0 || idx >= data_size) {
+        return false;
+      }
+
+      float w = 1.f;
+      if (weights) {
+        w = weights[m];
+      }
+
+      const float16* scale_bias = reinterpret_cast<const float16*>(
+          input + input_stride * idx +
+          (scale_bias_last
+               ? (block_size + num_elem_per_byte - 1) / num_elem_per_byte
+               : 0));
+
+      const float scale = w * cpu_half2float(scale_bias[0]);
+      const float bias = w * cpu_half2float(scale_bias[1]);
+
+      for (int j = 0; j < block_size; ++j) {
+        uint8_t quantized = input
+            [input_stride * idx + j / num_elem_per_byte +
+             (scale_bias_last ? 0 : scale_bias_offset)];
+
+        quantized >>= (j % num_elem_per_byte) * bit_rate;
+        quantized &= (1 << bit_rate) - 1;
+
+        buf[j] = std::fma(scale, quantized, buf[j] + bias);
+      }
+
+      for (int j = 0; j < block_size; ++j) {
+        out[j] = is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
+                                                  : buf[j];
+      }
+      out += output_stride;
+    } // m
+    return true;
+  } // no_bag
+
   for (int m = 0; m < output_size; ++m) {
     memset(buf.data(), 0, sizeof(float) * block_size);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
@@ -2102,7 +2146,8 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       bool use_offsets,                                           \
       int64_t output_stride,                                      \
       int64_t input_stride,                                       \
-      bool scale_bias_last);                                      \
+      bool scale_bias_last,                                       \
+      bool no_bag);                                               \
   template FBGEMM_API bool EmbeddingSpMDMFP8_ref(                 \
       const int64_t block_size,                                   \
       const int64_t output_size,                                  \

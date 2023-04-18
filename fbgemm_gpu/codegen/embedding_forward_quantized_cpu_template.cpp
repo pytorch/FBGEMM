@@ -396,9 +396,18 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                         /*output_stride=*/D,
                         {% endif %}
                         /*input_stride=*/D_bytes / sizeof(uint8_t),
+                        {% if not nobag %}
                         /*scale_bias_last=*/false);
+                        {% else %}
+                        /*scale_bias_last=*/false,
+                        /*no_bag=*/true);
+                        {% endif %}
                     success = kernel(
+                        {% if not nobag %}
                         B,
+                        {% else %}
+                        index_size,
+                        {% endif %}
                         index_size,
                         num_rows,
                         weights,
