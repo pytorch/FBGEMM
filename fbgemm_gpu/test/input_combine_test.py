@@ -8,10 +8,15 @@
 # pyre-unsafe
 
 import unittest
+from dataclasses import dataclass
+from enum import Enum
 from typing import List, Optional, Tuple
+
+import hypothesis.strategies as st
 
 import torch
 from hypothesis import given, settings
+
 
 try:
     # pyre-ignore[21]
@@ -25,6 +30,21 @@ except Exception:
     from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu
 
 DEFAULT_DEVICE = torch.device("cpu")
+
+
+class IntType(Enum):
+    INT32 = 1
+    INT64 = 2
+    MIXED = 3
+
+
+@dataclass
+class InputArgs:
+    int_type: IntType
+    num_lists: int = 2
+    min_batch_size: int = 2
+    max_batch_size: int = 4
+    device: torch.device = DEFAULT_DEVICE
 
 
 class TBEInputPrepareReference(torch.nn.Module):
@@ -128,24 +148,55 @@ class TBEInputPrepareReference(torch.nn.Module):
 
 
 class InputCombineTest(unittest.TestCase):
-    def _get_inputs(self, dtypes, device=DEFAULT_DEVICE):
-        indices_list = [
-            torch.tensor([1, 2, 3], dtype=dtypes[0], device=device),
-            torch.tensor([1, 2, 3, 4], dtype=dtypes[1], device=device),
-        ]
-        offsets_list = [
-            torch.tensor([0, 2], dtype=dtypes[0], device=device),
-            torch.tensor([0, 1, 4], dtype=dtypes[1], device=device),
-        ]
-        include_last_offsets = [False, True]
+    def _get_inputs(self, args: InputArgs):
+        if args.int_type == IntType.MIXED:
+            # Mixed- mixes between zeros and ones
+            list_is_long = torch.randint(low=0, high=2, size=(args.num_lists,))
+        elif args.int_type == IntType.INT32:
+            # Ints - all zeros
+            list_is_long = torch.zeros(args.num_lists)
+        else:
+            # Longs - all ones
+            list_is_long = torch.ones(args.num_lists)
+        list_is_long = (list_is_long == 1).tolist()
+
+        # Compute offsets sizes
+        offsets_sizes = torch.randint(
+            low=args.min_batch_size,
+            high=args.max_batch_size + 1,
+            size=(args.num_lists,),
+        ).tolist()
+
+        offsets_list = []
+        indices_list = []
+        for size, is_long in zip(offsets_sizes, list_is_long):
+            dtype = torch.long if is_long else torch.int
+            # Keep offsets on CPU first because we need to modify/retrieve values
+            offsets = torch.randint(low=0, high=10, size=(size,)).cumsum(0).to(dtype)
+            # First offset must be zero
+            offsets[0] = 0
+            # Last offset is indices size
+            indices_size = int(offsets[-1].item())
+            offsets_list.append(offsets.to(args.device))
+
+            indices = torch.randint(
+                low=0, high=100, size=(indices_size,), dtype=dtype, device=args.device
+            )
+            indices_list.append(indices)
+
+        # Random True/False
+        include_last_offsets = (
+            torch.randint(low=0, high=2, size=(args.num_lists,)) == 1
+        ).tolist()
+        # Create per_sample_weights by cloning indices
         per_sample_weights = [
-            torch.tensor([1, 2, 1], dtype=torch.float, device=device),
-            torch.tensor([1, 2, 1, 3], dtype=torch.float, device=device),
+            indices.clone().to(torch.float) for indices in indices_list
         ]
         empty_per_sample_weights = [
-            torch.tensor([], dtype=torch.float, device=device),
-            torch.tensor([], dtype=torch.float, device=device),
+            torch.tensor([], dtype=torch.float, device=args.device)
+            for _ in range(args.num_lists)
         ]
+
         return (
             indices_list,
             offsets_list,
@@ -154,14 +205,14 @@ class InputCombineTest(unittest.TestCase):
             include_last_offsets,
         )
 
-    def _run_test(self, dtypes) -> None:
+    def _run_test(self, input_args: InputArgs) -> None:
         (
             indices_list,
             offsets_list,
             per_sample_weights,
             empty_per_sample_weights,
             include_last_offsets,
-        ) = self._get_inputs(dtypes)
+        ) = self._get_inputs(input_args)
         ref_mod = TBEInputPrepareReference(include_last_offsets)
 
         outputs = torch.ops.fbgemm.tbe_input_combine(
@@ -191,14 +242,14 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(outputs[1].dtype == torch.int32)
         self.assertTrue(outputs[-1].size(0) == 0)
 
-    def _run_padding_fused_test(self, dtypes, batch_size) -> None:
+    def _run_padding_fused_test(self, input_args: InputArgs, batch_size: int) -> None:
         (
             indices_list,
             offsets_list,
             per_sample_weights,
             empty_per_sample_weights,
             include_last_offsets,
-        ) = self._get_inputs(dtypes)
+        ) = self._get_inputs(input_args)
         ref_mod = TBEInputPrepareReference(include_last_offsets)
 
         outputs = torch.ops.fbgemm.padding_fused_tbe_input_combine(
@@ -248,19 +299,19 @@ class InputCombineTest(unittest.TestCase):
             )
         return offsets_complete[1:] - offsets_complete[:-1]
 
-    def _run_test_with_length(self, dtypes, device=DEFAULT_DEVICE) -> None:
+    def _run_test_with_length(self, input_args: InputArgs) -> None:
         (
             indices_list,
             offsets_list,
             per_sample_weights,
             empty_per_sample_weights,
             include_last_offsets,
-        ) = self._get_inputs(dtypes, device=device)
+        ) = self._get_inputs(input_args)
         ref_mod = TBEInputPrepareReference(include_last_offsets)
 
         lengths_list = [
             self._offsets_to_lengths(
-                offsets, indices, include_last_offsets, device=device
+                offsets, indices, include_last_offsets, device=input_args.device
             )
             for offsets, indices, include_last_offsets in zip(
                 offsets_list, indices_list, include_last_offsets
@@ -279,14 +330,16 @@ class InputCombineTest(unittest.TestCase):
         ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
         self.assertTrue(ref_lengths.allclose(outputs[1]))
 
-    def _run_padding_fused_test_with_length(self, dtypes, batch_size) -> None:
+    def _run_padding_fused_test_with_length(
+        self, input_args: InputArgs, batch_size: int
+    ) -> None:
         (
             indices_list,
             offsets_list,
             per_sample_weights,
             empty_per_sample_weights,
             include_last_offsets,
-        ) = self._get_inputs(dtypes)
+        ) = self._get_inputs(input_args)
         ref_mod = TBEInputPrepareReference(include_last_offsets)
 
         lengths_list = [
@@ -314,46 +367,91 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(ref_lengths.allclose(outputs[1]))
 
     def test_input_combine_int64(self) -> None:
-        self._run_test((torch.int64, torch.int64))
+        self._run_test(InputArgs(IntType.INT64))
 
     def test_input_combine_int32(self) -> None:
-        self._run_test((torch.int64, torch.int64))
+        self._run_test(InputArgs(IntType.INT32))
 
     def test_input_combined_mix(self) -> None:
-        self._run_test((torch.int64, torch.int32))
+        self._run_test(InputArgs(IntType.MIXED))
 
-    @given(device=cpu_and_maybe_gpu())
-    @settings(deadline=None)
-    def test_input_combine_int64_with_length(self, device: torch.device) -> None:
-        self._run_test_with_length((torch.int64, torch.int64), device=device)
+    @given(
+        device=cpu_and_maybe_gpu(),
+        # Test with larger num_lists and batch_size for the GPU implementation
+        num_lists=st.integers(min_value=2, max_value=100),
+        max_batch_size=st.integers(min_value=3, max_value=2048),
+    )
+    @settings(deadline=None, max_examples=20)
+    def test_input_combine_int64_with_length(
+        self, device: torch.device, num_lists: int, max_batch_size: int
+    ) -> None:
+        device = torch.device("cuda")
+        self._run_test_with_length(
+            InputArgs(
+                IntType.INT64,
+                num_lists=num_lists,
+                max_batch_size=max_batch_size,
+                device=device,
+            )
+        )
 
-    @given(device=cpu_and_maybe_gpu())
-    @settings(deadline=None)
-    def test_input_combine_int32_with_length(self, device: torch.device) -> None:
-        self._run_test_with_length((torch.int32, torch.int32), device=device)
+    @given(
+        device=cpu_and_maybe_gpu(),
+        # Test with larger num_lists and batch_size for the GPU implementation
+        num_lists=st.integers(min_value=2, max_value=100),
+        max_batch_size=st.integers(min_value=3, max_value=2048),
+    )
+    @settings(deadline=None, max_examples=20)
+    def test_input_combine_int32_with_length(
+        self, device: torch.device, num_lists: int, max_batch_size: int
+    ) -> None:
+        device = torch.device("cuda")
+        self._run_test_with_length(
+            InputArgs(
+                IntType.INT32,
+                num_lists=num_lists,
+                max_batch_size=max_batch_size,
+                device=device,
+            )
+        )
 
-    @given(device=cpu_and_maybe_gpu())
-    @settings(deadline=None)
-    def test_input_combine_mix_with_length(self, device: torch.device) -> None:
-        self._run_test_with_length((torch.int64, torch.int32), device=device)
+    @given(
+        device=cpu_and_maybe_gpu(),
+        # Test with larger num_lists and batch_size for the GPU implementation
+        num_lists=st.integers(min_value=2, max_value=100),
+        max_batch_size=st.integers(min_value=3, max_value=2048),
+    )
+    @settings(deadline=None, max_examples=20)
+    def test_input_combine_mix_with_length(
+        self, device: torch.device, num_lists: int, max_batch_size: int
+    ) -> None:
+        device = torch.device("cuda")
+        self._run_test_with_length(
+            InputArgs(
+                IntType.INT32,
+                num_lists=num_lists,
+                max_batch_size=max_batch_size,
+                device=device,
+            )
+        )
 
     def test_padding_fused_input_combine_int64(self) -> None:
-        self._run_padding_fused_test((torch.int64, torch.int64), 64)
+        self._run_padding_fused_test(InputArgs(IntType.INT64), 64)
 
     def test_padding_fused_input_combine_int32(self) -> None:
-        self._run_padding_fused_test((torch.int32, torch.int32), 64)
+        self._run_padding_fused_test(InputArgs(IntType.INT32), 64)
 
     def test_padding_fused_input_combined_mix(self) -> None:
-        self._run_padding_fused_test((torch.int64, torch.int32), 64)
+        self._run_padding_fused_test(InputArgs(IntType.MIXED), 64)
 
     def test_padding_fused_input_combine_int64_with_length(self) -> None:
-        self._run_padding_fused_test_with_length((torch.int64, torch.int64), 64)
+        self._run_padding_fused_test_with_length(InputArgs(IntType.INT64), 64)
 
     def test_padding_fused_input_combine_int32_with_length(self) -> None:
-        self._run_padding_fused_test_with_length((torch.int32, torch.int32), 64)
+        self._run_padding_fused_test_with_length(InputArgs(IntType.INT32), 64)
 
     def test_padding_fused_input_combined_mix_with_length(self) -> None:
-        self._run_padding_fused_test_with_length((torch.int64, torch.int32), 64)
+        self._run_padding_fused_test_with_length(InputArgs(IntType.INT64), 64)
 
 
 if __name__ == "__main__":
