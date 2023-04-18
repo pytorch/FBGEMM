@@ -125,54 +125,63 @@ def int_arg(name: str, default: int = 0) -> str:
 
 
 def generate(**kwargs: Any) -> None:
+    optimizer = kwargs.get("optimizer")
+
     gen_args = kwargs["args"]
 
-    # Generates CUDA variants.
+    #
+    # Generate GPU variants of the operators
+    #
     kwargs["args"] = gen_args["cuda"]
 
+    # Generate the backward splits
     template = env.get_template("embedding_backward_split_template.cu")
-    src_cu = template.render(weighted=False, **kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_unweighted_cuda.cu",
-        src_cu,
-    )
-    src_cu = template.render(weighted=True, **kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_weighted_cuda.cu",
-        src_cu,
-    )
+    for weighted in [True, False]:
+        for nobag in [True, False]:
+            if not nobag or not weighted:
+                wdesc = f"{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }"
+                filename = f"gen_embedding_backward_{optimizer}_split_{wdesc}_cuda.cu"
+                write(
+                    filename, template.render(weighted=weighted, nobag=nobag, **kwargs)
+                )
+
+                print(f"[Backward Split] [{optimizer}]: {filename}")
+
+    # Generate the backward splits (non-dense)
     if not kwargs.get("dense"):
         template = env.get_template("embedding_backward_split_host_template.cpp")
-        src_cpp = template.render(**kwargs)
-        write(f"gen_embedding_backward_split_{kwargs.get('optimizer')}.cpp", src_cpp)
+        filename = f"gen_embedding_backward_split_{optimizer}.cpp"
+        write(filename, template.render(**kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename}")
 
         # Generates Python invoker for CUDA + CPU
         template = env.get_template("split_embedding_codegen_lookup_invoker.template")
-        src_py = template.render(is_fbcode=args.is_fbcode, **kwargs)
-        write(f"lookup_{kwargs.get('optimizer')}.py", src_py)
+        filename = f"lookup_{optimizer}.py"
+        write(filename, template.render(is_fbcode=args.is_fbcode, **kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename}")
 
-    # Generates CPU variants.
+    #
+    # Generate CPU variants of the operators
+    #
     kwargs["args"] = gen_args["cpu"]
 
-    is_approx = "approx" in kwargs.get("optimizer")
+    # Generate the backward splits
+    is_approx = "approx" in optimizer
     template = (
         env.get_template("embedding_backward_split_cpu_approx_template.cpp")
         if is_approx
         else env.get_template("embedding_backward_split_cpu_template.cpp")
     )
+    filename = f"gen_embedding_backward_{optimizer}_split_cpu.cpp"
+    write(filename, template.render(**kwargs))
+    print(f"[Backward Split] [{optimizer}]: {filename}")
 
-    src_cpp = template.render(**kwargs)
-    write(
-        f"gen_embedding_backward_{kwargs.get('optimizer')}_split_cpu.cpp",
-        src_cpp,
-    )
-
+    # Generate the backward splits (non-dense)
     if not kwargs.get("dense"):
         template = env.get_template("embedding_backward_split_host_cpu_template.cpp")
-        src_cpp = template.render(**kwargs)
-        write(
-            f"gen_embedding_backward_split_{kwargs.get('optimizer')}_cpu.cpp", src_cpp
-        )
+        filename = f"gen_embedding_backward_split_{optimizer}_cpu.cpp"
+        write(filename, template.render(**kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename}")
 
 
 @dataclass
@@ -1360,7 +1369,6 @@ def forward_quantized() -> None:
                             emb_weight_type=emb_weight_type,
                         ),
                     )
-
                     print(f"[Forward Quantized]: {filename}")
 
     # Generate the CUDA nbit (host) templates
@@ -1376,7 +1384,6 @@ def forward_quantized() -> None:
                     filename,
                     template.render(weighted=weighted, nobag=nobag, type_map=type_map),
                 )
-
                 print(f"[Forward Quantized]: {filename}")
 
     # Generate the CPU templates
@@ -1385,6 +1392,12 @@ def forward_quantized() -> None:
         filename = f"gen_embedding_forward_quantized_{ 'weighted' if weighted else 'unweighted' }_codegen_cpu.cpp"
         write(filename, template.render(weighted=weighted, type_map=type_map))
         print(f"[Forward Quantized]: {filename}")
+
+
+def backward_grad() -> None:
+    # Generate the common grad functions
+    template = env.get_template("embedding_backward_split_grad_template.cu")
+    write("gen_embedding_backward_split_grad.cu", template.render())
 
 
 def backward_indices() -> None:
@@ -1422,6 +1435,7 @@ def emb_codegen(
         args.is_fbcode = is_fbcode
     adagrad()
     adam()
+    backward_grad()
     backward_indices()
     backward_dense()
     forward_quantized()
