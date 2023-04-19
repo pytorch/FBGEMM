@@ -379,16 +379,16 @@
 <span class="gp">&gt;&gt;&gt; </span>   <span class="n">EmbeddingLocation</span><span class="p">,</span>
 <span class="gp">&gt;&gt;&gt; </span>   <span class="n">ComputeDevice</span><span class="p">,</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="p">)</span>
-<span class="go">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Two tables</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">embedding_specs</span> <span class="o">=</span> <span class="p">[</span>
 <span class="gp">&gt;&gt;&gt; </span>    <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">DEVICE</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="o">.</span><span class="n">CUDA</span><span class="p">),</span>
 <span class="gp">&gt;&gt;&gt; </span>    <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">MANAGED</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="o">.</span><span class="n">CUDA</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="p">]</span>
-<span class="go">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">tbe</span> <span class="o">=</span> <span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">embedding_specs</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">tbe</span><span class="o">.</span><span class="n">init_embedding_weights_uniform</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-<span class="go">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">tbe</span><span class="o">.</span><span class="n">split_embedding_weights</span><span class="p">())</span>
 <span class="go">[tensor([[-0.9426,  0.7046,  0.4214, -0.0419,  0.1331, -0.7856, -0.8124, -0.2021],</span>
 <span class="go">        [-0.5771,  0.5911, -0.7792, -0.1068, -0.6203,  0.4813, -0.1677,  0.4790],</span>
@@ -407,9 +407,9 @@
 <span class="gp">&gt;&gt;&gt; </span><span class="n">offsets</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">],</span>
 <span class="gp">&gt;&gt;&gt; </span>                       <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
 <span class="gp">&gt;&gt;&gt; </span>                       <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">long</span><span class="p">)</span>
-<span class="go">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">output</span> <span class="o">=</span> <span class="n">tbe</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span>
-<span class="go">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="c1"># Batch size = 3, total embedding dimension = 12</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 <span class="go">torch.Size([3, 12])</span>
