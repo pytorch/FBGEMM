@@ -123,10 +123,9 @@ set(gen_gpu_source_files
     "gen_embedding_forward_dense_unweighted_codegen_cuda.cu"
     "gen_embedding_forward_split_weighted_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_codegen_cuda.cu"
-    "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_dense_indice_weights_codegen_cuda.cu"
-    "gen_embedding_backward_dense_split_unweighted_cuda.cu"
-    "gen_embedding_backward_dense_split_weighted_cuda.cu")
+    "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
+    "gen_embedding_backward_split_grad.cu")
 
 foreach(wdesc weighted unweighted_nobag unweighted)
   list(APPEND gen_gpu_source_files
@@ -136,6 +135,9 @@ foreach(wdesc weighted unweighted_nobag unweighted)
     list(APPEND gen_gpu_source_files
        "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
   endforeach()
+
+  list(APPEND gen_gpu_source_files
+    "gen_embedding_backward_dense_split_${wdesc}_cuda.cu")
 endforeach()
 
 set(gen_cpu_source_files
@@ -147,18 +149,20 @@ set(gen_python_files ${CMAKE_BINARY_DIR}/__init__.py)
 
 foreach(optimizer ${OPTIMIZERS})
   list(APPEND gen_gpu_host_source_files
-       "gen_embedding_backward_split_${optimizer}.cpp")
+    "gen_embedding_backward_split_${optimizer}.cpp")
 
   list(APPEND gen_cpu_source_files
-       "gen_embedding_backward_split_${optimizer}_cpu.cpp")
+    "gen_embedding_backward_split_${optimizer}_cpu.cpp")
+
   list(APPEND gen_cpu_source_files
-       "gen_embedding_backward_${optimizer}_split_cpu.cpp")
+    "gen_embedding_backward_${optimizer}_split_cpu.cpp")
 
-  list(APPEND gen_python_files "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
+  list(APPEND gen_python_files
+    "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
 
-  foreach(weight weighted unweighted)
+  foreach(wdesc weighted unweighted_nobag unweighted)
     list(APPEND gen_gpu_source_files
-         "gen_embedding_backward_${optimizer}_split_${weight}_cuda.cu")
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_cuda.cu")
   endforeach()
 endforeach()
 
@@ -173,6 +177,7 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_indice_weights_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_grad_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host.cpp
