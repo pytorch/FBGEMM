@@ -11,6 +11,7 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include "ATen/TensorUtils.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -559,6 +560,103 @@ class JaggedIndexSelect2dOp
   }
 };
 
+class JaggedSliceOp : public torch::autograd::Function<JaggedSliceOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& values,
+      const Tensor& lengths,
+      const Tensor& start,
+      const int64_t slice_length) {
+    TENSOR_NDIM_EQUALS(values, 1);
+    TENSORS_ON_SAME_DEVICE(values, lengths);
+    TORCH_CHECK_TENSOR_ALL(start <= lengths, "start should be <= len");
+    TORCH_CHECK_TENSOR_ALL(start >= 0, "start should be always be positive");
+
+    Tensor output_lengths = (lengths - start).clamp_max(std::abs(slice_length));
+    // D2H sync here
+    const int64_t num_output_rows = output_lengths.sum().item<int64_t>();
+    const int64_t num_input_rows = lengths.sum().item<int64_t>();
+
+    Tensor tgt_start = at::zeros_like(lengths);
+
+    ctx->save_for_backward({lengths, output_lengths, start, tgt_start});
+    ctx->saved_data["num_output_rows"] = num_input_rows;
+    ctx->saved_data["slice_length"] = slice_length;
+
+    static auto op = c10::Dispatcher::singleton()
+                         .findSchemaOrThrow("fbgemm::jagged_slice_forward", "")
+                         .typed<at::Tensor(
+                             const Tensor& values,
+                             const Tensor& lengths,
+                             const Tensor& src_start,
+                             const Tensor& output_lengths,
+                             const Tensor& tgt_start,
+                             const int64_t num_output_rows,
+                             const int64_t max_L,
+                             const bool fill_zeros)>();
+
+    return {
+        op.call(
+            values,
+            lengths,
+            start,
+            output_lengths,
+            tgt_start,
+            num_output_rows,
+            slice_length,
+            false),
+        output_lengths,
+    };
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    TORCH_CHECK(grad_outputs.size() == 2);
+
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+    Tensor output_lengths = *savedItr++;
+    Tensor grad_lengths = *savedItr++;
+    Tensor tgt_start = *savedItr++;
+    Tensor src_start = *savedItr++;
+    Tensor grad = grad_outputs[0];
+
+    TENSORS_ON_SAME_DEVICE(grad, output_lengths);
+
+    const int64_t num_output_rows = ctx->saved_data["num_output_rows"].toInt();
+    const int64_t slice_length = ctx->saved_data["slice_length"].toInt();
+
+    static auto op = c10::Dispatcher::singleton()
+                         .findSchemaOrThrow("fbgemm::jagged_slice_forward", "")
+                         .typed<at::Tensor(
+                             const Tensor& values,
+                             const Tensor& lengths,
+                             const Tensor& src_start,
+                             const Tensor& output_lengths,
+                             const Tensor& tgt_start,
+                             const int64_t num_output_rows,
+                             const int64_t slice_length,
+                             const bool fill_zeros)>();
+
+    return {
+        op.call(
+            grad,
+            grad_lengths,
+            src_start,
+            output_lengths,
+            tgt_start,
+            num_output_rows,
+            slice_length,
+            true),
+        torch::autograd::Variable(), // lengths
+        torch::autograd::Variable(), // start
+        torch::autograd::Variable() // max_L
+    };
+  }
+};
+
 } // namespace
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -719,6 +817,16 @@ std::vector<Tensor> jagged_index_select_2d(
   return JaggedIndexSelect2dOp::apply(values, lengths, indices);
 }
 
+std::tuple<Tensor, Tensor> jagged_slice(
+    const Tensor& values,
+    const Tensor& lengths,
+    const Tensor& start,
+    const int64_t slice_length) {
+  const auto output =
+      JaggedSliceOp::apply(values, lengths, start, slice_length);
+  return {output[0], output[1]};
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
@@ -740,4 +848,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl("jagged_jagged_bmm", TORCH_FN(fbgemm_gpu::jagged_jagged_bmm));
   m.impl("jagged_dense_bmm", TORCH_FN(fbgemm_gpu::jagged_dense_bmm));
   m.impl("jagged_index_select", TORCH_FN(fbgemm_gpu::jagged_index_select_2d));
+  m.impl("jagged_slice", TORCH_FN(fbgemm_gpu::jagged_slice));
 }

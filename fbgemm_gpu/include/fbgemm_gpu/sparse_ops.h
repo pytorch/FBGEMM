@@ -752,5 +752,20 @@ at::Tensor jagged_index_add_2d_forward_cpu(
     const int64_t num_dense_grad_rows,
     const int64_t num_output_rows);
 
+std::tuple<at::Tensor, at::Tensor> jagged_slice(
+    const at::Tensor& x_values,
+    const at::Tensor& x_lengths,
+    const at::Tensor& start,
+    const int64_t max_L);
+
+at::Tensor jagged_slice_forward_cpu(
+    const at::Tensor& x_values,
+    const at::Tensor& x_lengths,
+    const at::Tensor& src_start,
+    const at::Tensor& output_lengths,
+    const at::Tensor& tgt_start,
+    const int64_t num_output_rows,
+    const int64_t max_L,
+    const bool fill_zeros);
 #endif
 } // namespace fbgemm_gpu
