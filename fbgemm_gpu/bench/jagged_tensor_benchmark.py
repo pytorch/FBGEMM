@@ -5,11 +5,13 @@
 
 import functools
 import logging
+import random
 from typing import List, Tuple
 
 import click
 import fbgemm_gpu
 import torch
+from torch.profiler import profile
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -417,6 +419,116 @@ def keyed_jagged_index_select_dim1(
     logging.info(
         f"keyed_jagged_index_select_dim1 backward time: {time * 1e3} ms, ref {time_ref * 1e3}"
     )
+
+
+@cli.command()
+@click.option("--max-seq-length", type=int, default=400)
+@click.option("--input-batch-size", type=int, default=1024)
+@click.option("--slice-length", type=int, default=10)
+@click.option("--jagged-tensor-type", type=str, default="float")
+def jagged_slice_cpu(
+    max_seq_length: int,
+    input_batch_size: int,
+    slice_length: int,
+    jagged_tensor_type: str,
+) -> None:
+    jagged_tensor_types = {
+        "float": torch.float,
+        "half": torch.half,
+        "int": torch.int,
+        "long": torch.long,
+    }
+
+    if jagged_tensor_type not in jagged_tensor_types.keys():
+        raise AssertionError(
+            f"--jagged-tensor-type ({jagged_tensor_type}) is not supported"
+        )
+
+    jagged_tensor_dtype = jagged_tensor_types[jagged_tensor_type]
+    is_float = jagged_tensor_dtype in [torch.float, torch.half]
+
+    lengths = torch.randint(
+        low=0,
+        high=max_seq_length,
+        size=(input_batch_size,),
+        dtype=torch.long,
+    )
+    start_list = [random.randint(0, max(len_ - 1, 0)) for len_ in lengths.tolist()]
+    start = torch.tensor(start_list)
+
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+    if is_float:
+        values = torch.rand(
+            int(offsets[-1].item()),
+            dtype=jagged_tensor_dtype,
+        )
+    else:
+        values = torch.randint(
+            2**16,
+            (int(offsets[-1].item()),),
+            dtype=jagged_tensor_dtype,
+        )
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_slice,
+        (values, lengths, start, slice_length),
+        iters=1000,
+    )
+
+    def jagged_slice_ref(
+        x_values: torch.Tensor,
+        offsets: torch.Tensor,
+        start: torch.Tensor,
+        max_L: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        end_offsets_ = max_L + start + offsets[:-1]
+        end_offsets = torch.where(end_offsets_ > offsets[1:], offsets[1:], end_offsets_)
+        start_offsets = start + offsets[:-1]
+        indices_to_select: List[torch.Tensor] = []
+        for i in range(end_offsets.size(0)):
+            indices_to_select.append(
+                torch.arange(start_offsets[i].item(), end_offsets[i].item())
+            )
+        output_ref = torch.index_select(x_values, 0, torch.cat(indices_to_select))
+        new_lengths = end_offsets - start_offsets
+        new_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(new_lengths)
+        return output_ref, new_offsets
+
+    time_ref, output = benchmark_torch_function(
+        jagged_slice_ref, (values, offsets, start, slice_length)
+    )
+
+    logging.info(f"jagged_slice forward time: {time * 1e3} ms, ref {time_ref * 1e3} ms")
+
+    profiler = profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        schedule=torch.profiler.schedule(
+            wait=200,
+            warmup=100,
+            active=100,
+        ),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True,
+        with_flops=True,
+    )
+
+    profiler.start()
+    for _ in range(500):
+        torch.ops.fbgemm.jagged_slice(values, lengths, start, slice_length)
+        profiler.step()
+    profiler.stop()
+
+    logging.info(
+        "\n"
+        + profiler.key_averages().table(sort_by="self_cuda_time_total", row_limit=10)
+    )
+
+    flops = sum(e.flops for e in profiler.events())
+    logging.info(f"Total Compute: {flops / 1e9} gflops")
 
 
 if __name__ == "__main__":

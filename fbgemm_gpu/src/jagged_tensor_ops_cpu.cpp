@@ -1481,6 +1481,91 @@ Tensor jagged_dense_bmm_forward(
   return output;
 }
 
+template <typename scalar_t, typename offset_t>
+void jagged_slice_forward_cpu_kernel(
+    at::TensorAccessor<scalar_t, 1> output,
+    const at::TensorAccessor<offset_t, 1>& output_lengths,
+    const at::TensorAccessor<offset_t, 1>& output_offsets,
+    const at::TensorAccessor<offset_t, 1>& tgt_start,
+    const at::TensorAccessor<scalar_t, 1>& input,
+    const at::TensorAccessor<offset_t, 1>& input_lengths,
+    const at::TensorAccessor<offset_t, 1>& input_offsets,
+    const at::TensorAccessor<offset_t, 1>& src_start,
+    const int64_t slice_length) {
+  const auto B = output_offsets.size(0);
+
+  // TODO (devashisht) parallelize this loop
+  for (const auto row_i : c10::irange(B)) {
+    const int64_t output_offset_start = output_offsets[row_i];
+    const int64_t input_offset_start = input_offsets[row_i];
+    const auto tgt_start_ = tgt_start[row_i];
+    const auto src_start_ = src_start[row_i];
+    for (auto col_i = 0;
+         col_i < slice_length && tgt_start_ + col_i < output_lengths[row_i] &&
+         src_start_ + col_i < input_lengths[row_i];
+         ++col_i) {
+      const int64_t output_offset = output_offset_start + tgt_start_ + col_i;
+      const int64_t input_offset = input_offset_start + src_start_ + col_i;
+      output[output_offset] = input[input_offset];
+    }
+  }
+}
+
+/// Slice the jagged dim to max length from slice_length,
+/// from start point `start`. This is a jagged -> jagged op
+/// @param x_values - X values of shape B * J_DIM where J_DIM is
+///                   jagged dim
+/// @param x_lengths - length along jagged dim
+/// @param src_start - start of slice operation from the src tensor
+/// @param output_lengths - length of jagged dim for output tensor
+/// @param tgt_start - position to start filling in sliced values from source
+/// @param num_output_rows - output dense dim
+/// @param slice_length - length of jagged dim to slice
+/// @param fill_zeros - option exists as an optimization, we can reuse
+///                     the same code path for forward & backward. For backward
+///                     we need to fill zeros in output tensor but fwd we don't.
+Tensor jagged_slice_forward_cpu(
+    const Tensor& x_values,
+    const Tensor& x_lengths,
+    const Tensor& src_start,
+    const Tensor& output_lengths,
+    const Tensor& tgt_start,
+    const int64_t num_output_rows,
+    const int64_t slice_length,
+    const bool fill_zeros) {
+  TENSOR_ON_CPU(x_values);
+  TENSOR_ON_CPU(x_lengths);
+  TENSOR_NDIM_EQUALS(x_values, 1);
+  TENSOR_NDIM_EQUALS(x_lengths, 1);
+
+  auto output_values = fill_zeros
+      ? at::zeros({num_output_rows}, x_values.options())
+      : at::empty({num_output_rows}, x_values.options());
+
+  auto output_offsets = asynchronous_exclusive_cumsum_cpu(output_lengths);
+  auto input_offsets = asynchronous_exclusive_cumsum_cpu(x_lengths);
+
+  AT_DISPATCH_ALL_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      x_values.scalar_type(),
+      "jagged_slice_wrapper_1",
+      [&] {
+        jagged_slice_forward_cpu_kernel<scalar_t>(
+            output_values.accessor<scalar_t, 1>(),
+            output_lengths.accessor<int64_t, 1>(),
+            output_offsets.accessor<int64_t, 1>(),
+            tgt_start.accessor<int64_t, 1>(),
+            x_values.accessor<scalar_t, 1>(),
+            x_lengths.accessor<int64_t, 1>(),
+            input_offsets.accessor<int64_t, 1>(),
+            src_start.accessor<int64_t, 1>(),
+            slice_length);
+      });
+
+  return output_values;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -1555,6 +1640,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_dense_bmm(Tensor x_values, Tensor x_offsets, Tensor y, int max_L) -> (Tensor, Tensor)");
   m.def(
       "jagged_dense_bmm_forward(Tensor x_values, Tensor x_offsets, Tensor y, int max_L) -> Tensor");
+  // jagged -> jagged
+  m.def(
+      "jagged_slice(Tensor x_values, Tensor x_lengths, Tensor start, int slice_length) -> (Tensor, Tensor)");
+  m.def(
+      "jagged_slice_forward(Tensor x_values, Tensor x_lengths, Tensor src_start, Tensor output_lengths, Tensor tgt_start, int num_output_rows, int slice_length, bool fill_zeros) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -1623,4 +1713,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("jagged_dense_bmm", fbgemm_gpu::jagged_dense_bmm);
   DISPATCH_TO_CPU(
       "jagged_dense_bmm_forward", fbgemm_gpu::jagged_dense_bmm_forward);
+  DISPATCH_TO_CPU("jagged_slice_forward", fbgemm_gpu::jagged_slice_forward_cpu);
 }

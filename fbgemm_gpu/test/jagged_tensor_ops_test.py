@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-ignore-all-errors[56]
+
 import itertools
 import random
 import unittest
@@ -81,7 +83,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             )
         return output_permute
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         T=st.integers(min_value=10, max_value=20),
         W=st.integers(min_value=8, max_value=64),
@@ -141,7 +142,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_examples=20,
         deadline=None,
     )
-    # pyre-ignore [56]
     @given(
         B=st.integers(min_value=1, max_value=128),
         D=st.integers(min_value=1, max_value=128),
@@ -249,7 +249,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_examples=20,
         deadline=None,
     )
-    # pyre-ignore [56]
     @given(
         T=st.integers(min_value=1, max_value=5),
         B=st.integers(min_value=1, max_value=64),
@@ -307,7 +306,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_examples=20,
         deadline=None,
     )
-    # pyre-ignore [56]
     @given(
         B=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=500),
@@ -429,7 +427,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_examples=20,
         deadline=None,
     )
-    # pyre-ignore [56]
     @given(
         T=st.integers(min_value=1, max_value=20),
         B=st.integers(min_value=1, max_value=128),
@@ -628,7 +625,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         jagged_values.backward(ref_output_values)
         torch.testing.assert_close(dense.grad, ref_values)
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
@@ -659,7 +655,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
         outer_dense_size=st.integers(0, 6000),
@@ -692,7 +687,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
     # (8000+1) * 8 (size of the element of LongTensor/int64_t offsets)
     # = ~62.5KB > 48KB default shared memory on V100/A100.
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
         outer_dense_size=st.just(8000),
@@ -722,7 +716,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             precompute_total_L,
         )
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
@@ -772,7 +765,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         # verify forward
         assert dense.size() == dense2.size()
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
@@ -854,7 +846,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ),
         )
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 5),
         outer_dense_size=st.integers(0, 5),
@@ -980,7 +971,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ),
         )
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
@@ -1011,7 +1001,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
         outer_dense_size=st.integers(0, 8),
@@ -1041,7 +1030,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             device_type,
         )
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
@@ -1187,7 +1175,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ),
         )
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
@@ -1211,7 +1198,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.just(1),
         outer_dense_size=st.integers(0, 8),
@@ -1234,7 +1220,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device_type
         )
 
-    # pyre-ignore [56]
     @given(
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
@@ -1301,7 +1286,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_examples=20,
         deadline=None,
     )
-    # pyre-ignore [56]
     @given(
         B=st.integers(0, 32),
         H=st.integers(1, 3),
@@ -1379,7 +1363,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         max_examples=20,
         deadline=None,
     )
-    # pyre-ignore [56]
     @given(
         B=st.integers(0, 32),
         H=st.integers(1, 3),
@@ -1457,7 +1440,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         return new_embeddings
 
     @unittest.skipIf(*running_on_github)
-    # pyre-ignore [56]
     @given(
         max_seq_length=st.integers(5, 10),
         batch_size=st.integers(1, 128),
@@ -1551,7 +1533,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
-    # pyre-ignore [56]
     @given(
         batch_size=st.integers(1, 128),
         max_length=st.integers(0, 128),
@@ -1615,7 +1596,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(truncated_values, truncated_values_ref)
 
-    # pyre-ignore [56]
     @given(
         batch_size=st.integers(1, 128),
         max_length=st.integers(0, 128),
@@ -1673,7 +1653,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(masked_lengths, masked_lengths_ref)
 
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]
     @given(
         max_seq_length=st.integers(5, 10),
         input_batch_size=st.integers(1, 128),
@@ -1799,7 +1778,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
-    # pyre-ignore [56]
     @given(
         B=st.integers(1, 512),
         max_L=st.integers(1, 1000),
@@ -1857,7 +1835,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(values.grad, values_ref.grad)
 
-    # pyre-ignore [56]
     @given(
         B=st.integers(10, 512),
         M=st.integers(1, 32),
@@ -1923,7 +1900,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(x_values.grad, x_values_ref.grad)
         torch.testing.assert_close(y_values.grad, y_values_ref.grad)
 
-    # pyre-ignore [56]
     @given(
         B=st.integers(10, 512),
         M=st.integers(1, 32),
@@ -1985,6 +1961,105 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(x_values.grad, x_values_ref.grad)
         torch.testing.assert_close(y.grad, y_ref.grad)
+
+    @given(
+        B=st.integers(10, 512),
+        N=st.integers(10, 64),
+        slice_length=st.integers(0, 64),
+        dtype=st.sampled_from([torch.float, torch.double]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_jagged_slice(
+        self,
+        B: int,
+        N: int,
+        slice_length: int,
+        dtype: torch.dtype,
+    ) -> None:
+        assume(B != 0)
+        device = torch.device("cpu")
+        torch.backends.cuda.matmul.allow_tf32 = False
+        lengths = torch.randint(N + 1, size=(B,), device=device)
+        start_list = [random.randint(0, max(len_ - 1, 0)) for len_ in lengths.tolist()]
+        start = torch.tensor(start_list, device=device)
+
+        total_length = int(lengths.sum().item())
+        x_values = torch.rand(
+            (total_length), requires_grad=True, dtype=dtype, device=device
+        )
+
+        output, output_lengths = torch.ops.fbgemm.jagged_slice(
+            x_values,
+            lengths,
+            start,
+            slice_length,
+        )
+        output_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(output_lengths)
+
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        x_values_ref = x_values.detach().clone().requires_grad_(True)
+
+        def jagged_slice_ref(
+            x_values: torch.Tensor,
+            offsets: torch.Tensor,
+            start: torch.Tensor,
+            slice_length: int,
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            end_offsets_ = slice_length + start + offsets[:-1]
+            end_offsets = torch.where(
+                end_offsets_ > offsets[1:], offsets[1:], end_offsets_
+            )
+            start_offsets = start + offsets[:-1]
+            indices_to_select: List[torch.Tensor] = []
+            for i in range(end_offsets.size(0)):
+                indices_to_select.append(
+                    torch.arange(start_offsets[i].item(), end_offsets[i].item())
+                )
+            output_ref = torch.index_select(x_values, 0, torch.cat(indices_to_select))
+            new_lengths = end_offsets - start_offsets
+            new_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(new_lengths)
+            return output_ref, new_offsets
+
+        output_ref, output_offsets_ref = jagged_slice_ref(
+            x_values_ref, offsets, start, slice_length
+        )
+
+        # verify forward
+        torch.testing.assert_close(
+            output, output_ref, msg=f"output={output} output_ref={output_ref}"
+        )
+        torch.testing.assert_close(
+            output_offsets,
+            output_offsets_ref,
+            msg=f"output_off={output_offsets} output_off_ref={output_offsets_ref}",
+        )
+        # verify backward
+        grad_output = output.detach().clone().requires_grad_(True)
+
+        output.backward(grad_output)
+        output_ref.backward(grad_output)
+
+        torch.testing.assert_close(
+            x_values.grad,
+            x_values_ref.grad,
+            msg=f"grad={x_values.grad} x_values_ref.grad={x_values_ref.grad}",
+        )
+
+    def test_jagged_slice_errors(
+        self,
+    ) -> None:
+        lengths = torch.tensor([1, 2, 3, 4, 5, 6])
+        values = torch.tensor([x + y for x in range(6) for y in range(x)])
+
+        with self.assertRaises(RuntimeError):
+            torch.ops.fbgemm.jagged_slice(
+                values, lengths, torch.tensor([2, 1, 2, 3, 4, 2]), 7
+            )
+
+        with self.assertRaises(RuntimeError):
+            torch.ops.fbgemm.jagged_slice(
+                values, lengths, torch.tensor([-2, 1, 1, 0, 1, 2]), 7
+            )
 
 
 if __name__ == "__main__":
