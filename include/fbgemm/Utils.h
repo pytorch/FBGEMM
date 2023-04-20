@@ -350,4 +350,29 @@ FBGEMM_API void fbgemmPartition1DBlocked(
     int block_size,
     std::int64_t& start,
     std::int64_t& end);
+
+/**
+ * @brief A stable sorting algorithm. It sorts 8 bits at a time, hence in a
+ * worst-case performing sizeof(K) / 8 passes. Providing meaningful max_value
+ * may help reduce the number of passes performed by radix_sort. If
+ * maybe_with_neg_vals is set to true, we are performing all possible passes,
+ * up to a sign bit. If OpenMP is available in a build system, radix_sort works
+ * in parallel.
+ */
+template <typename K, typename V>
+FBGEMM_API std::pair<K*, V*> radix_sort_parallel(
+    K* const inp_key_buf,
+    V* const inp_value_buf,
+    K* const tmp_key_buf,
+    V* const tmp_value_buf,
+    const int64_t elements_count,
+    const int64_t max_value,
+    const bool maybe_with_neg_vals = false);
+
+/**
+ * @brief Helper function that allows us to check whether radix_sort is
+ * accelerated with OpenMP or not.
+ */
+FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
+
 } // namespace fbgemm
