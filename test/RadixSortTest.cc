@@ -60,4 +60,3 @@ TEST(cpu_kernel_test, radix_sort_parallel_test_neg_vals) {
     EXPECT_EQ(expect_values_tmp, values_tmp);
   }
 }
-
