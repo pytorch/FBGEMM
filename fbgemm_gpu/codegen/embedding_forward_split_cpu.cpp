@@ -396,11 +396,10 @@ void csr2csc_template_(
     }
   }
 
-  int* sorted_col_row_index_keys = nullptr;
-  value_t* sorted_col_row_index_values = nullptr;
-
+  int* sorted_col_row_index_keys;
+  value_t* sorted_col_row_index_values;
   std::tie(sorted_col_row_index_keys, sorted_col_row_index_values) =
-      fbgemm_gpu::radix_sort_parallel(
+      fbgemm::radix_sort_parallel(
           tmpBufKeys,
           tmpBufValues,
           tmpBuf1Keys,

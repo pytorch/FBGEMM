@@ -13,15 +13,6 @@
 
 namespace fbgemm_gpu {
 
-template <typename K, typename V>
-std::pair<K*, V*> radix_sort_parallel(
-    K* inp_key_buf,
-    V* inp_value_buf,
-    K* tmp_key_buf,
-    V* tmp_value_buf,
-    int64_t elements_count,
-    int64_t max_value);
-
 /**
  * report error from fbgemm cpu embedding lookup kernels
  * @params allow_minus_one true for embedding kernels generated with
