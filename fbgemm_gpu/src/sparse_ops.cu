@@ -1627,6 +1627,10 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
     // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
     // to [T][B][#num_ads_b][length_{b, t, a}], i.e. [sum(length_{b, t, a})],
     // laid out as [T][B][A][L] (if all lengths were equal).
+
+    // if broadcast_indices is enabled, all the indices will be copies of the
+    // first batch of the cat_ad_indices, this is useful for request-only
+    // broadcast
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_ad_offsets,
     const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
@@ -1637,7 +1641,8 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
         reordered_cat_ad_indices,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         batch_offsets,
-    int32_t T) {
+    const int32_t T,
+    const bool broadcast_indices) {
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_ads_in_batch = batch_offsets[B];
   // warp-per-segment.
@@ -1647,30 +1652,35 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
   if (t >= T) {
     return;
   }
-  // for each ad,
-  const int32_t num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
-  const int32_t b_t_start = T * batch_offsets[b] + t * num_ads_b;
-  const int32_t input_segment_offset_start =
-      T * batch_offsets[b] + t * num_ads_b;
-  const int32_t input_segment_offset_end =
-      T * batch_offsets[b] + t * num_ads_b + num_ads_b;
 
-  // Idea: we want to copy the entire segment of size sum_a(length_{b, t, a})
-  // from starting point (given by cat_ad_offsets[b, t])
-  // to end point (given by reordered_cat_ad_indices[t][b])
-  const int32_t input_segment_start =
-      cat_ad_offsets[input_segment_offset_start];
-  const int32_t input_segment_end = cat_ad_offsets[input_segment_offset_end];
-
-  const int32_t output_segment_offset_start =
+  const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
+  const auto output_segment_offset_start =
       t * num_ads_in_batch + batch_offsets[b];
-  const int32_t output_segment_start =
+  const auto output_segment_start =
       reordered_cat_ad_offsets[output_segment_offset_start];
+  const int32_t input_segment_offset_start =
+      broadcast_indices ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
+  const int32_t input_segment_offset_end = broadcast_indices
+      ? input_segment_offset_start + 1
+      : input_segment_offset_start + num_ads_b;
+  const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
+  const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
+  const auto num_elements = input_segment_end - input_segment_start;
 
-  for (int32_t i = threadIdx.x; i < input_segment_end - input_segment_start;
-       i += blockDim.x) {
-    reordered_cat_ad_indices[output_segment_start + i] =
-        cat_ad_indices[input_segment_start + i];
+  if (broadcast_indices) {
+    for (auto i = threadIdx.x; i < num_ads_b * num_elements; i += blockDim.x) {
+      reordered_cat_ad_indices[output_segment_start + i] =
+          cat_ad_indices[input_segment_start + i % num_elements];
+    }
+  } else {
+    // Idea: we want to copy the entire segment of size sum_a(length_{b, t, a})
+    // from starting point (given by cat_ad_offsets[b, t])
+    // to end point (given by reordered_cat_ad_indices[t][b])
+    for (int32_t i = threadIdx.x; i < input_segment_end - input_segment_start;
+         i += blockDim.x) {
+      reordered_cat_ad_indices[output_segment_start + i] =
+          cat_ad_indices[input_segment_start + i];
+    }
   }
 }
 
@@ -1679,7 +1689,9 @@ Tensor reorder_batched_ad_indices_gpu(
     const Tensor& cat_ad_indices,
     const Tensor& reordered_cat_ad_offsets,
     const Tensor& batch_offsets,
-    const int64_t num_ads_in_batch) {
+    const int64_t num_ads_in_batch,
+    const c10::optional<bool>& broadcast_indices,
+    const c10::optional<int64_t>& num_indices_after_broadcast) {
   TENSOR_ON_CUDA_GPU(cat_ad_offsets);
   TENSOR_ON_CUDA_GPU(cat_ad_indices);
   TENSOR_ON_CUDA_GPU(reordered_cat_ad_offsets);
@@ -1691,9 +1703,18 @@ Tensor reorder_batched_ad_indices_gpu(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_offsets.get_device());
 
+  const bool broadcast = broadcast_indices.value_or(false);
+
   const int64_t B = batch_offsets.numel() - 1;
-  const int64_t T = (cat_ad_offsets.numel() - 1) / num_ads_in_batch;
-  Tensor reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
+  const int64_t T = (reordered_cat_ad_offsets.numel() - 1) / num_ads_in_batch;
+  Tensor reordered_cat_ad_indices;
+  if (broadcast) {
+    CHECK(num_indices_after_broadcast.has_value());
+    reordered_cat_ad_indices = at::empty(
+        {num_indices_after_broadcast.value()}, cat_ad_indices.options());
+  } else {
+    reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
+  }
 
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
@@ -1721,7 +1742,8 @@ Tensor reorder_batched_ad_indices_gpu(
                       .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
                   batch_offsets
                       .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                  T);
+                  T,
+                  broadcast);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
@@ -1735,8 +1757,8 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
     const int32_t N,
     const int32_t B,
     const int32_t T,
-    const scalar_t* __restrict__ weight, // N * sum(E) * 1 (embedding dimension
-                                         // is 1)
+    const scalar_t* __restrict__ weight, // N * sum(E) * 1 (embedding
+                                         // dimension is 1)
     const index_t* __restrict__ table_offsets,
     const index_t* __restrict__ offsets,
     const index_t* __restrict__ indices,
@@ -1811,12 +1833,14 @@ Tensor batched_unary_embeddings_forward_cuda(
 // We sort input indices so we don't have race conditions, an approach similar
 // to the usual split table batched embedding backward.
 // We can think of the following alternatives but each with challenges:
-// 1) Assign output elements to different threads. Each thread scan all indices
+// 1) Assign output elements to different threads. Each thread scan all
+// indices
 //    corresponding to the table it owns but only accumulate gradients when an
 //    index value matches with the output element it owns.
-//    A challenge is each thread need to binary search to map from [0 .. sum_E]
-//    to table id.
-// 2) Densify indices and offsets to create [B, sum_E] matrix. Then, do batched
+//    A challenge is each thread need to binary search to map from [0 ..
+//    sum_E] to table id.
+// 2) Densify indices and offsets to create [B, sum_E] matrix. Then, do
+// batched
 //    GEMM where ith GEMM multiplies [N, B] submatrix of grad_output with
 //    [B, E_i] submatrix where E_i is the num of embeddings of ith table.
 //    Concatenating the GEMM outputs will result in [N, B, T]
