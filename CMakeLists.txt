@@ -1,4 +1,37 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+################################################################################
+# CMake Prelude
+################################################################################
+
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+
+# Install libraries into correct locations on all platforms
+include(GNUInstallDirs)
+
+# Load Python
+find_package(PythonInterp)
+
+# Define function to extract filelists from defs.bzl file
+function(get_filelist name outputvar)
+  execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" -c
+            "exec(open('defs.bzl').read());print(';'.join(${name}))"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE _tempvar)
+  string(REPLACE "\n" "" _tempvar "${_tempvar}")
+  set(${outputvar} ${_tempvar} PARENT_SCOPE)
+endfunction()
+
+
+################################################################################
+# FBGEMM C++ Setup
+################################################################################
 
 # Set the default C++ standard to C++17
 # Individual targets can have this value overridden; see
@@ -15,25 +48,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
-
-#install libraries into correct locations on all platforms
-include(GNUInstallDirs)
-
-# function to extract filelists from defs.bzl file
-find_package(PythonInterp)
-function(get_filelist name outputvar)
-  execute_process(
-    COMMAND "${PYTHON_EXECUTABLE}" -c
-            "exec(open('defs.bzl').read());print(';'.join(${name}))"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    OUTPUT_VARIABLE _tempvar)
-  string(REPLACE "\n" "" _tempvar "${_tempvar}")
-  set(${outputvar} ${_tempvar} PARENT_SCOPE)
-endfunction()
-
-##############################################################################
-# CHeck if given flag is supported and append it to provided outputvar
+# Check if given flag is supported and append it to provided outputvar
 # Also define HAS_UPPER_CASE_FLAG_NAME variable
 # From: https://github.com/pytorch/pytorch/blob/62c8d30f9f6715d0b60d78fb5f5913a2f3bd185b/cmake/public/utils.cmake#L579
 # Usage:
@@ -56,10 +71,17 @@ function(target_compile_options_if_supported target flag)
   endif()
 endfunction()
 
+
+################################################################################
+# FBGEMM_GPU Build Kicktart
+################################################################################
+
 project(fbgemm VERSION 0.1 LANGUAGES CXX C)
 
-set(FBGEMM_LIBRARY_TYPE "default" CACHE STRING
+set(FBGEMM_LIBRARY_TYPE "default"
+  CACHE STRING
   "Type of library (shared, static, or default) to build")
+
 set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS default static shared)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
@@ -75,10 +97,10 @@ set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-#add address sanitizer
+# Add address sanitizer
 set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
-#check if compiler supports avx512
+# Check if compiler supports avx512
 include(CheckCXXCompilerFlag)
 if(MSVC)
   CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
@@ -91,12 +113,12 @@ if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
 endif()
 
-#We should default to a Release build
+# We should default to a Release build
 if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 
-#check if compiler supports openmp
+# Check if compiler supports OpenMP
 find_package(OpenMP)
 if (OpenMP_FOUND)
   message(WARNING "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
