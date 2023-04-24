@@ -23,7 +23,14 @@ function(get_filelist name outputvar)
     COMMAND "${PYTHON_EXECUTABLE}" -c
             "exec(open('defs.bzl').read());print(';'.join(${name}))"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    OUTPUT_VARIABLE _tempvar)
+    OUTPUT_VARIABLE _tempvar
+    RESULT_VARIABLE _resvar
+    ERROR_VARIABLE _errvar)
+  if (NOT "${_resvar}" EQUAL "0")
+    message(WARNING "Failed to execute Python (${PYTHON_EXECUTABLE})\n" 
+      "Result: ${_resvar}\n"
+      "Error: ${_errvar}\n")
+  endif()
   string(REPLACE "\n" "" _tempvar "${_tempvar}")
   set(${outputvar} ${_tempvar} PARENT_SCOPE)
 endfunction()
