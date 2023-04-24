@@ -1668,7 +1668,8 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
   const auto num_elements = input_segment_end - input_segment_start;
 
   if (broadcast_indices) {
-    for (auto i = threadIdx.x; i < num_ads_b * num_elements; i += blockDim.x) {
+    for (int32_t i = threadIdx.x; i < num_ads_b * num_elements;
+         i += blockDim.x) {
       reordered_cat_ad_indices[output_segment_start + i] =
           cat_ad_indices[input_segment_start + i % num_elements];
     }
