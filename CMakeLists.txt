@@ -80,7 +80,7 @@ endfunction()
 
 
 ################################################################################
-# FBGEMM_GPU Build Kicktart
+# FBGEMM Build Kickstart
 ################################################################################
 
 project(fbgemm VERSION 0.1 LANGUAGES CXX C)

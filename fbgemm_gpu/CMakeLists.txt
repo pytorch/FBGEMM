@@ -79,7 +79,7 @@ BLOCK_PRINT(
 
 
 ################################################################################
-# FBGEMM_GPU Build Kicktart
+# FBGEMM_GPU Build Kickstart
 ################################################################################
 
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
@@ -129,7 +129,6 @@ if(USE_ROCM)
   include(Hip)
   include(Hipify)
 
-  # Remove very verbose HIPCC warnings that are non-actionable
   list(APPEND HIP_HCC_FLAGS
     " \"-Wno-#pragma-messages\" "
     " \"-Wno-#warnings\" "
@@ -189,7 +188,9 @@ set(gen_gpu_kernel_source_files
 foreach(wdesc weighted unweighted_nobag unweighted)
   list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu"
-      "gen_embedding_backward_dense_split_${wdesc}_cuda.cu")
+      "gen_embedding_backward_dense_split_${wdesc}_cuda.cu"
+      "gen_embedding_backward_dense_split_${wdesc}_kernel_cta.cu"
+      "gen_embedding_backward_dense_split_${wdesc}_kernel_warp.cu")
 
   foreach(etype fp32 fp16 fp8 int8 int4 int2)
     list(APPEND gen_gpu_kernel_source_files
@@ -220,7 +221,9 @@ foreach(optimizer ${OPTIMIZERS})
 
   foreach(wdesc weighted unweighted_nobag unweighted)
     list(APPEND gen_gpu_kernel_source_files
-      "gen_embedding_backward_${optimizer}_split_${wdesc}_cuda.cu")
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_cuda.cu"
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_kernel_cta.cu"
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_kernel_warp.cu")
   endforeach()
 endforeach()
 
@@ -236,6 +239,8 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_indice_weights_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_grad_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_kernel_cta_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_kernel_warp_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host.cpp
@@ -493,7 +498,7 @@ if(USE_ROCM)
   set(fbgemm_gpu_sources_gen_abs)
   foreach(source_gen_filename ${fbgemm_gpu_sources_gen})
     list(APPEND fbgemm_gpu_sources_gen_abs
-         "${CMAKE_BINARY_DIR}/${source_gen_filename}")
+      "${CMAKE_BINARY_DIR}/${source_gen_filename}")
   endforeach()
 
   # HIPify FBGEMM, FBGEMM_GPU static, and FBGEMM_GPU generated sources
