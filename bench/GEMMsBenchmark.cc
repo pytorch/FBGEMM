@@ -27,19 +27,20 @@
 using namespace std;
 using namespace fbgemm;
 
-void performance_test() {
+void performance_test(const int M, const int N, const int K) {
   // clang-format off
-  static const vector<vector<int>> shapes = {
+  const vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
     // formatting should be easier to read.
     // m, n, k
-    {64, 800, 320},
-    {64, 768, 512},
-    {16, 256, 512},
-    {128, 128, 128},
-    {256, 512, 256},
-    {1024, 1024, 1024},
+    {M?M:64, N?N:800, K?K:320},
+    {M?M:64, N?N:768, K?K:512},
+    {M?M:16, N?N:256, K?K:512},
+    {M?M:128, N?N:128, K?K:128},
+    {M?M:256, N?N:512, K?K:256},
+    {M?M:1024, N?N:1024, K?K:1024},
   };
+
   // clang-format on
   bool flush = true;
   std::vector<char> llc;
@@ -323,7 +324,7 @@ void performance_test() {
   }
 }
 
-int main(int /* unused */, char** /* unused */) {
+int main(int argc, const char **argv) {
 #ifdef _OPENMP
   // Use 1 thread unless OMP_NUM_THREADS is explicit set.
   const char* val = getenv("OMP_NUM_THREADS");
@@ -331,6 +332,10 @@ int main(int /* unused */, char** /* unused */) {
     omp_set_num_threads(1);
   }
 #endif
-  performance_test();
+  const int M = parseArgumentInt(argc, argv, "--M=", 0, 0);
+  const int N = parseArgumentInt(argc, argv, "--N=", 0, 0);
+  const int K = parseArgumentInt(argc, argv, "--K=", 0, 0);
+
+  performance_test(M, N, K);
   return 0;
 }
