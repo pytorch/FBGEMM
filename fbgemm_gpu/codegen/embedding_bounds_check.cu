@@ -29,7 +29,8 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
         rows_per_table,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    const int32_t* const vbe_metadata,
+    const int32_t* const B_offsets, // Use a raw pointer to avoid creating a
+                                    // dummy PackedTensorAccessor
     const int64_t bounds_check_mode_,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
     FixedDivisor fd) {
@@ -51,8 +52,8 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
     if (t >= T) {
       return;
     }
-    const auto B_start = vbe_metadata[t];
-    B = vbe_metadata[t + 1] - B_start;
+    const auto B_start = B_offsets[t];
+    B = B_offsets[t + 1] - B_start;
     // Check if b is valid
     if (b >= B) {
       return;
@@ -177,14 +178,14 @@ void bounds_check_indices_cuda(
     int64_t bounds_check_mode_,
     Tensor& warning,
     const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& vbe_metadata,
+    const c10::optional<Tensor>& B_offsets,
     const int64_t max_B) {
   TENSOR_ON_CUDA_GPU(rows_per_table);
   TENSOR_ON_CUDA_GPU(indices);
   TENSOR_ON_CUDA_GPU(offsets);
   TENSOR_ON_CUDA_GPU(warning);
   TENSOR_EMPTY_OR_ON_CUDA_GPU(weights);
-  TENSOR_EMPTY_OR_ON_CUDA_GPU(vbe_metadata);
+  TENSOR_EMPTY_OR_ON_CUDA_GPU(B_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(rows_per_table.get_device());
@@ -201,7 +202,7 @@ void bounds_check_indices_cuda(
     warning.zero_();
   }
   const int64_t num_indices = indices.size(0);
-  const auto vbe = vbe_metadata.has_value();
+  const auto vbe = B_offsets.has_value();
 
   if (vbe) {
     TORCH_CHECK(max_B >= 0);
@@ -234,7 +235,7 @@ void bounds_check_indices_cuda(
         rows_per_table.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-        vbe ? vbe_metadata.value().data_ptr<int32_t>() : nullptr,
+        vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,
         bounds_check_mode_,
         warning.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
         FixedDivisor(max_B_));
