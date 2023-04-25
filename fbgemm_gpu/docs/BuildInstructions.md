@@ -437,7 +437,7 @@ it is important to make sure that there are no undefined template instantiations
 fbgemm_gpu_lib_path=$(find . -name fbgemm_gpu_py.so)
 
 # Check that the undefined symbols don't include fbgemm_gpu-defined functions
-nm -gDCu "${fbgemm_gpu_lib_path}"
+nm -gDCu "${fbgemm_gpu_lib_path}" | sort
 ```
 
 #### GLIBC Version Compatibility Check

@@ -30,6 +30,7 @@
   shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
 constexpr size_t kBackwardMaxThreads = 512;
+constexpr int32_t kCacheLocationMissing = -1;
 
 DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
   static_assert(

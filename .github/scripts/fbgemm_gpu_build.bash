@@ -236,19 +236,20 @@ run_fbgemm_gpu_postbuild_checks () {
     )
   fi
 
-  for library in "${fbgemm_gpu_so_files[@]}"; do
-    echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
-    print_glibc_info "${library}"
+  # Print info for only the first instance of the .SO file, since the build makes multiple copies
+  local library="${fbgemm_gpu_so_files[0]}"
+  echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
+  print_glibc_info "${library}"
 
-    echo "[CHECK] Listing out undefined symbols in the library: ${library}"
-    print_exec nm -gDCu "${library}"
+  echo "[CHECK] Listing out undefined symbols in the library: ${library}"
+  print_exec nm -gDCu "${library}" | sort
 
-    echo "[CHECK] Verifying sample subset of symbols in the library ..."
-    for symbol in "${lib_symbols_to_check[@]}"; do
-      (test_library_symbol "${library}" "${symbol}") || return 1
-    done
+  echo "[CHECK] Listing out external shared libraries required by the library: ${library}"
+  print_exec ldd "${library}"
 
-    echo ""
+  echo "[CHECK] Verifying sample subset of symbols in the library ..."
+  for symbol in "${lib_symbols_to_check[@]}"; do
+    (test_library_symbol "${library}" "${symbol}") || return 1
   done
 }
 
