@@ -311,7 +311,7 @@ at::Tensor reorder_batched_ad_lengths_gpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_lengths = false);
+    const bool broadcast_lengths = false);
 
 ///@ingroup sparse-data-cuda
 at::Tensor reorder_batched_ad_indices_gpu(
@@ -320,15 +320,15 @@ at::Tensor reorder_batched_ad_indices_gpu(
     const at::Tensor& reordered_cat_ad_offsets,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_indices = false,
-    const c10::optional<int64_t>& num_indices_after_broadcast = 0);
+    const bool broadcast_indices = false,
+    const int64_t num_indices_after_broadcast = -1);
 
 ///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_lengths_cpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_lengths = false);
+    const bool broadcast_lengths = false);
 ///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_indices_cpu(
     const at::Tensor& cat_ad_offsets,
@@ -336,8 +336,8 @@ at::Tensor reorder_batched_ad_indices_cpu(
     const at::Tensor& reordered_cat_ad_offsets,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_indices = false,
-    const c10::optional<int64_t>& num_indices_after_broadcast = 0);
+    const bool broadcast_indices = false,
+    const int64_t num_indices_after_broadcast = -1);
 
 at::Tensor recat_embedding_grad_output_cuda(
     at::Tensor grad_output, // [B_local][T_global][D]
