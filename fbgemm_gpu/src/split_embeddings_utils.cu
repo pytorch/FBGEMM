@@ -141,7 +141,10 @@ transpose_embedding_input(
     int64_t total_hash_size_bits,
     Tensor indices,
     Tensor offsets,
-    bool nobag) {
+    bool nobag,
+    const c10::optional<Tensor>& vbe_b_t_map,
+    const int64_t info_B_num_bits,
+    const int64_t info_B_mask) {
   const int32_t T = hash_size_cumsum.size(0) - 1;
   const int32_t B = (offsets.size(0) - 1) / T;
 

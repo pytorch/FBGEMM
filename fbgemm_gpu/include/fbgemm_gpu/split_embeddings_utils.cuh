@@ -28,7 +28,10 @@ transpose_embedding_input(
     int64_t total_hash_size_bits,
     at::Tensor indices,
     at::Tensor offsets,
-    bool nobag = false);
+    bool nobag = false,
+    const c10::optional<at::Tensor>& vbe_b_t_map = c10::optional<at::Tensor>(),
+    const int64_t info_B_num_bits = 26,
+    const int64_t info_B_mask = 0x2FFFFFF);
 
 // Use these functions instead of directly calling cub functions
 // to reduce code size and compilation time.
