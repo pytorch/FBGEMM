@@ -598,12 +598,12 @@ size_t count_leading_zeros(T val) {
 constexpr int RDX_HIST_SIZE = 256;
 
 void update_prefsum_and_offset_in_range(
-    int& offset,
+    int64_t& offset,
     const int bins_beg,
     const int bins_end,
     const int nthreads,
-    const int* const histogram,
-    int* const histogram_ps) {
+    const int64_t* const histogram,
+    int64_t* const histogram_ps) {
   for (int bins = bins_beg; bins < bins_end; ++bins) {
     for (int t = 0; t < nthreads; ++t) {
       histogram_ps[t * RDX_HIST_SIZE + bins] = offset;
@@ -614,10 +614,10 @@ void update_prefsum_and_offset_in_range(
 
 void combine_prefix_sum(
     const int nthreads,
-    const int elements_count,
-    const int* const histogram,
-    int* const histogram_ps) {
-  int offset = 0;
+    const int64_t elements_count,
+    const int64_t* const histogram,
+    int64_t* const histogram_ps) {
+  int64_t offset = 0;
   update_prefsum_and_offset_in_range(
       offset, 0, RDX_HIST_SIZE, nthreads, histogram, histogram_ps);
   histogram_ps[RDX_HIST_SIZE * nthreads] = offset;
@@ -630,10 +630,10 @@ void combine_prefix_sum(
 
 void combine_prefix_sum_for_msb(
     const int nthreads,
-    const int elements_count,
-    const int* const histogram,
-    int* const histogram_ps) {
-  int offset = 0;
+    const int64_t elements_count,
+    const int64_t* const histogram,
+    int64_t* const histogram_ps) {
+  int64_t offset = 0;
   update_prefsum_and_offset_in_range(
       offset, 128, RDX_HIST_SIZE, nthreads, histogram, histogram_ps);
   update_prefsum_and_offset_in_range(
@@ -652,17 +652,17 @@ void radix_sort_kernel(
     const V* const input_values,
     K* const output_keys,
     V* const output_values,
-    const int elements_count,
-    int* const histogram,
-    int* const histogram_ps,
+    const int64_t elements_count,
+    int64_t* const histogram,
+    int64_t* const histogram_ps,
     const int pass,
     const bool pass_with_sign_bit = false) {
   const auto tid = omp_get_thread_num();
   const auto nthreads = omp_get_num_threads();
   const auto elements_count_4 = elements_count / 4 * 4;
 
-  int* const local_histogram = &histogram[RDX_HIST_SIZE * tid];
-  int* const local_histogram_ps = &histogram_ps[RDX_HIST_SIZE * tid];
+  auto* const local_histogram = &histogram[RDX_HIST_SIZE * tid];
+  auto* const local_histogram_ps = &histogram_ps[RDX_HIST_SIZE * tid];
 
   // Step 1: compute histogram
   for (int i = 0; i < RDX_HIST_SIZE; i++) {
@@ -713,10 +713,10 @@ void radix_sort_kernel(
     const int bin_3 = (key_3 >> (pass * 8)) & 0xFF;
     const int bin_4 = (key_4 >> (pass * 8)) & 0xFF;
 
-    const int pos_1 = local_histogram_ps[bin_1]++;
-    const int pos_2 = local_histogram_ps[bin_2]++;
-    const int pos_3 = local_histogram_ps[bin_3]++;
-    const int pos_4 = local_histogram_ps[bin_4]++;
+    const auto pos_1 = local_histogram_ps[bin_1]++;
+    const auto pos_2 = local_histogram_ps[bin_2]++;
+    const auto pos_3 = local_histogram_ps[bin_3]++;
+    const auto pos_4 = local_histogram_ps[bin_4]++;
 
     output_keys[pos_1] = key_1;
     output_values[pos_1] = input_values[i];
@@ -730,7 +730,7 @@ void radix_sort_kernel(
   if (tid == (nthreads - 1)) {
     for (int64_t i = elements_count_4; i < elements_count; ++i) {
       const auto key = input_keys[i];
-      const int pos = local_histogram_ps[(key >> (pass * 8)) & 0xFF]++;
+      const auto pos = local_histogram_ps[(key >> (pass * 8)) & 0xFF]++;
       output_keys[pos] = key;
       output_values[pos] = input_values[i];
     }
@@ -756,14 +756,14 @@ std::pair<K*, V*> radix_sort_parallel(
 #ifdef _MSC_VER
   const size_t array_size = (size_t)RDX_HIST_SIZE * maxthreads;
   // fixes MSVC error C2131
-  int* const histogram = static_cast<int*>(
-      fbgemm::fbgemmAlignedAlloc(64, (array_size) * sizeof(int)));
-  int* const histogram_ps = static_cast<int*>(
-      fbgemm::fbgemmAlignedAlloc(64, (array_size + 1) * sizeof(int)));
+  auto* const histogram = static_cast<int64_t*>(
+      fbgemm::fbgemmAlignedAlloc(64, (array_size) * sizeof(int64_t)));
+  auto* const histogram_ps = static_cast<int64_t*>(
+      fbgemm::fbgemmAlignedAlloc(64, (array_size + 1) * sizeof(int64_t)));
 
 #else
-  alignas(64) int histogram[RDX_HIST_SIZE * maxthreads];
-  alignas(64) int histogram_ps[RDX_HIST_SIZE * maxthreads + 1];
+  alignas(64) int64_t histogram[RDX_HIST_SIZE * maxthreads];
+  alignas(64) int64_t histogram_ps[RDX_HIST_SIZE * maxthreads + 1];
 #endif
   // If negative values are present, we want to perform all passes
   // up to a sign bit
