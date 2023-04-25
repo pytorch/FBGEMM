@@ -310,7 +310,8 @@ at::Tensor fusednbitrowwise_to_float_or_half_cpu(
 at::Tensor reorder_batched_ad_lengths_gpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
-    const int64_t num_ads_in_batch);
+    const int64_t num_ads_in_batch,
+    const c10::optional<bool>& broadcast_lengths = false);
 
 ///@ingroup sparse-data-cuda
 at::Tensor reorder_batched_ad_indices_gpu(
@@ -326,7 +327,8 @@ at::Tensor reorder_batched_ad_indices_gpu(
 at::Tensor reorder_batched_ad_lengths_cpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
-    const int64_t num_ads_in_batch);
+    const int64_t num_ads_in_batch,
+    const c10::optional<bool>& broadcast_lengths = false);
 ///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_indices_cpu(
     const at::Tensor& cat_ad_offsets,

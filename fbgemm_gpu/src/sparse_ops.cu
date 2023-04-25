@@ -1562,7 +1562,8 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
         batch_offsets,
     at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_lengths,
-    int32_t T) {
+    const int32_t T,
+    const bool broadcast_lengths) {
   const int32_t B = batch_offsets.size(0) - 1;
 
   const int32_t num_ads_in_batch = batch_offsets[B];
@@ -1575,19 +1576,22 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
   }
 
   const int32_t num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
-  const int32_t input_segment_start = T * batch_offsets[b] + t * num_ads_b;
+  const int32_t input_segment_start =
+      broadcast_lengths ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
   const int32_t output_segment_start = t * num_ads_in_batch + batch_offsets[b];
 
   for (int32_t i = threadIdx.x; i < num_ads_b; i += blockDim.x) {
-    reordered_cat_ad_lengths[output_segment_start + i] =
-        cat_ad_lengths[input_segment_start + i];
+    reordered_cat_ad_lengths[output_segment_start + i] = broadcast_lengths
+        ? cat_ad_lengths[input_segment_start]
+        : cat_ad_lengths[input_segment_start + i];
   }
 }
 
 Tensor reorder_batched_ad_lengths_gpu(
     const Tensor& cat_ad_lengths,
     const Tensor& batch_offsets,
-    const int64_t num_ads_in_batch) {
+    const int64_t num_ads_in_batch,
+    const c10::optional<bool>& broadcast_lengths) {
   TENSOR_ON_CUDA_GPU(cat_ad_lengths);
   TENSOR_ON_CUDA_GPU(batch_offsets);
   TENSORS_ON_SAME_DEVICE(cat_ad_lengths, batch_offsets);
@@ -1595,10 +1599,15 @@ Tensor reorder_batched_ad_lengths_gpu(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_lengths.get_device());
 
-  const int64_t B = batch_offsets.numel() - 1;
-  const int64_t T = cat_ad_lengths.numel() / num_ads_in_batch;
+  const bool broadcast = broadcast_lengths.value_or(false);
 
-  Tensor reordered_cat_ad_lengths = at::empty_like(cat_ad_lengths);
+  const int64_t B = batch_offsets.numel() - 1;
+  const int64_t T = broadcast ? cat_ad_lengths.numel() / B
+                              : cat_ad_lengths.numel() / num_ads_in_batch;
+
+  Tensor reordered_cat_ad_lengths = broadcast
+      ? at::empty({T * num_ads_in_batch}, cat_ad_lengths.options())
+      : at::empty_like(cat_ad_lengths);
 
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
@@ -1615,7 +1624,8 @@ Tensor reorder_batched_ad_lengths_gpu(
                     .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                 reordered_cat_ad_lengths
                     .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-                T);
+                T,
+                broadcast);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return reordered_cat_ad_lengths;
