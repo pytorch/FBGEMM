@@ -1160,13 +1160,11 @@ Tensor reorder_batched_ad_lengths_cpu(
     const Tensor& cat_ad_lengths,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_lengths) {
+    const bool broadcast_lengths) {
   TENSOR_ON_CPU(cat_ad_lengths);
   TENSOR_ON_CPU(batch_offsets);
 
-  const bool broadcast = broadcast_lengths.value_or(false);
-
-  Tensor reordered_cat_ad_lengths = broadcast
+  Tensor reordered_cat_ad_lengths = broadcast_lengths
       ? at::empty(
             {cat_ad_lengths.numel() / (batch_offsets.numel() - 1) *
              num_ads_in_batch},
@@ -1184,7 +1182,7 @@ Tensor reorder_batched_ad_lengths_cpu(
                   cat_ad_lengths,
                   batch_offsets,
                   num_ads_in_batch,
-                  broadcast,
+                  broadcast_lengths,
                   reordered_cat_ad_lengths);
             });
       });
@@ -1253,19 +1251,18 @@ Tensor reorder_batched_ad_indices_cpu(
     const Tensor& reordered_cat_ad_offsets,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_indices,
-    const c10::optional<int64_t>& num_indices_after_broadcast) {
+    const bool broadcast_indices,
+    const int64_t num_indices_after_broadcast) {
   TENSOR_ON_CPU(cat_ad_offsets);
   TENSOR_ON_CPU(cat_ad_indices);
   TENSOR_ON_CPU(reordered_cat_ad_offsets);
   TENSOR_ON_CPU(batch_offsets);
 
-  const bool broadcast = broadcast_indices.value_or(false);
   Tensor reordered_cat_ad_indices;
-  if (broadcast) {
-    CHECK(num_indices_after_broadcast.has_value());
-    reordered_cat_ad_indices = at::empty(
-        {num_indices_after_broadcast.value()}, cat_ad_indices.options());
+  if (broadcast_indices) {
+    TORCH_CHECK_GE(num_indices_after_broadcast, 0);
+    reordered_cat_ad_indices =
+        at::empty({num_indices_after_broadcast}, cat_ad_indices.options());
   } else {
     reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
   }
@@ -1283,7 +1280,7 @@ Tensor reorder_batched_ad_indices_cpu(
                   reordered_cat_ad_offsets,
                   batch_offsets,
                   num_ads_in_batch,
-                  broadcast,
+                  broadcast_indices,
                   reordered_cat_ad_indices);
             });
       });
@@ -2507,9 +2504,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("asynchronous_inclusive_cumsum(Tensor t_in) -> Tensor");
   m.def("asynchronous_complete_cumsum(Tensor t_in) -> Tensor");
   m.def(
-      "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor batch_offsets, int num_ads_in_batch, bool? broadcast_lengths=False) -> Tensor");
+      "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor batch_offsets, int num_ads_in_batch, bool broadcast_lengths=False) -> Tensor");
   m.def(
-      "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, int num_ads_in_batch, bool? broadcast_indices=False, int? num_indices_after_broadcast=0) -> Tensor");
+      "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, int num_ads_in_batch, bool broadcast_indices=False, int num_indices_after_broadcast=-1) -> Tensor");
   m.def("offsets_range(Tensor offsets, int range_size) -> Tensor");
   m.def(
       "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");

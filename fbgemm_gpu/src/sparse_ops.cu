@@ -1591,7 +1591,7 @@ Tensor reorder_batched_ad_lengths_gpu(
     const Tensor& cat_ad_lengths,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_lengths) {
+    const bool broadcast_lengths) {
   TENSOR_ON_CUDA_GPU(cat_ad_lengths);
   TENSOR_ON_CUDA_GPU(batch_offsets);
   TENSORS_ON_SAME_DEVICE(cat_ad_lengths, batch_offsets);
@@ -1599,13 +1599,12 @@ Tensor reorder_batched_ad_lengths_gpu(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_lengths.get_device());
 
-  const bool broadcast = broadcast_lengths.value_or(false);
-
   const int64_t B = batch_offsets.numel() - 1;
-  const int64_t T = broadcast ? cat_ad_lengths.numel() / B
-                              : cat_ad_lengths.numel() / num_ads_in_batch;
+  const int64_t T = broadcast_lengths
+      ? cat_ad_lengths.numel() / B
+      : cat_ad_lengths.numel() / num_ads_in_batch;
 
-  Tensor reordered_cat_ad_lengths = broadcast
+  Tensor reordered_cat_ad_lengths = broadcast_lengths
       ? at::empty({T * num_ads_in_batch}, cat_ad_lengths.options())
       : at::empty_like(cat_ad_lengths);
 
@@ -1625,7 +1624,7 @@ Tensor reorder_batched_ad_lengths_gpu(
                 reordered_cat_ad_lengths
                     .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
                 T,
-                broadcast);
+                broadcast_lengths);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return reordered_cat_ad_lengths;
@@ -1701,8 +1700,8 @@ Tensor reorder_batched_ad_indices_gpu(
     const Tensor& reordered_cat_ad_offsets,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const c10::optional<bool>& broadcast_indices,
-    const c10::optional<int64_t>& num_indices_after_broadcast) {
+    const bool broadcast_indices,
+    const int64_t num_indices_after_broadcast) {
   TENSOR_ON_CUDA_GPU(cat_ad_offsets);
   TENSOR_ON_CUDA_GPU(cat_ad_indices);
   TENSOR_ON_CUDA_GPU(reordered_cat_ad_offsets);
@@ -1714,15 +1713,13 @@ Tensor reorder_batched_ad_indices_gpu(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_offsets.get_device());
 
-  const bool broadcast = broadcast_indices.value_or(false);
-
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = (reordered_cat_ad_offsets.numel() - 1) / num_ads_in_batch;
   Tensor reordered_cat_ad_indices;
-  if (broadcast) {
-    CHECK(num_indices_after_broadcast.has_value());
-    reordered_cat_ad_indices = at::empty(
-        {num_indices_after_broadcast.value()}, cat_ad_indices.options());
+  if (broadcast_indices) {
+    TORCH_CHECK_GE(num_indices_after_broadcast, 0);
+    reordered_cat_ad_indices =
+        at::empty({num_indices_after_broadcast}, cat_ad_indices.options());
   } else {
     reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
   }
@@ -1754,7 +1751,7 @@ Tensor reorder_batched_ad_indices_gpu(
                   batch_offsets
                       .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                   T,
-                  broadcast);
+                  broadcast_indices);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
