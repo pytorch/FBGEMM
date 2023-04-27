@@ -458,6 +458,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             raise AssertionError(
                 "weight_decay_mode is set to WeightDecayMode.COUNTER but counter_based_regularization is None"
             )
+        if (
+            weight_decay_mode != WeightDecayMode.COUNTER
+            and counter_based_regularization is not None
+        ):
+            raise AssertionError(
+                "Need to set weight_decay_mode to WeightDecayMode.COUNTER together with counter_based_regularization"
+            )
 
         self._used_rowwise_adagrad_with_counter: bool = (
             optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD)
@@ -640,7 +647,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         logging.info(
-            f"Using fused {optimizer} with optimizer_args={self.optimizer_args}"
+            f"Using fused {optimizer} with optimizer_args={self.optimizer_args}\n"
+            f"Using rowwise_adagrad_with_counter={self._used_rowwise_adagrad_with_counter}"
         )
 
         self.step = 0
