@@ -1,5 +1,14 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+C_FLAGS = select({
+    "@bazel_tools//src/conditions:windows": [
+        "/std:c17"
+    ],
+    "//conditions:default": [
+        "-std=c17"
+    ],
+})
+
 cc_library(
     name = "clog",
     srcs = [
@@ -11,6 +20,7 @@ cc_library(
     includes = [
         "deps/clog/include/",
     ],
+    copts = C_FLAGS,
     linkstatic = True,
     visibility = ["//visibility:public"],
 )
@@ -43,7 +53,7 @@ cc_library(
         "-DCPUINFO_LOG_LEVEL=2",
         "-DTH_BLAS_MKL",
         "-D_GNU_SOURCE=1",
-    ],
+    ] + C_FLAGS,
     includes = [
         "include",
         "src",
