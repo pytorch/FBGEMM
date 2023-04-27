@@ -2522,6 +2522,8 @@ Tensor jagged_dense_bmm_forward(
   const int N = y.size(-1);
   const int total_L = x_values.size(0);
   auto output = at::zeros({total_L, N}, x_values.options());
+  // sometimes autocast can cause x_values and y dype mismatch
+  auto y_dtype = y.to(x_values.options().dtype());
   if (B > 0 && M > 0 && N > 0) {
     // The shared memory size is (BLOCK_TILE_M + BLOCK_TILE_N) * BLOCK_TILE_K
     // BLOCK_TILE_M needs to be multiple of THREAD_TILE_M, and
@@ -2569,7 +2571,7 @@ Tensor jagged_dense_bmm_forward(
                       <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
                           x_values.packed_accessor32<scalar_t, 2>(),
                           x_offsets.packed_accessor32<index_t, 1>(),
-                          y.packed_accessor32<scalar_t, 3>(),
+                          y_dtype.packed_accessor32<scalar_t, 3>(),
                           output.packed_accessor32<scalar_t, 2>(),
                           (int)max_L);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -2608,7 +2610,7 @@ Tensor jagged_dense_bmm_forward(
                       <<<grid, block, 0, at::cuda::getCurrentCUDAStream()>>>(
                           x_values.packed_accessor32<scalar_t, 2>(),
                           x_offsets.packed_accessor32<index_t, 1>(),
-                          y.packed_accessor32<scalar_t, 3>(),
+                          y_dtype.packed_accessor32<scalar_t, 3>(),
                           output.packed_accessor32<scalar_t, 2>(),
                           (int)max_L);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
