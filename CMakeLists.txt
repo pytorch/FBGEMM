@@ -11,12 +11,6 @@ cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
-# Install libraries into correct locations on all platforms
-include(GNUInstallDirs)
-
-# Load Python
-find_package(PythonInterp)
-
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
   execute_process(
@@ -27,7 +21,7 @@ function(get_filelist name outputvar)
     RESULT_VARIABLE _resvar
     ERROR_VARIABLE _errvar)
   if (NOT "${_resvar}" EQUAL "0")
-    message(WARNING "Failed to execute Python (${PYTHON_EXECUTABLE})\n" 
+    message(WARNING "Failed to execute Python (${PYTHON_EXECUTABLE})\n"
       "Result: ${_resvar}\n"
       "Error: ${_errvar}\n")
   endif()
@@ -84,6 +78,12 @@ endfunction()
 ################################################################################
 
 project(fbgemm VERSION 0.1 LANGUAGES CXX C)
+
+# Install libraries into correct locations on all platforms
+include(GNUInstallDirs)
+
+# Load Python
+find_package(PythonInterp)
 
 set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
