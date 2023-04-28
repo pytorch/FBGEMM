@@ -405,6 +405,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("FloatToFP8RowwiseQuantized(Tensor t, bool forward) -> Tensor");
   m.def(
+      "FloatToPaddedFP8RowwiseQuantized(Tensor t, bool forward, int row_dim) -> Tensor");
+  m.def(
       "FloatToFused8BitRowwiseQuantizedOut(Tensor output, Tensor input) -> Tensor");
   m.def("HalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("FloatOrHalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
@@ -437,6 +439,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "FloatToMSFPQuantized(Tensor input, int bounding_box_size, int ebits, int mbits, int bias, float min_pos, float max_pos) -> Tensor");
   m.def(
       "MSFPQuantizedToFloat(Tensor input, int ebits, int mbits, int bias) -> Tensor");
+  m.def(
+      "PaddedFP8RowwiseQuantizedToFloat(Tensor input, bool forward, int row_dim) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

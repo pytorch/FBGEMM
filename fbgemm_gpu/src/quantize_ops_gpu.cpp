@@ -17,6 +17,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "FloatToFP8RowwiseQuantized", fbgemm_gpu::_float_to_FP8rowwise_gpu);
   DISPATCH_TO_CUDA(
+      "FloatToPaddedFP8RowwiseQuantized",
+      fbgemm_gpu::_float_to_paddedFP8rowwise_gpu);
+  DISPATCH_TO_CUDA(
       "HalfToFused8BitRowwiseQuantized",
       fbgemm_gpu::_half_to_fused8bitrowwise_gpu);
   DISPATCH_TO_CUDA(
@@ -58,4 +61,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("HFP8QuantizedToFloat", fbgemm_gpu::_hfp8_to_float_gpu);
   DISPATCH_TO_CUDA("FloatToMSFPQuantized", fbgemm_gpu::_float_to_msfp_gpu);
   DISPATCH_TO_CUDA("MSFPQuantizedToFloat", fbgemm_gpu::_msfp_to_float_gpu);
+  DISPATCH_TO_CUDA(
+      "PaddedFP8RowwiseQuantizedToFloat",
+      fbgemm_gpu::_paddedFP8rowwise_to_float_gpu);
 }
