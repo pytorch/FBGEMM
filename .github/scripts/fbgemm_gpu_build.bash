@@ -291,7 +291,7 @@ build_fbgemm_gpu_package () {
     python setup.py bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
-      --plat-name=manylinux1_x86_64 \
+      --plat-name="manylinux1_${MACHINE_NAME}" \
       "${build_args[@]}"
 
   # Run checks on the built libraries

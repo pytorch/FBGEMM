@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
 # shellcheck disable=SC1091,SC2128
@@ -18,7 +17,6 @@
 . "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_lint.bash"
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_test.bash"
-
 
 ################################################################################
 # Bazel Setup Functions
@@ -33,12 +31,13 @@ setup_bazel () {
   echo "################################################################################"
   echo ""
 
-  if [[ $OSTYPE == 'darwin'* ]]; then
-    # shellcheck disable=SC2155
-    local bazel_variant="darwin-$(uname -m)"
-  else
-    local bazel_variant="linux-x86_64"
-  fi
+  #if [[ $OSTYPE == 'darwin'* ]]; then
+  #  # shellcheck disable=SC2155
+  #  local bazel_variant="darwin-$(uname -m)"
+  #else
+  #  local bazel_variant="linux-x86_64"
+  #fi
+  local bazel_variant="$PLATFORM_NAME_LC"
 
   echo "[SETUP] Downloading installer Bazel ${bazel_version} (${bazel_variant}) ..."
   print_exec wget -q "https://github.com/bazelbuild/bazel/releases/download/${bazel_version}/bazel-${bazel_version}-installer-${bazel_variant}.sh" -O install-bazel.sh
@@ -83,7 +82,7 @@ setup_miniconda () {
     print_exec mkdir -p "$miniconda_prefix"
 
     echo "[SETUP] Downloading the Miniconda installer ..."
-    (exec_with_retries wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh) || return 1
+    (exec_with_retries wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-"$PLATFORM_NAME".sh -O miniconda.sh) || return 1
 
     echo "[SETUP] Installing Miniconda ..."
     print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
@@ -416,10 +415,10 @@ install_cudnn () {
   # Install cuDNN manually
   # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
   local cudnn_packages=(
-    ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
-    ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-linux-x86_64-8.3.2.44_cuda11.5-archive.tar.xz"
-    ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-linux-x86_64-8.5.0.96_cuda11-archive.tar.xz"
-    ["118"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz"
+    ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-$PLATFORM_NAME_LC-8.3.2.44_cuda11.5-archive.tar.xz"
+    ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-$PLATFORM_NAME_LC-8.3.2.44_cuda11.5-archive.tar.xz"
+    ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-$PLATFORM_NAME_LC-8.5.0.96_cuda11-archive.tar.xz"
+    ["118"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-$PLATFORM_NAME_LC-8.7.0.84_cuda11-archive.tar.xz"
   )
 
   # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
@@ -576,8 +575,16 @@ install_cxx_compiler () {
     # NOTE: We install g++ 10.x instead of 11.x becaue 11.x builds binaries that
     # reference GLIBCXX_3.4.29, which may not be available on systems with older
     # versions of libstdc++.so.6 such as CentOS Stream 8 and Ubuntu 20.04
+    archname=""
+    if [ "$MACHINE_NAME_LC" = "x86_64" ]; then
+        archname="64"
+    elif [ "$MACHINE_NAME_LC" = "aarch64" ] || [ "$MACHINE_NAME_LC" = "arm64" ]; then
+        archname="aarch64"
+    else
+        archname="$MACHINE_NAME_LC"
+    fi
     echo "[INSTALL] Installing C/C++ compilers through Conda ..."
-    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-64=10.4.0 sysroot_linux-64=2.17 -c conda-forge) || return 1
+    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-"$archname"=10.4.0 sysroot_linux-"$archname"=2.17 -c conda-forge) || return 1
 
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created

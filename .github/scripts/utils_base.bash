@@ -5,6 +5,16 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+################################################################################
+# Platform specific variables 
+################################################################################
+
+KERN_NAME="$(uname -s)"
+MACHINE_NAME="$(uname -m)"
+PLATFORM_NAME="$KERN_NAME-$MACHINE_NAME"
+KERN_NAME_LC="$(echo "$KERN_NAME" | awk '{print tolower($0)}')"
+MACHINE_NAME_LC="$(echo "$MACHINE_NAME" | awk '{print tolower($0)}')"
+PLATFORM_NAME_LC="$KERN_NAME_LC-$MACHINE_NAME_LC"
 
 ################################################################################
 # Command Execution Functions
