@@ -203,6 +203,10 @@ permute_1D_sparse_data_cpu(
     const c10::optional<int64_t>& permuted_lengths_sum);
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
+at::Tensor _float_to_paddedFP8rowwise_gpu(
+    const at::Tensor& input,
+    const bool forward = true,
+    const int64_t row_dim = 256);
 at::Tensor _float_to_FP8rowwise_gpu(
     const at::Tensor& input,
     const bool forward = true);
@@ -212,6 +216,10 @@ at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);
 at::Tensor _FP8rowwise_to_float_gpu(
     const at::Tensor& input,
     const bool forward = true);
+at::Tensor _paddedFP8rowwise_to_float_gpu(
+    const at::Tensor& input,
+    const bool forward = true,
+    const int64_t row_dim = 256);
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,
