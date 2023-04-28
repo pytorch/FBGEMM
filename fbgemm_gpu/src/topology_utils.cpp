@@ -16,10 +16,10 @@
 #include "hip/hip_runtime.h"
 #include "rocm_smi/rocm_smi.h"
 
-#define RSMI_CHECK(fn)                         \
-  do {                                         \
-    rsmi_status_t ret = (fn);                  \
-    TORCH_CHECK((ret) == RSMI_STATUS_SUCCESS); \
+#define RSMI_CHECK(fn)                          \
+  do {                                          \
+    rsmi_status_t ret = (fn);                   \
+    TORCH_CHECK_EQ((ret), RSMI_STATUS_SUCCESS); \
   } while (0)
 
 #define RSMI_DEVICE_PCI_BUS_ID_BUFFER_SIZE 16
@@ -90,8 +90,8 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
   }
   RSMI_CHECK(rsmi_shut_down());
   return [=](Node i, Node j) {
-    TORCH_CHECK(i < world_size);
-    TORCH_CHECK(j < world_size);
+    TORCH_CHECK_LT(i, world_size);
+    TORCH_CHECK_LT(j, world_size);
     return links[i * world_size + j];
   };
 }
@@ -101,10 +101,10 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
 
 #include <nvml.h>
 
-#define NVML_CHECK(fn)                  \
-  do {                                  \
-    nvmlReturn_t ret = (fn);            \
-    TORCH_CHECK((ret) == NVML_SUCCESS); \
+#define NVML_CHECK(fn)                   \
+  do {                                   \
+    nvmlReturn_t ret = (fn);             \
+    TORCH_CHECK_EQ((ret), NVML_SUCCESS); \
   } while (0)
 
 namespace fbgemm_gpu {
@@ -175,8 +175,8 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
   }
 
   return [=](Node i, Node j) {
-    TORCH_CHECK(i < world_size);
-    TORCH_CHECK(j < world_size);
+    TORCH_CHECK_LT(i, world_size);
+    TORCH_CHECK_LT(j, world_size);
     return links[i * world_size + j];
   };
 }
