@@ -442,17 +442,17 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     int32_t total_L = indices.numel();
     int32_t T = weights_offsets.numel();
     {% endif %}
-    TORCH_CHECK(T > 0);
+    TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B >= 0);
+    TORCH_CHECK_GE(B, 0);
     {% if not nobag %}
-    TORCH_CHECK(total_D > 0);
-    TORCH_CHECK(total_D % 4 == 0);
-    TORCH_CHECK(max_D <= {{ max_embedding_dim }});
+    TORCH_CHECK_GT(total_D, 0);
+    TORCH_CHECK_EQ(total_D % 4, 0);
+    TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
     {% else %}
-    TORCH_CHECK(D > 0);
-    TORCH_CHECK(D % 4 == 0);
+    TORCH_CHECK_GT(D, 0);
+    TORCH_CHECK_EQ(D % 4, 0);
     {% endif %}
 
     Tensor output;
