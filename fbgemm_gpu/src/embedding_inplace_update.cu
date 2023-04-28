@@ -144,7 +144,7 @@ void embedding_inplace_update_cuda(
   if (N == 0) {
     return;
   }
-  TORCH_CHECK(N == update_table_idx.numel());
+  TORCH_CHECK_EQ(N, update_table_idx.numel());
 
   const int32_t warpsPerBlock = kMaxThreads / kWarpSize;
 
@@ -240,7 +240,7 @@ Tensor pruned_array_lookup_from_row_idx_cuda(
     return dense_indices;
   }
 
-  TORCH_CHECK(index_remappings.size(0) < std::numeric_limits<int64_t>::max());
+  TORCH_CHECK_LT(index_remappings.size(0), std::numeric_limits<int64_t>::max());
   TORCH_CHECK(
       update_row_indices.dim() == 1, "Tensor dim: ", update_row_indices.dim());
   TORCH_CHECK(

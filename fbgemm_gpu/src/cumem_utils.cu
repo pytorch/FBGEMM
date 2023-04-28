@@ -423,7 +423,7 @@ void uvm_mem_advice_dont_fork(const Tensor& t) {
   int result =
       madvise(std::get<0>(adjusted), std::get<1>(adjusted), MADV_DONTFORK);
 
-  TORCH_CHECK(result == 0);
+  TORCH_CHECK_EQ(result, 0);
 
   return;
 }

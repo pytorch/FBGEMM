@@ -62,9 +62,9 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights) {
   const auto num_lists = indices_list.size();
-  TORCH_CHECK(num_lists > 0);
-  TORCH_CHECK(lengths_list.size() == num_lists);
-  TORCH_CHECK(per_sample_weights.size() == num_lists);
+  TORCH_CHECK_GT(num_lists, 0);
+  TORCH_CHECK_EQ(lengths_list.size(), num_lists);
+  TORCH_CHECK_EQ(per_sample_weights.size(), num_lists);
   const bool need_weights = std::any_of(
       per_sample_weights.begin(), per_sample_weights.end(), [](const auto& x) {
         return x.numel() > 0;
