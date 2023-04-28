@@ -35,10 +35,10 @@ void split_embedding_forward_cpu_kernel(
     Tensor indice_weights,
     Tensor output) {
   int64_t T = D_offsets.numel() - 1;
-  TORCH_CHECK(T > 0);
+  TORCH_CHECK_GT(T, 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B >= 0);
+  TORCH_CHECK_GE(B, 0);
 
   TORCH_CHECK(weights.is_contiguous());
   indices = indices.contiguous();
@@ -176,10 +176,10 @@ Tensor split_embedding_codegen_forward_cpu(
     Tensor indice_weights,
     int64_t output_dtype) {
   int64_t T = D_offsets.numel() - 1;
-  TORCH_CHECK(T > 0);
+  TORCH_CHECK_GT(T, 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B >= 0);
+  TORCH_CHECK_GE(B, 0);
 
   Tensor output;
   if (output_dtype == static_cast<int64_t>(SparseType::FP32)) {
@@ -238,10 +238,10 @@ void split_embedding_grad_indice_weights_cpu_kernel(
     Tensor feature_requires_grad,
     Tensor grad_indice_weights) {
   int64_t T = D_offsets.numel() - 1;
-  TORCH_CHECK(T > 0);
+  TORCH_CHECK_GT(T, 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B >= 0);
+  TORCH_CHECK_GE(B, 0);
 
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
