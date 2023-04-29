@@ -262,7 +262,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
     {% endfor %}
 
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
 #ifdef __HIP_PLATFORM_HCC__
     constexpr int32_t BT_block_size = 64;
