@@ -11,6 +11,40 @@ set -e
 # shellcheck source=/dev/null
 . "$(dirname "$(realpath -s "$0")")/setup_env.bash"
 
+create_conda_pytorch_environment () {
+  local env_name="$1"
+  local python_version="$2"
+  local pytorch_channel_name="$3"
+  local cuda_version="$4"
+  if [ "$python_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION PYTORCH_CHANNEL_NAME CUDA_VERSION"
+    echo "Example:"
+    echo "    ${FUNCNAME[0]} build_env 3.10 pytorch-nightly 11.7.1"
+    return 1
+  fi
+
+  # Create the Conda environment
+  create_conda_environment "${env_name}" "${python_version}"
+
+  # Convert the channels to versions
+  if [ "${pytorch_channel_name}" == "pytorch-nightly" ]; then
+    pytorch_version="nightly"
+  elif [ "${pytorch_channel_name}" == "pytorch-test" ]; then
+    pytorch_version="test"
+  else
+    pytorch_version="latest"
+  fi
+
+  if [ "${cuda_version}" == "" ]; then
+    # Install the CPU variant of PyTorch
+    install_pytorch_conda "${env_name}" "${pytorch_version}" cpu
+  else
+    # Install CUDA and the GPU variant of PyTorch
+    install_cuda "${env_name}" "${cuda_version}"
+    install_pytorch_conda "${env_name}" "${pytorch_version}"
+  fi
+}
+
 verbose=0
 torchrec_package_name=""
 python_version=""

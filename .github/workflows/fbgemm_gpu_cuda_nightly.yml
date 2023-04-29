@@ -97,7 +97,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU Nightly
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV fbgemm_gpu_nightly cuda
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly cuda
 
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v3
