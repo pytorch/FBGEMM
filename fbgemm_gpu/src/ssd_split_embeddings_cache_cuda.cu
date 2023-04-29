@@ -85,7 +85,7 @@ Tensor masked_index_put_cuda(
     return self;
   }
   const auto D = self.size(1);
-  TORCH_CHECK(self.size(1) == values.size(1));
+  TORCH_CHECK_EQ(self.size(1), values.size(1));
 
   AT_DISPATCH_FLOATING_TYPES_AND2(
       at::ScalarType::Half,
@@ -232,7 +232,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
   std::tie(unique_indices, unique_indices_length, unique_indices_count) =
       get_unique_indices_cuda(linear_indices, total_hash_size, false);
 
-  TORCH_CHECK(unique_indices.numel() < std::numeric_limits<int32_t>::max());
+  TORCH_CHECK_LT(unique_indices.numel(), std::numeric_limits<int32_t>::max());
   const int32_t N = unique_indices.numel();
 
   auto evicted_indices = empty_like(unique_indices);
