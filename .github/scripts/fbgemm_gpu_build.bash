@@ -169,6 +169,11 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" c++) || return 1
   (test_binpath "${env_name}" g++) || return 1
 
+  # Determine the package name based on release type and variant
+  package_name="fbgemm_gpu"
+  if [ "$fbgemm_release_type" != "release" ]; then
+    package_name="${package_name}_${fbgemm_release_type}"
+  fi
   if [ "$fbgemm_variant" == "cpu" ]; then
     package_name="${package_name}-cpu"
   elif [ "$fbgemm_variant" == "rocm" ]; then
@@ -177,6 +182,7 @@ __build_fbgemm_gpu_common_pre_steps () {
     # Set to the default variant
     fbgemm_variant="cuda"
   fi
+  echo "[BUILD] Determined Python package name to use: ${package_name}"
 
   # Extract the Python tag
   # shellcheck disable=SC2207
@@ -259,17 +265,17 @@ run_fbgemm_gpu_postbuild_checks () {
 
 build_fbgemm_gpu_package () {
   env_name="$1"
-  package_name="$2"
+  fbgemm_release_type="$2"
   fbgemm_variant="$3"
   fbgemm_variant_targets="$4"
   if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME VARIANT [TARGETS]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly cpu                           # CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly cuda                          # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly cuda '7.0;8.0'                # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly rocm                          # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly rocm 'gfx906;gfx908;gfx90a'   # ROCm variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env nightly cpu                           # Nightly CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env nightly cuda                          # Nightly CUDA variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env nightly cuda '7.0;8.0'                # Nightly CUDA variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env release rocm                          # Release ROCm variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env release rocm 'gfx906;gfx908;gfx90a'   # Release ROCm variant for custom target(s)"
     return 1
   fi
 
