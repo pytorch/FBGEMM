@@ -106,9 +106,9 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
     const std::vector<Tensor>& offsets_list,
     const std::vector<Tensor>& per_sample_weights,
     const Tensor& include_last_offsets) {
-  TORCH_CHECK(indices_list.size() > 0);
-  TORCH_CHECK(offsets_list.size() == indices_list.size());
-  TORCH_CHECK(per_sample_weights.size() == indices_list.size());
+  TORCH_CHECK_GT(indices_list.size(), 0);
+  TORCH_CHECK_EQ(offsets_list.size(), indices_list.size());
+  TORCH_CHECK_EQ(per_sample_weights.size(), indices_list.size());
   TORCH_CHECK(
       static_cast<uint64_t>(include_last_offsets.numel()) ==
       indices_list.size());
@@ -125,8 +125,8 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
     TORCH_CHECK(
         offsets_list[i].dtype() == c10::kInt ||
         offsets_list[i].dtype() == c10::kLong);
-    TORCH_CHECK(indices_list[i].ndimension() == 1);
-    TORCH_CHECK(offsets_list[i].ndimension() == 1);
+    TORCH_CHECK_EQ(indices_list[i].ndimension(), 1);
+    TORCH_CHECK_EQ(offsets_list[i].ndimension(), 1);
     TORCH_CHECK(indices_list[i].is_contiguous());
     TORCH_CHECK(offsets_list[i].is_contiguous());
     total_indices += indices_list[i].numel();
@@ -135,8 +135,8 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
     total_offsets += num_offset == 0 ? 1 : num_offset;
 
     if (per_sample_weights[i].numel() > 0) {
-      TORCH_CHECK(per_sample_weights[i].ndimension() == 1);
-      TORCH_CHECK(per_sample_weights[i].numel() == indices_list[i].numel());
+      TORCH_CHECK_EQ(per_sample_weights[i].ndimension(), 1);
+      TORCH_CHECK_EQ(per_sample_weights[i].numel(), indices_list[i].numel());
       TORCH_CHECK(per_sample_weights[i].is_contiguous());
       need_weights = true;
     }
@@ -189,9 +189,9 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights) {
-  TORCH_CHECK(indices_list.size() > 0);
-  TORCH_CHECK(lengths_list.size() == indices_list.size());
-  TORCH_CHECK(per_sample_weights.size() == indices_list.size());
+  TORCH_CHECK_GT(indices_list.size(), 0);
+  TORCH_CHECK_EQ(lengths_list.size(), indices_list.size());
+  TORCH_CHECK_EQ(per_sample_weights.size(), indices_list.size());
   int64_t total_indices = 0;
   int64_t total_lengths = 0;
   bool need_weights = false;
@@ -204,16 +204,16 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cpu(
     TORCH_CHECK(
         lengths_list[i].dtype() == c10::kInt ||
         lengths_list[i].dtype() == c10::kLong);
-    TORCH_CHECK(indices_list[i].ndimension() == 1);
-    TORCH_CHECK(lengths_list[i].ndimension() == 1);
+    TORCH_CHECK_EQ(indices_list[i].ndimension(), 1);
+    TORCH_CHECK_EQ(lengths_list[i].ndimension(), 1);
     TORCH_CHECK(indices_list[i].is_contiguous());
     TORCH_CHECK(lengths_list[i].is_contiguous());
     total_indices += indices_list[i].numel();
     total_lengths += lengths_list[i].numel();
 
     if (per_sample_weights[i].numel() > 0) {
-      TORCH_CHECK(per_sample_weights[i].ndimension() == 1);
-      TORCH_CHECK(per_sample_weights[i].numel() == indices_list[i].numel());
+      TORCH_CHECK_EQ(per_sample_weights[i].ndimension(), 1);
+      TORCH_CHECK_EQ(per_sample_weights[i].numel(), indices_list[i].numel());
       TORCH_CHECK(per_sample_weights[i].is_contiguous());
       need_weights = true;
     }
@@ -244,9 +244,9 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
     const std::vector<Tensor>& per_sample_weights,
     const Tensor& include_last_offsets,
     int64_t batch_size) {
-  TORCH_CHECK(indices_list.size() > 0);
-  TORCH_CHECK(offsets_list.size() == indices_list.size());
-  TORCH_CHECK(per_sample_weights.size() == indices_list.size());
+  TORCH_CHECK_GT(indices_list.size(), 0);
+  TORCH_CHECK_EQ(offsets_list.size(), indices_list.size());
+  TORCH_CHECK_EQ(per_sample_weights.size(), indices_list.size());
   TORCH_CHECK(
       static_cast<uint64_t>(include_last_offsets.numel()) ==
       indices_list.size());
@@ -263,15 +263,15 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
     TORCH_CHECK(
         offsets_list[i].dtype() == c10::kInt ||
         offsets_list[i].dtype() == c10::kLong);
-    TORCH_CHECK(indices_list[i].ndimension() == 1);
-    TORCH_CHECK(offsets_list[i].ndimension() == 1);
+    TORCH_CHECK_EQ(indices_list[i].ndimension(), 1);
+    TORCH_CHECK_EQ(offsets_list[i].ndimension(), 1);
     TORCH_CHECK(indices_list[i].is_contiguous());
     TORCH_CHECK(offsets_list[i].is_contiguous());
     total_indices += indices_list[i].numel();
 
     if (per_sample_weights[i].numel() > 0) {
-      TORCH_CHECK(per_sample_weights[i].ndimension() == 1);
-      TORCH_CHECK(per_sample_weights[i].numel() == indices_list[i].numel());
+      TORCH_CHECK_EQ(per_sample_weights[i].ndimension(), 1);
+      TORCH_CHECK_EQ(per_sample_weights[i].numel(), indices_list[i].numel());
       TORCH_CHECK(per_sample_weights[i].is_contiguous());
       need_weights = true;
     }
@@ -333,9 +333,9 @@ padding_fused_tbe_input_combine_with_length_cpu(
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights,
     int64_t batch_size) {
-  TORCH_CHECK(indices_list.size() > 0);
-  TORCH_CHECK(lengths_list.size() == indices_list.size());
-  TORCH_CHECK(per_sample_weights.size() == indices_list.size());
+  TORCH_CHECK_GT(indices_list.size(), 0);
+  TORCH_CHECK_EQ(lengths_list.size(), indices_list.size());
+  TORCH_CHECK_EQ(per_sample_weights.size(), indices_list.size());
   int64_t total_indices = 0;
   int64_t total_lengths = batch_size * indices_list.size();
   bool need_weights = false;
@@ -348,15 +348,15 @@ padding_fused_tbe_input_combine_with_length_cpu(
     TORCH_CHECK(
         lengths_list[i].dtype() == c10::kInt ||
         lengths_list[i].dtype() == c10::kLong);
-    TORCH_CHECK(indices_list[i].ndimension() == 1);
-    TORCH_CHECK(lengths_list[i].ndimension() == 1);
+    TORCH_CHECK_EQ(indices_list[i].ndimension(), 1);
+    TORCH_CHECK_EQ(lengths_list[i].ndimension(), 1);
     TORCH_CHECK(indices_list[i].is_contiguous());
     TORCH_CHECK(lengths_list[i].is_contiguous());
     total_indices += indices_list[i].numel();
 
     if (per_sample_weights[i].numel() > 0) {
-      TORCH_CHECK(per_sample_weights[i].ndimension() == 1);
-      TORCH_CHECK(per_sample_weights[i].numel() == indices_list[i].numel());
+      TORCH_CHECK_EQ(per_sample_weights[i].ndimension(), 1);
+      TORCH_CHECK_EQ(per_sample_weights[i].numel(), indices_list[i].numel());
       TORCH_CHECK(per_sample_weights[i].is_contiguous());
       need_weights = true;
     }
