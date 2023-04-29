@@ -61,7 +61,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cuda(
   TENSOR_ON_CUDA_GPU(logit);
   TENSOR_ON_CUDA_GPU(bin_num_examples);
   TENSOR_ON_CUDA_GPU(bin_num_positives);
-  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+  TORCH_CHECK_EQ(bin_num_examples.numel(), bin_num_positives.numel());
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(logit.get_device());
@@ -181,7 +181,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cuda(
   TENSOR_ON_CUDA_GPU(segment_lengths);
   TENSOR_ON_CUDA_GPU(bin_num_examples);
   TENSOR_ON_CUDA_GPU(bin_num_positives);
-  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+  TORCH_CHECK_EQ(bin_num_examples.numel(), bin_num_positives.numel());
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(logit.get_device());
@@ -339,7 +339,7 @@ generic_histogram_binning_calibration_by_feature_cuda(
   TENSOR_ON_CUDA_GPU(bin_num_examples);
   TENSOR_ON_CUDA_GPU(bin_num_positives);
   TENSOR_ON_CUDA_GPU(bin_boundaries);
-  TORCH_CHECK(bin_num_examples.numel() == bin_num_positives.numel());
+  TORCH_CHECK_EQ(bin_num_examples.numel(), bin_num_positives.numel());
   TORCH_CHECK(
       bin_num_examples.numel() ==
       (num_segments + 1) * (bin_boundaries.numel() + 1));
