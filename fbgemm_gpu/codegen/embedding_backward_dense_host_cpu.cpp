@@ -103,7 +103,7 @@ class SplitLookupFunction_Dense_Op
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
 
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     using torch::autograd::Variable;
 

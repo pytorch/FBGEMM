@@ -105,10 +105,10 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
 ) {
   int64_t T = D_offsets.numel() - 1;
-  TORCH_CHECK(T > 0);
+  TORCH_CHECK_GT(T, 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B >= 0);
+  TORCH_CHECK_GE(B, 0);
 
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
@@ -119,7 +119,7 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
   const auto momentum2_offsets_data = momentum2_offsets.accessor<int64_t, 1>();
   {% endif %}
 
-  TORCH_CHECK(host_weights.dim() == 1);
+  TORCH_CHECK_EQ(host_weights.dim(), 1);
 
   {% if optimizer == "approx_rowwise_adagrad" %}
 

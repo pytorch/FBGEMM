@@ -306,10 +306,10 @@ void split_embedding_backward_exact_cpu_dense_kernel(
 ) {
 
   int64_t T = D_offsets.numel() - 1;
-  TORCH_CHECK(T > 0);
+  TORCH_CHECK_GT(T, 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B >= 0);
+  TORCH_CHECK_GE(B, 0);
 
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
@@ -328,7 +328,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
   ++num_tables;
   table_to_feature_offset[num_tables] = T;
 
-  TORCH_CHECK(host_weights.dim() == 1);
+  TORCH_CHECK_EQ(host_weights.dim(), 1);
 
   {% if not dense %}
   {% if "momentum1_offsets" in args.split_function_arg_names %}

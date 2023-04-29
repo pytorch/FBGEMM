@@ -124,7 +124,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
     {% endfor %}
 
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     using torch::autograd::Variable;
 
