@@ -1668,6 +1668,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ]  # Disable torch.bfloat16 due to large error bound
         ),
         has_weights=st.booleans(),
+        has_total_output_length=st.booleans(),
     )
     @settings(max_examples=20, deadline=None)
     def test_keyed_jagged_index_select_dim1(
@@ -1679,6 +1680,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
         has_weights: bool,
+        has_total_output_length: bool,
     ) -> None:
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
@@ -1686,18 +1688,29 @@ class JaggedTensorOpsTest(unittest.TestCase):
             high=max_seq_length,
             size=(input_batch_size * num_batches,),
             dtype=index_dtype,
-            device="cuda",
         )
-        offsets = torch.concat(
-            [torch.zeros(1, dtype=torch.long, device="cuda"), lengths.cumsum(0)]
-        )
+        offsets = torch.concat([torch.zeros(1, dtype=torch.long), lengths.cumsum(0)])
         indices = torch.randint(
             low=0,
             high=1,
             size=(output_batch_size,),
             dtype=index_dtype,
-            device="cuda",
         )
+
+        total_output_length = None
+        if has_total_output_length:
+            total_output_length = 0
+            for b in range(num_batches):
+                total_output_length += torch.index_select(
+                    lengths[b * input_batch_size : (b + 1) * input_batch_size],
+                    0,
+                    indices,
+                ).sum()
+
+        lengths = lengths.cuda()
+        indices = indices.cuda()
+        offsets = offsets.cuda()
+
         if is_float:
             values = torch.rand(
                 int(offsets[-1].item()),
@@ -1727,7 +1740,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
             values_ref.requires_grad = True
 
         index_select_output = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
-            values, lengths, offsets, indices, input_batch_size, weights
+            values,
+            lengths,
+            offsets,
+            indices,
+            input_batch_size,
+            weights,
+            total_output_length=total_output_length,
         )
         output = index_select_output[0]
         if has_weights:
