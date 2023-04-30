@@ -19,6 +19,11 @@
 #if defined(__x86_64__) || defined(__i386__) || (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
 #include <emmintrin.h>
+
+#ifdef __AVX2__
+#define FBGEMM_EMBEDDING_FORWARD_QUANTIZED_CPU_AVX2_AVAILABLE 1
+#endif
+
 #endif
 #include <cstring>
 
@@ -520,7 +525,31 @@ Tensor pruned_array_lookup_cpu(
         int32_t indices_start = offsets_acc[t * B];
         int32_t indices_end = offsets_acc[(t + 1) * B];
         if (capacity > 0) {
-            for (int32_t i = indices_start; i < indices_end; ++i) {
+            const int32_t length = indices_end - indices_start;
+            int32_t l = 0;
+
+#ifdef FBGEMM_EMBEDDING_FORWARD_QUANTIZED_CPU_AVX2_AVAILABLE
+            const int32_t l_16_unroll = length / 16 * 16;
+            const int32_t l_8_unroll = length / 8 * 8;
+            for (; l < l_16_unroll; l += 16) {
+                const int32_t i = indices_start + l;
+                auto idxs0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&indices_acc[i + 0]));
+                auto idxs1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&indices_acc[i + 8]));
+                auto vals0 = _mm256_i32gather_epi32(&index_remappings_acc[index_remappings_start], idxs0, sizeof(int32_t));
+                auto vals1 = _mm256_i32gather_epi32(&index_remappings_acc[index_remappings_start], idxs1, sizeof(int32_t));
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(&dense_indices_acc[i + 0]), vals0);
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(&dense_indices_acc[i + 8]), vals1);
+            }
+            for (; l < l_8_unroll; l += 8) {
+                const int32_t i = indices_start + l;
+                auto idxs = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&indices_acc[i]));
+                auto vals = _mm256_i32gather_epi32(&index_remappings_acc[index_remappings_start], idxs, sizeof(int32_t));
+                _mm256_storeu_si256(reinterpret_cast<__m256i*>(&dense_indices_acc[i]), vals);
+            }
+#endif
+
+            for (; l < length; ++l) {
+                const int32_t i = indices_start + l;
                 int32_t idx = indices_acc[i];
                 dense_indices_acc[i] = index_remappings_acc[index_remappings_start + idx];
             }

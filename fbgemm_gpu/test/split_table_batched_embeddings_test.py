@@ -4113,9 +4113,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             torch.testing.assert_close(output, output_ref, equal_nan=True)
 
     @given(
-        T=st.integers(min_value=1, max_value=5),
-        B=st.integers(min_value=1, max_value=8),
-        L=st.integers(min_value=0, max_value=8),
+        T=st.integers(min_value=1, max_value=32),
+        B=st.integers(min_value=1, max_value=32),
+        L=st.integers(min_value=0, max_value=32),
         use_cpu=st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         else st.just(False)
