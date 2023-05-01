@@ -3120,7 +3120,9 @@ __inline__ __device__ void inclusive_sum_scan_kernel(
     typename cub::BlockScan<scalar_t, NUM_THREADS_PER_BLOCK>::TempStorage&
         temp_storage,
     int* block_flags,
-    scalar_t* block_sums,
+    // Declared as volatile to prevent the compiler from register-allocating
+    // the accesses to block_sums
+    volatile scalar_t* block_sums,
     scalar_t* block_prev,
     const int num_entries_per_block,
     const int block_id,
