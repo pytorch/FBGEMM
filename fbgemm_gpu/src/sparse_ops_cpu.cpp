@@ -1440,8 +1440,12 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
   const double recalibrate_value = std::log(positive_weight);
   const double step = (upper_bound - lower_bound) /
       static_cast<double>(bin_num_examples.numel());
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      logit.scalar_type(), "histogram_binning_calibration_cpu", [&] {
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      logit.scalar_type(),
+      "histogram_binning_calibration_cpu",
+      [&] {
         _histogram_binning_calibration_cpu_kernel<scalar_t>(
             logit.numel(),
             recalibrate_value,
@@ -1538,7 +1542,9 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   const double recalibrate_value = std::log(positive_weight);
   const double step =
       (upper_bound - lower_bound) / static_cast<double>(num_bins);
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
       logit.scalar_type(),
       "histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
@@ -1655,7 +1661,9 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
   Tensor calibrated_prediction = at::empty_like(logit);
   Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
       logit.scalar_type(),
       "generic_histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
