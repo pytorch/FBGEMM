@@ -296,19 +296,19 @@ int main(int /* unused */, char** /* unused */) {
   set<vector<int>> incorrect_configs;
   float giga_ops = 0.0;
   array<int, 6> best_config = {0, 0, 0, 0, 0, 0};
-  BlockingFactors params;
   for (auto const& shape : shapes) {
     for (auto const& mcb : MCBs) {
       for (auto const& ncb : NCBs) {
         for (auto const& kcb : KCBs) {
           for (auto const& mr : MRs) {
-            params.MCB = mcb;
-            params.NCB = ncb;
-            params.KCB = kcb;
-            params.MR = mr;
-            params.NR = NR;
-            params.ROW_INTERLEAVE = ROW_INTERLEAVE;
-            params.NR_MIN = NR_MIN;
+            const BlockingFactors params{
+                .MR = mr,
+                .NR = NR,
+                .NR_MIN = NR_MIN,
+                .ROW_INTERLEAVE = ROW_INTERLEAVE,
+                .MCB = mcb,
+                .KCB = kcb,
+                .NCB = ncb};
             if (isValidBlockingFactor<int32_t>(&params)) {
               performance_test(
                   &params, incorrect_configs, shape, best_config, giga_ops);

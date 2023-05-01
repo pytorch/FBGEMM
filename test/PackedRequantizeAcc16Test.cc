@@ -850,14 +850,16 @@ TEST_P(fbgemmPackUnpackAcc16Test, TestPackUnpack) {
   bool test_ld;
   tie(btrans, test_ld) = GetParam();
 
-  BlockingFactors params;
-  params.MCB = 48;
-  params.NCB = 16;
-  params.KCB = 256;
-  params.MR = 1;
-  params.NR = 16;
-  params.ROW_INTERLEAVE = 4;
-  params.NR_MIN = 16;
+  BlockingFactors params{
+      .MR = 1,
+      .NR = 16,
+      .NR_MIN = 16,
+      .ROW_INTERLEAVE = 4,
+      .MCB = 48,
+      .KCB = 256,
+      .NCB = 16
+
+  };
   vector<BlockingFactors*> vec_params_ptr = {&params, nullptr};
 
   for (auto shape : shapes) {

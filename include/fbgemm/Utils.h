@@ -239,7 +239,7 @@ std::string arrayToString(const std::array<T, SIZE>& inp) {
 }
 
 template <typename accT = std::int32_t>
-bool isValidBlockingFactor(BlockingFactors* param) {
+bool isValidBlockingFactor(const BlockingFactors* const param) {
   constexpr bool is_32bit = std::is_same<accT, int32_t>::value;
   constexpr bool is_16bit = std::is_same<accT, int16_t>::value;
   static const auto iset = fbgemmInstructionSet();
