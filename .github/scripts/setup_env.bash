@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
 # shellcheck disable=SC1091,SC2128
@@ -27,7 +26,6 @@
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_test.bash"
 
-
 ################################################################################
 # Bazel Setup Functions
 ################################################################################
@@ -41,13 +39,7 @@ setup_bazel () {
   echo "################################################################################"
   echo ""
 
-  if [[ $OSTYPE == 'darwin'* ]]; then
-    # shellcheck disable=SC2155
-    local bazel_variant="darwin-$(uname -m)"
-  else
-    local bazel_variant="linux-x86_64"
-  fi
-
+  local bazel_variant="$PLATFORM_NAME_LC"
   echo "[SETUP] Downloading installer Bazel ${bazel_version} (${bazel_variant}) ..."
   print_exec wget -q "https://github.com/bazelbuild/bazel/releases/download/${bazel_version}/bazel-${bazel_version}-installer-${bazel_variant}.sh" -O install-bazel.sh
 
@@ -87,8 +79,8 @@ install_cxx_compiler () {
     install_system_packages gcc gcc-c++
 
   else
-    # Install gxx_linux-64 from conda-forge instead of from anaconda channel.
-    # sysroot_linux-64 needs to be installed alongside this:
+    # Install gxx_linux-<arch> from conda-forge instead of from anaconda channel.
+    # sysroot_linux-<arch> needs to be installed alongside this:
     #
     #   https://root-forum.cern.ch/t/error-timespec-get-has-not-been-declared-with-conda-root-package/45712/6
     #   https://github.com/conda-forge/conda-forge.github.io/issues/1625
@@ -98,8 +90,16 @@ install_cxx_compiler () {
     # NOTE: We install g++ 10.x instead of 11.x becaue 11.x builds binaries that
     # reference GLIBCXX_3.4.29, which may not be available on systems with older
     # versions of libstdc++.so.6 such as CentOS Stream 8 and Ubuntu 20.04
-    echo "[INSTALL] Installing C/C++ compilers through Conda ..."
-    (exec_with_retries conda install -n "${env_name}" -y gxx_linux-64=10.4.0 sysroot_linux-64=2.17 -c conda-forge) || return 1
+    local archname=""
+    if [ "$MACHINE_NAME_LC" = "x86_64" ]; then
+      archname="64"
+    elif [ "$MACHINE_NAME_LC" = "aarch64" ] || [ "$MACHINE_NAME_LC" = "arm64" ]; then
+      archname="aarch64"
+    else
+      archname="$MACHINE_NAME_LC"
+    fi
+    echo "[INSTALL] Installing C/C++ compilers through Conda (architecture = ${archname}) ..."
+    (exec_with_retries conda install -n "${env_name}" -y "gxx_linux-${archname}"=10.4.0 "sysroot_linux-${archname}"=2.17 -c conda-forge) || return 1
 
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created

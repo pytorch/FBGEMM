@@ -40,7 +40,7 @@ setup_miniconda () {
     print_exec mkdir -p "$miniconda_prefix"
 
     echo "[SETUP] Downloading the Miniconda installer ..."
-    (exec_with_retries wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh) || return 1
+    (exec_with_retries wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh) || return 1
 
     echo "[SETUP] Installing Miniconda ..."
     print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
