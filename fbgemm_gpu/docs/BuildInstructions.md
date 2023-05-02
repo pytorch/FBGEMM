@@ -246,7 +246,7 @@ conda install -n "${env_name}" -y pytorch -c pytorch-nightly
 # Install the latest test (RC)
 conda install -n "${env_name}" -y pytorch -c pytorch-test
 # Install a specific version
-conda install -n "${env_name}" -y pytorch==1.13.1 -c pytorch
+conda install -n "${env_name}" -y pytorch==2.0.0 -c pytorch
 ```
 
 Note that installing PyTorch through Conda without specifying a version (as in
@@ -270,7 +270,7 @@ conda run -n "${env_name}" pip install --pre torch --extra-index-url https://dow
 # Install the latest test (RC)
 conda run -n "${env_name}" pip install --pre torch --extra-index-url https://download.pytorch.org/whl/test/cu117/
 # Install a specific version
-conda run -n "${env_name}" pip install torch==1.13.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117/
+conda run -n "${env_name}" pip install torch==2.0.0+cu117 --extra-index-url https://download.pytorch.org/whl/cu117/
 # Install the latest nightly (ROCm 5.3)
 conda run -n "${env_name}" pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
 ```
