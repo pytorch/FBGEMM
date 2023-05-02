@@ -1112,7 +1112,7 @@ class SparseOpsTest(unittest.TestCase):
         )
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
-    @given(data_type=st.sampled_from([torch.half, torch.float32]))
+    @given(data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]))
     @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_histogram_binning_calibration(self, data_type: torch.dtype) -> None:
         num_bins = 5000
@@ -1142,11 +1142,20 @@ class SparseOpsTest(unittest.TestCase):
             [1426, 1437, 1437, 1428, 1431], dtype=torch.long
         )
 
+        error_tolerance = 1e-03
+        if data_type == torch.bfloat16:
+            # Due to smaller significand bits.
+            error_tolerance = 1e-02
+
+            expected_bin_ids = torch.tensor(
+                [1426, 1438, 1438, 1430, 1430], dtype=torch.long
+            )
+
         torch.testing.assert_close(
             calibrated_prediction,
             expected_calibrated_prediction,
-            rtol=1e-03,
-            atol=1e-03,
+            rtol=error_tolerance,
+            atol=error_tolerance,
         )
 
         self.assertTrue(
@@ -1174,8 +1183,8 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_close(
                 calibrated_prediction_gpu,
                 expected_calibrated_prediction.cuda(),
-                rtol=1e-03,
-                atol=1e-03,
+                rtol=error_tolerance,
+                atol=error_tolerance,
             )
 
             self.assertTrue(
@@ -1187,7 +1196,7 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
-        data_type=st.sampled_from([torch.half, torch.float32]),
+        data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
         segment_value_type=st.sampled_from([torch.int, torch.long]),
         segment_length_type=st.sampled_from([torch.int, torch.long]),
     )
@@ -1235,11 +1244,20 @@ class SparseOpsTest(unittest.TestCase):
             [206426, 161437, 166437, 71428, 161431], dtype=torch.long
         )
 
+        error_tolerance = 1e-03
+        if data_type == torch.bfloat16:
+            # Due to smaller significand bits.
+            error_tolerance = 1e-02
+
+            expected_bin_ids = torch.tensor(
+                [206426, 161438, 166438, 71430, 161430], dtype=torch.long
+            )
+
         torch.testing.assert_close(
             calibrated_prediction,
             expected_calibrated_prediction,
-            rtol=1e-03,
-            atol=1e-03,
+            rtol=error_tolerance,
+            atol=error_tolerance,
         )
 
         self.assertTrue(
@@ -1271,8 +1289,8 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_close(
                 calibrated_prediction_gpu,
                 expected_calibrated_prediction.cuda(),
-                rtol=1e-03,
-                atol=1e-03,
+                rtol=error_tolerance,
+                atol=error_tolerance,
             )
 
             self.assertTrue(
@@ -1284,7 +1302,7 @@ class SparseOpsTest(unittest.TestCase):
 
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
-        data_type=st.sampled_from([torch.half, torch.float32]),
+        data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
         segment_value_type=st.sampled_from([torch.int, torch.long]),
         segment_length_type=st.sampled_from([torch.int, torch.long]),
     )
@@ -1337,11 +1355,20 @@ class SparseOpsTest(unittest.TestCase):
             [206426, 161437, 166437, 71428, 161431], dtype=torch.long
         )
 
+        error_tolerance = 1e-03
+        if data_type == torch.bfloat16:
+            # Due to smaller significand bits.
+            error_tolerance = 1e-02
+
+            expected_bin_ids = torch.tensor(
+                [206426, 161438, 166438, 71430, 161430], dtype=torch.long
+            )
+
         torch.testing.assert_close(
             calibrated_prediction,
             expected_calibrated_prediction,
-            rtol=1e-03,
-            atol=1e-03,
+            rtol=error_tolerance,
+            atol=error_tolerance,
         )
 
         self.assertTrue(
@@ -1371,8 +1398,8 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_close(
                 calibrated_prediction_gpu,
                 expected_calibrated_prediction.cuda(),
-                rtol=1e-03,
-                atol=1e-03,
+                rtol=error_tolerance,
+                atol=error_tolerance,
             )
 
             self.assertTrue(
@@ -1385,7 +1412,7 @@ class SparseOpsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
-        data_type=st.sampled_from([torch.half, torch.float32]),
+        data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
     )
     @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_generic_histogram_binning_calibration_by_feature_cpu_gpu(
