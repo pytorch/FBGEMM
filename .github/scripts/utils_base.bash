@@ -5,6 +5,23 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+################################################################################
+# Platform Specific Variables
+################################################################################
+
+# shellcheck disable=SC2155
+export KERN_NAME="$(uname -s)"
+# shellcheck disable=SC2155
+export MACHINE_NAME="$(uname -m)"
+# shellcheck disable=SC2155
+export PLATFORM_NAME="$KERN_NAME-$MACHINE_NAME"
+# shellcheck disable=SC2155
+export KERN_NAME_LC="$(echo "$KERN_NAME" | awk '{print tolower($0)}')"
+# shellcheck disable=SC2155
+export MACHINE_NAME_LC="$(echo "$MACHINE_NAME" | awk '{print tolower($0)}')"
+# shellcheck disable=SC2155
+export PLATFORM_NAME_LC="$KERN_NAME_LC-$MACHINE_NAME_LC"
+
 
 ################################################################################
 # Command Execution Functions
