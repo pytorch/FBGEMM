@@ -19,11 +19,13 @@ Setting up a [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
 environment is recommended for reproducible builds:
 
 ```sh
+export PLATFORM_NAME="$(uname -s)-$(uname -m)"
+
 # Set the Miniconda prefix directory
 miniconda_prefix=$HOME/miniconda
 
 # Download the Miniconda installer
-wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh
 
 # Run the installer
 bash miniconda.sh -b -p "$miniconda_prefix" -u
@@ -151,32 +153,12 @@ CUDA variant of FBGEMM_GPU.  Download and extract the cuDNN package for the
 given CUDA version:
 
 ```sh
-# cuDNN package URLs can be found in: https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+# cuDNN package URLs for each platform and CUDA version can be found in:
+# https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
 cudnn_url=https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz
 
 # Download and unpack cuDNN
 wget -q "${cudnn_url}" -O cudnn.tar.xz
-```
-
-### [OPTIONAL] Install CUB
-
-[CUB](https://docs.nvidia.com/cuda/cub/index.html) is a build-time dependency for
-the CUDA variant FBGEMM_GPU.  This must be installed separately for
-**previous versions of CUDA (prior to 11.1)** since they did not come with CUB packaged.
-
-To install CUB through Conda:
-
-```sh
-conda install -c bottler nvidiacub
-```
-
-Alternatively, CUB may be installed manually by downloading from the
-[GitHub Releases](https://github.com/NVIDIA/cub/releases ) page and unpacking
-the package:
-
-```sh
-# Download and unpack CUB
-wget -q https://github.com/NVIDIA/cub/archive/1.10.0.tar.gz
 ```
 
 
@@ -189,13 +171,17 @@ through bare metal.
 ### Docker Image
 
 For setups through Docker, simply pull the pre-installed
-[Docker image for ROCm](https://hub.docker.com/r/rocm/rocm-terminal) for the
-desired ROCm CUDA version.
+[Minimal Docker image for ROCm](https://hub.docker.com/r/rocm/rocm-terminal) for
+the desired ROCm CUDA version.
 
 ```sh
 # Run for ROCm 5.4.2
 docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:5.4.2
 ```
+
+For both building and running FBGEMM_GPU, The
+[full ROCm Docker image](https://hub.docker.com/r/rocm/dev-ubuntu-20.04)
+is recommended over the minimum Docker image.
 
 From there, the rest of the build environment may be constructed through Conda.
 
@@ -262,7 +248,8 @@ for GPU builds, it is important to install CUDA first prior to PyTorch.
 
 ### Installation Through PIP
 
-Note that PIP is the only choice of installation of PyTorch for ROCm builds.
+Note that as of time of writing, PIP is the only choice of installation of
+PyTorch for ROCm builds.
 
 ```sh
 # Install the latest nightly
@@ -333,6 +320,9 @@ made available to the build through environment variables:
 ```sh
 # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
+# Determine the processor architecture
+export ARCH=$(uname -m)
+
 # [OPTIONAL] Specify the CUDA installation paths
 # This may be required if CMake is unable to find nvcc
 export CUDACXX=/path/to/nvcc
@@ -365,7 +355,7 @@ unset TORCH_CUDA_ARCH_LIST
 python setup.py bdist_wheel \
     --package_name="${package_name}" \
     --python-tag="${python_tag}" \
-    --plat-name=manylinux1_x86_64 \
+    --plat-name="manylinux1_${ARCH}" \
     --nvml_lib_path=${NVML_LIB_PATH} \
     -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
@@ -382,6 +372,8 @@ For ROCm builds, `ROCM_PATH` and `PYTORCH_ROCM_ARCH` need to be specified:
 ```sh
 # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
+export ARCH=$(uname -m)
+
 # Build for the ROCm architecture on current machine; update as needed (e.g. 'gfx906;gfx908;gfx90a')
 export ROCM_PATH=/path/to/rocm
 export PYTORCH_ROCM_ARCH=$(${ROCM_PATH}/bin/rocminfo | grep -o -m 1 'gfx.*')
@@ -393,7 +385,7 @@ package_name=fbgemm_gpu_rocm
 python setup.py bdist_wheel \
     --package_name="${package_name}" \
     --python-tag="${python_tag}" \
-    --plat-name=manylinux1_x86_64
+    --plat-name="manylinux1_${ARCH}"
 
 # Build and install the library into the Conda environment
 python setup.py install develop
@@ -406,6 +398,8 @@ For CPU-only builds, the `--cpu_only` needs to be specified:
 ```sh
 # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
+export ARCH=$(uname -m)
+
 python_tag=py310
 package_name=fbgemm_gpu_cpu
 
@@ -413,7 +407,7 @@ package_name=fbgemm_gpu_cpu
 python setup.py bdist_wheel \
     --package_name="${package_name}" \
     --python-tag="${python_tag}" \
-    --plat-name=manylinux1_x86_64 \
+    --plat-name="manylinux1_${ARCH}" \
     --cpu_only
 
 # Build and install the library into the Conda environment
