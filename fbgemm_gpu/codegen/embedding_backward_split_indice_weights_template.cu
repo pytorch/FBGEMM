@@ -10,12 +10,6 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-{% if not dense %}
-constexpr int32_t kCacheLocationMissing = -1;
-{% endif %}
-
-constexpr size_t kForwardMaxThreads = 512;
-
 // TODO: optimization to use multiple warps per row.
 template <typename emb_t, typename grad_t, typename cache_t, size_t kMaxVecsPerThread>
 __global__
