@@ -70,8 +70,8 @@ Tensor recat_embedding_grad_output_cuda(
           feature_offset += num_features;
           sgo_offset += B_local * num_features * D;
         }
-        TORCH_CHECK(sgo_offset == grad_output.numel());
-        TORCH_CHECK(feature_offset == T_global);
+        TORCH_CHECK_EQ(sgo_offset, grad_output.numel());
+        TORCH_CHECK_EQ(feature_offset, T_global);
       });
   return sharded_grad_output;
 }
@@ -114,8 +114,8 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
           sgo_offset += B_local * dim_sum;
           accum_dim_sum += dim_sum;
         }
-        TORCH_CHECK(sgo_offset == grad_output.numel());
-        TORCH_CHECK(accum_dim_sum == global_dim_sum);
+        TORCH_CHECK_EQ(sgo_offset, grad_output.numel());
+        TORCH_CHECK_EQ(accum_dim_sum, global_dim_sum);
       });
 
   return sharded_grad_output;

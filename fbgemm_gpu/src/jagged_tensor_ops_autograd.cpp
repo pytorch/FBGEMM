@@ -54,9 +54,9 @@ class JaggedToPaddedDenseOp
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
     int32_t total_L = ctx->saved_data["total_L"].toInt();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
-    TORCH_CHECK(total_L >= 0);
+    TORCH_CHECK_GE(total_L, 0);
     static auto op =
         c10::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::jagged_to_padded_dense_backward", "")
@@ -107,7 +107,7 @@ class JaggedDenseDenseAddJaggedOutputOp
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
     auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -167,7 +167,7 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
       x_offsets.push_back(ctx->get_saved_variables()[i]);
     }
     Tensor y = ctx->get_saved_variables().back();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -221,7 +221,7 @@ class BatchedDenseVecJagged2DMulOp
     const Tensor v = *savedItr++;
     const Tensor a_values = *savedItr++;
     const Tensor a_offsets = *savedItr++;
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -271,7 +271,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
     auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -287,7 +287,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
         std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
         /*padding_value=*/0);
 
-    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
+    TORCH_CHECK_EQ(dense_values_grad.sizes(), dense_shape);
 
     return {
         dense_values_grad,
@@ -326,7 +326,7 @@ class JaggedSoftmaxOp : public torch::autograd::Function<JaggedSoftmaxOp> {
     Tensor output = *savedItr++;
     Tensor offsets = *savedItr++;
     int64_t max_L = ctx->saved_data["max_L"].toInt();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -381,7 +381,7 @@ class JaggedJaggedBmmOp : public torch::autograd::Function<JaggedJaggedBmmOp> {
     Tensor y_values = *savedItr++;
     Tensor offsets = *savedItr++;
     int64_t max_L = ctx->saved_data["max_L"].toInt();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -439,7 +439,7 @@ class JaggedDenseBmmOp : public torch::autograd::Function<JaggedDenseBmmOp> {
     Tensor offsets = *savedItr++;
     Tensor y = *savedItr++;
     int64_t max_L = ctx->saved_data["max_L"].toInt();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -520,7 +520,7 @@ class JaggedIndexSelect2dOp
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
-    TORCH_CHECK(grad_outputs.size() == 2);
+    TORCH_CHECK_EQ(grad_outputs.size(), 2);
 
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
@@ -681,7 +681,7 @@ Tensor jagged_dense_elementwise_add(
   for (int d = 1; d < y.dim() - 1; d++) {
     max_lengths.push_back(y.size(d));
   }
-  TORCH_CHECK(max_lengths.size() == x_offsets.size());
+  TORCH_CHECK_EQ(max_lengths.size(), x_offsets.size());
 
   // Convert x to dense (assume padding is 0.0)
   auto xd = JaggedToPaddedDenseOp::apply(
@@ -756,9 +756,9 @@ Tensor jagged_1d_to_dense(
     Tensor offsets,
     int64_t max_L,
     int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(max_L > 0);
+  TORCH_CHECK_EQ(values.dim(), 1);
+  TORCH_CHECK_EQ(offsets.dim(), 1);
+  TORCH_CHECK_GT(max_L, 0);
 
   return jagged_to_padded_dense(values, {offsets}, {max_L}, padding_value);
 }

@@ -33,7 +33,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   std::partial_sum(
       dim_sum_per_rank.begin(), dim_sum_per_rank.end(), &accum_dim_sum[1]);
   const auto global_dim_sum = accum_dim_sum[n];
-  TORCH_CHECK(B_local * global_dim_sum == grad_output.numel());
+  TORCH_CHECK_EQ(B_local * global_dim_sum, grad_output.numel());
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {

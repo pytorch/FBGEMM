@@ -871,8 +871,8 @@ Tensor jagged_1d_to_truncated_values_cpu(
     Tensor values,
     Tensor lengths,
     int64_t max_truncated_length) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(lengths.dim() == 1);
+  TORCH_CHECK_EQ(values.dim(), 1);
+  TORCH_CHECK_EQ(lengths.dim(), 1);
 
   const int32_t B = lengths.size(0);
   Tensor truncated_values;
@@ -915,8 +915,8 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
     const Tensor& values,
     const Tensor& lengths,
     const Tensor& mask) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(lengths.dim() == 1);
+  TORCH_CHECK_EQ(values.dim(), 1);
+  TORCH_CHECK_EQ(lengths.dim(), 1);
 
   auto values_contiguous = values.expect_contiguous();
   auto lengths_contiguous = lengths.expect_contiguous();
@@ -969,9 +969,9 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
 
 Tensor
 jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
-  TORCH_CHECK(values.dim() == 2);
-  TORCH_CHECK(offsets.dim() == 1);
-  TORCH_CHECK(max_L > 0);
+  TORCH_CHECK_EQ(values.dim(), 2);
+  TORCH_CHECK_EQ(offsets.dim(), 1);
+  TORCH_CHECK_GT(max_L, 0);
 
   return jagged_to_padded_dense_forward(
       values, {offsets}, {max_L}, /*padding_value=*/0);
@@ -983,8 +983,8 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
     const std::vector<int64_t>& offset_per_key,
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(lengths.dim() == 2);
+  TORCH_CHECK_EQ(values.dim(), 1);
+  TORCH_CHECK_EQ(lengths.dim(), 2);
 
   const auto lengths_contig = lengths.contiguous();
   int32_t B = lengths.size(1);
@@ -1021,8 +1021,8 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_cpu(
     const std::vector<int64_t>& offset_per_key,
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 2);
-  TORCH_CHECK(lengths.dim() == 2);
+  TORCH_CHECK_EQ(values.dim(), 2);
+  TORCH_CHECK_EQ(lengths.dim(), 2);
 
   const auto lengths_contig = lengths.contiguous();
   int32_t B = lengths.size(1);

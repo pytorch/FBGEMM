@@ -193,7 +193,7 @@ std::tuple<dim3, dim3, StackArray<int64_t>> check_shape_and_partition_(
 
   StackArray<int64_t> jagged_dims_tensor;
   const int num_jagged_dim = dense_tensor.dim() - 2;
-  TORCH_CHECK(num_jagged_dim <= kStackArrayMaxDims);
+  TORCH_CHECK_LE(num_jagged_dim, kStackArrayMaxDims);
   jagged_dims_tensor.ndim = num_jagged_dim;
   std::memcpy(
       &(jagged_dims_tensor.vals[0]),
@@ -664,7 +664,7 @@ bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
 #ifndef __HIP_PLATFORM_HCC__
   // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
   int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
-  TORCH_CHECK(used_shared_kb > 0);
+  TORCH_CHECK_GT(used_shared_kb, 0);
 #else
   // MI100 has independent shared mem and L1
   int used_shared_kb = shared_kb;
@@ -782,7 +782,7 @@ void jagged_dense_elementwise_jagged_output_opt_(
 #ifndef __HIP_PLATFORM_HCC__
             // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
             int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
-            TORCH_CHECK(used_shared_kb > 0);
+            TORCH_CHECK_GT(used_shared_kb, 0);
 #else
             // MI100 has independent shared mem and L1
             int used_shared_kb = shared_kb;
@@ -796,7 +796,7 @@ void jagged_dense_elementwise_jagged_output_opt_(
                 used_shared_bytes)); // V100: 64 KB; A100: 96 KB.
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
-            TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
+            TORCH_CHECK_LE(dynamic_smem_size, used_shared_bytes);
           }
           dim3 threads_bs = dim3(1024, 1, 1);
           dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
@@ -986,7 +986,7 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
 #ifndef __HIP_PLATFORM_HCC__
             // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
             int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
-            TORCH_CHECK(used_shared_kb > 0);
+            TORCH_CHECK_GT(used_shared_kb, 0);
 #else
             // MI100 has independent shared mem and L1
             int used_shared_kb = shared_kb;
@@ -1000,7 +1000,7 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
                 used_shared_bytes)); // V100: 64 KB; A100: 96 KB.
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
-            TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
+            TORCH_CHECK_LE(dynamic_smem_size, used_shared_bytes);
           }
           dim3 threads_bs = dim3(1024, 1, 1);
           dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
@@ -1248,7 +1248,7 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
     const std::vector<Tensor>& offsets,
     const Tensor& dense_0,
     const Tensor& dense_1) {
-  TORCH_CHECK(dense_0.sizes() == dense_1.sizes());
+  TORCH_CHECK_EQ(dense_0.sizes(), dense_1.sizes());
   auto output = at::empty_like(x_values);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -1365,7 +1365,7 @@ class JaggedDenseAddJaggedOutputGPUOp
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
     auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
-    TORCH_CHECK(grad_outputs.size() == 1);
+    TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(grad_outputs[0].get_device());
@@ -1375,7 +1375,7 @@ class JaggedDenseAddJaggedOutputGPUOp
         offsets,
         std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
         /*padding_value=*/0);
-    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
+    TORCH_CHECK_EQ(dense_values_grad.sizes(), dense_shape);
 
     return {
         grad_outputs[0],
@@ -2645,8 +2645,8 @@ stacked_jagged_2d_to_dense_forward_cuda(
     const std::vector<int64_t>& offset_per_key,
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 2);
-  TORCH_CHECK(lengths.dim() == 2);
+  TORCH_CHECK_EQ(values.dim(), 2);
+  TORCH_CHECK_EQ(lengths.dim(), 2);
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(values.get_device());
 
@@ -2710,9 +2710,9 @@ Tensor stacked_jagged_2d_to_dense_backward_cuda(
       at::zeros({total_L, D}, grad_padded_values_per_key[0].options());
   int32_t T = grad_padded_values_per_key.size();
   for (int32_t t = 0; t < T; t++) {
-    TORCH_CHECK(grad_padded_values_per_key[t].dim() == 3);
-    TORCH_CHECK(grad_padded_values_per_key[t].size(0) == B);
-    TORCH_CHECK(grad_padded_values_per_key[t].size(2) == D);
+    TORCH_CHECK_EQ(grad_padded_values_per_key[t].dim(), 3);
+    TORCH_CHECK_EQ(grad_padded_values_per_key[t].size(0), B);
+    TORCH_CHECK_EQ(grad_padded_values_per_key[t].size(2), D);
 
     Tensor grad_values_slice =
         grad_values.slice(0, offset_per_key[t], offset_per_key[t + 1]);
@@ -2743,8 +2743,8 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
     const std::vector<int64_t>& offset_per_key,
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value) {
-  TORCH_CHECK(values.dim() == 1);
-  TORCH_CHECK(lengths.dim() == 2);
+  TORCH_CHECK_EQ(values.dim(), 1);
+  TORCH_CHECK_EQ(lengths.dim(), 2);
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(values.get_device());
 
@@ -3077,8 +3077,8 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
   TENSOR_ON_CUDA_GPU(values);
   TENSOR_ON_CUDA_GPU(lengths);
   TENSORS_ON_SAME_DEVICE(values, lengths);
-  TORCH_CHECK(values.dim() == 2);
-  TORCH_CHECK(lengths.dim() == 2);
+  TORCH_CHECK_EQ(values.dim(), 2);
+  TORCH_CHECK_EQ(lengths.dim(), 2);
   return StackedJagged2DToDenseGPUOp::apply(
       values, lengths, offset_per_key, max_lengths_per_key, padding_value);
 }
