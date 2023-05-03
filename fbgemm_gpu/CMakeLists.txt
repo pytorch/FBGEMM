@@ -185,8 +185,15 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_split_grad.cu")
 
+foreach(wdesc dense split)
+  list(APPEND gen_gpu_kernel_source_files
+    "gen_embedding_forward_${wdesc}_unweighted_nobag_kernel_small.cu")
+endforeach()
+
 foreach(wdesc weighted unweighted_nobag unweighted)
   list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_forward_split_${wdesc}_kernel.cu"
+      "gen_embedding_forward_dense_${wdesc}_kernel.cu"
       "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu"
       "gen_embedding_backward_dense_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_dense_split_${wdesc}_kernel_cta.cu"
@@ -249,6 +256,8 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_split_nbit_kernel_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.h
+    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_nobag_small_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_template_helpers.cuh
     ${CMAKE_CODEGEN_DIR}/__init__.template

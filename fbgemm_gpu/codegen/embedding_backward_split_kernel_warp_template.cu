@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 // clang-format off
-{% set wdesc = "weighted" if weighted else "unweighted" %}
+{%- set wdesc = "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
@@ -23,57 +23,57 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    {% if not dense %}
+    {%- if not dense %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
     at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {% if not nobag %}
+    {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {% else %}
+    {%- else %}
     int32_t B,
     int64_t D,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_run,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_cumulative_run_lengths,
-    {% if not nobag %}
+    {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% else %}
+    {%- else %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% endif %}
-    {% if not dense %}
+    {%- endif %}
+    {%- if not dense %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_lxu_cache_locations,
-    {% endif %}
-    {% if weighted %}
+    {%- endif %}
+    {%- if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_num_runs,
     int32_t max_segment_length_per_warp,
-    {% if not dense %}
+    {%- if not dense %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
-    {% else %}
+    {%- else %}
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {% endif %}
-    {% if not nobag %}
+    {%- endif %}
+    {%- if not nobag %}
     FixedDivisor fd,
-    {% endif %}
+    {%- endif %}
     {{ args.split_kernel_args | join(",\n    ") }}) {
 
-    {% if not nobag %}
+    {%- if not nobag %}
     int32_t T = D_offsets.size(0) - 1;
     const int32_t B = grad_output.size(0);
-    {% else %}
+    {%- else %}
     int32_t T = weights_offsets.size(0);
-    {% endif %}
+    {%- endif %}
     const int32_t start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
 
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
@@ -104,16 +104,16 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     // that table (`idx`). Thus, we can hoist out some of the book-keeping.
     const auto info_0 = sorted_infos[segment_start];
 
-    {% if not nobag %}
+    {%- if not nobag %}
     int32_t t_0 = fd.Div(info_0); // info_0 / B;
-    {% else %}
+    {%- else %}
     int32_t t_0 = info_0 % T;
-    {% endif %}
+    {%- endif %}
 
     int64_t hash_size = hash_size_cumsum[t_0];
-    {% if not nobag %}
+    {%- if not nobag %}
     int32_t D = D_offsets[t_0 + 1] - D_offsets[t_0];
-    {% endif %}
+    {%- endif %}
     int64_t idx = linear_index - hash_size;
 
     const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
@@ -122,52 +122,52 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     Vec4T<at::acc_type<cache_t, true>> grad_sum[kMaxVecsPerThread];
     for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
         int32_t sl_j = sl + threadIdx.x;
-        {% if not nobag %}
+        {%- if not nobag %}
         int32_t b_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
         int32_t b; //= b_t % B;
         int32_t t; //= b_t / B;
         fd.DivMod(b_t, &t, &b);
         int32_t D_start = D_offsets[t];
-        {% else %}
+        {%- else %}
         int64_t l_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
         int32_t l = l_t / T;
-        {% endif %}
-        {% if weighted %}
+        {%- endif %}
+        {%- if weighted %}
         at::acc_type<cache_t, true> idx_weight = sl_j < sl_end ? sorted_indice_weights[segment_start + sl_j] : 0.0;
-        {% endif %}
+        {%- endif %}
 
         for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; ++j) {
-            {% if not nobag %}
+            {%- if not nobag %}
             int32_t b_j = SHFL_SYNC(b, j);
             int32_t D_start_j = SHFL_SYNC(D_start, j);
-            {% else %}
+            {%- else %}
             int32_t l_j = SHFL_SYNC(l, j);
-            {% endif %}
-            {% if weighted %}
+            {%- endif %}
+            {%- if weighted %}
             at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
-            {% endif %}
+            {%- endif %}
 
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                     i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
                 int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                {% if not nobag %}
+                {%- if not nobag %}
                 Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
                     &grad_output[b_j][0] + D_start_j + d);
-                {% else %}
+                {%- else %}
                 Vec4T<at::acc_type<grad_t, true>> grad_out_vec(&grad_output[l_j][d]);
-                {% endif %}
-                {% if weighted %}
+                {%- endif %}
+                {%- if weighted %}
                 grad_sum[i].fma_(grad_out_vec, idx_weight_j);
-                {% else %}
+                {%- else %}
                 grad_sum[i].add_(grad_out_vec);
-                {% endif %}
+                {%- endif %}
             }
         }
     }
     int64_t weights_offset = weights_offsets[t_0];
-    {% if not dense %}
+    {%- if not dense %}
     emb_t* __restrict__ weights{nullptr};
     cache_t* __restrict__ cache_weights{nullptr};
     int32_t D_emb = D;
@@ -186,7 +186,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             cache_weights = &lxu_cache_weights[cache_idx][0];
         }
     }
-    {% for tensor in args.split_tensors %}
+    {%- for tensor in args.split_tensors %}
     at::acc_type<cache_t, true>* __restrict__ {{ tensor }};
     const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t_0]);
     int64_t {{ tensor }}_offset = {{ tensor }}_offsets[t_0];
@@ -195,7 +195,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     } else {
         {{ tensor }} = &{{ tensor }}_uvm[{{ tensor }}_offset];
     }
-    {% endfor %}
+    {%- endfor %}
 
     struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> weight_update_buffer;
     Vec4T<at::acc_type<cache_t, true>>* shared_weight_update_row = weight_update_buffer.getPointer();
@@ -249,7 +249,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             weight_row_template.store(shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize], d, qparams_new);
         }
     }
-    {% else %}
+    {%- else %}
 #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
@@ -258,151 +258,170 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         auto& grad = grad_sum[i];
         grad.store(&grad_dev_weights[weights_offset + idx * D + d]);
     }
-    {% endif %}
+    {%- endif %}
 
     }
 }
 
 /*
     Explicitly instantiate the kernel function template.  The instantiations are
-    based on the DISPATCH_EMB_GRAD_CACHE_TYPES macro in
+    based on the types enumerated by DISPATCH_EMB_GRAD_CACHE_TYPES macro used in
     embedding_backward_split_template.cu
-
-    Because duplicate instantiations can exist for the case where
-    FBGEMM_USE_SUBWARP_SHUFFLE is undefined, we split separate the template
-    instantiations for the FBGEMM_USE_SUBWARP_SHUFFLE defined and undefined
-    cases.
-
-    kMaxElemPerThread is # of elements handled by thread if we use a full warp
-    for a row.
-    We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
 */
 
-{% for grad_type in ['float', 'at::Half'] -%}
-{% for emb_type in ['uint8_t', 'float', 'at::Half'] -%}
-{% for cache_type in ['float', 'at::Half'] -%}
+{%- for grad_type in ['float', 'at::Half'] %}
+{%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
+{%- for cache_type in ['float', 'at::Half'] %}
 
 ////////////////////////////////////////////////////////////////////////////////
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
 ////////////////////////////////////////////////////////////////////////////////
 
-{% for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) -%}
-{% if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+{#- /*
+    Compute the Cartesian product of (kMaxVecsPerThread, kThreadGroupSize)
+    in the FBGEMM_USE_SUBWARP_SHUFFLE case
 
-// kMaxElemPerThread = {{ kMaxElemPerThread }};
-// kMaxVecsPerThread = std::max({{ kMaxElemPerThread }} / 4,  1);
-// kThreadGroupSize = FBGEMM_USE_SUBWARP_SHUFFLE ? kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1) : kWarpSize;
-{%- set kMaxVecsPerThread = [ (kMaxElemPerThread // 4), 1 ] | max %}
+    constexpr int kMaxVecsPerThread = std::max({{ kMaxElemPerThread }} / 4, 1);
+    constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
+
+    This is needed to compute the unique tuples to use for explicit instantiation,
+    so that we can avoid duplicate template instantiations.
+*/ #}
+{%- set tuples = [] %}
+{%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+{%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+    {%- set t0 = [ (kMaxElemPerThread // 4), 1 ] | max %}
+    {%- set t1 = [ 4 // kMaxElemPerThread, 1] | max %}
+    {%- set temp = tuples.append((t0, "(kWarpSize / " ~ t1 ~ ")")) %}
+{%- endif %}
+{%- endfor %}
+
+{#- /* Enumerate over the unique tuples */ #}
+{%- for (kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
+
 template __global__ __launch_bounds__(kBackwardMaxThreads)
 void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
-  {{ kMaxVecsPerThread }},                                // kMaxVecsPerThread
-  (kWarpSize / {{ [ 4 // kMaxElemPerThread, 1] | max }})  // kThreadGroupSize
+  {{ kMaxVecsPerThread }},
+  {{ kThreadGroupSize }}
 > (
     const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
-    {% if not dense %}
+    {%- if not dense %}
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
     at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {% if not nobag %}
+    {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {% else %}
+    {%- else %}
     int32_t B,
     int64_t D,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
-    {% if not nobag %}
+    {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% else %}
+    {%- else %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% endif %}
-    {% if not dense %}
+    {%- endif %}
+    {%- if not dense %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
-    {% endif %}
-    {% if weighted %}
+    {%- endif %}
+    {%- if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
     int32_t max_segment_length_per_warp,
-    {% if not dense %}
+    {%- if not dense %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
-    {% else %}
+    {%- else %}
     at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {% endif %}
-    {% if not nobag %}
+    {%- endif %}
+    {%- if not nobag %}
     FixedDivisor fd,
-    {% endif %}
+    {%- endif %}
     {{ args.split_kernel_args_no_defaults | join(",\n    ") | replace("cache_t", cache_type) }});
-{%- endif %}
+
 {%- endfor %}
 
 ////////////////////////////////////////////////////////////////////////////////
 #else
 ////////////////////////////////////////////////////////////////////////////////
 
-{%- set kMaxVecsPerThreadValues = [] %}
+{#- /*
+    Compute the Cartesian product of (kMaxVecsPerThread, kThreadGroupSize)
+    in the non-FBGEMM_USE_SUBWARP_SHUFFLE case
+
+    constexpr int kMaxVecsPerThread = std::max({{ kMaxElemPerThread }} / 4, 1);
+    constexpr int kThreadGroupSize = kWarpSize;
+*/ #}
+{%- set tuples = [] %}
 {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
 {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-{%- set temp = kMaxVecsPerThreadValues.append([ (kMaxElemPerThread // 4), 1 ] | max) %}
+    {%- set t0 = [ (kMaxElemPerThread // 4), 1 ] | max %}
+    {%- set t1 = [ 4 // kMaxElemPerThread, 1] | max %}
+    {%- set temp = tuples.append((t0, "kWarpSize")) %}
 {%- endif %}
 {%- endfor %}
-{%- for kMaxVecsPerThread in kMaxVecsPerThreadValues | unique %}
+
+{#- /* Enumerate over the unique tuples */ #}
+{%- for (kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
+
 template __global__ __launch_bounds__(kBackwardMaxThreads)
 void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_warp_per_row_1
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
-  {{ kMaxVecsPerThread }},  // kMaxVecsPerThread
-  kWarpSize                 // kThreadGroupSize
+  {{ kMaxVecsPerThread }},
+  {{ kThreadGroupSize }}
 > (
     const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
-    {% if not dense %}
+    {%- if not dense %}
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
     at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {% if not nobag %}
+    {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {% else %}
+    {%- else %}
     int32_t B,
     int64_t D,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
-    {% if not nobag %}
+    {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% else %}
+    {%- else %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% endif %}
-    {% if not dense %}
+    {%- endif %}
+    {%- if not dense %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
-    {% endif %}
-    {% if weighted %}
+    {%- endif %}
+    {%- if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
-    {% endif %}
+    {%- endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
     int32_t max_segment_length_per_warp,
-    {% if not dense %}
+    {%- if not dense %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
-    {% else %}
+    {%- else %}
     at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {% endif %}
-    {% if not nobag %}
+    {%- endif %}
+    {%- if not nobag %}
     FixedDivisor fd,
-    {% endif %}
+    {%- endif %}
     {{ args.split_kernel_args_no_defaults | join(",\n    ") | replace("cache_t", cache_type) }});
+
 {%- endfor %}
 
 ////////////////////////////////////////////////////////////////////////////////

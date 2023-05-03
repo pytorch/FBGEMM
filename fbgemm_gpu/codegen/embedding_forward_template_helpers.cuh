@@ -33,10 +33,13 @@
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-namespace nbit {
+#define SHFL_SYNC(val, srcLane) \
+  shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
 constexpr int32_t kCacheLocationMissing = -1;
+constexpr size_t kForwardMaxThreads = 512;
 
+namespace nbit {
 // "Effective" number of elements in the row when we include the row-wise
 // quantization parameters.
 __device__ inline int32_t padded_D(
