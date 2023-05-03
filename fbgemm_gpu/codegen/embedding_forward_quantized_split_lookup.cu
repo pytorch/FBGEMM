@@ -141,8 +141,8 @@ Tensor pruned_hashmap_lookup_cuda(
   auto dense_indices = at::empty_like(indices);
   const int32_t T = hash_table_offsets.size(0) - 1;
   const int32_t B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B > 0);
-  TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
+  TORCH_CHECK_GT(B, 0);
+  TORCH_CHECK_LT(hash_table.size(0), std::numeric_limits<int32_t>::max());
   constexpr size_t kForwardMaxThreads = 256;
   nbit::int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<<<
       nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
@@ -183,7 +183,7 @@ Tensor pruned_array_lookup_cuda(
   const int32_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(
       B > 0, "offsets.size(): ", offsets.size(0), ", T: ", T, ", B: ", B);
-  TORCH_CHECK(index_remappings.size(0) < std::numeric_limits<int64_t>::max());
+  TORCH_CHECK_LT(index_remappings.size(0), std::numeric_limits<int64_t>::max());
   TORCH_CHECK(indices.dim() == 1, "Tensor dim: ", indices.dim());
   TORCH_CHECK(offsets.dim() == 1, "Tensor dim: ", offsets.dim());
   TORCH_CHECK(

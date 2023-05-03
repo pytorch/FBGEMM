@@ -54,7 +54,7 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
 
     int32_t T = hash_table_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK_GT(B, 0);
     const auto* indices_acc = indices.data_ptr<int32_t>();
     const auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
 
@@ -149,14 +149,14 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     const int32_t total_L = indices.numel();
     const int32_t T = weights_offsets.numel();
     {% endif %}
-    TORCH_CHECK(T > 0);
+    TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B >= 0);
+    TORCH_CHECK_GE(B, 0);
     {% if not nobag %}
-    TORCH_CHECK(total_D > 0);
+    TORCH_CHECK_GT(total_D, 0);
     {% else %}
-    TORCH_CHECK(D > 0);
+    TORCH_CHECK_GT(D, 0);
     {% endif %}
     bool pinned_memory = false;
     if (at::Context::hasCUDA() && at::getNumGPUs() > 0) {
@@ -441,7 +441,7 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
 
     int32_t T = hash_table_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK_GT(B, 0);
     auto dense_indices = empty_like(indices);
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
@@ -504,7 +504,7 @@ Tensor pruned_array_lookup_cpu(
 
     int32_t T = index_remappings_offsets.size(0) - 1;
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK_GT(B, 0);
     auto dense_indices = empty_like(indices);
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
