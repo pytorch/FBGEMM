@@ -142,14 +142,18 @@ recommend citing our [paper](https://arxiv.org/pdf/2101.05615.pdf):
 }
 ```
 
+
 ## Join the FBGEMM community
 
-For questions or feature requests, please file a ticket over on
-[GitHub Issues](https://github.com/pytorch/FBGEMM/issues) or reach out to us on
-the `#fbgemm` channel in [PyTorch Slack](https://bit.ly/ptslack).
+For questions, support, news updates, or feature requests, please feel free to:
+
+* File a ticket in [GitHub Issues](https://github.com/pytorch/FBGEMM/issues)
+* Post a discussion in [GitHub Discussions](https://github.com/pytorch/FBGEMM/discussions)
+* Reach out to us on the `#fbgemm` channel in [PyTorch Slack](https://bit.ly/ptslack)
 
 For contributions, please see the [`CONTRIBUTING`](../CONTRIBUTING.md) file for
 ways to help out.
+
 
 ## License
 

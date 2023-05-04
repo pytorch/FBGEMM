@@ -1,4 +1,13 @@
-# Building API Documentation
+# FBGEMM_GPU Documentation
+
+For a high-level overview of the design philosophy and brief descriptions of
+various parts of FBGEMM_GPU, please see our Wiki (work in progress).
+
+We have extensively used comments in our source files. The best and up-to-date
+documentation is available in the source files.
+
+
+## Building the API Documentation
 
 `fbgemm_gpu` has both Python and C++ code. When you add new methods, functions,
 you must add a description of what it is and what it does. We use Python
@@ -6,7 +15,7 @@ docstrings and C++ java style comments to document the code. Later the
 documentation is generated with Sphinx and autodoc for Python and
 Sphinx + Doxygen + Breathe for C++.
 
-# General Guidelines
+## General Guidelines
 
 Here are the guidelines for all docstrings disregarding the language:
 
@@ -82,7 +91,6 @@ Follow these instructions to document, generate, and publish a new C++ descripti
    Here is an example of how it can look:
 
    ```
-      ```
    ///@defgroup my-group
    ///Description of my method <br>
    ///**Example:**
