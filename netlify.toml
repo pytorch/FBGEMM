@@ -1,0 +1,29 @@
+[build]
+  base = "fbgemm_gpu/docs"
+
+[context.deploy-preview]
+  publish = "build/html"
+  command = """
+    # Load scripts
+    export BUILD_ENV=build_docs
+    . ../../.github/scripts/setup_env.bash
+
+    # Set up Conda environment
+    setup_miniconda           $HOME/miniconda
+    create_conda_environment  $BUILD_ENV 3.11
+
+    # Install tools
+    install_cxx_compiler      $BUILD_ENV
+    install_build_tools       $BUILD_ENV
+    install_docs_tools        $BUILD_ENV
+    install_pytorch_pip       $BUILD_ENV nightly cpu
+
+    # Build the code
+    cd ..
+    prepare_fbgemm_gpu_build  $BUILD_ENV
+    build_fbgemm_gpu_install  $BUILD_ENV cpu
+
+    # Build the docs
+    cd docs
+    build_fbgemm_gpu_docs     $BUILD_ENV
+    """
