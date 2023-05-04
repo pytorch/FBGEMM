@@ -205,11 +205,11 @@ print_glibc_info () {
 
   if [ -f "${library_path}" ]; then
     echo "[CHECK] Listing out the GLIBC versions referenced by: ${library_path}"
-    objdump -TC "${library_path}" | grep GLIBC_ | sed 's/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g' | sort -Vu | cat
+    print_exec "objdump -TC ${library_path} | grep GLIBC_ | sed 's/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g' | sort -Vu | cat"
     echo ""
 
     echo "[CHECK] Listing out the GLIBCXX versions referenced by: ${library_path}"
-    objdump -TC "${library_path}" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+    print_exec "objdump -TC ${library_path} | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat"
     echo ""
 
   else

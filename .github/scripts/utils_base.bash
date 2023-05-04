@@ -30,7 +30,7 @@ export PLATFORM_NAME_LC="$KERN_NAME_LC-$MACHINE_NAME_LC"
 print_exec () {
   echo "+ $*"
   echo ""
-  if "$@"; then
+  if eval "$*"; then
     local retcode=0
   else
     local retcode=$?

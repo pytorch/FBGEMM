@@ -134,11 +134,11 @@ install_cxx_compiler () {
 
   # https://stackoverflow.com/questions/4991707/how-to-find-my-current-compilers-standard-like-if-it-is-c90-etc
   echo "[INFO] Printing the default version of the C standard used by the compiler ..."
-  print_exec conda run -n "${env_name}" cc -dM -E - | grep __STDC_VERSION__
+  print_exec "conda run -n ${env_name} cc -dM -E - | grep __STDC_VERSION__"
 
   # https://stackoverflow.com/questions/2324658/how-to-determine-the-version-of-the-c-standard-used-by-the-compiler
   echo "[INFO] Printing the default version of the C++ standard used by the compiler ..."
-  print_exec conda run -n "${env_name}" c++ -dM -E -x c++ - | grep __cplusplus
+  print_exec "conda run -n ${env_name} c++ -dM -E -x c++ - | grep __cplusplus"
 
   echo "[INSTALL] Successfully installed C/C++ compilers"
 }

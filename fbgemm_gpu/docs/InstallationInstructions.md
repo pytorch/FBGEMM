@@ -239,7 +239,7 @@ reasons:
     were not linked (see [1618](https://github.com/pytorch/FBGEMM/issues/1618) for example).
 
 In the former case, this may be resolved by re-installing the relevant packages
-or manually updating `LD_LIBRARY_PATH`.
+and/or manually updating `LD_LIBRARY_PATH`.
 
 In the latter case, this is a serious building and packaging issue that should
 be reported to the FBGEMM developers.

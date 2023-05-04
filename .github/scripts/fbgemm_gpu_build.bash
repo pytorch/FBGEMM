@@ -248,7 +248,7 @@ run_fbgemm_gpu_postbuild_checks () {
   print_glibc_info "${library}"
 
   echo "[CHECK] Listing out undefined symbols in the library: ${library}"
-  print_exec nm -gDCu "${library}" | sort
+  print_exec "nm -gDCu ${library} | sort"
 
   echo "[CHECK] Listing out external shared libraries required by the library: ${library}"
   print_exec ldd "${library}"
