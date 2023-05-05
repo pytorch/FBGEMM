@@ -337,7 +337,7 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
 
   void insert(Tensor indices, Tensor dense_indices, Tensor offsets, int64_t T) {
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK_GT(B, 0);
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
@@ -363,10 +363,10 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
 
   Tensor lookup(Tensor indices, Tensor offsets) const {
     int32_t T = maps_.size();
-    TORCH_CHECK(T > 0);
+    TORCH_CHECK_GT(T, 0);
     int32_t B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
-    TORCH_CHECK(maps_.size() == T);
+    TORCH_CHECK_GT(B, 0);
+    TORCH_CHECK_EQ(maps_.size(), T);
     auto dense_indices = empty_like(indices);
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();

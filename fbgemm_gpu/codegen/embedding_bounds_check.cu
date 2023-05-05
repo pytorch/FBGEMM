@@ -205,7 +205,7 @@ void bounds_check_indices_cuda(
   const auto vbe = B_offsets.has_value();
 
   if (vbe) {
-    TORCH_CHECK(max_B >= 0);
+    TORCH_CHECK_GE(max_B, 0);
   } else {
     TORCH_CHECK(
         offsets.size(0) == B * T + 1,

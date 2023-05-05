@@ -207,16 +207,16 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int32_t T = weights_offsets.numel();
     {% endif %}
 
-    TORCH_CHECK(T > 0);
+    TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]
     const auto B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    TORCH_CHECK_GT(B, 0);
     auto BT_block_size = kMaxThreads / kWarpSize;
-    TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
+    TORCH_CHECK_LE(BT_block_size * kWarpSize, kMaxThreads);
     {% if nobag %}
     auto max_D = D;
     {% endif %}
-    TORCH_CHECK(max_D <= {{ max_embedding_dim }});
+    TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
 
     // V100: 96 KB; A100: 160 KB.
     int max_shared_bytes = 0;
@@ -232,7 +232,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 #ifndef __HIP_PLATFORM_HCC__
     // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
     int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
-    TORCH_CHECK(used_shared_kb > 0);
+    TORCH_CHECK_GT(used_shared_kb, 0);
 #else
     // MI100 has independent shared mem and L1
     int used_shared_kb = shared_kb;
@@ -391,7 +391,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             while (BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread >= used_shared_bytes) {
                 BT_block_size /= 2;
             }
-            TORCH_CHECK(BT_block_size >= 1);
+            TORCH_CHECK_GE(BT_block_size, 1);
             if (std::is_same<emb_t, double>::value) {
                 // Otherwise we see CUDA kernel launch failures despite the above checks.
                 BT_block_size = 1;
