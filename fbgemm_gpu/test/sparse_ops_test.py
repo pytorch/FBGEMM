@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-ignore-all-errors[56]
+
 import contextlib
 import itertools
 import random
@@ -122,7 +124,6 @@ class SparseOpsTest(unittest.TestCase):
 
         return permuted_lengths, permuted_indices, permuted_weights
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -245,7 +246,6 @@ class SparseOpsTest(unittest.TestCase):
             else:
                 assert permuted_weights_gpu is None
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         permute_size=st.integers(min_value=30, max_value=1000),
         long_index=st.booleans(),
@@ -272,7 +272,6 @@ class SparseOpsTest(unittest.TestCase):
             inverse_permute_gpu = torch.ops.fbgemm.invert_permute(permute.cuda())
             torch.testing.assert_close(inverse_permute_gpu.cpu(), inverse_permute_cpu)
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -355,7 +354,6 @@ class SparseOpsTest(unittest.TestCase):
         else:
             return permute_fn(*args)
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -410,7 +408,6 @@ class SparseOpsTest(unittest.TestCase):
             )
             torch.testing.assert_close(permuted_lengths_gpu.cpu(), permuted_lengths_cpu)
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -502,7 +499,6 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_cpu)
             torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
-    # pyre-ignore [56]
     @given(
         n=st.integers(min_value=1, max_value=100),
         long_index=st.booleans(),
@@ -558,7 +554,6 @@ class SparseOpsTest(unittest.TestCase):
                 zc.cpu(),
             )
 
-    # pyre-ignore [56]
     @given(
         n=st.integers(min_value=1, max_value=600),
         b=st.integers(min_value=1, max_value=10),
@@ -590,7 +585,6 @@ class SparseOpsTest(unittest.TestCase):
             # gpu test
             test_asynchronous_complete_cumsum_2d_helper(x.cuda())
 
-    # pyre-ignore [56]
     @given(
         N=st.integers(min_value=1, max_value=20),
         offsets_type=st.sampled_from([torch.int32, torch.int64]),
@@ -620,7 +614,6 @@ class SparseOpsTest(unittest.TestCase):
             range_ref = range_ref.to(range_gpu.dtype)
             torch.testing.assert_close(range_gpu.cpu(), range_ref, rtol=0, atol=0)
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -772,7 +765,6 @@ class SparseOpsTest(unittest.TestCase):
                     unbucketized_indices, indices, rtol=0, atol=0
                 )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -844,7 +836,6 @@ class SparseOpsTest(unittest.TestCase):
                 torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
 
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -897,7 +888,6 @@ class SparseOpsTest(unittest.TestCase):
             reordered_batched_ad_lengths_cpu, reordered_batched_ad_lengths.cpu()
         )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -942,7 +932,6 @@ class SparseOpsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -1032,7 +1021,6 @@ class SparseOpsTest(unittest.TestCase):
             else cat_ad_indices.view(B, T, A, L),
         )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),
@@ -1111,7 +1099,6 @@ class SparseOpsTest(unittest.TestCase):
             else cat_ad_indices.view(B, T, A, L),
         )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]))
     @settings(verbosity=Verbosity.verbose, deadline=None)
     def test_histogram_binning_calibration(self, data_type: torch.dtype) -> None:
@@ -1194,7 +1181,6 @@ class SparseOpsTest(unittest.TestCase):
                 )
             )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
         segment_value_type=st.sampled_from([torch.int, torch.long]),
@@ -1300,7 +1286,6 @@ class SparseOpsTest(unittest.TestCase):
                 )
             )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
         segment_value_type=st.sampled_from([torch.int, torch.long]),
@@ -1410,7 +1395,6 @@ class SparseOpsTest(unittest.TestCase):
             )
 
     @unittest.skipIf(*gpu_unavailable)
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         data_type=st.sampled_from([torch.bfloat16, torch.half, torch.float32]),
     )
@@ -1511,7 +1495,6 @@ class SparseOpsTest(unittest.TestCase):
                 segment_sum_cuda.cpu(), torch.Tensor([10.0, 11.0, 34.0]), rtol=0, atol=0
             )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         batch_size=st.just(2),
         m=st.just(3),
@@ -1576,7 +1559,6 @@ class SparseOpsTest(unittest.TestCase):
         # pyre-fixme[7]: Expected `ndarray` but got `Tensor`.
         return padded_arrs
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         n=st.integers(2, 10),
         k=st.integers(2, 10),
@@ -1626,7 +1608,6 @@ class SparseOpsTest(unittest.TestCase):
             # GPU backward
             packed_cuda.backward(grad_cpu.cuda())
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         n=st.integers(2, 10),
         k=st.integers(2, 10),
@@ -1671,7 +1652,37 @@ class SparseOpsTest(unittest.TestCase):
             )
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
 
-    # pyre-ignore [56]
+    @given(
+        n=st.integers(2, 10),
+        k=st.integers(2, 10),
+        batch_size=st.integers(1, 30),
+        divisions=st.integers(1, 10),
+    )
+    @settings(deadline=None)
+    def test_pack_segments_meta_backend(
+        self,
+        n: int,
+        k: int,
+        batch_size: int,
+        divisions: int,
+    ) -> None:
+        input_raw = np.random.rand(batch_size, n, k)
+        input_data = torch.tensor(
+            input_raw, dtype=torch.float32, requires_grad=True
+        ).to("meta")
+        lengths = torch.tensor(
+            get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+        )
+        max_length = lengths.max().item()
+
+        packed_tensor = torch.ops.fbgemm.pack_segments(
+            t_in=input_data, lengths=lengths, max_length=max_length
+        )
+        packed_ref = self._pack_segments_ref(lengths, input_raw)
+
+        # verify forward
+        assert packed_tensor.size() == torch.Tensor(packed_ref).size()
+
     @given(
         N=st.integers(1, 32),
         shape=st.one_of(
@@ -1734,7 +1745,6 @@ class SparseOpsTest(unittest.TestCase):
 
             torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
 
-    # pyre-ignore [56]
     @given(
         num_indices=st.integers(1, 32),
         num_input_rows=st.integers(1, 32),
@@ -1835,7 +1845,6 @@ class SparseOpsTest(unittest.TestCase):
             {"rtol": 1e-02, "atol": 1e-02} if dtype == torch.half else {},
         )
 
-    # pyre-ignore [56]
     @given(
         T=st.integers(1, 5),
         B=st.integers(1, 5),
