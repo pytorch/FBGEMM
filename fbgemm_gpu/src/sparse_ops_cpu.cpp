@@ -2243,9 +2243,10 @@ Tensor pack_segments_forward_cpu(
   TENSOR_NDIM_EQUALS(lengths, 1);
   TORCH_CHECK(
       t_in.dtype() == at::ScalarType::Float ||
-          t_in.dtype() == at::ScalarType::Double,
-      "t_in must be of type float or double");
-  TORCH_CHECK(max_length > 0, "max_length must be a positive number");
+          t_in.dtype() == at::ScalarType::Double ||
+          t_in.dtype() == at::ScalarType::Half,
+      "t_in must be of type float or double or half");
+  TORCH_CHECK_GT(max_length, 0);
 
   const auto t_in_cont = t_in.expect_contiguous();
   Tensor packed_tensor;
@@ -2265,8 +2266,11 @@ Tensor pack_segments_forward_cpu(
           return; // Return empty output (with the proper shape)
         }
 
-        AT_DISPATCH_FLOATING_TYPES(
-            t_in_cont->scalar_type(), "pack_segments_cpu-packing", ([&]() {
+        AT_DISPATCH_ALL_TYPES_AND(
+            at::ScalarType::Half,
+            t_in_cont->scalar_type(),
+            "pack_segments_cpu-packing",
+            ([&]() {
               const auto sizes =
                   t_in_cont->sizes().slice(1, t_in_cont->sizes().size() - 1);
               const auto block_size = c10::multiply_integers(sizes);
@@ -2310,8 +2314,9 @@ Tensor pack_segments_backward_cpu(
       "LENGTHS and DATA must match in dimension 0");
   TORCH_CHECK(
       data.dtype() == at::ScalarType::Float ||
-          data.dtype() == at::ScalarType::Double,
-      "data must be of type float or double");
+          data.dtype() == at::ScalarType::Double ||
+          data.dtype() == at::ScalarType::Half,
+      "data must be of type float or double or half");
   TORCH_CHECK(
       max_length == data.sizes()[1],
       "max_length should be equal to the second dimension of the packed segments");
@@ -2333,8 +2338,11 @@ Tensor pack_segments_backward_cpu(
           return;
         }
 
-        AT_DISPATCH_FLOATING_TYPES(
-            data.scalar_type(), "unpack_segments_cpu-unpacking", ([&]() {
+        AT_DISPATCH_ALL_TYPES_AND(
+            at::ScalarType::Half,
+            data.scalar_type(),
+            "unpack_segments_cpu-unpacking",
+            ([&]() {
               const auto sizes = data.sizes().slice(2, data.sizes().size() - 2);
               const auto block_size = c10::multiply_integers(sizes);
               const auto block_bytesize = data.itemsize() * block_size;

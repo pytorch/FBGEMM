@@ -2447,9 +2447,11 @@ Tensor pack_segments_forward_cuda(
   TENSOR_NDIM_EQUALS(lengths, 1);
   TORCH_CHECK(
       t_in.dtype() == at::ScalarType::Float ||
-          t_in.dtype() == at::ScalarType::Double,
-      "t_in must be of type float or double");
-  TORCH_CHECK(max_length > 0, "max_length must be a positive number");
+          t_in.dtype() == at::ScalarType::Double ||
+          t_in.dtype() == at::ScalarType::Half ||
+          t_in.dtype() == at::ScalarType::BFloat16,
+      "t_in must be of type float or double or half or bfloat16");
+  TORCH_CHECK_GT(max_length, 0);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
@@ -2545,13 +2547,13 @@ Tensor pack_segments_backward_cuda(
   TENSOR_ON_CUDA_GPU(lengths);
   TENSOR_NDIM_IS_GE(data, 2);
   TENSOR_NDIM_EQUALS(lengths, 1);
-  TORCH_CHECK(
-      data.size(0) == lengths.size(0),
-      "LENGTHS and DATA must match in dimension 0");
+  TORCH_CHECK_EQ(data.size(0), lengths.size(0));
   TORCH_CHECK(
       data.dtype() == at::ScalarType::Float ||
-          data.dtype() == at::ScalarType::Double,
-      "data must be of type float or double");
+          data.dtype() == at::ScalarType::Double ||
+          data.dtype() == at::ScalarType::Half ||
+          data.dtype() == at::ScalarType::BFloat16,
+      "data must be of type float or double or half or bfloat16");
   TORCH_CHECK(
       max_length == data.size(1),
       "max_length should be equal to the second dimension of the packed segments");
