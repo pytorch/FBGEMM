@@ -1564,6 +1564,12 @@ class SparseOpsTest(unittest.TestCase):
         k=st.integers(2, 10),
         batch_size=st.integers(1, 30),
         divisions=st.integers(1, 10),
+        dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+            ]
+        ),
     )
     @settings(deadline=None)
     def test_pack_segments(
@@ -1572,9 +1578,10 @@ class SparseOpsTest(unittest.TestCase):
         k: int,
         batch_size: int,
         divisions: int,
+        dtype: torch.dtype,
     ) -> None:
         input_raw = np.random.rand(batch_size, n, k)
-        input_data = torch.tensor(input_raw, dtype=torch.float32, requires_grad=True)
+        input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
         lengths = torch.tensor(
             get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
         )
@@ -1586,14 +1593,15 @@ class SparseOpsTest(unittest.TestCase):
 
         packed_ref = self._pack_segments_ref(lengths, input_raw)
 
-        # pyre-fixme[6]: For 2nd param expected `Tensor` but got `ndarray`.
+        packed_ref = torch.Tensor(packed_ref).to(dtype)
+        print(f"packed_tensor {packed_tensor}\npacked_ref {packed_ref}")
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
         grad_cpu = torch.tensor(
             np.random.uniform(low=0.01, high=0.5, size=packed_ref.shape).astype(
                 np.float32
             )
-        )
+        ).to(dtype)
         # CPU backward
         packed_tensor.backward(grad_cpu)
 
@@ -1614,6 +1622,12 @@ class SparseOpsTest(unittest.TestCase):
         batch_size=st.integers(1, 30),
         divisions=st.integers(1, 10),
         max_length=st.integers(1, 20),
+        dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+            ]
+        ),
     )
     @settings(deadline=None)
     def test_pack_segments_smaller_max_len(
@@ -1623,8 +1637,9 @@ class SparseOpsTest(unittest.TestCase):
         batch_size: int,
         divisions: int,
         max_length: int,
+        dtype: torch.dtype,
     ) -> None:
-        input_data = torch.tensor(np.random.rand(batch_size, n, k), dtype=torch.float32)
+        input_data = torch.tensor(np.random.rand(batch_size, n, k), dtype=dtype)
         lengths = torch.tensor(
             get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
         )
@@ -1657,6 +1672,12 @@ class SparseOpsTest(unittest.TestCase):
         k=st.integers(2, 10),
         batch_size=st.integers(1, 30),
         divisions=st.integers(1, 10),
+        dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+            ]
+        ),
     )
     @settings(deadline=None)
     def test_pack_segments_meta_backend(
@@ -1665,6 +1686,7 @@ class SparseOpsTest(unittest.TestCase):
         k: int,
         batch_size: int,
         divisions: int,
+        dtype: torch.dtype,
     ) -> None:
         input_raw = np.random.rand(batch_size, n, k)
         input_data = torch.tensor(
