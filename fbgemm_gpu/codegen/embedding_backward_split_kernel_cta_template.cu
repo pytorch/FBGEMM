@@ -32,7 +32,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
-    int32_t B,
     int64_t D,
     {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -64,7 +63,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- endif %}
     {%- if not nobag %}
-    FixedDivisor fd,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
     {%- endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
     at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
@@ -81,9 +81,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 #endif
   constexpr int VEC_WIDTH = 4;
   int32_t T = weights_offsets.size(0);
-  {%- if not nobag %}
-  const int32_t B = grad_output.size(0);
-  {%- endif %}
   const int32_t num_long_runs = num_long_run_ids[0];
   for (int32_t long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
         // The first thread block in the really long run has run_id in long_run_ids
@@ -117,11 +114,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         // Note that with shared embedding tables we can have multiple tables
         // (i.e. different values of `t` sharing the same segment).
         //
-        const auto info_0 = sorted_infos[segment_start];
-
         {%- if not nobag %}
-        int32_t t_0 = fd.Div(info_0); //info_0 / B;
+        const auto info_0 = reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start];
+        const auto t_0 = info_0 >> info_B_num_bits;
         {%- else %}
+        const auto info_0 = sorted_infos[segment_start];
         int32_t t_0 = info_0 % T;
         {%- endif %}
 
@@ -138,10 +135,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
             int32_t sl_j = sl + threadIdx.x;
             {%- if not nobag %}
-            int32_t b_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
-            int32_t b; //= b_t % B;
-            int32_t t; //= b_t / B;
-            fd.DivMod(b_t, &t, &b);
+            const auto b_t = sl_j < sl_end ? reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start + sl_j] : 0;
+            const auto b = b_t & info_B_mask;
+            const auto t = b_t >> info_B_num_bits;
             int32_t D_start = sl_j < sl_end ? D_offsets[t] : 0;
             {%- else %}
             int64_t l_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
@@ -162,7 +158,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
                 {%- endif %}
 
-        #pragma unroll kMaxVecsPerThread
+                #pragma unroll kMaxVecsPerThread
                 for (int32_t i = 0;
                     i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
@@ -186,7 +182,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> smem;
             Vec4T<at::acc_type<cache_t, true>>* shared_grad_sums = smem.getPointer();
 
-    #pragma unroll kMaxVecsPerThread
+            #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
@@ -197,7 +193,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             __syncthreads();
             if (blockDim.y >= 32) {
             if (warp_id < 16) {
-    #pragma unroll kMaxVecsPerThread
+                #pragma unroll kMaxVecsPerThread
                 for (int32_t i = 0; i < kMaxVecsPerThread &&
                     (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
@@ -217,7 +213,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
             if (blockDim.y >= 16) {
             if (warp_id < 8) {
-    #pragma unroll kMaxVecsPerThread
+                #pragma unroll kMaxVecsPerThread
                 for (int32_t i = 0; i < kMaxVecsPerThread &&
                     (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
@@ -237,7 +233,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
             if (blockDim.y >= 8) {
             if (warp_id < 4) {
-    #pragma unroll kMaxVecsPerThread
+                #pragma unroll kMaxVecsPerThread
                 for (int32_t i = 0; i < kMaxVecsPerThread &&
                     (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
@@ -257,7 +253,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
             if (blockDim.y >= 4) {
             if (warp_id < 2) {
-    #pragma unroll kMaxVecsPerThread
+                #pragma unroll kMaxVecsPerThread
                 for (int32_t i = 0; i < kMaxVecsPerThread &&
                     (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
@@ -276,7 +272,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             __syncthreads();
             }
             if (warp_id == 0) {
-    #pragma unroll kMaxVecsPerThread
+            #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
@@ -299,7 +295,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             int really_long_run_id = long_run_id_to_really_long_run_ids[long_run_id];
             Vec4T<at::acc_type<cache_t, true>> *temp_grad_accum_ptr =
                 reinterpret_cast<Vec4T<at::acc_type<cache_t, true>>*>(&temp_grad_accum[really_long_run_id][0]);
-#pragma unroll kMaxVecsPerThread
+            #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
@@ -319,7 +315,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 continue;
             }
             CUDA_KERNEL_ASSERT(counter == 1 && "Invalid grad_accum_counter. Race condition?");
-#pragma unroll kMaxVecsPerThread
+            #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
@@ -384,7 +380,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         {{ split_precomputation }}
 
         float2 qparams_new;
-#pragma unroll kMaxVecsPerThread
+        #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
@@ -403,7 +399,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(shared_weight_update_row, D);
             weight_row_template.store_qparams(qparams_new);
 
-#pragma unroll kMaxVecsPerThread
+            #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                     i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
@@ -412,7 +408,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
         }
         {%- else %}
-#pragma unroll kMaxVecsPerThread
+        #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
             i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++i) {
@@ -468,47 +464,54 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
   {{ kMaxVecsPerThread }},
   {{ kThreadGroupSize }}
 > (
-    const at::PackedTensorAccessor64<{{ grad_type  }}, 2, at::RestrictPtrTraits> grad_output,
-    at::PackedTensorAccessor64<{{ emb_type  }}, 1, at::RestrictPtrTraits> dev_weights,
+    const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
+    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    at::PackedTensorAccessor64<{{ emb_type  }}, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<{{ cache_type  }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        weights_placements,
     {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
-    int32_t B,
     int64_t D,
     {%- endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        hash_size_cumsum,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_run,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_cumulative_run_lengths,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        long_run_ids,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        num_long_run_ids,
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- else %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_lxu_cache_locations,
     {%- endif %}
     {%- if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<{{ cache_type  }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
     {%- if not dense %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<{{ cache_type  }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- endif %}
     {%- if not nobag %}
-    FixedDivisor fd,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
     {%- endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<at::acc_type<{{ cache_type  }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
@@ -547,47 +550,54 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
   {{ kMaxVecsPerThread }},
   {{ kThreadGroupSize }}
 > (
-    const at::PackedTensorAccessor64<{{ grad_type  }}, 2, at::RestrictPtrTraits> grad_output,
-    at::PackedTensorAccessor64<{{ emb_type  }}, 1, at::RestrictPtrTraits> dev_weights,
+    const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
+    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    at::PackedTensorAccessor64<{{ emb_type  }}, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<{{ cache_type  }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        weights_placements,
     {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
-    int32_t B,
     int64_t D,
     {%- endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        hash_size_cumsum,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_run,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_cumulative_run_lengths,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        long_run_ids,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        num_long_run_ids,
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- else %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_lxu_cache_locations,
     {%- endif %}
     {%- if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<{{ cache_type  }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
     {%- if not dense %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<{{ cache_type  }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- endif %}
     {%- if not nobag %}
-    FixedDivisor fd,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
     {%- endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<at::acc_type<{{ cache_type  }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
