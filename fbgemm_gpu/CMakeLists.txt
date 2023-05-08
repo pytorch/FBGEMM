@@ -419,6 +419,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/layout_transform_ops_cpu.cpp
     src/quantize_ops_cpu.cpp
     src/sparse_ops_cpu.cpp
+    src/sparse_ops_meta.cpp
     src/embedding_inplace_update_cpu.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
