@@ -32,7 +32,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
-    int32_t B,
     int64_t D,
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -64,7 +63,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {% endif %}
     {% if not nobag %}
-    FixedDivisor fd,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
     {% endif %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
     at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
@@ -97,7 +97,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {% else %}
-    int32_t B,
     int64_t D,
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -128,7 +127,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {% endif %}
     {% if not nobag %}
-    FixedDivisor fd,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
     {% endif %}
     {{ args.split_kernel_args | join(", ") }});
 
@@ -209,14 +209,19 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
-    const auto B = (offsets.size(0) - 1) / T;
-    TORCH_CHECK(B > 0);
+    const auto total_B = offsets.size(0) - 1;
+    TORCH_CHECK(total_B > 0);
     auto BT_block_size = kMaxThreads / kWarpSize;
     TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
     {% if nobag %}
     auto max_D = D;
     {% endif %}
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
+
+    int32_t max_B = total_B / T;
+    int32_t info_B_num_bits;
+    uint32_t info_B_mask;
+    std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(max_B, T);
 
     // V100: 96 KB; A100: 160 KB.
     int max_shared_bytes = 0;
@@ -257,7 +262,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             total_hash_size_bits,
             indices,
             offsets,
-            {{"true" if nobag else "false"}});
+            {{ "true" if nobag else "false" }},
+            c10::optional<Tensor>(),
+            info_B_num_bits,
+            info_B_mask);
 
     {% if not dense %}
     auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
@@ -347,7 +355,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
               grad_output_mean = at::empty_like(grad_output);
               grad_mean_kernel<grad_t>
-                  <<<div_round_up((B * T), kMaxThreads / kWarpSize),
+                  <<<div_round_up(total_B, kMaxThreads / kWarpSize),
                      dim3(kWarpSize, kMaxThreads / kWarpSize),
                      0,
                      at::cuda::getCurrentCUDAStream()>>>(
@@ -487,7 +495,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if not nobag %}
                     D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% else %}
-                    B,
                     D,
                     {% endif %}
                     hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -515,7 +522,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
                     {% endif %}
                     {% if not nobag %}
-                    FixedDivisor(B),
+                    info_B_num_bits,
+                    info_B_mask,
                     {% endif %}
                     long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
@@ -570,7 +578,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if not nobag %}
                     D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% else %}
-                    B,
                     D,
                     {% endif %}
                     hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -599,7 +606,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
                     {% endif %}
                     {% if not nobag %}
-                    FixedDivisor(B),
+                    info_B_num_bits,
+                    info_B_mask,
                     {% endif %}
                     {{ args.split_kernel_arg_constructors | join(", ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
