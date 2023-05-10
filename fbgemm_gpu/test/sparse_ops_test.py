@@ -1592,9 +1592,8 @@ class SparseOpsTest(unittest.TestCase):
         )
 
         packed_ref = self._pack_segments_ref(lengths, input_raw)
-
         packed_ref = torch.Tensor(packed_ref).to(dtype)
-        print(f"packed_tensor {packed_tensor}\npacked_ref {packed_ref}")
+
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
         grad_cpu = torch.tensor(
