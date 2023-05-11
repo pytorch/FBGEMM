@@ -1,0 +1,54 @@
+#include "common.cuh"
+
+using Tensor = at::Tensor;
+
+namespace fbgemm_gpu {
+
+Tensor jagged_dense_elementwise_mul_forward(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(x_values.get_device());
+
+  Tensor output = at::empty_like(x_values);
+
+  AT_DISPATCH_SWITCH(
+      x_values.scalar_type(),
+      "jagged_dense_elementwise_mul_jagged_output_forward",
+      AT_DISPATCH_CASE(
+          at::ScalarType::Half,
+          [&] {
+            jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
+                x_values,
+                x_offsets,
+                y,
+                output,
+                [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                  return x * y;
+                });
+          } // lambda
+          ) // CASE
+      AT_DISPATCH_CASE_FLOATING_TYPES_AND(
+          at::ScalarType::BFloat16,
+          [&] {
+            jagged_dense_elementwise_jagged_output_<scalar_t>(
+                x_values,
+                x_offsets,
+                y,
+                output,
+                [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                  return x * y;
+                });
+          } // lambda
+          ) // CASE_FLOATING_TYPES_AND
+
+  ); // SWITCH
+
+  return output;
+}
+} // namespace fbgemm_gpu
+
+JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+    "jagged_dense_elementwise_mul_forward",
+    fbgemm_gpu::jagged_dense_elementwise_mul_forward);
