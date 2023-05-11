@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/core/Device.h>
 #include <c10/cuda/CUDAException.h>
+#include <c10/util/Logging.h>
 #include <algorithm>
 
 #include "fbgemm_gpu/topology_utils.h"
