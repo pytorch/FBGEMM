@@ -1,9 +1,11 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
+ *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
 #define FBGEMM_EXPORTS
 #include "fbgemm/QuantUtilsAvx512.h"
 #if defined(__x86_64__) || defined(__i386__) || \
