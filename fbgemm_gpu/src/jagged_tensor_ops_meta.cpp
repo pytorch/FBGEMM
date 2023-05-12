@@ -153,9 +153,9 @@ Tensor jagged_dense_bmm_forward_meta(
     const Tensor& x_offsets,
     const Tensor& y,
     const int64_t max_L) {
-  const int N = y.size(-1);
-  const int total_L = x_values.size(0);
-  return at::zeros({total_L, N}, x_values.options());
+  const auto N = y.sym_size(-1);
+  const auto total_L = x_values.sym_size(0);
+  return at::zeros_symint({total_L, N}, x_values.options());
 }
 
 Tensor jagged_softmax_forward_meta(
