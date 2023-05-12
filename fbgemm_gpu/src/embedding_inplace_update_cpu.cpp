@@ -61,8 +61,7 @@ void embedding_inplace_update_cpu_kernel(
 
     const uint8_t* __restrict__ update_weight_row =
         &update_weights[update_weight_offset];
-
-    for (int32_t d = 0; d < D_bytes; d++) {
+    for (const auto d : c10::irange(D_bytes)) {
       weight_row[d] = update_weight_row[d];
     }
   }
@@ -143,8 +142,7 @@ Tensor pruned_array_lookup_from_row_idx_cpu(
             index_remappings.accessor<int32_t, 1>();
         const auto index_remappings_offsets_acc =
             index_remappings_offsets.accessor<int64_t, 1>();
-
-        for (int64_t idx = 0; idx < num_indices; idx++) {
+        for (const auto idx : c10::irange(num_indices)) {
           const int table_idx = update_table_indices_acc[idx];
           const auto row_idx = update_row_indices_acc[idx];
           int64_t index_remappings_start =

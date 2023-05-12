@@ -78,8 +78,7 @@ void split_embedding_backward_exact_cpu_kernel(
         "with more than 2B rows");
     return hash_size;
   };
-
-  for (int t = 0; t < num_tables; ++t) {
+for (const auto t : c10::irange(num_tables)) {
     int feature_begin = table_to_feature_offset[t];
     int64_t hash_size = get_hash_size(feature_begin);
 
@@ -95,8 +94,7 @@ void split_embedding_backward_exact_cpu_kernel(
         table_to_feature_offset + t,
         hash_size);
   }
-
-  for (int t = 0; t < num_tables; ++t) {
+for (const auto t : c10::irange(num_tables)) {
     int feature_begin = table_to_feature_offset[t];
 
     int num_non_zero_columns = cscs[t].num_non_zero_columns;
@@ -192,7 +190,7 @@ void split_embedding_backward_exact_cpu_kernel(
       // TODO: to parallelize, we should easily identify segments belong to
       // the same column.
       at::acc_type<grad_t, true> grad_buffer[D];
-      for (int c = 0; c < num_non_zero_columns; ++c) {
+for (const auto c : c10::irange(num_non_zero_columns)) {
         int64_t idx = col_segment_indices[c];
         if (c == 0 || col_segment_indices[c - 1] != idx) {
           memset(grad_buffer, 0, D * sizeof(at::acc_type<grad_t, true>));
@@ -204,7 +202,7 @@ void split_embedding_backward_exact_cpu_kernel(
             D_offset += cscs[t].column_segment_ids[r] * D;
           }
           int b = cscs[t].row_indices[r];
-          for (int64_t d = 0; d < D; ++d) {
+for (const auto d : c10::irange(D)) {
             if (cscs[t].weights != nullptr) {
               grad_buffer[d] += grad_output_data[b * grad_stride + D_offset + d] *
                     cscs[t].weights[r];
@@ -255,7 +253,7 @@ void split_embedding_backward_exact_cpu_dense_kernel(
       const auto D_begin = D_offsets_data[t];
       const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
       const auto table_begin = weights_offsets_data[t];
-      for (int64_t b = 0; b < B; ++b) {
+for (const auto b : c10::irange(B)) {
         const auto pool_begin = offsets_data[t * B + b];
         const auto pool_end = offsets_data[t * B + b + 1];
         const auto L = pool_end - pool_begin;
@@ -264,12 +262,12 @@ void split_embedding_backward_exact_cpu_dense_kernel(
             (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && !indice_weights.defined() && L > 0)
             ? 1.0 / L
             : 1.0;
-        for (auto p = pool_begin; p < pool_end; ++p) {
+for (const auto p : c10::irange(pool_begin,pool_end)) {
           const int64_t embedding_begin = table_begin + indices_data[p] * D;
           const scalar_t v = indice_weights.defined()
               ? (indice_weights_data[p] * scale_factor)
               : scale_factor;
-          for (int64_t d = 0; d < D; ++d) {
+for (const auto d : c10::irange(D)) {
             grad_data[embedding_begin + d] +=
                 grad_output_data[b][D_begin + d] * v;
           }

@@ -47,14 +47,13 @@ void split_embedding_backward_approx_cpu_kernel(
   auto indice_weights_data = indice_weights.defined()
       ? indice_weights.accessor<at::acc_type<scalar_t, true>, 1>()
       : at::TensorAccessor<at::acc_type<scalar_t, true>, 1>(nullptr, nullptr, nullptr);
-
-  for (int64_t t = 0; t < T; ++t) {
+for (const auto t : c10::irange(T)) {
     int feature_begin = t; // to conform interface with exact
     const auto D_begin = D_offsets_data[t];
     const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
     const auto table_begin = weights_offsets_data[t];
     at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
-      for (int64_t b = b_begin; b < b_end; ++b) {
+for (const auto b : c10::irange(b_begin,b_end)) {
         const auto pool_begin = offsets_data[t * B + b];
         const auto pool_end = offsets_data[t * B + b + 1];
         const auto L = pool_end - pool_begin;
@@ -63,11 +62,11 @@ void split_embedding_backward_approx_cpu_kernel(
             (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN && !indice_weights.defined() && L > 0)
             ? 1.0 / L
             : 1.0;
-        for (auto p = pool_begin; p < pool_end; ++p) {
+for (const auto p : c10::irange(pool_begin,pool_end)) {
           auto idx = indices_data[p];
           const int64_t embedding_begin = table_begin + idx * D;
           scalar_t grad_buffer[D];
-          for (int64_t d = 0; d < D; ++d) {
+for (const auto d : c10::irange(D)) {
             grad_buffer[d] = scale_factor *
                 (indice_weights.defined()
                      ? static_cast<scalar_t>(grad_output_data[b][D_begin + d] * indice_weights_data[p])
@@ -142,7 +141,7 @@ split_embedding_backward_codegen_{{ optimizer }}_cpu(
     at::parallel_for(0, T * B, 0, [&](int64_t tb_begin, int64_t tb_end) {
       int t_begin = tb_begin / B;
       int t_end = (tb_end + B - 1) / B;
-      for (int t = t_begin; t < t_end; ++t) {
+for (const auto t : c10::irange(t_begin,t_end)) {
         auto D_begin = D_offsets_data[t];
         auto D = D_offsets_data[t + 1] - D_offsets_data[t];
         auto table_begin = weights_offsets_data[t];

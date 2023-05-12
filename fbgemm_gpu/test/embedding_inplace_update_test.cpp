@@ -42,7 +42,7 @@ void test_embedding_inplace_update() {
   std::vector<index_t> update_row_idx;
   int64_t dev_weights_offset = 0;
   int64_t uvm_weights_offset = 0;
-  for (int i = 0; i < T; i++) {
+  for (const auto i : c10::irange(T)) {
     SparseType weight_ty =
         weight_ty_list[folly::Random::rand32() % weight_ty_list.size()];
     weights_tys.push_back(uint8_t(weight_ty));
@@ -62,7 +62,7 @@ void test_embedding_inplace_update() {
     }
     int n = folly::Random::rand32() % 10 + 5;
     std::set<int32_t> rows;
-    for (int j = 0; j < n; j++) {
+    for (const auto j : c10::irange(n)) {
       rows.insert(folly::Random::rand32() % total_rows);
     }
     std::string update_row_idx_str = "";
@@ -159,13 +159,13 @@ void test_embedding_inplace_update() {
     auto uvm_weight_acc = uvm_weight_cpu.data_ptr<uint8_t>();
     auto update_weight_acc = update_weight_cpu.data_ptr<uint8_t>();
     if (weight_placement == 0) {
-      for (int j = 0; j < D_bytes; j++) {
+      for (const auto j : c10::irange(D_bytes)) {
         ASSERT_EQ(
             dev_weight_acc[weight_offset + D_bytes * row_idx + j],
             update_weight_acc[offset + j]);
       }
     } else {
-      for (int j = 0; j < D_bytes; j++) {
+      for (const auto j : c10::irange(D_bytes)) {
         ASSERT_EQ(
             uvm_weight_acc[weight_offset + D_bytes * row_idx + j],
             update_weight_acc[offset + j]);
