@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
 set(FBGEMM_HAVE_HIP FALSE)
 
 IF(NOT DEFINED ENV{ROCM_PATH})
