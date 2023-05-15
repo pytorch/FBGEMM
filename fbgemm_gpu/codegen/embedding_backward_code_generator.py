@@ -138,6 +138,8 @@ def generate_backward_embedding_cuda(
     filename_format: str,
     kwargs: Dict[str, Any],
 ) -> None:
+    if not kwargs.get("has_gpu_support"):
+        return
     template = env.get_template(template_filepath)
     for weighted in [True, False]:
         for nobag in [True, False]:
@@ -185,17 +187,22 @@ def generate(**kwargs: Any) -> None:
     )
 
     # Generate the backward splits (non-dense)
+    # We generate only the API to preserve the backward compatibility if
+    # has_gpu_support=True
     if not kwargs.get("dense"):
         template = env.get_template("embedding_backward_split_host_template.cpp")
         filename = f"gen_embedding_backward_split_{optimizer}.cpp"
         write(filename, template.render(**kwargs))
         print(f"[Backward Split] [{optimizer}]: {filename}")
 
-        # Generates Python invoker for CUDA + CPU
-        template = env.get_template("split_embedding_codegen_lookup_invoker.template")
-        filename = f"lookup_{optimizer}.py"
-        write(filename, template.render(is_fbcode=args.is_fbcode, **kwargs))
-        print(f"[Backward Split] [{optimizer}]: {filename}")
+        if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
+            # Generates Python invoker for CUDA + CPU
+            template = env.get_template(
+                "split_embedding_codegen_lookup_invoker.template"
+            )
+            filename = f"lookup_{optimizer}.py"
+            write(filename, template.render(is_fbcode=args.is_fbcode, **kwargs))
+            print(f"[Backward Split] [{optimizer}]: {filename}")
 
     #
     # Generate CPU variants of the operators
@@ -203,15 +210,16 @@ def generate(**kwargs: Any) -> None:
     kwargs["args"] = gen_args["cpu"]
 
     # Generate the backward splits
-    is_approx = "approx" in optimizer
-    template = (
-        env.get_template("embedding_backward_split_cpu_approx_template.cpp")
-        if is_approx
-        else env.get_template("embedding_backward_split_cpu_template.cpp")
-    )
-    filename = f"gen_embedding_backward_{optimizer}_split_cpu.cpp"
-    write(filename, template.render(**kwargs))
-    print(f"[Backward Split] [{optimizer}]: {filename}")
+    if kwargs.get("has_cpu_support"):
+        is_approx = "approx" in optimizer
+        template = (
+            env.get_template("embedding_backward_split_cpu_approx_template.cpp")
+            if is_approx
+            else env.get_template("embedding_backward_split_cpu_template.cpp")
+        )
+        filename = f"gen_embedding_backward_{optimizer}_split_cpu.cpp"
+        write(filename, template.render(**kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename}")
 
     # Generate the backward splits (non-dense)
     if not kwargs.get("dense"):
@@ -425,6 +433,8 @@ def adagrad() -> None:
         split_precomputation="",
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -546,6 +556,8 @@ def rowwise_adagrad() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
     approx_split_weight_update = """
@@ -568,6 +580,8 @@ def rowwise_adagrad() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -667,6 +681,8 @@ def rowwise_adagrad_with_weight_decay() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
     approx_split_weight_update = """
@@ -689,6 +705,8 @@ def rowwise_adagrad_with_weight_decay() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -827,6 +845,8 @@ def rowwise_adagrad_with_counter() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
     approx_split_weight_update = """
@@ -860,6 +880,8 @@ def rowwise_adagrad_with_counter() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -930,6 +952,8 @@ def rowwise_weighted_adagrad() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -949,6 +973,8 @@ def sgd() -> None:
         split_precomputation="",
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
     approx_split_weight_update = """
@@ -964,6 +990,8 @@ def sgd() -> None:
         split_precomputation="",
         split_weight_update=approx_split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -1034,6 +1062,8 @@ def lamb() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -1120,6 +1150,8 @@ def partial_rowwise_lamb() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -1170,6 +1202,8 @@ def adam() -> None:
         split_precomputation="",
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -1230,6 +1264,8 @@ def partial_rowwise_adam() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -1288,6 +1324,8 @@ def lars_sgd() -> None:
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
         split_weight_update_cpu=split_weight_update_cpu,
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
@@ -1495,6 +1533,8 @@ def backward_dense() -> None:
                 (FLOAT, "unused"),
             ]
         ),
+        has_cpu_support=True,
+        has_gpu_support=True,
     )
 
 
