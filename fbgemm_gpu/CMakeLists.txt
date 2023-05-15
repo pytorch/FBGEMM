@@ -159,7 +159,7 @@ file(GLOB_RECURSE asmjit_sources
 # FBGEMM_GPU Generated Sources
 ################################################################################
 
-set(OPTIMIZERS
+set(COMMON_OPTIMIZERS
     adagrad
     adam
     approx_rowwise_adagrad
@@ -175,6 +175,23 @@ set(OPTIMIZERS
     rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
     sgd)
+
+# To be populated in the subsequent diffs
+set(CPU_ONLY_OPTIMIZERS "")
+
+set(GPU_ONLY_OPTIMIZERS "")
+
+set(DEPRECATED_OPTIMIZERS "")
+
+set(ALL_OPTIMIZERS
+  ${COMMON_OPTIMIZERS}
+  ${CPU_ONLY_OPTIMIZERS}
+  ${GPU_ONLY_OPTIMIZERS}
+  ${DEPRECATED_OPTIMIZERS})
+
+set(CPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS})
+
+set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 
 set(gen_gpu_kernel_source_files
     "gen_embedding_forward_dense_weighted_codegen_cuda.cu"
@@ -212,20 +229,33 @@ set(gen_cpu_source_files
 
 set(gen_python_source_files ${CMAKE_BINARY_DIR}/__init__.py)
 
-foreach(optimizer ${OPTIMIZERS})
-  # For each of the optimizers, generate the backward split variant by adding
-  # the Python, CPU-only, GPU host, and GPU kernel source files
+# For each of the optimizers, generate the backward split variant by adding
+# the Python, CPU-only, GPU host, and GPU kernel source files
 
+# Generate the Python functions only if there is the backend support
+foreach(optimizer
+    ${COMMON_OPTIMIZERS}
+    ${CPU_ONLY_OPTIMIZERS}
+    ${GPU_ONLY_OPTIMIZERS})
   list(APPEND gen_python_source_files
     "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
+endforeach()
 
+# Generate the backend API for all optimizers to preserve the backward
+# compatibility
+foreach(optimizer ${ALL_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
-    "gen_embedding_backward_split_${optimizer}_cpu.cpp"
-    "gen_embedding_backward_${optimizer}_split_cpu.cpp")
-
+    "gen_embedding_backward_split_${optimizer}_cpu.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}.cpp")
+endforeach()
 
+foreach(optimizer ${CPU_OPTIMIZERS})
+  list(APPEND gen_cpu_source_files
+    "gen_embedding_backward_${optimizer}_split_cpu.cpp")
+endforeach()
+
+foreach(optimizer ${GPU_OPTIMIZERS})
   foreach(wdesc weighted unweighted_nobag unweighted)
     list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_backward_${optimizer}_split_${wdesc}_cuda.cu"

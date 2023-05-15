@@ -16,6 +16,7 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+{% if has_cpu_support %}
 /// @defgroup embedding-cpu Embedding CPU Operators
 
 void split_embedding_backward_codegen_{{ optimizer }}_cpu(
@@ -34,9 +35,11 @@ void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32));
+{% endif %}
 
 namespace {
 
+{% if has_cpu_support %}
 class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<SplitLookupFunction_{{ optimizer }}_Op> {
  public:
   static torch::autograd::variable_list forward(
@@ -178,6 +181,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     };
   }
 };
+{% endif %} // if has_cpu_support
 
 ///@ingroup embedding-cpu
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
@@ -199,6 +203,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+  {% if has_cpu_support %}
   return SplitLookupFunction_{{ optimizer }}_Op::apply(
       host_weights,
       weights_placements,
@@ -218,6 +223,10 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
       stochastic_rounding,
       {{ args.split_function_arg_names | join(", ") }},
       output_dtype)[0];
+  {% else %}
+  TORCH_CHECK(false, "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail.");
+  return Tensor();
+  {% endif %} // if has_cpu_support
 }
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
