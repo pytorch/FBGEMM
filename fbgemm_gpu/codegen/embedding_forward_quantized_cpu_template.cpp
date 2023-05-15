@@ -61,19 +61,18 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
     auto hash_table_acc = hash_table.accessor<int32_t, 2>();
     const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
-
-    for (int32_t t = 0; t < T; ++t) {
+for (const auto t : c10::irange(T)) {
         int64_t table_start = hash_table_offsets_acc[t];
         int64_t table_end = hash_table_offsets_acc[t + 1];
         if (table_start == table_end) {
             continue;
         }
         int64_t capacity = table_end - table_start;
-        for (int32_t b = 0; b < B; ++b) {
+for (const auto b : c10::irange(B)) {
             int32_t indices_start = offsets_acc[t * B + b];
             int32_t indices_end = offsets_acc[t * B + b + 1];
             int32_t L = indices_end - indices_start;
-            for (int32_t l = 0; l < L; ++l) {
+for (const auto l : c10::irange(L)) {
                 int32_t idx = indices_acc[indices_start + l];
                 int32_t dense_idx = dense_indices_acc[indices_start + l];
                 if (dense_idx == -1) {
@@ -207,7 +206,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
             int32_t num_indices_m_1 = indices.numel() - 1;
 
             int32_t D_start_ = 0;
-            for (int32_t t = 0; t < T; ++t) {
+for (const auto t : c10::irange(T)) {
 
                 {% if not nobag %}
                 const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
@@ -449,23 +448,21 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
     const auto hash_table_acc = hash_table.accessor<int32_t, 2>();
     const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
-
-    for (int32_t t = 0; t < T; ++t) {
+for (const auto t : c10::irange(T)) {
         int64_t table_start = hash_table_offsets_acc[t];
         int64_t table_end = hash_table_offsets_acc[t + 1];
         int64_t capacity = table_end - table_start;
-
-        for (int32_t b = 0; b < B; ++b) {
+for (const auto b : c10::irange(B)) {
             int32_t indices_start = offsets_acc[t * B + b];
             int32_t indices_end = offsets_acc[t * B + b + 1];
             int32_t L = indices_end - indices_start;
 
             if (table_start == table_end) {
-                for (int32_t l = 0; l < L; ++l) {
+for (const auto l : c10::irange(L)) {
                     dense_indices_acc[indices_start + l] = indices_acc[indices_start + l];
                 }
             } else {
-                for (int32_t l = 0; l < L; ++l) {
+for (const auto l : c10::irange(L)) {
                     int32_t idx = indices_acc[indices_start + l];
                     uint32_t slot = pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
                     while (true) {
@@ -512,15 +509,14 @@ Tensor pruned_array_lookup_cpu(
 
     const auto index_remappings_acc = index_remappings.data_ptr<int32_t>();
     const auto index_remappings_offsets_acc = index_remappings_offsets.data_ptr<int64_t>();
-
-    for (int32_t t = 0; t < T; ++t) {
+for (const auto t : c10::irange(T)) {
         int64_t index_remappings_start = index_remappings_offsets_acc[t];
         int64_t index_remappings_end = index_remappings_offsets_acc[t + 1];
         int64_t capacity = index_remappings_end - index_remappings_start;
         int32_t indices_start = offsets_acc[t * B];
         int32_t indices_end = offsets_acc[(t + 1) * B];
         if (capacity > 0) {
-            for (int32_t i = indices_start; i < indices_end; ++i) {
+for (const auto i : c10::irange(indices_start,indices_end)) {
                 int32_t idx = indices_acc[i];
                 dense_indices_acc[i] = index_remappings_acc[index_remappings_start + idx];
             }

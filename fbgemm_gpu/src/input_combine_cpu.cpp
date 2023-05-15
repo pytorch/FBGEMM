@@ -298,7 +298,7 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
           auto offsets_acc = offsets_list[i].accessor<index_t, 1>();
           int64_t offsets_size =
               offsets_list[i].numel() - (include_last_offsets_acc[i] ? 1 : 0);
-          for (int64_t j = 1; j < offsets_size; j++) {
+          for (const auto j : c10::irange(1, offsets_size)) {
             combined_offsets_acc[offsets_acc_idx++] =
                 offset + static_cast<int32_t>(offsets_acc[j]);
           }

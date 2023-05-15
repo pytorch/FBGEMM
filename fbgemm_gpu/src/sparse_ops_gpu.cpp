@@ -297,7 +297,7 @@ class GroupIndexSelectDim0GPUOp
     outputs.reserve(group_size);
     std::vector<int64_t> input_shape_group;
     input_shape_group.reserve(group_size * input_dim);
-    for (int i = 0; i < group_size; i++) {
+    for (const auto i : c10::irange(group_size)) {
       auto& input = input_group[i];
       auto& indices = indices_group[i];
 
@@ -434,7 +434,7 @@ class GroupIndexSelectDim0GPUOp
         at::TensorOptions().dtype(at::kLong).pinned_memory(true));
     int64_t* grad_output_ptrs = args_tensor.data_ptr<int64_t>();
     int64_t* grad_input_ptrs = args_tensor.data_ptr<int64_t>() + group_size;
-    for (int i = 0; i < group_size; i++) {
+    for (const auto i : c10::irange(group_size)) {
       Tensor& grad = grad_output_group[i];
       TENSOR_ON_CUDA_GPU(grad);
       TENSORS_ON_SAME_DEVICE(grad, first_indices);

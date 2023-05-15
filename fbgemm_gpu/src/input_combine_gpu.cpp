@@ -96,7 +96,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
   // Compute offsets
   uint64_t offset = 0;
   auto next = args_offsets[0];
-  for (uint32_t i = 0; i < NUM_ARGS; i++) {
+  for (const auto i : c10::irange(NUM_ARGS)) {
     args_offsets[i] = offset;
     offset += next;
     next = args_offsets[i + 1];
@@ -132,7 +132,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
   uint64_t total_indices = 0;
   uint64_t total_lengths = 0;
   uint64_t max_list_size = 0;
-  for (uint64_t i = 0; i < num_lists; i++) {
+  for (const auto i : c10::irange(num_lists)) {
     const uint64_t is_long_idx = i / IS_LONG_NUM_BITS;
     auto& indices_is_long_ = indices_is_long[is_long_idx];
     auto& lengths_is_long_ = lengths_is_long[is_long_idx];

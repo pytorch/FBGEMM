@@ -70,7 +70,7 @@ void split_embedding_forward_cpu_kernel(
       std::is_same<ind_weights_t, float>::value;
 
   at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
-    for (int t = 0; t < T; ++t) {
+    for (const auto t : c10::irange(T)) {
       const auto D_begin = D_offsets_data[t];
       const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
       const auto table_begin = weights_offsets_data[t];
@@ -117,19 +117,19 @@ void split_embedding_forward_cpu_kernel(
                 output_data + b_begin * output_stride + D_begin));
       } else {
         at::acc_type<output_t, true> output_buf[D];
-        for (int b = b_begin; b < b_end; ++b) {
+        for (const auto b : c10::irange(b_begin, b_end)) {
           const auto pool_begin = offsets_data[t * B + b];
           const auto pool_end = offsets_data[t * B + b + 1];
           const auto L = pool_end - pool_begin;
           memset(output_buf, 0, D * sizeof(at::acc_type<output_t, true>));
-          for (auto p = pool_begin; p < pool_end; ++p) {
+          for (const auto p : c10::irange(pool_begin, pool_end)) {
             int64_t idx = indices_data[p];
             if (idx < 0 || idx >= hash_size) {
               success = false;
               break;
             }
             const int64_t embedding_begin = table_begin + idx * D;
-            for (int64_t d = 0; d < D; ++d) {
+            for (const auto d : c10::irange(D)) {
               output_buf[d] +=
                   (indice_weights.defined()
                        ? static_cast<at::acc_type<output_t, true>>(
@@ -146,7 +146,7 @@ void split_embedding_forward_cpu_kernel(
                !indice_weights.defined() && L > 0)
               ? 1.0 / L
               : 1.0;
-          for (int d = 0; d < D; ++d) {
+          for (const auto d : c10::irange(D)) {
             output_data[b * output_stride + D_begin + d] =
                 scale_factor * output_buf[d];
           }
@@ -254,7 +254,7 @@ void split_embedding_grad_indice_weights_cpu_kernel(
       grad_indice_weights.accessor<at::acc_type<grad_t, true>, 1>();
 
   at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
-    for (int64_t t = 0; t < T; ++t) {
+    for (const auto t : c10::irange(T)) {
       if (feature_requires_grad.defined() &&
           !feature_requires_grad[t].is_nonzero()) {
         // NOTE: skip if the table does not require gradient computation!
@@ -263,12 +263,12 @@ void split_embedding_grad_indice_weights_cpu_kernel(
       const auto D_begin = D_offsets_data[t];
       const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
       const auto table_begin = weights_offsets_data[t];
-      for (int64_t b = b_begin; b < b_end; ++b) {
+      for (const auto b : c10::irange(b_begin, b_end)) {
         const auto pool_begin = offsets_data[t * B + b];
         const auto pool_end = offsets_data[t * B + b + 1];
-        for (auto p = pool_begin; p < pool_end; ++p) {
+        for (const auto p : c10::irange(pool_begin, pool_end)) {
           const int64_t embedding_begin = table_begin + indices_data[p] * D;
-          for (int64_t d = 0; d < D; ++d) {
+          for (const auto d : c10::irange(D)) {
             grad_indice_weights_data[p] +=
                 static_cast<at::acc_type<weights_t, true>>(
                     grad_output_data[b][D_begin + d]) *
@@ -383,8 +383,7 @@ void csr2csc_template_(
            !has_weights && L > 0)
           ? 1.0 / L
           : 1.0;
-
-      for (int64_t p = pool_begin; p < pool_end; ++p) {
+      for (const auto p : c10::irange(pool_begin, pool_end)) {
         tmpBufKeys[p - FBo] = csr_indices[p];
         if (IS_VALUE_PAIR) {
           reinterpret_cast<pair_t*>(tmpBufValues)[p - FBo] = std::make_pair(
@@ -409,7 +408,7 @@ void csr2csc_template_(
 
   int max_thds = omp_get_max_threads();
   int num_uniq[max_thds][64];
-  for (int i = 0; i < max_thds; i++) {
+  for (const auto i : c10::irange(max_thds)) {
     num_uniq[i][0] = 0;
   }
 
@@ -428,7 +427,7 @@ void csr2csc_template_(
       }
     }
     num_uniq[0][0] += 1;
-    for (int i = 1; i < max_thds; i++) {
+    for (const auto i : c10::irange(1, max_thds)) {
       num_uniq[i][0] += num_uniq[i - 1][0];
     }
     U = num_uniq[max_thds - 1][0];
