@@ -16,8 +16,8 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+{% if has_gpu_support %}
 /// @defgroup embedding-cuda Embedding CUDA Operators
-
 Tensor split_embedding_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -430,6 +430,7 @@ class Split{{ "NoBag" if nobag else "" }}LookupFunction_{{ optimizer }}_Op :
   }
 };
 {% endfor %}
+{% endif %} // if has_gpu_support
 
 ///@ingroup embedding-cuda
 Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
@@ -455,6 +456,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     bool stochastic_rounding,
     {{ args.split_function_args | join(", ") }},
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+  {% if has_gpu_support %}
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_{{ optimizer }}_Op::apply(
       placeholder_autograd_tensor,
@@ -499,6 +501,10 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
       stochastic_rounding,
       {{ args.split_function_arg_names | join(", ") }})[0];
   }
+  {% else %}
+  TORCH_CHECK(false, "split_embedding_codegen_lookup_{{ optimizer }}_function is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail.");
+  return Tensor();
+  {% endif %} // if has_gpu_support
 }
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
