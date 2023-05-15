@@ -340,6 +340,17 @@ in recommender systems, as well as natural language processing
 system batched inputs.</p>
 <div class="section" id="cuda-operators">
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
+<dl class="cpp function">
+<dt id="_CPPv430jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd">
+<span id="_CPPv330jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd"></span><span id="_CPPv230jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd"></span><span id="jagged_to_padded_dense_forward__TensorCR.std::vector:Tensor:CR.std::vector:int64_t:CR.doubleC"></span><span class="target" id="group__jagged-tensor-ops-cuda_1ga9aa70a7fb62e6c4b4afe6258f5307abf"></span>at::Tensor <code class="sig-name descname">jagged_to_padded_dense_forward</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>values</em>, <em class="property">const</em> std::vector&lt;Tensor&gt; &amp;<em>offsets</em>, <em class="property">const</em> std::vector&lt;int64_t&gt; &amp;<em>max_lengths</em>, <em class="property">const</em> double <em>padding_value</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv430jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEERKNSt6vectorI7int64_tEEKd" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt id="_CPPv447jagged_dense_elementwise_add_jagged_output_cudaRK6TensorRKNSt6vectorI6TensorEERK6Tensor">
+<span id="_CPPv347jagged_dense_elementwise_add_jagged_output_cudaRK6TensorRKNSt6vectorI6TensorEERK6Tensor"></span><span id="_CPPv247jagged_dense_elementwise_add_jagged_output_cudaRK6TensorRKNSt6vectorI6TensorEERK6Tensor"></span><span id="jagged_dense_elementwise_add_jagged_output_cuda__TensorCR.std::vector:Tensor:CR.TensorCR"></span><span class="target" id="group__jagged-tensor-ops-cuda_1gad34ac20d2c9be5a6489c8e8befff7938"></span>std::tuple&lt;Tensor, std::vector&lt;Tensor&gt;&gt; <code class="sig-name descname">jagged_dense_elementwise_add_jagged_output_cuda</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>x_values</em>, <em class="property">const</em> std::vector&lt;Tensor&gt; &amp;<em>x_offsets</em>, <em class="property">const</em> Tensor &amp;<em>y</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv447jagged_dense_elementwise_add_jagged_output_cudaRK6TensorRKNSt6vectorI6TensorEERK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>output = x + y where x is jagged, y is dense, and output is jagged </p>
+</dd></dl>
+
 </div>
 <div class="section" id="cpu-operators">
 <h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
