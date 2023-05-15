@@ -290,7 +290,7 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     auto table_offsets_acc = table_offsets.accessor<int64_t, 1>();
 
     maps_.resize(T);
-    for (auto t = 0; t < T; ++t) {
+    for (const auto t : c10::irange(T)) {
       auto& map = maps_[t];
       const auto table_start = table_offsets_acc[t];
       for (auto i = 0; i < values.size(0); ++i) {
@@ -309,7 +309,7 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     auto table_offsets_acc = table_offsets.accessor<int64_t, 1>();
     table_offsets_acc[0] = 0;
     int64_t N = 0;
-    for (auto t = 0; t < T; ++t) {
+    for (const auto t : c10::irange(T)) {
       N += maps_[t].size();
       table_offsets_acc[t + 1] = N;
     }
@@ -342,13 +342,13 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
     maps_.resize(T);
-    for (int32_t t = 0; t < T; ++t) {
+    for (const auto t : c10::irange(T)) {
       auto& map = maps_[t];
-      for (int32_t b = 0; b < B; ++b) {
+      for (const auto b : c10::irange(B)) {
         int32_t indices_start = offsets_acc[t * B + b];
         int32_t indices_end = offsets_acc[t * B + b + 1];
         int32_t L = indices_end - indices_start;
-        for (int32_t l = 0; l < L; ++l) {
+        for (const auto l : c10::irange(L)) {
           int32_t slot_sparse_index = indices_acc[indices_start + l];
           int32_t slot_dense_index = dense_indices_acc[indices_start + l];
           if (slot_dense_index == -1) {
@@ -371,13 +371,13 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
     const auto* indices_acc = indices.data_ptr<int32_t>();
     auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
     const auto* offsets_acc = offsets.data_ptr<int32_t>();
-    for (int32_t t = 0; t < T; ++t) {
+    for (const auto t : c10::irange(T)) {
       auto& map = maps_[t];
-      for (int32_t b = 0; b < B; ++b) {
+      for (const auto b : c10::irange(B)) {
         int32_t indices_start = offsets_acc[t * B + b];
         int32_t indices_end = offsets_acc[t * B + b + 1];
         int32_t L = indices_end - indices_start;
-        for (int32_t l = 0; l < L; ++l) {
+        for (const auto l : c10::irange(L)) {
           int32_t slot_sparse_index = indices_acc[indices_start + l];
           auto it = map.find(slot_sparse_index);
           dense_indices_acc[indices_start + l] =
