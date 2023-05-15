@@ -60,7 +60,7 @@ at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
     const std::vector<at::Tensor>& x_offsets,
     const at::Tensor& y_0,
     const at::Tensor& y_1) {
-  TORCH_CHECK(y_0.sizes() == y_0.sizes());
+  TORCH_CHECK_EQ(y_0.sizes(), y_0.sizes());
   return at::empty_like(x_values);
 }
 

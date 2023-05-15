@@ -493,9 +493,9 @@ Tensor cat_dim_2d(
   std::vector<int64_t> cumulative_dims;
   cumulative_dims.push_back(0);
   for (const auto& t : tensors) {
-    TORCH_CHECK(t.dim() == 2);
+    TORCH_CHECK_EQ(t.dim(), 2);
     // only support two-dimension tensors.
-    TORCH_CHECK(t.size(1 - cat_dim) == uncat_dim_size);
+    TORCH_CHECK_EQ(t.size(1 - cat_dim), uncat_dim_size);
     total_cat_dim += t.size(cat_dim);
     cumulative_dims.push_back(total_cat_dim);
   }
