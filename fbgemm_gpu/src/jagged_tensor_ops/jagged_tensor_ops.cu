@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 #include "common.cuh"
 
 JAGGED_TENSOR_OPS_CUDA_DISPATCH("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
