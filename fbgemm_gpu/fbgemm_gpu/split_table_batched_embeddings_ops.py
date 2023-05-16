@@ -2025,7 +2025,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
-        weight_lists: Optional[List[Tuple[Tensor, Tensor]]] = None,
+        weight_lists: Optional[List[Tuple[Tensor, Optional[Tensor]]]] = None,
         pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
         output_dtype: SparseType = SparseType.FP16,
@@ -2208,7 +2208,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights_physical_offsets,
                 self.enforce_hbm,
             )
-            # pyre-fixme [6]: In call `IntNBitTableBatchedEmbeddingBagsCodegen.assign_embedding_weights`, for 1st positional argument, expected `List[Tuple[Tensor, Optional[Tensor]]]` but got `List[Tuple[Tensor, Tensor]]`.
             self.assign_embedding_weights(weight_lists)
 
         # Handle index remapping for embedding pruning.
