@@ -366,7 +366,7 @@ void jagged_dense_elementwise_jagged_output_(
 at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const std::vector<int64_t>& max_lengths,
+    const at::ArrayRef<at::SymInt>& max_lengths,
     const double padding_value) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(
@@ -383,7 +383,7 @@ at::Tensor jagged_to_padded_dense_forward(
            values.sizes().end(),
            1,
            std::multiplies<size_t>())});
-  at::DimVector padded_values_shape({offsets[0].size(0) - 1});
+  at::SymDimVector padded_values_shape({at::SymInt(offsets[0].size(0) - 1)});
   padded_values_shape.insert(
       padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
 
@@ -393,7 +393,8 @@ at::Tensor jagged_to_padded_dense_forward(
   if (!D_folded) {
     padded_values_shape.push_back(values.size(-1));
   }
-  Tensor padded_values = at::empty(padded_values_shape, values.options());
+  Tensor padded_values =
+      at::empty_symint(padded_values_shape, values.options());
   if (values.numel() == 0) {
     // To avoid an error due to values_canonicalized.data_ptr is nullptr.
     padded_values.fill_(padding_value);
@@ -423,7 +424,7 @@ at::Tensor jagged_to_padded_dense_forward(
 at::Tensor jagged_to_padded_dense_backward(
     const Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const int64_t total_L) {
+    const at::SymInt& total_L) {
   auto grad_padded_values = grad_output;
 
   // Canonicalize padded_values by unsqueeze the last dim if the inner dense
@@ -435,7 +436,8 @@ at::Tensor jagged_to_padded_dense_backward(
   int32_t D = grad_padded_values_view.size(-1);
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
-  auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
+  auto grad_values =
+      at::zeros_symint({total_L, D}, grad_padded_values.options());
 
   AT_DISPATCH_ALL_TYPES_AND2(
       at::ScalarType::Half,
@@ -457,19 +459,19 @@ at::Tensor jagged_to_padded_dense_backward(
 Tensor dense_to_jagged_forward(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<int64_t>& total_L) {
+    const c10::optional<at::SymInt>& total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
 
   // If total_L is not given then compute it
-  int64_t total_L_computed;
+  at::SymInt total_L_computed;
   if (total_L.has_value()) {
     total_L_computed = total_L.value();
   } else {
     total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
   }
-  auto values = at::empty({total_L_computed, D}, dense.options());
-  auto output = at::zeros({total_L_computed, D}, dense.options());
+  auto values = at::empty_symint({total_L_computed, D}, dense.options());
+  auto output = at::zeros_symint({total_L_computed, D}, dense.options());
 
   AT_DISPATCH_ALL_TYPES_AND2(
       at::ScalarType::Half,
@@ -496,9 +498,9 @@ at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
     const at::Tensor& y_1) {
   // Convert to jagged
   auto jagged_values_0 =
-      dense_to_jagged_forward(y_0, x_offsets, c10::optional<int64_t>());
+      dense_to_jagged_forward(y_0, x_offsets, c10::optional<at::SymInt>());
   auto jagged_values_1 =
-      dense_to_jagged_forward(y_1, x_offsets, c10::optional<int64_t>());
+      dense_to_jagged_forward(y_1, x_offsets, c10::optional<at::SymInt>());
 
   // Add jagged_values + x_values -> sum_values
   auto sum_values = x_values + jagged_values_0 + jagged_values_1;
@@ -643,7 +645,7 @@ Tensor jagged_dense_elementwise_mul_forward(
     const Tensor& y) {
   // Convert to jagged
   auto jagged_values =
-      dense_to_jagged_forward(y, x_offsets, c10::optional<int64_t>());
+      dense_to_jagged_forward(y, x_offsets, c10::optional<at::SymInt>());
 
   // Multiply x_values * jagged_values -> prod_values
   auto prod_values = x_values * jagged_values;
@@ -969,7 +971,10 @@ jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
   TORCH_CHECK(max_L > 0);
 
   return jagged_to_padded_dense_forward(
-      values, {offsets}, {max_L}, /*padding_value=*/0);
+      values,
+      {offsets},
+      at::ArrayRef<at::SymInt>({max_L}),
+      /*padding_value=*/0);
 }
 
 std::vector<Tensor> stacked_jagged_1d_to_dense_cpu(
@@ -1557,10 +1562,13 @@ Tensor jagged_slice_forward_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // (dense, offsets) -> jagged. Offsets output is same as input.
+  // SymInt is a new PyTorch 2.0 feature to support dynamic shape. See more
+  // details at https://pytorch.org/get-started/pytorch-2.0/#dynamic-shapes. If
+  // you find it doesn't compile, please pull the new PyTorch 2.0 code
   m.def(
-      "dense_to_jagged(Tensor dense, Tensor[] x_offsets, int? total_L=None) -> (Tensor, Tensor[])");
+      "dense_to_jagged(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> (Tensor, Tensor[])");
   m.def(
-      "dense_to_jagged_forward(Tensor dense, Tensor[] x_offsets, int? total_L=None) -> Tensor");
+      "dense_to_jagged_forward(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> Tensor");
   m.def(
       "jagged_2d_to_dense(Tensor values, Tensor offsets, int max_sequence_length) -> Tensor");
   m.def(
@@ -1576,9 +1584,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_to_padded_dense(Tensor values, Tensor[] offsets, int[] max_lengths, float padding_value = 0) -> Tensor");
   m.def(
-      "jagged_to_padded_dense_forward(Tensor values, Tensor[] offsets, int[] max_lengths, float padding_value = 0) -> Tensor");
+      "jagged_to_padded_dense_forward(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor");
   m.def(
-      "jagged_to_padded_dense_backward(Tensor grad_output, Tensor[] offsets, int total_L) -> Tensor");
+      "jagged_to_padded_dense_backward(Tensor grad_output, Tensor[] offsets, SymInt total_L) -> Tensor");
   // jagged + dense -> dense
   m.def(
       "jagged_dense_elementwise_add(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");
