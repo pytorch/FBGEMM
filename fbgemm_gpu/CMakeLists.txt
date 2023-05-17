@@ -194,6 +194,9 @@ set(CPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS})
 
 set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 
+# Optimizers with the VBE support
+set(VBE_OPTIMIZERS rowwise_adagrad)
+
 set(gen_gpu_kernel_source_files
     "gen_embedding_forward_dense_weighted_codegen_cuda.cu"
     "gen_embedding_forward_dense_unweighted_codegen_cuda.cu"
@@ -201,7 +204,9 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_split_unweighted_codegen_cuda.cu"
     "gen_embedding_backward_dense_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
-    "gen_embedding_backward_split_grad.cu")
+    "gen_embedding_backward_split_grad.cu"
+    "gen_embedding_forward_split_weighted_vbe_codegen_cuda.cu"
+    "gen_embedding_forward_split_unweighted_vbe_codegen_cuda.cu")
 
 foreach(wdesc dense split)
   list(APPEND gen_gpu_kernel_source_files
@@ -210,18 +215,24 @@ endforeach()
 
 foreach(wdesc weighted unweighted_nobag unweighted)
   list(APPEND gen_gpu_kernel_source_files
-      "gen_embedding_forward_split_${wdesc}_kernel.cu"
-      "gen_embedding_forward_dense_${wdesc}_kernel.cu"
       "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu"
+      "gen_embedding_forward_dense_${wdesc}_kernel.cu"
       "gen_embedding_backward_dense_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_dense_split_${wdesc}_kernel_cta.cu"
       "gen_embedding_backward_dense_split_${wdesc}_kernel_warp.cu")
+
+  list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_forward_split_${wdesc}_kernel.cu")
 
   foreach(etype fp32 fp16 fp8 int8 int4 int2)
     list(APPEND gen_gpu_kernel_source_files
        "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
   endforeach()
 endforeach()
+
+list(APPEND gen_gpu_kernel_source_files
+     "gen_embedding_forward_split_weighted_vbe_kernel.cu"
+     "gen_embedding_forward_split_unweighted_vbe_kernel.cu")
 
 set(gen_cpu_source_files
     "gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp"
@@ -262,6 +273,17 @@ foreach(optimizer ${GPU_OPTIMIZERS})
       "gen_embedding_backward_${optimizer}_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_kernel_cta.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_kernel_warp.cu")
+  endforeach()
+
+endforeach()
+
+foreach(optimizer ${VBE_OPTIMIZERS})
+  # vbe is not supported in nobag
+  foreach(wdesc weighted unweighted)
+    list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_cuda.cu"
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_kernel_cta.cu"
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_kernel_warp.cu")
   endforeach()
 endforeach()
 

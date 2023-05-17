@@ -15,7 +15,6 @@
 // See https://fburl.com/dw9ljh4h
 #}
 
-{%- set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
@@ -47,17 +46,18 @@ __launch_bounds__(kForwardMaxThreads) __global__ void
     at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D],
     ) {
     int32_t T = weights_offsets.size(0);
-    int32_t B = (offsets.size(0) - 1) / T;
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    if (b_t >= B * T) {
+    if (b_t >= offsets.size(0) - 1) {
         return;
     }
     int32_t t;
     int32_t b;
+
     fd_B.DivMod(b_t, &t, &b);
+
     int64_t weights_offset = weights_offsets[t];
-    index_t indices_start = offsets[t * B + b];
-    index_t indices_end = offsets[t * B + b + 1];
+    index_t indices_start = offsets[b_t];
+    index_t indices_end = offsets[b_t + 1];
     int32_t L = indices_end - indices_start;
     const emb_t* __restrict__ weights;
     {%- if not dense %}

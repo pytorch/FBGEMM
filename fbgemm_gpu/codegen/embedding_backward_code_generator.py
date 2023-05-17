@@ -141,16 +141,22 @@ def generate_backward_embedding_cuda(
     if not kwargs.get("has_gpu_support"):
         return
     template = env.get_template(template_filepath)
+    vbe_options = [True, False] if kwargs.get("has_vbe_support") else [False]
     for weighted in [True, False]:
         for nobag in [True, False]:
-            if not nobag or not weighted:
-                wdesc = f"{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }"
-                filename = filename_format.format(optimizer, wdesc)
-                write(
-                    filename,
-                    template.render(weighted=weighted, nobag=nobag, **kwargs),
-                )
-                print(f"[Backward Split] [{optimizer}]: {filename}")
+            for vbe in vbe_options:
+                if (not nobag or (not weighted and not vbe)) and (
+                    not kwargs.get("dense") or not vbe
+                ):
+                    wdesc = f"{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }{ '_vbe' if vbe else '' }"
+                    filename = filename_format.format(optimizer, wdesc)
+                    write(
+                        filename,
+                        template.render(
+                            weighted=weighted, nobag=nobag, vbe=vbe, **kwargs
+                        ),
+                    )
+                    print(f"[Backward Split] [{optimizer}]: {filename}")
 
 
 def generate(**kwargs: Any) -> None:
@@ -435,6 +441,7 @@ def adagrad() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -558,6 +565,7 @@ def rowwise_adagrad() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=True,
     )
 
     approx_split_weight_update = """
@@ -582,6 +590,7 @@ def rowwise_adagrad() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -683,6 +692,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
     approx_split_weight_update = """
@@ -707,6 +717,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -847,6 +858,7 @@ def rowwise_adagrad_with_counter() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
     approx_split_weight_update = """
@@ -882,6 +894,7 @@ def rowwise_adagrad_with_counter() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -954,6 +967,7 @@ def rowwise_weighted_adagrad() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -975,6 +989,7 @@ def sgd() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
     approx_split_weight_update = """
@@ -992,6 +1007,7 @@ def sgd() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -1064,6 +1080,7 @@ def lamb() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -1152,6 +1169,7 @@ def partial_rowwise_lamb() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -1204,6 +1222,7 @@ def adam() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -1266,6 +1285,7 @@ def partial_rowwise_adam() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -1326,6 +1346,7 @@ def lars_sgd() -> None:
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
@@ -1337,14 +1358,19 @@ def generate_forward_embedding_cuda(
     for dense in [True, False]:
         for weighted in [True, False]:
             for nobag in [True, False]:
-                if not nobag or not weighted:
-                    wdesc = f"{ 'dense' if dense else 'split'}_{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }"
-                    filename = filename_format.format(wdesc)
-                    write(
-                        filename,
-                        template.render(dense=dense, weighted=weighted, nobag=nobag),
-                    )
-                    print(f"[Forward Split]: {filename}")
+                for vbe in [True, False]:
+                    if (not nobag or (not weighted and not vbe)) and (
+                        not dense or not vbe
+                    ):
+                        wdesc = f"{ 'dense' if dense else 'split'}_{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }{ '_vbe' if vbe else '' }"
+                        filename = filename_format.format(wdesc)
+                        write(
+                            filename,
+                            template.render(
+                                dense=dense, weighted=weighted, nobag=nobag, vbe=vbe
+                            ),
+                        )
+                        print(f"[Forward Split]: {filename}")
 
 
 def forward_split() -> None:
@@ -1352,10 +1378,15 @@ def forward_split() -> None:
     template = env.get_template("embedding_forward_split_template.cu")
     for dense in [True, False]:
         for weighted in [True, False]:
-            wdesc = f"{ 'dense' if dense else 'split' }_{ 'weighted' if weighted else 'unweighted' }"
-            filename = f"gen_embedding_forward_{wdesc}_codegen_cuda.cu"
-            write(filename, template.render(weighted=weighted, dense=dense))
-            print(f"[Forward Split]: {filename}")
+            for vbe in [True, False]:
+                if not dense or not vbe:
+                    wdesc = f"{ 'dense' if dense else 'split' }_{ 'weighted' if weighted else 'unweighted' }{ '_vbe' if vbe else '' }"
+                    filename = f"gen_embedding_forward_{wdesc}_codegen_cuda.cu"
+                    write(
+                        filename,
+                        template.render(weighted=weighted, dense=dense, vbe=vbe),
+                    )
+                    print(f"[Forward Split]: {filename}")
 
     # Generate the kernels for the forward splits
     generate_forward_embedding_cuda(
@@ -1535,6 +1566,7 @@ def backward_dense() -> None:
         ),
         has_cpu_support=True,
         has_gpu_support=True,
+        has_vbe_support=False,
     )
 
 
