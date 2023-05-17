@@ -16,6 +16,7 @@
 #}
 
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
+{%- set vbe_desc = "_vbe" if vbe else "" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
@@ -34,7 +35,7 @@ template <
     {%- endif %}
     size_t kThreadGroupSize >
 __launch_bounds__(kForwardMaxThreads) __global__
-void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel(
+void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel(
     const at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     const at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -47,7 +48,14 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     {%- else %}
     int64_t D,
     {%- endif %}
+    {%- if vbe %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
     FixedDivisor fd_B,
+    {%- endif %}
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {%- if not nobag %}
@@ -59,30 +67,40 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     {%- if not dense %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
     {%- endif %}
-    at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D],
+    at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D]
     ) {
+    constexpr int VEC_WIDTH = 4;
+
     int32_t T = weights_offsets.size(0);
     {%- if not nobag %}
     const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
-    int32_t B = output.size(0);
-    {%- else %}
-    int32_t B = (offsets.size(0) - 1) / T;
     {%- endif %}
+
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    if (b_t >= B * T) {
+
+    if (b_t >= offsets.size(0) - 1) {
         return;
     }
+
     int32_t t;
     int32_t b;
+
+    {%- if vbe %}
+    const auto info = reinterpret_cast<const uint32_t*>(&b_t_map[b_t])[0];
+    reinterpret_cast<uint32_t*>(&t)[0] = info >> info_B_num_bits;
+    reinterpret_cast<uint32_t*>(&b)[0] = info | info_B_mask;
+    {%- else %}
     fd_B.DivMod(b_t, &t, &b);
+    {%- endif %}
+
     int64_t weights_offset = weights_offsets[t];
     {%- if not nobag %}
     int32_t D_start = D_offsets[t];
     int32_t D_end = D_offsets[t + 1];
     int32_t D = D_end - D_start;
     {%- endif %}
-    index_t indices_start = offsets[t * B + b];
-    index_t indices_end = offsets[t * B + b + 1];
+    index_t indices_start = offsets[b_t];
+    index_t indices_end = offsets[b_t + 1];
     int32_t L = indices_end - indices_start;
     const emb_t* __restrict__ weights;
     {%- if not dense %}
@@ -101,7 +119,6 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
         D_emb += kINT8QparamsBytes;
     }
 
-    constexpr int VEC_WIDTH = 4;
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
     const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
@@ -211,13 +228,18 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 
     {%- if not nobag %}
     if (!std::is_same<output_t, uint8_t>::value) {
+        {%- if vbe %}
+        output_t* output_ = &output[0][output_offsets[b_t]];
+        {%- else %}
+        output_t* output_ = &output[b][D_start];
+        {%- endif %}
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
-        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-        ++i) {
+             i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+             ++i) {
             accumulators[i].mul_(inv_L);
             int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-            accumulators[i].store(&output[b][D_start + d]);
+            accumulators[i].store(output_ + d);
         }
     } else {
         // apply per feature row-wise int8
@@ -252,6 +274,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     }
     {%- endif %}
 }
+
 
 /*
     Explicitly instantiate the kernel function template.  The instantiations are
@@ -339,7 +362,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 {%- for (use_cache, kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
 
 template __launch_bounds__(kForwardMaxThreads) __global__
-void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel
+void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel
 <
     {{ emb_type }},
     {{ cache_type }},
@@ -365,7 +388,14 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     {%- else %}
     int64_t D,
     {%- endif %}
+    {%- if vbe %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
     FixedDivisor fd_B,
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
     {%- if not nobag %}
@@ -441,7 +471,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 {%- for (use_cache, kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
 
 template __launch_bounds__(kForwardMaxThreads) __global__
-void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel
+void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel
 <
     {{ emb_type }},
     {{ cache_type }},
@@ -467,7 +497,14 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     {%- else %}
     int64_t D,
     {%- endif %}
+    {%- if vbe %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
     FixedDivisor fd_B,
+    {%- endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
     {%- if not nobag %}
