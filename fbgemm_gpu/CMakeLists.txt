@@ -494,36 +494,18 @@ if(NOT FBGEMM_CPU_ONLY)
       codegen/embedding_bounds_check.cu
       codegen/embedding_forward_quantized_split_lookup.cu
       src/cumem_utils.cu
-      src/embedding_inplace_update.cu
       src/histogram_binning_calibration_ops.cu
-      src/input_combine.cu
-      src/jagged_tensor_ops/batched_dense_vec_jagged_2d_mul_backward.cu
-      src/jagged_tensor_ops/batched_dense_vec_jagged_2d_mul_forward.cu
-      src/jagged_tensor_ops/dense_to_jagged_forward.cu
-      src/jagged_tensor_ops/jagged_dense_bmm_forward.cu
-      src/jagged_tensor_ops/jagged_dense_dense_elementwise_add_jagged_output_forward.cu
-      src/jagged_tensor_ops/jagged_dense_elementwise_add_jagged_output.cu
-      src/jagged_tensor_ops/jagged_dense_elementwise_mul_backward.cu
-      src/jagged_tensor_ops/jagged_dense_elementwise_mul_forward.cu
-      src/jagged_tensor_ops/jagged_index_add_2d_forward.cu
-      src/jagged_tensor_ops/jagged_index_select_2d_forward.cu
-      src/jagged_tensor_ops/jagged_jagged_bmm_forward.cu
-      src/jagged_tensor_ops/jagged_softmax_backward.cu
-      src/jagged_tensor_ops/jagged_softmax_forward.cu
-      src/jagged_tensor_ops/jagged_tensor_ops.cu
-      src/jagged_tensor_ops/jagged_to_padded_dense_backward.cu
-      src/jagged_tensor_ops/jagged_to_padded_dense_forward.cu
-      src/jagged_tensor_ops/keyed_jagged_index_select_dim1.cu
-      src/jagged_tensor_ops/stacked_jagged_1d_to_dense.cu
-      src/jagged_tensor_ops/stacked_jagged_2d_to_dense.cu
+      src/jagged_tensor_ops.cu
       src/layout_transform_ops.cu
-      src/metric_ops.cu
-      src/permute_pooled_embedding_ops_split.cu
       src/permute_pooled_embedding_ops.cu
+      src/permute_pooled_embedding_ops_split.cu
       src/quantize_ops.cu
       src/sparse_ops.cu
       src/split_embeddings_cache_cuda.cu
-      src/split_embeddings_utils.cu)
+      src/split_embeddings_utils.cu
+      src/metric_ops.cu
+      src/embedding_inplace_update.cu
+      src/input_combine.cu)
 
   set_source_files_properties(${fbgemm_gpu_sources_static_gpu}
     PROPERTIES COMPILE_OPTIONS
