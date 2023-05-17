@@ -82,6 +82,16 @@ inline SparseType getSparseType(at::ScalarType dtype) {
   }
 };
 
+struct VBEMetadata {
+  at::Tensor B_offsets; // torch.int
+  at::Tensor output_offsets_feature_rank; // torch.long
+  at::Tensor B_offsets_rank_per_feature; // torch.int
+  at::Tensor output_offsets; // torch.long
+  at::Tensor b_t_map; // torch.int
+  int32_t max_B_feature_rank;
+  int64_t output_size;
+};
+
 } // namespace fbgemm_gpu
 
 namespace nbit {

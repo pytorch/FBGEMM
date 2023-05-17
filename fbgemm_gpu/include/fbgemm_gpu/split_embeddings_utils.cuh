@@ -11,6 +11,7 @@
 #include <ATen/ATen.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include "fbgemm_gpu/embedding_common.h"
 
 // These values are adjusted in backward based on B and T
 constexpr int DEFAULT_INFO_NUM_BITS = 32;
@@ -71,3 +72,11 @@ DECL_RADIX_SORT_PAIRS_FN(int64_t, int64_t);
 DECL_RADIX_SORT_PAIRS_FN(int64_t, int32_t);
 
 #undef DECL_RADIX_SORT_PAIRS_FN
+
+void populate_vbe_metadata_foreach_sample_inplace(
+    fbgemm_gpu::VBEMetadata& vbe_metadata,
+    const at::Tensor& D_offsets,
+    const int32_t D,
+    const bool nobag,
+    const int32_t info_B_num_bits,
+    const int64_t total_B);

@@ -8,6 +8,7 @@
 
 // clang-format off
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
+{%- set vbe_desc = "_vbe" if vbe else "" %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
@@ -21,7 +22,7 @@ template <
     size_t kMaxVecsPerThread,
     int32_t kThreadGroupSize >
 __global__ __launch_bounds__(kMaxThreads) void
-split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1(
+split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1(
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -64,7 +65,11 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {%- else %}
     at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- endif %}
-    {%- if not nobag %}
+    {%- if not nobag and vbe %}
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    {% endif %}
+    {% if not nobag %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
@@ -140,20 +145,26 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             const auto b_t = sl_j < sl_end ? reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start + sl_j] : 0;
             const auto b = b_t & info_B_mask;
             const auto t = b_t >> info_B_num_bits;
+            {% if vbe %}
+            const auto grad_offset = output_offsets[B_offsets[t] + b];
+            {% else %} // if vbe
             int32_t D_start = sl_j < sl_end ? D_offsets[t] : 0;
-            {%- else %}
+            {%- endif %} // if vbe
+            {%- else %} // if not nobag
             int64_t l_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
             int32_t l = l_t / T;
-            {%- endif %}
+            {%- endif %} // if not nobag
             {%- if weighted %}
             at::acc_type<cache_t, true> idx_weight = sl_j < sl_end ? sorted_indice_weights[segment_start + sl_j] : 0.0;
             {%- endif %}
             for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; ++j) {
-                {%- if not nobag %}
+                {%- if nobag %}
+                int32_t l_j = SHFL_SYNC(l, j);
+                {%- elif vbe %}
+                const auto grad_offset_j = SHFL_SYNC(grad_offset, j);
+                {%- else %}
                 int32_t b_j = SHFL_SYNC(b, j);
                 int32_t D_start_j = SHFL_SYNC(D_start, j);
-                {%- else %}
-                int32_t l_j = SHFL_SYNC(l, j);
                 {%- endif %}
 
                 {%- if weighted %}
@@ -165,12 +176,16 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                     ++i) {
                     int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                    {%- if not nobag %}
                     Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
-                        &grad_output[b_j][0] + D_start_j + d);
-                    {%- else %}
-                    Vec4T<at::acc_type<grad_t, true>> grad_out_vec(&grad_output[l_j][d]);
-                    {%- endif %}
+                        {%- if nobag %}
+                        &grad_output[l_j][d]
+                        {%- elif vbe %}
+                        &grad_output[0][grad_offset_j + d]
+                        {%- else %}
+                        &grad_output[b_j][0] + D_start_j + d
+                        {%- endif %}
+                    );
+
                     {%- if weighted %}
                     grad_sum[i].fma_(grad_out_vec, idx_weight_j);
                     {%- else %}
@@ -459,7 +474,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 {%- for (kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
 
 template __global__ __launch_bounds__(kMaxThreads)
-void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1
+void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
@@ -507,6 +522,10 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
     at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- endif %}
+    {%- if not nobag and vbe %}
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
     {%- endif %}
     {%- if not nobag %}
     const int32_t info_B_num_bits,
@@ -545,7 +564,7 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
 {%- for (kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
 
 template __global__ __launch_bounds__(kMaxThreads)
-void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_kernel_cta_per_row_1
+void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
@@ -593,6 +612,10 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
     at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- endif %}
+    {%- if not nobag and vbe %}
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
     {%- endif %}
     {%- if not nobag %}
     const int32_t info_B_num_bits,

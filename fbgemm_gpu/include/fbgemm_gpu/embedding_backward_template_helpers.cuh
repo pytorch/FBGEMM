@@ -79,11 +79,26 @@ __global__
 
 template <typename grad_t>
 __global__ __launch_bounds__(fbgemm_gpu::kMaxThreads) void grad_mean_kernel(
+    at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+        grad_output_mean,
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
-
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    fbgemm_gpu::FixedDivisor fd_B);
+
+template <typename grad_t>
+__global__ __launch_bounds__(fbgemm_gpu::kMaxThreads) void grad_mean_vbe_kernel(
     at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
-        grad_output_mean);
+        grad_output_mean,
+    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+        grad_output,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        D_offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        grad_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask);

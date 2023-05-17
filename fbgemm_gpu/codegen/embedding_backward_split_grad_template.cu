@@ -56,41 +56,71 @@ split_embedding_backward_codegen_find_long_segments(
   }
 }
 
+{% for vbe in [True, False] %}
+{% set vbe_desc = "_vbe" if vbe else "" %}
 template <typename grad_t>
-__global__ __launch_bounds__(kMaxThreads) void grad_mean_kernel(
+__global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
+    at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+        grad_output_mean,
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
-        grad_output_mean) {
-  int32_t B = grad_output.size(0);
+    {% if vbe %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask
+    {% else %}
+    FixedDivisor fd_B
+    {% endif %}
+) {
   int32_t T = D_offsets.size(0) - 1;
   int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t b = b_t % B;
-  int32_t t = b_t / B;
+  int32_t b;
+  int32_t t;
+  const auto total_B = offsets.size(0) - 1;
 
-  if (b_t >= B * T) {
+  if (b_t >= total_B) {
     return;
   }
+
+  {% if vbe %}
+  const auto info = reinterpret_cast<const uint32_t*>(&b_t_map[b_t])[0];
+  reinterpret_cast<uint32_t*>(&t)[0] = info >> info_B_num_bits;
+  reinterpret_cast<uint32_t*>(&b)[0] = info | info_B_mask;
+  {% else %}
+  fd_B.DivMod(b_t, &t, &b);
+  {% endif %}
 
   int32_t D_start = D_offsets[t];
   int32_t D_end = D_offsets[t + 1];
   int32_t D = D_end - D_start;
-  int64_t indices_start = offsets[t * B + b];
-  int64_t indices_end = offsets[t * B + b + 1];
+  int64_t indices_start = offsets[b_t];
+  int64_t indices_end = offsets[b_t + 1];
   int32_t L = indices_end - indices_start;
+
+  {% if vbe %}
+  const auto grad_offset = grad_offsets[b_t];
+  const auto grad_outer_offset = 0;
+  {% else %}
+  const auto grad_offset = D_start;
+  const auto grad_outer_offset = b;
+  {% endif %}
+
+  const grad_t* shifted_grad_output = &grad_output[grad_outer_offset][grad_offset];
+  grad_t* shifted_grad_output_mean = &grad_output_mean[grad_outer_offset][grad_offset];
 
   if (L != 0) {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
+      Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
       grad_out_vec.mul_(1.0 / L);
-      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
+      grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
   } else {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&grad_output[b][D_start + d * 4]);
-      grad_out_vec.store(&grad_output_mean[b][D_start + d * 4]);
+      Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
+      grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
   }
 }
@@ -98,14 +128,24 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean_kernel(
 // Explicitly instantiate the template based on DISPATCH_EMB_GRAD_CACHE_TYPES
 {% for grad_type in ['at::Half', 'float'] %}
 template __global__ __launch_bounds__(kMaxThreads)
-void grad_mean_kernel
-< {{ grad_type }} > (
+void grad_mean{{ vbe_desc }}_kernel
+<{{ grad_type }}> (
+    at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
+        grad_output_mean,
     const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
-        grad_output_mean);
+    {% if vbe %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask
+    {% else %}
+    FixedDivisor fd_B
+    {% endif %}
+);
 {% endfor %} // for grad_type in ['at::Half', 'float']
+{% endfor %} // for vbe in [True, False]
 
 // clang-format on
