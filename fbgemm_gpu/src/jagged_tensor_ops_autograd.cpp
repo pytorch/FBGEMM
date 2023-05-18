@@ -11,6 +11,7 @@
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
+#include <torch/torch.h>
 
 #include "ATen/TensorUtils.h"
 #include "fbgemm_gpu/sparse_ops.h"
@@ -35,7 +36,7 @@ class JaggedToPaddedDenseOp
       const std::vector<int64_t>& max_lengths,
       const double padding_value) {
     ctx->save_for_backward(offsets);
-    ctx->saved_data["total_L"] = values.size(0);
+    ctx->saved_data["total_L"] = values.sym_size(0);
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -43,9 +44,10 @@ class JaggedToPaddedDenseOp
             .typed<at::Tensor(
                 const Tensor& values,
                 const std::vector<Tensor>& offsets,
-                const std::vector<int64_t>& max_lengths,
+                const at::ArrayRef<at::SymInt>& max_lengths,
                 const double padding_value)>();
-    Tensor padded_values = op.call(values, offsets, max_lengths, padding_value);
+    Tensor padded_values = op.call(
+        values, offsets, c10::fromIntArrayRefSlow(max_lengths), padding_value);
 
     return {padded_values};
   }
@@ -54,7 +56,7 @@ class JaggedToPaddedDenseOp
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
-    int32_t total_L = ctx->saved_data["total_L"].toInt();
+    at::SymInt total_L = ctx->saved_data["total_L"].toSymInt();
     TORCH_CHECK(grad_outputs.size() == 1);
 
     TORCH_CHECK(total_L >= 0);
@@ -64,7 +66,7 @@ class JaggedToPaddedDenseOp
             .typed<at::Tensor(
                 const Tensor& grad_output,
                 const std::vector<Tensor>& offsets,
-                const int64_t total_L)>();
+                const at::SymInt& total_L)>();
     auto grad_values = op.call(grad_outputs[0], {offsets}, total_L);
 
     return {
@@ -86,7 +88,15 @@ class JaggedDenseDenseAddJaggedOutputOp
       const Tensor& dense_0,
       const Tensor& dense_1) {
     ctx->save_for_backward(offsets);
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    // toSymIntVector support is from a recent PR
+    // https://github.com/pytorch/pytorch/pull/101056,
+    // so protect it under a version guard for compatibility
+    ctx->saved_data["dense_shape"] = dense_0.sym_sizes();
+#else
     ctx->saved_data["dense_shape"] = dense_0.sizes();
+#endif
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -107,7 +117,12 @@ class JaggedDenseDenseAddJaggedOutputOp
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    auto dense_shape = ctx->saved_data["dense_shape"].toSymIntVector();
+#else
     auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
+#endif
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -116,12 +131,12 @@ class JaggedDenseDenseAddJaggedOutputOp
             .typed<at::Tensor(
                 const Tensor& values,
                 const std::vector<Tensor>& offsets,
-                const std::vector<int64_t>& max_lengths,
+                const at::ArrayRef<at::SymInt>& max_lengths,
                 const double padding_value)>();
     Tensor dense_values_grad_0 = op.call(
         grad_outputs[0],
         offsets,
-        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        std::vector<at::SymInt>(dense_shape.begin() + 1, dense_shape.end() - 1),
         /*padding_value=*/0);
     Tensor dense_values_grad_1 = dense_values_grad_0;
 
@@ -249,11 +264,19 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
       torch::autograd::AutogradContext* ctx,
       const Tensor& dense,
       const std::vector<Tensor>& offsets,
-      const c10::optional<int64_t>& total_L) {
+      const c10::optional<at::SymInt>& total_L) {
     ctx->save_for_backward(offsets);
 
     // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    // toSymIntVector support is from a recent PR
+    // https://github.com/pytorch/pytorch/pull/101056,
+    // so protect it under a version guard for compatibility
+    ctx->saved_data["dense_shape"] = dense.sym_sizes();
+#else
     ctx->saved_data["dense_shape"] = dense.sizes();
+#endif
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -261,7 +284,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
             .typed<Tensor(
                 const Tensor& dense,
                 const std::vector<Tensor>& offsets,
-                const c10::optional<int64_t>& total_L)>();
+                const c10::optional<at::SymInt>& total_L)>();
     auto output = op.call(dense, offsets, total_L);
 
     return {output};
@@ -271,7 +294,12 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
     auto offsets = ctx->get_saved_variables();
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    auto dense_shape = ctx->saved_data["dense_shape"].toSymIntVector();
+#else
     auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
+#endif
     TORCH_CHECK(grad_outputs.size() == 1);
 
     static auto op =
@@ -280,15 +308,20 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
             .typed<Tensor(
                 const Tensor& values,
                 const std::vector<Tensor>& offsets,
-                const std::vector<int64_t>& max_lengths,
+                const at::ArrayRef<at::SymInt>& max_lengths,
                 const double padding_value)>();
     auto dense_values_grad = op.call(
         grad_outputs[0],
         offsets,
-        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        std::vector<at::SymInt>(dense_shape.begin() + 1, dense_shape.end() - 1),
         /*padding_value=*/0);
 
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    TORCH_CHECK(dense_values_grad.sym_sizes() == dense_shape);
+#else
     TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
+#endif
 
     return {
         dense_values_grad,
@@ -730,7 +763,7 @@ Tensor batched_dense_vec_jagged_2d_mul(
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<int64_t>& total_L) {
+    const c10::optional<at::SymInt>& total_L) {
   return {DenseToJaggedOp::apply(dense, offsets, total_L)[0], offsets};
 }
 
