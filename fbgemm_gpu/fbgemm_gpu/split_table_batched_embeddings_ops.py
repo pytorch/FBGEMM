@@ -19,6 +19,12 @@ import torch  # usort:skip
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from torch import nn, Tensor  # usort:skip
 
+try:
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
+except Exception:
+    pass
+
 DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
