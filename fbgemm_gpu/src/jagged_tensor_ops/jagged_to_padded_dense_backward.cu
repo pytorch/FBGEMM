@@ -15,7 +15,7 @@ namespace fbgemm_gpu {
 at::Tensor jagged_to_padded_dense_backward(
     const Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const int64_t total_L) {
+    const at::SymInt& total_L) {
   auto grad_padded_values = grad_output;
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_padded_values.get_device());
@@ -29,7 +29,8 @@ at::Tensor jagged_to_padded_dense_backward(
 
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
-  auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
+  auto grad_values =
+      at::zeros_symint({total_L, D}, grad_padded_values.options());
 
   AT_DISPATCH_FLOATING_TYPES_AND2(
       at::ScalarType::Half,

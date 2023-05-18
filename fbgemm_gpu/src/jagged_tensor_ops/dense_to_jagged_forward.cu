@@ -15,18 +15,18 @@ namespace fbgemm_gpu {
 Tensor dense_to_jagged_forward(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<int64_t>& total_L) {
+    const c10::optional<at::SymInt>& total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
 
   // If total_L is not given then compute it
-  int64_t total_L_computed;
+  at::SymInt total_L_computed;
   if (total_L.has_value()) {
     total_L_computed = total_L.value();
   } else {
     total_L_computed = (int64_t)offsets.back().max().item<int64_t>();
   }
-  auto values = at::empty({total_L_computed, D}, dense.options());
+  auto values = at::empty_symint({total_L_computed, D}, dense.options());
   auto output = at::empty_like(values);
 
   at::cuda::OptionalCUDAGuard device_guard;

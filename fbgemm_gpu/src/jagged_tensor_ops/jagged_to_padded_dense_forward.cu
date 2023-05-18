@@ -21,7 +21,7 @@ namespace fbgemm_gpu {
 at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const std::vector<int64_t>& max_lengths,
+    const at::ArrayRef<at::SymInt>& max_lengths,
     const double padding_value) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(
@@ -40,7 +40,7 @@ at::Tensor jagged_to_padded_dense_forward(
            values.sizes().end(),
            1,
            std::multiplies<size_t>())});
-  at::DimVector padded_values_shape({offsets[0].size(0) - 1});
+  at::SymDimVector padded_values_shape({at::SymInt(offsets[0].size(0) - 1)});
   padded_values_shape.insert(
       padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
 
@@ -50,7 +50,8 @@ at::Tensor jagged_to_padded_dense_forward(
   if (!D_folded) {
     padded_values_shape.push_back(values.size(-1));
   }
-  Tensor padded_values = at::empty(padded_values_shape, values.options());
+  Tensor padded_values =
+      at::empty_symint(padded_values_shape, values.options());
   Tensor padded_values_view =
       D_folded ? padded_values.unsqueeze(-1) : padded_values;
 
@@ -121,7 +122,7 @@ std::vector<Tensor> stacked_jagged_1d_to_dense_gpu(
     padded_values_per_key.push_back(jagged_to_padded_dense_forward(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
-        {max_L},
+        at::ArrayRef<at::SymInt>({max_L}),
         padding_value));
   }
   return padded_values_per_key;
@@ -179,7 +180,7 @@ stacked_jagged_2d_to_dense_forward_cuda(
     padded_values_per_key.push_back(jagged_to_padded_dense_forward(
         values.slice(0, offset_per_key[t], offset_per_key[t + 1]),
         {offsets},
-        {max_L},
+        at::ArrayRef<at::SymInt>({max_L}),
         padding_value));
   }
 
@@ -301,7 +302,10 @@ Tensor jagged_2d_to_dense_gpu_forward(
     Tensor offsets,
     int64_t max_sequence_length) {
   return jagged_to_padded_dense_forward(
-      values, {offsets}, {max_sequence_length}, /*padding_value=*/0);
+      values,
+      {offsets},
+      c10::ArrayRef<c10::SymInt>({max_sequence_length}),
+      /*padding_value=*/0);
 }
 
 namespace {
@@ -369,7 +373,8 @@ class JaggedDenseAddJaggedOutputGPUOp
     Tensor dense_values_grad = jagged_to_padded_dense_forward(
         grad_outputs[0],
         offsets,
-        std::vector<int64_t>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        c10::fromIntArrayRefKnownNonNegative(std::vector<int64_t>(
+            dense_shape.begin() + 1, dense_shape.end() - 1)),
         /*padding_value=*/0);
     TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
 

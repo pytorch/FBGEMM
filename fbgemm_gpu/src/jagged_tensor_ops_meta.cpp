@@ -22,7 +22,7 @@ using Tensor = at::Tensor;
 Tensor jagged_to_padded_dense_forward_meta(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const std::vector<int64_t>& max_lengths,
+    const at::ArrayRef<at::SymInt>& max_lengths,
     const double padding_value = 0) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(
@@ -32,25 +32,26 @@ Tensor jagged_to_padded_dense_forward_meta(
       " != num_jagged_dim, ",
       num_jagged_dim);
 
-  at::DimVector padded_values_shape({offsets[0].size(0) - 1});
+  c10::SymDimVector padded_values_shape({offsets[0].sym_size(0) - 1});
   padded_values_shape.insert(
       padded_values_shape.end(), max_lengths.begin(), max_lengths.end());
   if (values.dim() > 1) {
-    padded_values_shape.push_back(values.size(-1));
+    padded_values_shape.push_back(values.sym_size(-1));
   }
-  return at::empty(padded_values_shape, values.options());
+  return at::empty_symint(padded_values_shape, values.options());
 }
 
 Tensor jagged_to_padded_dense_backward_meta(
     const at::Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const int64_t total_L) {
+    const at::SymInt& total_L) {
   auto grad_padded_values = grad_output;
 
-  int32_t D = grad_padded_values.size(-1);
+  at::SymInt D = grad_padded_values.sym_size(-1);
   // Initialize with zeros so output will be zero for the portion truncated
   // in forward.
-  auto grad_values = at::zeros({total_L, D}, grad_padded_values.options());
+  auto grad_values =
+      at::zeros_symint({total_L, D}, grad_padded_values.options());
 
   TORCH_CHECK(grad_values.is_meta());
   return grad_values;
@@ -61,7 +62,7 @@ at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
     const std::vector<at::Tensor>& x_offsets,
     const at::Tensor& y_0,
     const at::Tensor& y_1) {
-  TORCH_CHECK(y_0.sizes() == y_0.sizes());
+  TORCH_CHECK_EQ(y_0.sym_sizes(), y_0.sym_sizes());
   return at::empty_like(x_values);
 }
 
@@ -86,12 +87,12 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_add_backward_meta(
 Tensor dense_to_jagged_forward_meta(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<int64_t>& total_L) {
+    const c10::optional<at::SymInt>& total_L) {
   auto dense_values = dense;
-  int32_t D = dense_values.size(-1);
+  at::SymInt D = dense_values.sym_size(-1);
   TORCH_CHECK(total_L.has_value(), "total_L is required for meta backend");
-  int64_t total_L_computed = total_L.value();
-  auto values = at::zeros({total_L_computed, D}, dense_values.options());
+  auto& total_L_computed = total_L.value();
+  auto values = at::zeros_symint({total_L_computed, D}, dense_values.options());
 
   TORCH_CHECK(values.is_meta());
   return values;
@@ -127,16 +128,16 @@ Tensor batched_dense_vec_jagged_2d_mul_forward_meta(
     const Tensor& v,
     const Tensor& a_values,
     const Tensor& a_offsets) {
-  const int B = a_offsets.numel() - 1;
+  const at::SymInt B = a_offsets.sym_numel() - 1;
   TORCH_CHECK(
-      B == 0 || v.size(0) % B == 0,
+      B == 0 || v.sym_size(0) % B == 0,
       "B, ",
       B,
       " doesn't divide v.size(0), ",
-      v.size(0));
-  const int H = B == 0 ? 1 : v.size(0) / B;
-  const int D = a_values.size(-1) / H;
-  return at::empty({B * H, D}, v.options());
+      v.sym_size(0));
+  const at::SymInt H = (B == 0) ? 1 : v.sym_size(0) / B;
+  const at::SymInt D = a_values.sym_size(-1) / H;
+  return at::empty_symint({B * H, D}, v.options());
 }
 
 std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward_meta(
@@ -171,10 +172,10 @@ Tensor jagged_jagged_bmm_forward_meta(
     const Tensor& y_values,
     const Tensor& offsets,
     const int64_t max_L) {
-  const int B = offsets.size(0) - 1;
-  const int M = x_values.size(-1);
-  const int N = y_values.size(-1);
-  auto output = at::zeros({B, M, N}, x_values.options());
+  const at::SymInt B = offsets.sym_size(0) - 1;
+  const at::SymInt M = x_values.sym_size(-1);
+  const at::SymInt N = y_values.sym_size(-1);
+  auto output = at::zeros_symint({B, M, N}, x_values.options());
   return output;
 }
 

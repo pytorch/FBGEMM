@@ -431,7 +431,7 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> jagged_dense_elementwise_mul(
 std::tuple<at::Tensor, std::vector<at::Tensor>> dense_to_jagged(
     const at::Tensor& dense,
     const std::vector<at::Tensor>& offsets,
-    const c10::optional<int64_t>& total_L);
+    const c10::optional<at::SymInt>& total_L);
 
 std::tuple<at::Tensor, std::vector<at::Tensor>>
 jagged_dense_elementwise_add_jagged_output(
