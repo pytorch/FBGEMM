@@ -2637,10 +2637,10 @@ template <
     bool indices_sorted>
 __global__ __launch_bounds__(kMaxThreads) void index_select_2d_kernel(
     const at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor64<index_t, 1, at::RestrictPtrTraits> indices,
+    const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
         orig_indices,
-    at::PackedTensorAccessor32<scalar_t, 2> output) {
+    at::PackedTensorAccessor64<scalar_t, 2> output) {
   const int N = indices.size(0);
   const int input_size = input.size(0);
   const int D = input.size(1);
@@ -2777,6 +2777,16 @@ dummy_packed_accessor32() {
   return {nullptr, zeros.data(), zeros.data()};
 }
 
+template <
+    typename scalar_t,
+    int ndim,
+    template <typename U> class PtrTraits = at::DefaultPtrTraits>
+at::PackedTensorAccessor64<scalar_t, ndim, PtrTraits>
+dummy_packed_accessor64() {
+  std::array<int64_t, ndim> zeros{};
+  return {nullptr, zeros.data(), zeros.data()};
+}
+
 Tensor index_select_cuda(
     const Tensor& input,
     const Tensor& indices,
@@ -2808,12 +2818,12 @@ Tensor index_select_cuda(
          at::cuda::getCurrentCUDAStream()>>>(                                 \
           input_reshaped                                                      \
               .packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(),       \
-          indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),     \
+          indices.packed_accessor64<index_t, 1, at::RestrictPtrTraits>(),     \
           INDICES_SORTED                                                      \
               ? orig_indices                                                  \
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>()   \
-              : dummy_packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-          output.packed_accessor32<scalar_t, 2>());
+                    .packed_accessor64<int64_t, 1, at::RestrictPtrTraits>()   \
+              : dummy_packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(), \
+          output.packed_accessor64<scalar_t, 2>());
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "index_add_2d_kernel_1", [&] {
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
