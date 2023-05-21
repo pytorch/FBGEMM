@@ -254,7 +254,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(total_B / T, T);
     {% endif %}
 
-    // V100: 96 KB; A100: 160 KB.
+    // V100: 96 KB; A100: 160 KB; H100: 228 KB.
     int max_shared_bytes = 0;
 #ifndef __HIP_PLATFORM_HCC__
     cudaDeviceGetAttribute(&max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, dev_weights.get_device());
@@ -264,7 +264,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 #endif
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     int shared_kb = max_shared_bytes >> 10;
-    // V100: 64 KB; A100: 96 KB.
+    // V100: 64 KB; A100: 96 KB; H100: 144 KB
 #ifndef __HIP_PLATFORM_HCC__
     // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
     int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
@@ -441,7 +441,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 #else
             constexpr int kThreadGroupSize = kWarpSize;
 #endif
-            // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB), BT_block_size must be a power of two.
+            // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB; H100: 144 KB), BT_block_size must be a power of two.
             while (BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread >= used_shared_bytes) {
                 BT_block_size /= 2;
             }
@@ -513,7 +513,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 kMaxVecsPerThread,
                 kThreadGroupSize>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
@@ -601,7 +601,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     kMaxVecsPerThread,
                     kThreadGroupSize>,
                     cudaFuncAttributeMaxDynamicSharedMemorySize,
-                    used_shared_bytes); // V100: 64 KB; A100: 96 KB.
+                    used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
 #endif
             }
 

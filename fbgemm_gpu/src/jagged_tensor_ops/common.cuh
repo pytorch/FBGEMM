@@ -685,7 +685,7 @@ inline bool jagged_dense_dense_elementwise_jagged_output_matches_opt(
   AT_DISPATCH_INDEX_TYPES(
       x_offsets[0].scalar_type(), "check_shared_memory", [&] {
         auto B = y_0_reshaped.size(0);
-        // the default shared memory on V100/A100 is 48 KB from
+        // the default shared memory on V100/A100/H100 is 48 KB from
         // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-8-x
         if ((B + 1) * sizeof(index_t) >= used_shared_bytes) {
           matches = false;
@@ -805,7 +805,7 @@ void jagged_dense_elementwise_jagged_output_opt_(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                     index_t>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes)); // V100: 64 KB; A100: 96 KB.
+                used_shared_bytes)); // V100: 64 KB; A100: 96 KB; H100: 144 KB
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
