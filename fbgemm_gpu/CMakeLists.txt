@@ -165,7 +165,6 @@ set(COMMON_OPTIMIZERS
     adam
     approx_rowwise_adagrad
     approx_rowwise_adagrad_with_counter
-    approx_sgd
     lamb
     lars_sgd
     partial_rowwise_adam
@@ -182,7 +181,8 @@ set(GPU_ONLY_OPTIMIZERS
   rowwise_adagrad_with_weight_decay
   approx_rowwise_adagrad_with_weight_decay)
 
-set(DEPRECATED_OPTIMIZERS "")
+set(DEPRECATED_OPTIMIZERS
+  approx_sgd)
 
 set(ALL_OPTIMIZERS
   ${COMMON_OPTIMIZERS}

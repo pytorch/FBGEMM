@@ -1288,7 +1288,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
-        exact: bool,
         output_dtype: SparseType,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
@@ -1296,8 +1295,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
         assume(not (use_cpu and weights_precision == SparseType.FP16))
-        # GPU only does exact sgd
-        assume((use_cpu and not long_segments) or exact)
         # No bag ops only work on GPUs, no mixed, no weighted
         assume(
             not use_cpu
@@ -1393,17 +1390,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
-        if exact:
-            table_to_replicate = T // 2
-            # pyre-fixme[6]: For 2nd param expected `Embedding` but got
-            #  `Union[Embedding, EmbeddingBag]`.
-            bs.insert(table_to_replicate, bs[table_to_replicate])
-            feature_table_map.insert(table_to_replicate, table_to_replicate)
+        table_to_replicate = T // 2
+        # pyre-fixme[6]: For 2nd param expected `Embedding` but got
+        #  `Union[Embedding, EmbeddingBag]`.
+        bs.insert(table_to_replicate, bs[table_to_replicate])
+        feature_table_map.insert(table_to_replicate, table_to_replicate)
 
         xs = [
             to_device(
                 torch.from_numpy(
-                    np.random.choice(range(Es[t]), size=(B, L), replace=exact).astype(
+                    np.random.choice(range(Es[t]), size=(B, L), replace=True).astype(
                         np.int64
                     )
                 ),
@@ -1443,9 +1439,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         [f.backward(go) for (f, go) in zip(fs, gos)]
         # do SGD update
         lr = 0.05
-        if exact:
-            # pyre-fixme[61]: `table_to_replicate` may not be initialized here.
-            del bs[table_to_replicate]
+        del bs[table_to_replicate]
         # pyre-fixme[58]: `*` is not supported for operand types
         #  `Optional[torch._tensor.Tensor]` and `float`.
         new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
@@ -1454,7 +1448,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
             ],
-            optimizer=OptimType.EXACT_SGD if exact else OptimType.SGD,
+            optimizer=OptimType.EXACT_SGD,
             feature_table_map=feature_table_map,
             learning_rate=lr,
             weights_precision=weights_precision,
@@ -1522,7 +1516,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
-        exact=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1545,7 +1538,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
         use_cpu: bool,
-        exact: bool,
     ) -> None:
         self.execute_backward_sgd_(
             T,
@@ -1561,7 +1553,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             long_segments,
             pooling_mode,
             use_cpu,
-            exact,
             SparseType.FP32,  # output_dtype
         )
 
@@ -1610,7 +1601,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             True,  # long_segments
             split_table_batched_embeddings_ops.PoolingMode.SUM,  # pooling_mode
             False,  # use_cpu
-            True,  # exact
             SparseType.FP32,  # output_dtype
         )
 
@@ -2491,7 +2481,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
-                OptimType.SGD,
             ]
         )
 
@@ -2713,7 +2702,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.PARTIAL_ROWWISE_ADAM,
                 OptimType.LAMB,
                 OptimType.PARTIAL_ROWWISE_LAMB,
-                OptimType.SGD,
                 OptimType.EXACT_SGD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.ROWWISE_ADAGRAD,
