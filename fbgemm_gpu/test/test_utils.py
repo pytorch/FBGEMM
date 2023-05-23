@@ -197,7 +197,7 @@ def cpu_only() -> st.SearchStrategy[List[torch.device]]:
 
 
 # pyre-fixme[3]: Return annotation cannot be `Any`.
-def skipIfRocm(reason: str = "test doesn't currently work on the ROCm stack") -> Any:
+def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") -> Any:
     # pyre-fixme[3]: Return annotation cannot be `Any`.
     # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
     def skipIfRocmDecorator(fn: Callable) -> Any:
