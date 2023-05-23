@@ -8,7 +8,6 @@
 # pyre-ignore-all-errors[56]
 
 import copy
-
 import math
 import pickle
 import random
@@ -16,11 +15,15 @@ import unittest
 from typing import List, Optional, Tuple
 
 import fbgemm_gpu
-import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig
+
+from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
+    FP8QuantizationConfig,
+    SparseType,
+)
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
     fake_quantize_embs,
@@ -30,20 +33,31 @@ from fbgemm_gpu.split_embedding_utils import (
     round_up,
     to_device,
 )
-from fbgemm_gpu.split_table_batched_embeddings_ops import (
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
+    CacheAlgorithm,
+    EmbeddingLocation,
+    PoolingMode,
+    RecordCacheMetrics,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
+    IntNBitTableBatchedEmbeddingBagsCodegen,
+    rounded_row_size_in_bytes,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    ComputeDevice,
     CounterBasedRegularizationDefinition,
     CounterWeightDecayMode,
+    DEFAULT_ASSOC,
+    DenseTableBatchedEmbeddingBagsCodegen,
     GradSumDecay,
     INT8_EMB_ROW_DIM_OFFSET,
     LearningRateMode,
-    OptimType,
-    RecordCacheMetrics,
-    rounded_row_size_in_bytes,
-    SparseType,
+    SplitTableBatchedEmbeddingBagsCodegen,
     TailIdThreshold,
     WeightDecayMode,
 )
+
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from hypothesis.strategies import composite
 from torch import Tensor
@@ -92,7 +106,7 @@ def get_nbit_weights_ty(draw) -> Optional[SparseType]:
 
 
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
-    def execute_forward_(
+    def execute_forward_(  # noqa C901
         self,
         T: int,
         D: int,
@@ -103,8 +117,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        cache_algorithm: CacheAlgorithm,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
         output_dtype: SparseType,
     ) -> None:
@@ -116,30 +130,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not (use_cpu and weights_precision == SparseType.FP16))
 
         # NOTE: weighted operation can be done only for SUM.
-        assume(
-            pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            or not weighted
-        )
+        assume(pooling_mode == PoolingMode.SUM or not weighted)
         # NOTE: No bag ops only work on GPUs, no mixed
-        assume(
-            not use_cpu
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
+        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+        assume(not mixed or pooling_mode != PoolingMode.NONE)
 
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
+        if pooling_mode == PoolingMode.SUM:
             mode = "sum"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+        elif pooling_mode == PoolingMode.MEAN:
             mode = "mean"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        elif pooling_mode == PoolingMode.NONE:
             mode = "sum"
             do_pooling = False
         else:
@@ -162,31 +165,27 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+        compute_device = ComputeDevice.CUDA
         if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            managed = [EmbeddingLocation.HOST] * T
+            compute_device = ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed memory allocation is under development
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+            managed = [EmbeddingLocation.DEVICE] * T
         elif use_cache:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-            ] * T
+            managed = [EmbeddingLocation.MANAGED_CACHING] * T
             if mixed:
                 average_D = sum(Ds) // T
                 for t, d in enumerate(Ds):
                     managed[t] = (
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
+                        EmbeddingLocation.DEVICE if d < average_D else managed[t]
                     )
         else:
             managed = [
                 np.random.choice(
                     [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        EmbeddingLocation.DEVICE,
+                        EmbeddingLocation.MANAGED,
                     ]
                 )
                 for _ in range(T)
@@ -248,7 +247,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 (
                     E,
                     D,
-                    split_table_batched_embeddings_ops.EmbeddingLocation(M),
+                    EmbeddingLocation(M),
                     compute_device,
                 )
                 for (E, D, M) in zip(Es, Ds, managed)
@@ -304,16 +303,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         use_cache = False
         # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
             ]
         )
         mixed = False
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -346,16 +345,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         use_cache = False
         # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
             ]
         )
         mixed = False
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -389,20 +388,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         use_cache = False
         # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             mixed = False
         else:
             mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -436,20 +435,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         use_cache = False
         # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             mixed = False
         else:
             mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -483,20 +482,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         use_cache = False
         # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             mixed = False
         else:
             mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -518,9 +517,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -530,7 +527,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_forward_gpu_uvm_cache_int8(
         self,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
     ) -> None:
         weights_precision = SparseType.INT8
         use_cpu = False
@@ -544,9 +541,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
         output_dtype = random.choice(
@@ -555,11 +552,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP16,
             ]
         )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             mixed = False
         else:
             mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -581,9 +578,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -593,7 +588,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_forward_gpu_uvm_cache_fp16(
         self,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
@@ -607,9 +602,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
         output_dtype = random.choice(
@@ -618,11 +613,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP16,
             ]
         )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             mixed = False
         else:
             mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -644,9 +639,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -656,7 +649,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     )
     def test_forward_gpu_uvm_cache_fp32(
         self,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
     ) -> None:
         weights_precision = SparseType.FP32
         use_cpu = False
@@ -670,9 +663,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
         output_dtype = random.choice(
@@ -681,11 +674,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.FP16,
             ]
         )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             mixed = False
         else:
             mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -736,33 +729,31 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = int(10**log_E)
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
 
-        op = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+        op = SplitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     E,
                     D,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    EmbeddingLocation.DEVICE,
+                    ComputeDevice.CUDA,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
             output_dtype=output_dtype,
             device=torch.cuda.current_device(),
         )
-        op_ref = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-                embedding_specs=[
-                    (
-                        E,
-                        D,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.ComputeDevice.CUDA,
-                    )
-                    for (E, D) in zip(Es, Ds)
-                ],
-                output_dtype=SparseType.FP32,
-                device=torch.cuda.current_device(),
-            )
+        op_ref = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    EmbeddingLocation.DEVICE,
+                    ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            output_dtype=SparseType.FP32,
+            device=torch.cuda.current_device(),
         )
         # sync weights between two ops
         split_weights = op.split_embedding_weights()
@@ -888,15 +879,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
 
         weights_ty_list = [weights_ty] * T
-        managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
-        op = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        managed = [EmbeddingLocation.DEVICE] * T
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     "",
                     E,
                     D,
                     W_TY,
-                    split_table_batched_embeddings_ops.EmbeddingLocation(M),
+                    EmbeddingLocation(M),
                 )
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
@@ -906,21 +897,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Initialize the random weights for int nbit table split embedding bag
         op.fill_random_weights()
 
-        op_ref = (
-            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
-                embedding_specs=[
-                    (
-                        "",
-                        E,
-                        D,
-                        W_TY,
-                        split_table_batched_embeddings_ops.EmbeddingLocation(M),
-                    )
-                    for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
-                ],
-                output_dtype=SparseType.FP32,
-                device=torch.cuda.current_device(),
-            )
+        op_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    W_TY,
+                    EmbeddingLocation(M),
+                )
+                for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+            ],
+            output_dtype=SparseType.FP32,
+            device=torch.cuda.current_device(),
         )
         # Initialize the random weights for int nbit table split embedding bag
         op_ref.fill_random_weights()
@@ -1006,9 +995,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         ),
         use_cpu=st.booleans()
@@ -1024,7 +1013,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_backward_dense(
+    def test_backward_dense(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1035,42 +1024,28 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
         output_dtype: SparseType,
     ) -> None:
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
         assume(not use_cpu or T * B * L * D <= 2048)
-        assume(
-            pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            or not weighted
-        )
+        assume(pooling_mode == PoolingMode.SUM or not weighted)
         assume(not (use_cpu and weights_precision == SparseType.FP16))
         # No bag ops only work on GPUs, no mixed, no weighted
-        assume(
-            not use_cpu
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not weighted
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
+        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+        assume(not mixed or pooling_mode != PoolingMode.NONE)
+        assume(not weighted or pooling_mode != PoolingMode.NONE)
 
-        emb_op = (
-            split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen
-        )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        emb_op = DenseTableBatchedEmbeddingBagsCodegen
+        if pooling_mode == PoolingMode.SUM:
             mode = "sum"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+        elif pooling_mode == PoolingMode.MEAN:
             mode = "mean"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        elif pooling_mode == PoolingMode.NONE:
             mode = "sum"
             do_pooling = False
         else:
@@ -1208,10 +1183,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else 1.0e-4,
         )
 
-        cc = split_table_batched_embeddings_ops.DenseTableBatchedEmbeddingBagsCodegen(
+        cc = DenseTableBatchedEmbeddingBagsCodegen(
             [(E, D) for (E, D) in zip(Es, Ds)],
             # NOTE: only SUM pooling can work with per_sample_weights!
-            pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
+            pooling_mode=PoolingMode.SUM,
             use_cpu=use_cpu,
         )
 
@@ -1284,9 +1259,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -1299,34 +1274,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # GPU only does exact sgd
         assume((use_cpu and not long_segments) or exact)
         # No bag ops only work on GPUs, no mixed, no weighted
-        assume(
-            not use_cpu
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not weighted
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
+        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+        assume(not mixed or pooling_mode != PoolingMode.NONE)
+        assume(not weighted or pooling_mode != PoolingMode.NONE)
 
-        assume(
-            pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            or not weighted
-        )
+        assume(pooling_mode == PoolingMode.SUM or not weighted)
 
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
+        if pooling_mode == PoolingMode.SUM:
             mode = "sum"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+        elif pooling_mode == PoolingMode.MEAN:
             mode = "mean"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        elif pooling_mode == PoolingMode.NONE:
             mode = "sum"
             do_pooling = False
         else:
@@ -1349,31 +1310,27 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+        compute_device = ComputeDevice.CUDA
         if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            managed = [EmbeddingLocation.HOST] * T
+            compute_device = ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed memory allocation is under development
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+            managed = [EmbeddingLocation.DEVICE] * T
         elif use_cache:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-            ] * T
+            managed = [EmbeddingLocation.MANAGED_CACHING] * T
             if mixed:
                 average_D = sum(Ds) // T
                 for t, d in enumerate(Ds):
                     managed[t] = (
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
+                        EmbeddingLocation.DEVICE if d < average_D else managed[t]
                     )
         else:
             managed = [
                 np.random.choice(
                     [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        EmbeddingLocation.DEVICE,
+                        EmbeddingLocation.MANAGED,
                     ]
                 )
                 for _ in range(T)
@@ -1506,15 +1463,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         ),
         use_cpu=st.booleans()
@@ -1541,9 +1496,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
         exact: bool,
     ) -> None:
@@ -1575,9 +1530,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1594,7 +1547,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
     ) -> None:
         self.execute_backward_sgd_(
             2,  # T
@@ -1608,7 +1561,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cache,
             cache_algorithm,
             True,  # long_segments
-            split_table_batched_embeddings_ops.PoolingMode.SUM,  # pooling_mode
+            PoolingMode.SUM,  # pooling_mode
             False,  # use_cpu
             True,  # exact
             SparseType.FP32,  # output_dtype
@@ -1628,8 +1581,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        cache_algorithm: CacheAlgorithm,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -1646,32 +1599,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assume(not (use_cpu and weights_precision == SparseType.FP16))
 
         assume(
-            pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            or not weighted
+            pooling_mode == PoolingMode.SUM or not weighted
         )  # No bag ops only work on GPUs, no mixed, no weighted
-        assume(
-            not use_cpu
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not weighted
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
+        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+        assume(not mixed or pooling_mode != PoolingMode.NONE)
+        assume(not weighted or pooling_mode != PoolingMode.NONE)
 
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
+        if pooling_mode == PoolingMode.SUM:
             mode = "sum"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+        elif pooling_mode == PoolingMode.MEAN:
             mode = "mean"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        elif pooling_mode == PoolingMode.NONE:
             mode = "sum"
             do_pooling = False
         else:
@@ -1701,31 +1642,27 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+        compute_device = ComputeDevice.CUDA
         if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            managed = [EmbeddingLocation.HOST] * T
+            compute_device = ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed memory allocation is under development
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+            managed = [EmbeddingLocation.DEVICE] * T
         elif use_cache:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-            ] * T
+            managed = [EmbeddingLocation.MANAGED_CACHING] * T
             if mixed:
                 average_D = sum(Ds) // T
                 for t, d in enumerate(Ds):
                     managed[t] = (
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
+                        EmbeddingLocation.DEVICE if d < average_D else managed[t]
                     )
         else:
             managed = [
                 np.random.choice(
                     [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        EmbeddingLocation.DEVICE,
+                        EmbeddingLocation.MANAGED,
                     ]
                 )
                 for _ in range(T)
@@ -1907,7 +1844,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             stochastic_rounding=stochastic_rounding,
             # NOTE: only SUM pooling can work with per_sample_weights!
-            pooling_mode=split_table_batched_embeddings_ops.PoolingMode.SUM,
+            pooling_mode=PoolingMode.SUM,
             output_dtype=output_dtype,
         )
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
@@ -1974,9 +1911,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         else st.just(False)
@@ -2005,7 +1940,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -2024,7 +1959,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            split_table_batched_embeddings_ops.PoolingMode.SUM,
+            PoolingMode.SUM,
             use_cpu,
             exact,
             output_dtype,
@@ -2043,9 +1978,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         else st.just(False)
@@ -2074,7 +2007,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -2093,7 +2026,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            PoolingMode.MEAN,
             use_cpu,
             exact,
             output_dtype,
@@ -2112,9 +2045,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         else st.just(False)
@@ -2143,7 +2074,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -2162,7 +2093,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            split_table_batched_embeddings_ops.PoolingMode.NONE,
+            PoolingMode.NONE,
             use_cpu,
             exact,
             output_dtype,
@@ -2181,9 +2112,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         else st.just(False)
@@ -2212,7 +2141,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -2231,7 +2160,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            split_table_batched_embeddings_ops.PoolingMode.SUM,
+            PoolingMode.SUM,
             use_cpu,
             exact,
             output_dtype,
@@ -2250,9 +2179,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         else st.just(False)
@@ -2281,7 +2208,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -2300,7 +2227,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            split_table_batched_embeddings_ops.PoolingMode.MEAN,
+            PoolingMode.MEAN,
             use_cpu,
             exact,
             output_dtype,
@@ -2319,9 +2246,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise=st.booleans(),
         mixed=st.booleans(),
         use_cache=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         else st.just(False)
@@ -2350,7 +2275,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_wise: bool,
         mixed: bool,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         exact: bool,
         output_dtype: SparseType,
@@ -2369,7 +2294,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             mixed,
             use_cache,
             cache_algorithm,
-            split_table_batched_embeddings_ops.PoolingMode.NONE,
+            PoolingMode.NONE,
             use_cpu,
             exact,
             output_dtype,
@@ -2383,9 +2308,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=1, max_value=20),
         mixed=st.booleans(),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_pipeline(
@@ -2396,7 +2319,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         log_E: int,
         L: int,
         mixed: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
     ) -> None:
         iters = 3
         E = int(10**log_E)
@@ -2412,35 +2335,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        managed = [
-            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-        ] * T
+        managed = [EmbeddingLocation.MANAGED_CACHING] * T
         if mixed:
             average_D = sum(Ds) // T
             for t, d in enumerate(Ds):
-                managed[t] = (
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                    if d < average_D
-                    else managed[t]
-                )
-        cc_ref = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-                [
-                    (
-                        E,
-                        D,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.ComputeDevice.CUDA,
-                    )
-                    for (E, D) in zip(Es, Ds)
-                ],
-            )
-        )
-        cc = split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
+                managed[t] = EmbeddingLocation.DEVICE if d < average_D else managed[t]
+        cc_ref = SplitTableBatchedEmbeddingBagsCodegen(
             [
-                (E, D, M, split_table_batched_embeddings_ops.ComputeDevice.CUDA)
-                for (E, D, M) in zip(Es, Ds, managed)
+                (
+                    E,
+                    D,
+                    EmbeddingLocation.DEVICE,
+                    ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
             ],
+        )
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            [(E, D, M, ComputeDevice.CUDA) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
         )
         for t in range(T):
@@ -2478,7 +2390,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         optimizer: OptimType,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,
     ) -> None:
@@ -2495,34 +2407,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         )
 
-        assume(
-            pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            or not weighted
-        )
+        assume(pooling_mode == PoolingMode.SUM or not weighted)
         # No bag ops only work on GPUs, no mixed, no weighted
-        assume(
-            not use_cpu
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
-        assume(
-            not weighted
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
+        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+        assume(not mixed or pooling_mode != PoolingMode.NONE)
+        assume(not weighted or pooling_mode != PoolingMode.NONE)
 
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
+        if pooling_mode == PoolingMode.SUM:
             mode = "sum"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+        elif pooling_mode == PoolingMode.MEAN:
             mode = "mean"
             do_pooling = True
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        elif pooling_mode == PoolingMode.NONE:
             mode = "sum"
             do_pooling = False
         else:
@@ -2545,19 +2443,19 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+        compute_device = ComputeDevice.CUDA
         if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
-            compute_device = split_table_batched_embeddings_ops.ComputeDevice.CPU
+            managed = [EmbeddingLocation.HOST] * T
+            compute_device = ComputeDevice.CPU
         elif TEST_WITH_ROCM:
             # ROCm managed memory allocation is under development
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE] * T
+            managed = [EmbeddingLocation.DEVICE] * T
         else:
             managed = [
                 np.random.choice(
                     [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        EmbeddingLocation.DEVICE,
+                        EmbeddingLocation.MANAGED,
                     ]
                 )
                 for _ in range(T)
@@ -3095,9 +2993,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         ),
         use_cpu=st.booleans()
@@ -3124,7 +3022,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         optimizer: OptimType,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
     ) -> None:
         self.execute_backward_optimizers_(
@@ -3159,9 +3057,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         ),
         use_cpu=st.booleans()
@@ -3197,7 +3095,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         optimizer: OptimType,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
         weight_decay_mode: WeightDecayMode,
     ) -> None:
@@ -3233,9 +3131,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         ),
         use_cpu=st.booleans()
@@ -3262,7 +3160,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         optimizer: OptimType,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
     ) -> None:
         self.execute_backward_optimizers_(
@@ -3291,9 +3189,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         ),
         use_cpu=st.booleans()
@@ -3320,7 +3218,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed: bool,
         optimizer: OptimType,
         long_segments: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         use_cpu: bool,
     ) -> None:
         self.execute_backward_optimizers_(
@@ -3337,7 +3235,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
-    def execute_nbit_forward_(
+    def execute_nbit_forward_(  # noqa C901
         self,
         T: int,
         D: int,
@@ -3346,10 +3244,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         L: int,
         weighted: bool,
         mixed: bool,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         weights_ty: SparseType,
         use_cache: bool,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         use_array_for_index_remapping: bool,
         do_pruning: bool,
@@ -3357,20 +3255,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         output_dtype: SparseType,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
-        assume(
-            pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM
-            or not weighted
-        )
-        assume(
-            not mixed
-            or pooling_mode != split_table_batched_embeddings_ops.PoolingMode.NONE
-        )
+        assume(pooling_mode == PoolingMode.SUM or not weighted)
+        assume(not mixed or pooling_mode != PoolingMode.NONE)
 
         mode = "sum"
         do_pooling = True
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             mode = "sum"
-        elif pooling_mode == split_table_batched_embeddings_ops.PoolingMode.MEAN:
+        elif pooling_mode == PoolingMode.MEAN:
             mode = "mean"
         else:
             mode = "sum"
@@ -3428,25 +3320,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
 
         if use_cpu:
-            managed = [split_table_batched_embeddings_ops.EmbeddingLocation.HOST] * T
+            managed = [EmbeddingLocation.HOST] * T
         elif use_cache:
             managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                EmbeddingLocation.MANAGED_CACHING,
             ] * T
             if mixed:
                 average_D = sum(Ds) // T
                 for t, d in enumerate(Ds):
                     managed[t] = (
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
+                        EmbeddingLocation.DEVICE if d < average_D else managed[t]
                     )
         else:
             managed = [
                 np.random.choice(
                     [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        EmbeddingLocation.DEVICE,
+                        EmbeddingLocation.MANAGED,
                     ]
                 )
                 for _ in range(T)
@@ -3505,14 +3395,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu)
 
-        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     "",
                     E,
                     D,
                     W_TY,
-                    split_table_batched_embeddings_ops.EmbeddingLocation(M),
+                    EmbeddingLocation(M),
                 )
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
@@ -3647,17 +3537,17 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         use_cache = False
         # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
         mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             nbit_weights_ty = random.choice(
                 [
                     SparseType.FP32,
@@ -3670,7 +3560,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 ]
             )
 
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -3728,20 +3618,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         use_cache = False
         # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
 
         pooling_mode = random.choice(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
-                split_table_batched_embeddings_ops.PoolingMode.NONE,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
             ]
         )
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.NONE:
+        if pooling_mode == PoolingMode.NONE:
             mixed = False
         else:
             mixed = random.choice([True, False])
-        if pooling_mode == split_table_batched_embeddings_ops.PoolingMode.SUM:
+        if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
             weighted = False
@@ -3800,7 +3690,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # as well as cache state should match.
 
         # Currently, int_nbit_split_embedding_uvm_caching_codegen_lookup_function supports only LRU.
-        cache_algorithm = split_table_batched_embeddings_ops.CacheAlgorithm.LRU
+        cache_algorithm = CacheAlgorithm.LRU
         associativity = 32  # Currently, hard-coded 32-way set associative.
         current_device: torch.device = torch.device(torch.cuda.current_device())
 
@@ -3821,32 +3711,25 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Currently, int_nbit_split_embedding_uvm_caching_codegen_lookup_function supports only all UVM or all UVM_CACHING.
         Ds = [D] * T
         Es = [E] * T
-        managed_caching = [
-            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-        ] * T
+        managed_caching = [EmbeddingLocation.MANAGED_CACHING] * T
 
         # Note both cc_ref and cc use caching.
-        cc_ref = (
-            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
-                [
-                    ("", E, D, weights_ty, M)
-                    for (E, D, M) in zip(Es, Ds, managed_caching)
-                ],
-                cache_algorithm=cache_algorithm,
-            )
+        cc_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
+            [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed_caching)],
+            cache_algorithm=cache_algorithm,
         )
         cc_ref.fill_random_weights()
 
         # cc is only for cache states; we test int_nbit_split_embedding_uvm_caching_codegen_lookup_function directly;
         # hence, no need to synchronize cc's weights with cc_ref's.
-        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed_caching)],
             cache_algorithm=cache_algorithm,
         )
         cc.fill_random_weights()
 
         # weights_placement for all UVM case.
-        managed_uvm = [split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED] * T
+        managed_uvm = [EmbeddingLocation.MANAGED] * T
         placement_uvm = torch.tensor(
             managed_uvm, device=current_device, dtype=torch.int32
         )
@@ -3987,12 +3870,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT2,
             ]
         ),
-        cache_algorithm=st.sampled_from(
-            split_table_batched_embeddings_ops.CacheAlgorithm
-        ),
-        associativity=st.sampled_from(
-            [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
-        ),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
+        associativity=st.sampled_from([1, DEFAULT_ASSOC]),
         do_pruning=st.booleans(),
         use_array_for_index_remapping=st.booleans(),
     )
@@ -4000,15 +3879,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_nbit_forward_uvm_cache(
         self,
         weights_ty: SparseType,
-        cache_algorithm: split_table_batched_embeddings_ops.CacheAlgorithm,
+        cache_algorithm: CacheAlgorithm,
         associativity: int,
         do_pruning: bool,
         use_array_for_index_remapping: bool,
     ) -> None:
-        assume(
-            cache_algorithm == split_table_batched_embeddings_ops.CacheAlgorithm.LRU
-            or associativity != 1
-        )
+        assume(cache_algorithm == CacheAlgorithm.LRU or associativity != 1)
 
         T = random.randint(1, 5)
         B = random.randint(1, 128)
@@ -4039,17 +3915,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        managed = [
-            split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-        ] * T
+        managed = [EmbeddingLocation.MANAGED_CACHING] * T
         if mixed:
             average_D = sum(Ds) // T
             for t, d in enumerate(Ds):
-                managed[t] = (
-                    split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                    if d < average_D
-                    else managed[t]
-                )
+                managed[t] = EmbeddingLocation.DEVICE if d < average_D else managed[t]
         index_remapping = None
         pruning_hash_load_factor = 0.5
         if do_pruning:
@@ -4065,25 +3935,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     device=current_device,
                 )
                 index_remapping.append(remapping_t)
-        cc_ref = (
-            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
-                [
-                    (
-                        "",
-                        E,
-                        D,
-                        weights_ty,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                    )
-                    for (E, D) in zip(Es, Ds)
-                ],
-                index_remapping=index_remapping,
-                use_array_for_index_remapping=use_array_for_index_remapping,
-                pruning_hash_load_factor=pruning_hash_load_factor,
-            )
+        cc_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
+            [
+                (
+                    "",
+                    E,
+                    D,
+                    weights_ty,
+                    EmbeddingLocation.DEVICE,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            index_remapping=index_remapping,
+            use_array_for_index_remapping=use_array_for_index_remapping,
+            pruning_hash_load_factor=pruning_hash_load_factor,
         )
         cc_ref.fill_random_weights()
-        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
             cache_assoc=associativity,
@@ -4316,16 +4184,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = 10**3
         Ds = [D] * T
         Es = [E] * T
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
         cc = emb_op(
             embedding_specs=[
                 (
                     E,
                     D,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
-                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    EmbeddingLocation.MANAGED_CACHING,
+                    ComputeDevice.CUDA,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -4349,16 +4215,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = 10**3
         Ds = [D] * T
         Es = [E] * T
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
         cc = emb_op(
             embedding_specs=[
                 (
                     E,
                     D,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
-                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    EmbeddingLocation.MANAGED_CACHING,
+                    ComputeDevice.CUDA,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -4407,16 +4271,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = 10**3
         Ds = [D] * T
         Es = [E] * T
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
         cc = emb_op(
             embedding_specs=[
                 (
                     E,
                     D,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
-                    split_table_batched_embeddings_ops.ComputeDevice.CUDA,
+                    EmbeddingLocation.MANAGED_CACHING,
+                    ComputeDevice.CUDA,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -4478,14 +4340,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = 10**3
         Ds = [D] * T
         Es = [E] * T
-        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     "",
                     E,
                     D,
                     SparseType.INT8,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    EmbeddingLocation.MANAGED_CACHING,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -4517,14 +4379,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = 10**3
         Ds = [D] * T
         Es = [E] * T
-        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     "",
                     E,
                     D,
                     SparseType.INT8,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    EmbeddingLocation.MANAGED_CACHING,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -4572,14 +4434,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = 10**3
         Ds = [D] * T
         Es = [E] * T
-        cc = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     "",
                     E,
                     D,
                     dtype,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    EmbeddingLocation.MANAGED_CACHING,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -4626,14 +4488,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         T = 1  # for simplicity
         Ds = [D] * T
         Es = [E] * T
-        cc1 = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        cc1 = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 (
                     "",
                     E,
                     D,
                     SparseType.INT8,
-                    split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING,
+                    EmbeddingLocation.MANAGED_CACHING,
                 )
                 for (E, D) in zip(Es, Ds)
             ],
@@ -4643,9 +4505,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         cc1.fill_random_weights()
 
-        associativty = (
-            split_table_batched_embeddings_ops.DEFAULT_ASSOC
-        )  # 32 for NVidia / 64 for AMD.
+        associativty = DEFAULT_ASSOC  # 32 for NVidia / 64 for AMD.
         repetition = 17
         indices1 = torch.Tensor(
             [[list(range(0, associativty))] * repetition]
@@ -4701,7 +4561,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_bounds_check(
+    def test_bounds_check(  # noqa C901
         self,
         T: int,
         B: int,
@@ -5025,9 +4885,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        associativity=st.sampled_from(
-            [1, split_table_batched_embeddings_ops.DEFAULT_ASSOC]
-        ),
+        associativity=st.sampled_from([1, DEFAULT_ASSOC]),
     )
     @settings(deadline=None)
     def test_lxu_cache_lookup(self, associativity: int) -> None:
@@ -5146,11 +5004,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
         row_alignment = 1 if use_cpu else 16
         current_device = "cpu" if use_cpu else torch.cuda.current_device()
-        location = (
-            split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            if use_cpu
-            else split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-        )
+        location = EmbeddingLocation.HOST if use_cpu else EmbeddingLocation.DEVICE
 
         weights_ty_list = [weights_ty] * T
         if open_source:
@@ -5158,7 +5012,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # create two embedding bag op with random weights
         locations = [location] * T
-        op = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=[
                 ("", E, D, W_TY, L)
                 for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
@@ -5167,15 +5021,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             device=current_device,
         )
         op.fill_random_weights()
-        op_ref = (
-            split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
-                embedding_specs=[
-                    ("", E, D, W_TY, L)
-                    for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
-                ],
-                output_dtype=output_dtype,
-                device=current_device,
-            )
+        op_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                ("", E, D, W_TY, L)
+                for (E, D, W_TY, L) in zip(Es, Ds, weights_ty_list, locations)
+            ],
+            output_dtype=output_dtype,
+            device=current_device,
         )
         op_ref.fill_random_weights()
 
@@ -5300,9 +5152,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         output_dtype: SparseType,
         num_indices_per_table: int,
     ) -> None:
-        emb_op = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
-        )
+        emb_op = SplitTableBatchedEmbeddingBagsCodegen
         E = int(10**log_E)
         D = D * 4
         Ds: List[int] = []
@@ -5318,25 +5168,21 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es = [
                 np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
             ]
-        compute_device = split_table_batched_embeddings_ops.ComputeDevice.CUDA
+        compute_device = ComputeDevice.CUDA
         if use_cache:
-            managed = [
-                split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED_CACHING
-            ] * T
+            managed = [EmbeddingLocation.MANAGED_CACHING] * T
             if mixed:
                 average_D = sum(Ds) // T
                 for t, d in enumerate(Ds):
                     managed[t] = (
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-                        if d < average_D
-                        else managed[t]
+                        EmbeddingLocation.DEVICE if d < average_D else managed[t]
                     )
         else:
             managed = [
                 np.random.choice(
                     [
-                        split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
-                        split_table_batched_embeddings_ops.EmbeddingLocation.MANAGED,
+                        EmbeddingLocation.DEVICE,
+                        EmbeddingLocation.MANAGED,
                     ]
                 )
                 for _ in range(T)
