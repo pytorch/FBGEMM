@@ -267,14 +267,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
         learning_rate: float = 0.01,
-        # used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, ROWWISE_ADAGRAD, EXACT_ROWWISE_WEIGHTED_ADAGRAD, LAMB, and ADAM only
+        # used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, EXACT_ROWWISE_WEIGHTED_ADAGRAD, LAMB, and ADAM only
         # NOTE that default is different from nn.optim.Adagrad default of 1e-10
         eps: float = 1.0e-8,
         momentum: float = 0.9,  # used by LARS-SGD
         # EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay
         # LAMB, ADAM, PARTIAL_ROWWISE_ADAM, PARTIAL_ROWWISE_LAMB, LARS_SGD support decoupled weight decay
         # EXACT_ROWWISE_WEIGHTED_ADAGRAD supports L2 weight decay
-        # ROWWISE_ADAGRAD support both L2 and decoupled weight decay (via weight_decay_mode)
         weight_decay: float = 0.0,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         eta: float = 0.001,  # used by LARS-SGD,
@@ -431,6 +430,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         assert optimizer not in (
             OptimType.SGD,
+            OptimType.ROWWISE_ADAGRAD,
         ), f"Optimizer {optimizer} is deprecated in the CPU and GPU modes"
 
         if self.use_cpu:
@@ -440,7 +440,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_SGD,
-                OptimType.ROWWISE_ADAGRAD,
             ), f"Optimizer {optimizer} is not supported in cpu mode."
         else:
             assert optimizer in (
@@ -475,7 +474,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         self._used_rowwise_adagrad_with_counter: bool = (
-            optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.ROWWISE_ADAGRAD)
+            optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             and weight_decay_mode == WeightDecayMode.COUNTER
             and counter_based_regularization is not None
         )
@@ -526,7 +525,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     rowwise=optimizer
                     in [
                         OptimType.EXACT_ROWWISE_ADAGRAD,
-                        OptimType.ROWWISE_ADAGRAD,
                         OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                     ],
                     cacheable=False,
@@ -948,23 +946,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 return invokers.lookup_rowwise_adagrad.invoke(
                     common_args, self.optimizer_args, momentum1
                 )
-        if self.optimizer == OptimType.ROWWISE_ADAGRAD:
-            assert self.use_cpu, "Approx rowwise AdaGrad is only supported in CPU mode"
-            if self._used_rowwise_adagrad_with_counter:
-                return invokers.lookup_approx_rowwise_adagrad_with_counter.invoke(
-                    common_args,
-                    self.optimizer_args,
-                    momentum1,
-                    prev_iter,
-                    row_counter,
-                    # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                    self.iter.item(),
-                    self.max_counter.item(),
-                )
-            else:
-                return invokers.lookup_approx_rowwise_adagrad.invoke(
-                    common_args, self.optimizer_args, momentum1
-                )
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
@@ -1210,7 +1191,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         split_optimizer_states = self.split_optimizer_states()
         if (
             self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
-            or self.optimizer == OptimType.ROWWISE_ADAGRAD
             or self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD
             or self.optimizer == OptimType.EXACT_ADAGRAD
         ):
@@ -1297,7 +1277,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     rowwise=self.optimizer
                     in [
                         OptimType.EXACT_ROWWISE_ADAGRAD,
-                        OptimType.ROWWISE_ADAGRAD,
                         OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                     ],
                 )
@@ -1732,7 +1711,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         rowwise = self.optimizer in [
             OptimType.EXACT_ROWWISE_ADAGRAD,
-            OptimType.ROWWISE_ADAGRAD,
             OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
         ]
         if rowwise:
