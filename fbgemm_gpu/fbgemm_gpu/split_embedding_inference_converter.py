@@ -11,11 +11,19 @@ import logging
 import math
 from typing import Optional, Tuple
 
-import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops  # usort:skip
 import numpy as np
 import torch
 
 from fbgemm_gpu.split_embedding_configs import QuantizationConfig, SparseType
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
+    IntNBitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    ComputeDevice,
+    SplitTableBatchedEmbeddingBagsCodegen,
+)
+
 from torch import nn, Tensor  # usort:skip
 
 
@@ -60,7 +68,7 @@ class SplitEmbInferenceConverter:
         self,
         idx: int,
         num_rows: int,
-        module: split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen,
+        module: SplitTableBatchedEmbeddingBagsCodegen,
     ) -> Tuple[Tensor, Optional[Tensor]]:
         # TODO(yingz): Avoid DtoH / HtoD overhead.
         weights = module.split_embedding_weights()[idx].cpu()
@@ -143,13 +151,10 @@ class SplitEmbInferenceConverter:
         for name, child in model.named_children():
             if isinstance(
                 child,
-                split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen,
+                SplitTableBatchedEmbeddingBagsCodegen,
             ):
                 embedding_specs = []
-                use_cpu = (
-                    child.embedding_specs[0][3]
-                    == split_table_batched_embeddings_ops.ComputeDevice.CPU
-                )
+                use_cpu = child.embedding_specs[0][3] == ComputeDevice.CPU
                 for E, D, _, _ in child.embedding_specs:
                     weights_ty = self.quantize_type
                     if D % weights_ty.align_size() != 0:
@@ -174,9 +179,9 @@ class SplitEmbInferenceConverter:
                             pruned_weight.size()[0],
                             D,
                             weight_ty,
-                            split_table_batched_embeddings_ops.EmbeddingLocation.HOST
+                            EmbeddingLocation.HOST
                             if use_cpu
-                            else split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE,
+                            else EmbeddingLocation.DEVICE,
                         )
                     )
                     index_remapping_list.append(index_remapping)
@@ -186,7 +191,7 @@ class SplitEmbInferenceConverter:
 
                 is_fp8_weight = self.quantize_type == SparseType.FP8
 
-                q_child = split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen(
+                q_child = IntNBitTableBatchedEmbeddingBagsCodegen(
                     embedding_specs=new_embedding_specs,
                     index_remapping=index_remapping_list
                     if self.pruning_ratio is not None

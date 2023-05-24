@@ -11,12 +11,16 @@ from typing import List, Tuple
 import click
 import numpy as np
 import torch
+
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops import (
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+
 from torch import nn, Tensor
 
 logging.basicConfig(level=logging.DEBUG)
@@ -25,6 +29,7 @@ try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
     )
