@@ -14,6 +14,7 @@ import fbgemm_gpu.ssd_split_table_batched_embeddings_ops as ssd_split_table_batc
 import hypothesis.strategies as st
 import numpy as np
 import torch
+
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
@@ -21,8 +22,8 @@ from fbgemm_gpu.split_embedding_utils import (
     get_table_batched_offsets_from_dense,
     round_up,
 )
-from fbgemm_gpu.split_table_batched_embeddings_ops import (
-    PoolingMode,
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     rounded_row_size_in_bytes,
     unpadded_row_size_in_bytes,
 )

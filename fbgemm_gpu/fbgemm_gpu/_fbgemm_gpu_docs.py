@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import fbgemm_gpu
-import fbgemm_gpu.split_table_batched_embeddings_ops
+import fbgemm_gpu.split_table_batched_embeddings_ops_training
 import torch  # usort:skip
 
 Tensor = torch.Tensor
@@ -231,7 +231,7 @@ Returns:
 
 
 add_docs(
-    fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen,
+    fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen,
     """
 SplitTableBatchedEmbeddingBagsCodegen(embedding_specs, feature_table_map=None, cache_algorithm=CacheAlgorithm.LRU, cache_load_factor=0.2, cache_sets=0, cache_reserved_memory=0.0, cache_precision=SparseType.FP32, weights_precision=SparseType.FP32, output_dtype=SparseType.FP32, enforce_hbm=False, optimizer=OptimType.EXACT_SGD, record_cache_metrics=None, stochastic_rounding=True, gradient_clipping=False, max_gradient=1.0, learning_rate=0.01, eps=1.0e-8, momentum=0.9, weight_decay=0.0, weight_decay_mode=WeightDecayMode.NONE, eta=0.001, beta1=0.9, beta2=0.999, pooling_mode=PoolingMode.SUM, device=None, bounds_check_mode=BoundsCheckMode.WARNING) -> None
 
@@ -304,9 +304,12 @@ Returns:
 
 Example:
     >>> import torch
-    >>> from fbgemm_gpu.split_table_batched_embeddings_ops import (
-    >>>    SplitTableBatchedEmbeddingBagsCodegen,
+    >>>
+    >>> from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     >>>    EmbeddingLocation,
+    >>> )
+    >>> from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    >>>    SplitTableBatchedEmbeddingBagsCodegen,
     >>>    ComputeDevice,
     >>> )
     >>>

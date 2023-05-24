@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_requests
 from fbgemm_gpu.split_embedding_utils import generate_requests, round_up
-from fbgemm_gpu.split_table_batched_embeddings_ops import (
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.ssd_split_table_batched_embeddings_ops import (
