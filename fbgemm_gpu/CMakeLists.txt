@@ -164,7 +164,6 @@ set(COMMON_OPTIMIZERS
     adagrad
     adam
     approx_rowwise_adagrad
-    approx_rowwise_adagrad_with_weight_decay
     approx_rowwise_adagrad_with_counter
     approx_sgd
     lamb
@@ -180,7 +179,8 @@ set(COMMON_OPTIMIZERS
 set(CPU_ONLY_OPTIMIZERS "")
 
 set(GPU_ONLY_OPTIMIZERS
-  rowwise_adagrad_with_weight_decay)
+  rowwise_adagrad_with_weight_decay
+  approx_rowwise_adagrad_with_weight_decay)
 
 set(DEPRECATED_OPTIMIZERS "")
 
