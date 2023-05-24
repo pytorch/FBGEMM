@@ -424,6 +424,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 weight_row_template.store(shared_weight_update_row[lane_id + i * kThreadGroupSize], d, qparams_new);
             }
         }
+
+        {{ split_post_update }}
+
         {%- else %}
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;

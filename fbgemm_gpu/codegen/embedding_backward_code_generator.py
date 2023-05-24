@@ -438,6 +438,7 @@ def adagrad() -> None:
         ),
         split_precomputation="",
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -473,6 +474,45 @@ def rowwise_adagrad() -> None:
         weight_new.acc.y = correction * weight_new.acc.y - multiplier * grad.acc.y;
         weight_new.acc.z = correction * weight_new.acc.z - multiplier * grad.acc.z;
         weight_new.acc.w = correction * weight_new.acc.w - multiplier * grad.acc.w;
+    """
+    split_post_update = """
+    if (max_norm > 0.0) {
+        CUDA_KERNEL_ASSERT(!(std::is_same<emb_t, uint8_t>::value && !cache_weights)); // not supported for uint8 yet
+
+        // compute weight norm
+        at::acc_type<cache_t, true> weight_sum_square = 0.0;
+        #pragma unroll kMaxVecsPerThread
+        for (int32_t i = 0;
+                i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
+                ++i) {
+            int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
+            Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
+            weight_sum_square += weight_new.acc.x * weight_new.acc.x + weight_new.acc.y * weight_new.acc.y + weight_new.acc.z * weight_new.acc.z + weight_new.acc.w * weight_new.acc.w;
+        }
+        const at::acc_type<cache_t, true> weight_norm =
+            sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_square, shfl_sync_mask));
+
+        // scale by max_norm if weight_norm exceeds max_norm
+        if (threadIdx.x == 0) {
+            multiplier = weight_norm > max_norm ? max_norm / weight_norm : 1.0f;
+        }
+        multiplier = SHFL_SYNC(multiplier, 0);
+        if (weight_norm > max_norm) {
+            #pragma unroll kMaxVecsPerThread
+            for (int32_t i = 0;
+                    i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
+                    ++i) {
+                int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
+                Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
+
+                weight_new.acc.x *= multiplier;
+                weight_new.acc.y *= multiplier;
+                weight_new.acc.z *= multiplier;
+                weight_new.acc.w *= multiplier;
+                weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if embedding is not int8
+            }
+        }
+    }
     """
     split_precomputation = """
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
@@ -558,10 +598,12 @@ def rowwise_adagrad() -> None:
                 (FLOAT, "learning_rate"),
                 (FLOAT, "weight_decay", 0.0),
                 (INT, "weight_decay_mode", 0),
+                (FLOAT, "max_norm", 0.0),
             ]
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update=split_post_update,
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -587,6 +629,7 @@ def rowwise_adagrad() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -689,6 +732,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -714,6 +758,7 @@ def rowwise_adagrad_with_weight_decay() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -855,6 +900,7 @@ def rowwise_adagrad_with_counter() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -891,6 +937,7 @@ def rowwise_adagrad_with_counter() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=approx_split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -964,6 +1011,7 @@ def rowwise_weighted_adagrad() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -986,6 +1034,7 @@ def sgd() -> None:
         args=make_args([(FLOAT, "learning_rate")]),
         split_precomputation="",
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -1004,6 +1053,7 @@ def sgd() -> None:
         args=make_args([(FLOAT, "learning_rate")]),
         split_precomputation="",
         split_weight_update=approx_split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -1077,6 +1127,7 @@ def lamb() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -1166,6 +1217,7 @@ def partial_rowwise_lamb() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -1219,6 +1271,7 @@ def adam() -> None:
         ),
         split_precomputation="",
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -1282,6 +1335,7 @@ def partial_rowwise_adam() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
@@ -1343,6 +1397,7 @@ def lars_sgd() -> None:
         ),
         split_precomputation=split_precomputation,
         split_weight_update=split_weight_update,
+        split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
         has_cpu_support=True,
         has_gpu_support=True,
