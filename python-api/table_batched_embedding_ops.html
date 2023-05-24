@@ -374,9 +374,12 @@
 <dt>Returns:</dt><dd><p>A 2D-tensor containing looked up data. Shape <cite>(B, total_D)</cite> where <cite>B</cite> = batch size and <cite>total_D</cite> = the sum of all embedding dimensions in the table</p>
 </dd>
 <dt>Example:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">torch</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops</span> <span class="kn">import</span> <span class="p">(</span>
-<span class="gp">&gt;&gt;&gt; </span>   <span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span> <span class="kn">import</span> <span class="p">(</span>
 <span class="gp">&gt;&gt;&gt; </span>   <span class="n">EmbeddingLocation</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_training</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="gp">&gt;&gt;&gt; </span>   <span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span>
 <span class="gp">&gt;&gt;&gt; </span>   <span class="n">ComputeDevice</span><span class="p">,</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt;</span>
