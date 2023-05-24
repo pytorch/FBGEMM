@@ -41,7 +41,7 @@ void QuantizeAvx2(
   // that is exactly representable in float
   constexpr int32_t int32_float_max_val =
       std::numeric_limits<int32_t>::max() - 127;
-  int i = 0;
+  int64_t i = 0;
   float inverse_scale = 1.f / qparams.scale;
   __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
   // clang-format off
