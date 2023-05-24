@@ -14,17 +14,30 @@ import unittest
 from typing import Optional, Tuple
 
 import fbgemm_gpu
-import fbgemm_gpu.split_table_batched_embeddings_ops as split_table_batched_embeddings_ops
+
 import hypothesis.strategies as st
 import numpy as np
 import torch
+
 from fbgemm_gpu.split_embedding_configs import (
+    EmbOptimType as OptimType,
     FP8QuantizationConfig,
     QuantizationConfig,
     SparseType,
 )
 from fbgemm_gpu.split_embedding_inference_converter import SplitEmbInferenceConverter
-from fbgemm_gpu.split_table_batched_embeddings_ops import OptimType
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    EmbeddingLocation,
+    PoolingMode,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
+    IntNBitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    ComputeDevice,
+    SplitTableBatchedEmbeddingBagsCodegen,
+)
+
 from hypothesis import given, settings, Verbosity
 from torch import nn
 
@@ -77,37 +90,27 @@ class SparseArch(nn.Module):
         use_cpu,
     ) -> None:
         super().__init__()
-        pooling_mode = split_table_batched_embeddings_ops.PoolingMode.SUM
+        pooling_mode = PoolingMode.SUM
         Ds = [emb_dim] * num_tables
         Es = [num_rows] * num_tables
 
-        device = (
-            split_table_batched_embeddings_ops.ComputeDevice.CPU
-            if use_cpu
-            else split_table_batched_embeddings_ops.ComputeDevice.CUDA
-        )
-        loc = (
-            split_table_batched_embeddings_ops.EmbeddingLocation.HOST
-            if use_cpu
-            else split_table_batched_embeddings_ops.EmbeddingLocation.DEVICE
-        )
+        device = ComputeDevice.CPU if use_cpu else ComputeDevice.CUDA
+        loc = EmbeddingLocation.HOST if use_cpu else EmbeddingLocation.DEVICE
 
-        self.emb_module = (
-            split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen(
-                embedding_specs=[
-                    (
-                        E,
-                        D,
-                        loc,
-                        device,
-                    )
-                    for (E, D) in zip(Es, Ds)
-                ],
-                weights_precision=SparseType.FP32,
-                optimizer=OptimType.EXACT_SGD,
-                learning_rate=0.05,
-                pooling_mode=pooling_mode,
-            )
+        self.emb_module = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    loc,
+                    device,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            weights_precision=SparseType.FP32,
+            optimizer=OptimType.EXACT_SGD,
+            learning_rate=0.05,
+            pooling_mode=pooling_mode,
         )
 
         self.emb_module.init_embedding_weights_uniform(
@@ -127,8 +130,8 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         L=st.integers(min_value=0, max_value=20),
         pooling_mode=st.sampled_from(
             [
-                split_table_batched_embeddings_ops.PoolingMode.SUM,
-                split_table_batched_embeddings_ops.PoolingMode.MEAN,
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
             ]
         ),
         quantize_type=st.sampled_from(
@@ -152,7 +155,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         B: int,
         log_E: int,
         L: int,
-        pooling_mode: split_table_batched_embeddings_ops.PoolingMode,
+        pooling_mode: PoolingMode,
         quantize_type: SparseType,
         pruning_ratio: Optional[float],
         use_cpu: bool,
@@ -218,10 +221,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             quantization_config=quantization_config,
         )
         split_emb_infer_converter.convert_model(sparse_arch)
-        assert (
-            type(sparse_arch.emb_module)
-            == split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen
-        )
+        assert type(sparse_arch.emb_module) == IntNBitTableBatchedEmbeddingBagsCodegen
         assert sparse_arch.emb_module.use_cpu == use_cpu
         quantized_emb_out = sparse_arch(indices.int(), offsets.int())  # B, T, D
 
@@ -303,8 +303,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             )
             split_emb_infer_converter.convert_model(sparse_arch)
             assert (
-                type(sparse_arch.emb_module)
-                == split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen
+                type(sparse_arch.emb_module) == IntNBitTableBatchedEmbeddingBagsCodegen
             )
             assert sparse_arch.emb_module.use_cpu == use_cpu
             pruned_emb_out = sparse_arch(
@@ -359,10 +358,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         )
         split_emb_infer_converter.convert_model(sparse_arch)
         embedding_weights_after = sparse_arch.emb_module.split_embedding_weights()
-        assert (
-            type(sparse_arch.emb_module)
-            == split_table_batched_embeddings_ops.IntNBitTableBatchedEmbeddingBagsCodegen
-        )
+        assert type(sparse_arch.emb_module) == IntNBitTableBatchedEmbeddingBagsCodegen
         assert sparse_arch.emb_module.use_cpu == use_cpu
 
         # Collect #rows after pruning.
