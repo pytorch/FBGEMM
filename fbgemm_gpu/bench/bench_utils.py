@@ -22,7 +22,7 @@ from fbgemm_gpu.split_embedding_utils import (  # noqa: F401
 logging.basicConfig(level=logging.DEBUG)
 
 
-def benchmark_torch_function(
+def benchmark_torch_function(  # noqa: C901
     # pyre-fixme[2]: Parameter must be annotated.
     f,
     # pyre-fixme[2]: Parameter must be annotated.
