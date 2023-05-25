@@ -25,12 +25,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     EmbeddingLocation,
     PoolingMode,
     RecordCacheMetrics,
+    round_up,
     SplitState,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     align_to_cacheline,
     IntNBitTableBatchedEmbeddingBagsCodegen,
-    round_up,
     rounded_row_size_in_bytes,
     unpadded_row_size_in_bytes,
 )
