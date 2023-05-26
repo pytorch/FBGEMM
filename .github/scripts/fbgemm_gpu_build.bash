@@ -244,6 +244,10 @@ run_fbgemm_gpu_postbuild_checks () {
 
   # Print info for only the first instance of the .SO file, since the build makes multiple copies
   local library="${fbgemm_gpu_so_files[0]}"
+
+  echo "[CHECK] Listing out library size: ${library}"
+  print_exec "du -h --block-size=1M ${library}"
+
   echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
   print_glibc_info "${library}"
 

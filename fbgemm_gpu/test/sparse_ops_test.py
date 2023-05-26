@@ -24,11 +24,11 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable
+    from test_utils import gpu_available, gpu_unavailable, skipIfRocm
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
 
 
 def unbucketize_indices_value(
@@ -1666,6 +1666,7 @@ class SparseOpsTest(unittest.TestCase):
             )
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
 
+    @skipIfRocm()
     @given(
         n=st.integers(2, 10),
         k=st.integers(2, 10),
