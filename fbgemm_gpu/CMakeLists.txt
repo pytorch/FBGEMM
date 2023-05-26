@@ -175,7 +175,6 @@ set(COMMON_OPTIMIZERS
     partial_rowwise_adam
     partial_rowwise_lamb
     rowwise_adagrad
-    rowwise_adagrad_with_weight_decay
     rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
     sgd)
@@ -183,7 +182,8 @@ set(COMMON_OPTIMIZERS
 # To be populated in the subsequent diffs
 set(CPU_ONLY_OPTIMIZERS "")
 
-set(GPU_ONLY_OPTIMIZERS "")
+set(GPU_ONLY_OPTIMIZERS
+  rowwise_adagrad_with_weight_decay)
 
 set(DEPRECATED_OPTIMIZERS "")
 
