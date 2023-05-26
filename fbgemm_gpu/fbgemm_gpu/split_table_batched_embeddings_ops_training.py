@@ -206,6 +206,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
+        momentum_dtype: SparseType = SparseType.FP32,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -441,21 +442,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # NOTE: make TorchScript work!
             self._register_nonpersistent_buffers("momentum1")
         else:
+            rowwise = optimizer in [
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.ROWWISE_ADAGRAD,
+                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+            ]
             self._apply_split(
                 construct_split_state(
                     embedding_specs,
-                    rowwise=optimizer
-                    in [
-                        OptimType.EXACT_ROWWISE_ADAGRAD,
-                        OptimType.ROWWISE_ADAGRAD,
-                        OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
-                    ],
+                    rowwise=rowwise,
                     cacheable=False,
                 ),
                 prefix="momentum1",
                 # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
                 #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
+                dtype=momentum_dtype.as_dtype() if not rowwise else torch.float32,
                 enforce_hbm=enforce_hbm,
             )
         if optimizer in (
@@ -464,17 +465,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.LAMB,
             OptimType.PARTIAL_ROWWISE_LAMB,
         ):
+            rowwise = optimizer in (
+                OptimType.PARTIAL_ROWWISE_ADAM,
+                OptimType.PARTIAL_ROWWISE_LAMB,
+            )
             self._apply_split(
                 construct_split_state(
                     embedding_specs,
-                    rowwise=optimizer
-                    in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
+                    rowwise=rowwise,
                     cacheable=False,
                 ),
                 prefix="momentum2",
                 # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
                 #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
+                dtype=momentum_dtype.as_dtype() if not rowwise else torch.float32,
             )
         else:
             # NOTE: make TorchScript work!
