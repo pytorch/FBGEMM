@@ -2393,6 +2393,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         use_cpu: bool,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,
+        uvm_non_rowwise_momentum: bool = False,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
@@ -2572,6 +2573,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ],
             optimizer=optimizer,
             pooling_mode=pooling_mode,
+            uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
             # pyre-fixme[6]: Expected `CacheAlgorithm` for 5th param but got `float`.
             **optimizer_kwargs,
         )
@@ -3003,6 +3005,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
+        uvm_non_rowwise_momentum=st.booleans(),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -3024,6 +3027,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: PoolingMode,
         use_cpu: bool,
+        uvm_non_rowwise_momentum: bool,
     ) -> None:
         self.execute_backward_optimizers_(
             T,
@@ -3037,6 +3041,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             long_segments,
             pooling_mode,
             use_cpu,
+            uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
         )
 
     @given(

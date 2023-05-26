@@ -103,6 +103,7 @@ def construct_split_state(
     cacheable: bool,
     precision: SparseType = SparseType.FP32,
     int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET,
+    placement: Optional[EmbeddingLocation] = None,
 ) -> SplitState:
     placements: List[EmbeddingLocation] = []
     offsets: List[int] = []
@@ -116,6 +117,7 @@ def construct_split_state(
         if precision == SparseType.INT8:
             embedding_dim += int8_emb_row_dim_offset
         state_size = num_embeddings * embedding_dim if not rowwise else num_embeddings
+        location = placement if placement is not None else location
         if location == EmbeddingLocation.HOST:
             placements.append(EmbeddingLocation.HOST)
             offsets.append(host_size)
@@ -206,6 +208,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
+        uvm_non_rowwise_momentum: bool = False,  # place non-rowwise momentum on UVM
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -441,16 +444,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # NOTE: make TorchScript work!
             self._register_nonpersistent_buffers("momentum1")
         else:
+            rowwise = optimizer in [
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.ROWWISE_ADAGRAD,
+                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+            ]
             self._apply_split(
                 construct_split_state(
                     embedding_specs,
-                    rowwise=optimizer
-                    in [
-                        OptimType.EXACT_ROWWISE_ADAGRAD,
-                        OptimType.ROWWISE_ADAGRAD,
-                        OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
-                    ],
+                    rowwise=rowwise,
                     cacheable=False,
+                    placement=EmbeddingLocation.MANAGED
+                    if ((not rowwise) and uvm_non_rowwise_momentum)
+                    else None,
                 ),
                 prefix="momentum1",
                 # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
@@ -464,12 +470,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.LAMB,
             OptimType.PARTIAL_ROWWISE_LAMB,
         ):
+            rowwise = optimizer in (
+                OptimType.PARTIAL_ROWWISE_ADAM,
+                OptimType.PARTIAL_ROWWISE_LAMB,
+            )
             self._apply_split(
                 construct_split_state(
                     embedding_specs,
-                    rowwise=optimizer
-                    in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
+                    rowwise=rowwise,
                     cacheable=False,
+                    placement=EmbeddingLocation.MANAGED
+                    if ((not rowwise) and uvm_non_rowwise_momentum)
+                    else None,
                 ),
                 prefix="momentum2",
                 # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
