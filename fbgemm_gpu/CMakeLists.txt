@@ -78,6 +78,9 @@ BLOCK_PRINT(
   "${CMAKE_CXX_FLAGS}"
 )
 
+# Strip all symbols from the .SO file after building
+add_link_options($<$<CONFIG:RELEASE>:-s>)
+
 
 ################################################################################
 # FBGEMM_GPU Build Kickstart
