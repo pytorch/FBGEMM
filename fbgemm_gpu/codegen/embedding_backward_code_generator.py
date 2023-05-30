@@ -631,8 +631,8 @@ def rowwise_adagrad() -> None:
         split_weight_update=approx_split_weight_update,
         split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
-        has_cpu_support=True,
-        has_gpu_support=True,
+        has_cpu_support=False,
+        has_gpu_support=False,
         has_vbe_support=False,
     )
 
@@ -939,8 +939,8 @@ def rowwise_adagrad_with_counter() -> None:
         split_weight_update=approx_split_weight_update,
         split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
-        has_cpu_support=True,
-        has_gpu_support=True,
+        has_cpu_support=False,
+        has_gpu_support=False,
         has_vbe_support=False,
     )
 
