@@ -352,6 +352,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             enforce_hbm=enforce_hbm,
         )
 
+        assert optimizer not in (
+            OptimType.SGD,
+        ), f"Optimizer {optimizer} is deprecated in the CPU + GPU modes."
+
         if self.use_cpu:
             # Construct optimizer states
             assert optimizer in (
@@ -360,8 +364,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_SGD,
                 OptimType.ROWWISE_ADAGRAD,
-                OptimType.SGD,
-            ), f"Optimizer {optimizer} is not supported in cpu mode."
+            ), f"Optimizer {optimizer} is not supported in CPU mode."
         else:
             assert optimizer in (
                 OptimType.ADAM,
@@ -373,7 +376,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.LARS_SGD,
                 OptimType.PARTIAL_ROWWISE_ADAM,
                 OptimType.PARTIAL_ROWWISE_LAMB,
-                OptimType.SGD,
             ), f"Optimizer {optimizer} is not supported."
 
         self.stochastic_rounding = stochastic_rounding
@@ -437,10 +439,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ),
         )
 
-        if optimizer in (
-            OptimType.SGD,
-            OptimType.EXACT_SGD,
-        ):
+        if optimizer in (OptimType.EXACT_SGD,):
             # NOTE: make TorchScript work!
             self._register_nonpersistent_buffers("momentum1")
         else:
@@ -723,9 +722,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.EXACT_SGD:
             return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
-        elif self.optimizer == OptimType.SGD:
-            assert self.use_cpu, "Approx SGD is only supported in CPU mode"
-            return invokers.lookup_approx_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
             # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
@@ -1212,10 +1208,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return splits
 
         states: List[List[torch.Tensor]] = []
-        if self.optimizer not in (
-            OptimType.SGD,
-            OptimType.EXACT_SGD,
-        ):
+        if self.optimizer not in (OptimType.EXACT_SGD,):
             states.append(
                 get_optimizer_states(
                     # pyre-fixme[6]: Expected `Tensor` for 1st param but got
