@@ -783,19 +783,19 @@ TEST_P(fbgemmPackUnpackAcc32Test, TestPackUnpack) {
   bool test_ld;
   tie(btrans, test_ld) = GetParam();
 
-  BlockingFactors params;
-  params.MCB = 48;
-  params.NCB = 16;
-  params.KCB = 256;
-  params.MR = 1;
-  params.NR = 16;
-  params.ROW_INTERLEAVE = 4;
-  params.NR_MIN = 16;
+  BlockingFactors params{
+      .MR = 1,
+      .NR = 16,
+      .NR_MIN = 16,
+      .ROW_INTERLEAVE = 4,
+      .MCB = 48,
+      .KCB = 256,
+      .NCB = 16};
   vector<BlockingFactors*> vec_params_ptr = {&params, nullptr};
 
-  for (auto shape : shapes) {
+  for (const auto& shape : shapes) {
     for (int groups : {1, 3, 4}) {
-      for (auto params_ptr : vec_params_ptr) {
+      for (const auto& params_ptr : vec_params_ptr) {
         int n = shape[1];
         int k = shape[2];
 
