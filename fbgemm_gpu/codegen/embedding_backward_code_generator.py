@@ -1273,7 +1273,7 @@ def adam() -> None:
         split_weight_update=split_weight_update,
         split_post_update="",
         split_weight_update_cpu=split_weight_update_cpu,
-        has_cpu_support=True,
+        has_cpu_support=False,
         has_gpu_support=True,
         has_vbe_support=False,
     )
