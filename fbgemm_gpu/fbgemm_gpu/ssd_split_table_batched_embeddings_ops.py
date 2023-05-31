@@ -443,6 +443,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=lxu_cache_locations,
+            vbe_metadata=invokers.lookup_args.VBEMetadata(
+                B_offsets=None,
+                output_offsets_feature_rank=None,
+                B_offsets_rank_per_feature=None,
+                max_B=-1,
+                max_B_feature_rank=-1,
+                output_size=-1,
+            ),
         )
 
         momentum1 = invokers.lookup_args.Momentum(

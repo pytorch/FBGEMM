@@ -45,15 +45,19 @@ def to_device(t: Deviceable, use_cpu: bool) -> Deviceable:
 # Merged indices with shape (T, B, L) -> (flattened indices with shape
 # (T * B * L), offsets with shape (T * B + 1))
 def get_table_batched_offsets_from_dense(
-    merged_indices: torch.Tensor, use_cpu: bool = False
+    merged_indices: torch.Tensor,
+    L: Optional[int] = None,
+    total_B: Optional[int] = None,
+    use_cpu: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    (T, B, L) = merged_indices.size()
-    lengths = np.ones((T, B)) * L
-    flat_lengths = lengths.flatten()
+    if L is None and total_B is None:
+        (T, B, L) = merged_indices.size()
+        total_B = T * B
+    lengths = np.ones(total_B) * L
     return (
         to_device(merged_indices.contiguous().view(-1), use_cpu),
         to_device(
-            torch.tensor(([0] + np.cumsum(flat_lengths).tolist())).long(),
+            torch.tensor(([0] + np.cumsum(lengths).tolist())).long(),
             use_cpu,
         ),
     )
