@@ -162,6 +162,7 @@ def invoke(
     {% endif %}
 
     {% if has_gpu_support %}
+    vbe_metadata = common_args.vbe_metadata
     return torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function(
         # common_args
         {% if not dense %}
@@ -183,6 +184,13 @@ def invoke(
         indice_weights=common_args.indice_weights,
         feature_requires_grad=common_args.feature_requires_grad,
         lxu_cache_locations=common_args.lxu_cache_locations,
+        # VBE metadata
+        B_offsets=vbe_metadata.B_offsets,
+        vbe_output_offsets_feature_rank=vbe_metadata.output_offsets_feature_rank,
+        vbe_B_offsets_rank_per_feature=vbe_metadata.B_offsets_rank_per_feature,
+        max_B=vbe_metadata.max_B,
+        max_B_feature_rank=vbe_metadata.max_B_feature_rank,
+        vbe_output_size=vbe_metadata.output_size,
         # optimizer_args
         gradient_clipping = optimizer_args.gradient_clipping,
         max_gradient=optimizer_args.max_gradient,

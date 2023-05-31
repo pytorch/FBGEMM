@@ -10,6 +10,15 @@ from typing import NamedTuple, Optional
 import torch
 
 
+class VBEMetadata(NamedTuple):
+    B_offsets: Optional[torch.Tensor]
+    output_offsets_feature_rank: Optional[torch.Tensor]
+    B_offsets_rank_per_feature: Optional[torch.Tensor]
+    max_B_feature_rank: int = -1
+    max_B: int = -1
+    output_size: int = -1
+
+
 class CommonArgs(NamedTuple):
     placeholder_autograd_tensor: torch.Tensor
     dev_weights: torch.Tensor
@@ -30,6 +39,7 @@ class CommonArgs(NamedTuple):
     feature_requires_grad: Optional[torch.Tensor]
     lxu_cache_locations: torch.Tensor
     output_dtype: int
+    vbe_metadata: VBEMetadata
 
 
 class OptimizerArgs(NamedTuple):
