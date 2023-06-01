@@ -1139,7 +1139,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def split_embedding_weights(
-        self, split_scale_shifts: bool = True
+        self,
+        # When true, return list of two tensors, the first with weights and
+        # the second with scale_bias.
+        # This should've been named as split_scale_bias.
+        # Keep as is for backward compatibility.
+        split_scale_shifts: bool = True,
     ) -> List[Tuple[Tensor, Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
@@ -1201,6 +1206,78 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     )
             else:
                 splits.append((weights_shifts, None))
+
+        return splits
+
+    @torch.jit.export
+    def split_embedding_weights_with_separate_scale_and_bias(
+        self,
+    ) -> List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]]:
+        """
+        Returns a list of weights, split by table
+        """
+        assert self.weight_initialized
+        splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = []
+        for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
+            placement = self.weights_physical_placements[t]
+            if placement == EmbeddingLocation.DEVICE.value:
+                weights = self.weights_dev
+            elif placement == EmbeddingLocation.HOST.value:
+                weights = self.weights_host
+            else:
+                weights = self.weights_uvm
+            offset = self.weights_physical_offsets[t]
+            weights_shifts = weights.detach()[
+                offset : offset
+                + rows
+                * rounded_row_size_in_bytes(
+                    dim, weight_ty, self.row_alignment, self.scale_bias_size_in_bytes
+                )
+            ].view(
+                rows,
+                rounded_row_size_in_bytes(
+                    dim, weight_ty, self.row_alignment, self.scale_bias_size_in_bytes
+                ),
+            )
+
+            # remove the padding at the end of each row.
+            weights_shifts = weights_shifts[
+                :,
+                : unpadded_row_size_in_bytes(
+                    dim, weight_ty, self.scale_bias_size_in_bytes
+                ),
+            ]
+            if (
+                weight_ty == SparseType.INT8
+                or weight_ty == SparseType.INT4
+                or weight_ty == SparseType.INT2
+            ):
+                splits.append(
+                    (
+                        weights_shifts[:, self.scale_bias_size_in_bytes :],  # weights
+                        weights_shifts[
+                            :, : self.scale_bias_size_in_bytes // 2
+                        ],  # scale
+                        weights_shifts[
+                            :,
+                            self.scale_bias_size_in_bytes
+                            // 2 : self.scale_bias_size_in_bytes,
+                        ],  # bias
+                    )
+                )
+            else:
+                assert (
+                    weight_ty == SparseType.FP8
+                    or weight_ty == SparseType.FP16
+                    or weight_ty == SparseType.FP32
+                )
+                splits.append(
+                    (
+                        weights_shifts,
+                        None,
+                        None,
+                    )
+                )
 
         return splits
 
