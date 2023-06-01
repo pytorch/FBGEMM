@@ -129,6 +129,7 @@ def format_ref_tensors_in_mixed_B_layout(
     num_ranks = len(Bs_rank_feature[0])
     split_tensors = [[] for _ in range(num_ranks)]  # shape (rank, table)
     for t, ref_tensor in enumerate(ref_tensors):
+        assert ref_tensor.shape[0] == sum(Bs_rank_feature[t])
         tensors = ref_tensor.split(Bs_rank_feature[t])
         for r, tensor in enumerate(tensors):
             split_tensors[r].append(tensor.flatten())
@@ -1484,7 +1485,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xs = [
             to_device(
                 torch.from_numpy(
-                    np.random.choice(range(Es[t]), size=(B, L), replace=True).astype(
+                    np.random.choice(range(Es[t]), size=(b, L), replace=True).astype(
                         np.int64
                     )
                 ),
@@ -1864,7 +1865,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         xs = [
             to_device(
                 torch.from_numpy(
-                    np.random.choice(range(Es[t]), size=(B, L), replace=True).astype(
+                    np.random.choice(range(Es[t]), size=(b, L), replace=True).astype(
                         np.int64
                     )
                 ),
