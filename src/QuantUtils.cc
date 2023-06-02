@@ -212,13 +212,13 @@ void ChooseRequantizationMultiplier(
       dst[i] = Quantize<T, LEGACY>(src[i], qparams);                \
     }                                                               \
   }
+
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t, true)
 FBGEMM_SPECIALIZED_QUANTIZE(int16_t, true)
 FBGEMM_SPECIALIZED_QUANTIZE(int32_t, true)
 FBGEMM_SPECIALIZED_QUANTIZE(uint16_t, false)
 FBGEMM_SPECIALIZED_QUANTIZE(int16_t, false)
 FBGEMM_SPECIALIZED_QUANTIZE(int32_t, false)
-#undef FBGEMM_SPECIALIZED_QUANTIZE
 
 #define FBGEMM_SPECIALIZED_QUANTIZE_AVX2(T, LEGACY)                     \
   template <>                                                           \
@@ -244,11 +244,37 @@ FBGEMM_SPECIALIZED_QUANTIZE(int32_t, false)
     }                                                                   \
   }
 
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t, true)
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, true)
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(int8_t, false)
 FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
+#else
+FBGEMM_SPECIALIZED_QUANTIZE(int8_t, true)
+FBGEMM_SPECIALIZED_QUANTIZE(uint8_t, true)
+FBGEMM_SPECIALIZED_QUANTIZE(int8_t, false)
+FBGEMM_SPECIALIZED_QUANTIZE(uint8_t, false)
+#endif
+
+#undef FBGEMM_SPECIALIZED_QUANTIZE
 #undef FBGEMM_SPECIALIZED_QUANTIZE_AVX2
+
+#define FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE(T)             \
+  template <>                                                       \
+  FBGEMM_API void FusedQuantizeDequantize<T>(                       \
+      const float* src,                                             \
+      float* dst,                                                   \
+      int64_t len,                                                  \
+      const TensorQuantizationParams& qparams,                      \
+      int thread_id,                                                \
+      int num_threads,                                              \
+      float noise_ratio) {                                          \
+    int64_t i_begin, i_end;                                         \
+    fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
+    for (int64_t i = i_begin; i < i_end; ++i) {                     \
+      dst[i] = FusedQuantizeDequantize<T>(src[i], qparams);         \
+    }                                                               \
+  }
 
 #define FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2(T)            \
   template <>                                                           \
@@ -277,8 +303,14 @@ FBGEMM_SPECIALIZED_QUANTIZE_AVX2(uint8_t, false)
     }                                                                   \
   }
 
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2(int8_t)
 FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2(uint8_t)
+#else
+FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE(int8_t)
+FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE(uint8_t)
+#endif
+#undef FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE
 #undef FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2
 
 #define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(T)                \
@@ -310,6 +342,7 @@ FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2(uint8_t)
       }                                                           \
     }                                                             \
   }
+
 FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(int8_t)
 FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(int32_t)
 #undef FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX
@@ -336,11 +369,13 @@ FBGEMM_API void QuantizeGroupwise<uint8_t, layout_t::KCX>(
       qparams.scale = scales[g];
       qparams.zero_point = zero_points[g];
       if (takeFastPath) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
         QuantizeAvx2(
             src + (i * C + g * C_per_G) * X,
             dst + (i * C + g * C_per_G) * X,
             C_per_G * X,
             qparams);
+#endif
       } else {
         for (int c = 0; c < C / G; ++c) {
           for (int x = 0; x < X; ++x) {
@@ -433,7 +468,9 @@ FBGEMM_API void Requantize<uint8_t>(
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
       fbgemmHasAvx2Support()) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     RequantizeAvx2(&src[i_begin], &dst[i_begin], i_end - i_begin, params);
+#endif
   } else {
     for (int64_t i = i_begin; i < i_end; ++i) {
       dst[i] = Requantize<uint8_t>(src[i], params);
@@ -453,8 +490,10 @@ FBGEMM_API void RequantizeFixedPoint(
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   if (std::is_same<T, uint8_t>::value && params.target_qparams.precision == 8 &&
       cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     RequantizeFixedPointAvx2(
         &src[i_begin], &dst[i_begin], i_end - i_begin, params);
+#endif
   } else {
     for (int64_t i = i_begin; i < i_end; ++i) {
       dst[i] = RequantizeFixedPoint<T>(src[i], params);
@@ -494,8 +533,10 @@ FBGEMM_API void RequantizeFixedPoint<uint8_t>(
 
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
       fbgemmHasAvx2Support()) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     RequantizeFixedPointAvx2(
         &src[i_begin], &dst[i_begin], i_end - i_begin, params);
+#endif
   } else {
     for (int64_t i = i_begin; i < i_end; ++i) {
       dst[i] = RequantizeFixedPoint<uint8_t>(src[i], params);
@@ -510,6 +551,10 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     size_t input_rows,
     int input_columns,
     std::uint8_t* output) {
+  if (input_rows == 0 || input_columns == 0) {
+    return;
+  }
+
   static_assert(
       std::is_same<InputType, float>() || std::is_same<InputType, float16>(),
       "Only float and float16 types are allowed.");
@@ -594,6 +639,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
   }
 
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     switch (bit_rate) {
       case 2:
         FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2<InputType, 2>(
@@ -611,6 +657,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
         FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<InputType>(
             bit_rate, input, input_rows, input_columns, output);
     }
+#endif
   } else {
     FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef<InputType>(
         bit_rate, input, input_rows, input_columns, output);
@@ -624,6 +671,10 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
     int input_columns,
     std::uint8_t* output) {
   constexpr float kEpsilon = 1e-8f;
+
+  if (input_rows == 0 || input_columns == 0) {
+    return;
+  }
 
   int output_columns = input_columns + 2 * sizeof(float);
   std::vector<float> input_row_float(input_columns);
@@ -664,8 +715,10 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloat(
     int input_columns,
     std::uint8_t* output) {
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2<InputType>(
         input, input_rows, input_columns, output);
+#endif
   } else {
     FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef<InputType>(
         input, input_rows, input_columns, output);
@@ -717,6 +770,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
     int input_columns,
     OutputType* output) {
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     switch (bit_rate) {
       case 2:
         FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2<OutputType, 2>(
@@ -734,6 +788,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
         FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
             bit_rate, input, input_rows, input_columns, output);
     }
+#endif
   } else {
     FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<OutputType>(
         bit_rate, input, input_rows, input_columns, output);
@@ -773,8 +828,10 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     int input_columns,
     OutputType* output) {
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<OutputType>(
         input, input_rows, input_columns, output);
+#endif
   } else {
     Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<OutputType>(
         input, input_rows, input_columns, output);
