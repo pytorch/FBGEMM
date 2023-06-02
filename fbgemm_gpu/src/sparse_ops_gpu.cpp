@@ -175,9 +175,7 @@ class IndexSelectDim0GPUOp
       const int consecutive_range_start,
       const int consecutive_range_length,
       const bool skip_indices_sorting_fwd) {
-    TENSOR_ON_CUDA_GPU(input);
-    TENSOR_ON_CUDA_GPU(indices);
-    TENSORS_ON_SAME_DEVICE(input, indices);
+    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input, indices);
     // Expect a 1D index tensor
     TORCH_CHECK(indices.dim() == 1, "Index tensor must be 1D")
 
@@ -223,8 +221,7 @@ class IndexSelectDim0GPUOp
       sorted_indices = *savedItr++;
       orig_indices = *savedItr++;
     }
-    TENSOR_ON_CUDA_GPU(sorted_indices);
-    TENSOR_ON_CUDA_GPU(orig_indices);
+    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(sorted_indices, orig_indices);
     Tensor grad_output = grad_outputs[0];
     TENSORS_ON_SAME_DEVICE(grad_output, sorted_indices);
     auto input_shape = ctx->saved_data["input_shape"].toIntVector();
@@ -308,9 +305,7 @@ class GroupIndexSelectDim0GPUOp
           "All inputs in group_index_select must have the same number of dimensions");
 
       // Verify that all tensors are on the same GPU
-      TENSOR_ON_CUDA_GPU(input);
-      TENSOR_ON_CUDA_GPU(indices);
-      TENSORS_ON_SAME_DEVICE(input, indices);
+      TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input, indices);
 
       auto num_output_rows_ = indices.size(0);
 

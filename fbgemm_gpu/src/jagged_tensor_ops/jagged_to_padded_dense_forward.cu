@@ -288,9 +288,7 @@ std::vector<Tensor> stacked_jagged_2d_to_dense_gpu(
     const std::vector<int64_t>& offset_per_key,
     const std::vector<int64_t>& max_lengths_per_key,
     int64_t padding_value) {
-  TENSOR_ON_CUDA_GPU(values);
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSORS_ON_SAME_DEVICE(values, lengths);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(values, lengths);
   TORCH_CHECK(values.dim() == 2);
   TORCH_CHECK(lengths.dim() == 2);
   return StackedJagged2DToDenseGPUOp::apply(

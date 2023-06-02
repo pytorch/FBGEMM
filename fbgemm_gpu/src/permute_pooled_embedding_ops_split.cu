@@ -29,10 +29,8 @@ Tensor permute_pooled_embs_split_gpu(
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list) {
   // inv_permute_list is not being used so it's not checked here.
-  TENSOR_ON_CUDA_GPU(pooled_embs);
-  TENSOR_ON_CUDA_GPU(offset_dim_list);
-  TENSOR_ON_CUDA_GPU(permute_list);
-  TENSOR_ON_CUDA_GPU(inv_offset_dim_list);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      pooled_embs, offset_dim_list, permute_list, inv_offset_dim_list);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(pooled_embs.get_device());

@@ -119,24 +119,19 @@ void embedding_inplace_update_cuda(
     const int64_t row_alignment,
     c10::optional<Tensor> lxu_cache_weights,
     c10::optional<Tensor> lxu_cache_locations) {
-  TENSOR_ON_CUDA_GPU(dev_weights);
-  TENSOR_ON_CUDA_GPU(uvm_weights);
-  TENSOR_ON_CUDA_GPU(weights_placements);
-  TENSOR_ON_CUDA_GPU(weights_offsets);
-  TENSOR_ON_CUDA_GPU(weights_tys);
-  TENSOR_ON_CUDA_GPU(D_offsets);
-
-  TENSOR_ON_CUDA_GPU(update_weights);
-  TENSOR_ON_CUDA_GPU(update_offsets);
-  TENSOR_ON_CUDA_GPU(update_table_idx);
-  TENSOR_ON_CUDA_GPU(update_row_idx);
-
-  if (lxu_cache_weights.has_value()) {
-    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
-  }
-  if (lxu_cache_locations.has_value()) {
-    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
-  }
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      dev_weights,
+      uvm_weights,
+      weights_placements,
+      weights_offsets,
+      weights_tys,
+      D_offsets,
+      update_weights,
+      update_offsets,
+      update_table_idx,
+      update_row_idx,
+      lxu_cache_weights,
+      lxu_cache_locations);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(dev_weights.get_device());
@@ -226,10 +221,11 @@ Tensor pruned_array_lookup_from_row_idx_cuda(
     const Tensor& update_table_indices,
     const Tensor& index_remappings,
     const Tensor& index_remappings_offsets) {
-  TENSOR_ON_CUDA_GPU(update_row_indices);
-  TENSOR_ON_CUDA_GPU(update_table_indices);
-  TENSOR_ON_CUDA_GPU(index_remappings);
-  TENSOR_ON_CUDA_GPU(index_remappings_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      update_row_indices,
+      update_table_indices,
+      index_remappings,
+      index_remappings_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(update_table_indices.get_device());

@@ -182,12 +182,8 @@ void bounds_check_indices_cuda(
     const c10::optional<Tensor>& weights,
     const c10::optional<Tensor>& B_offsets,
     const int64_t max_B) {
-  TENSOR_ON_CUDA_GPU(rows_per_table);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(offsets);
-  TENSOR_ON_CUDA_GPU(warning);
-  TENSOR_EMPTY_OR_ON_CUDA_GPU(weights);
-  TENSOR_EMPTY_OR_ON_CUDA_GPU(B_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      rows_per_table, indices, offsets, warning, weights, B_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(rows_per_table.get_device());
