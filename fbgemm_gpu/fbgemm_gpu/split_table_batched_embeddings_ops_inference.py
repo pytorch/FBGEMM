@@ -21,6 +21,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheState,
     construct_cache_state,
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    DEFAULT_SCALE_SIZE_IN_BYTES,
     EmbeddingLocation,
     MAX_PREFETCH_DEPTH,
     PoolingMode,
@@ -176,6 +177,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.current_device = torch.device(device)
         self.use_cpu: bool = self.current_device.type == "cpu"
 
+        assert scale_bias_size_in_bytes >= DEFAULT_SCALE_BIAS_SIZE_IN_BYTES
         self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
@@ -1139,13 +1141,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def split_embedding_weights(
-        self, split_scale_shifts: bool = True
-    ) -> List[Tuple[Tensor, Optional[Tensor]]]:
+        self, split_scale_shifts: bool = True, split_scale_and_shift: bool = False
+    ) -> List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]]:
         """
         Returns a list of weights, split by table
         """
         assert self.weight_initialized
-        splits: List[Tuple[Tensor, Optional[Tensor]]] = []
+        splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = []
         for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
             placement = self.weights_physical_placements[t]
             if placement == EmbeddingLocation.DEVICE.value:
@@ -1181,26 +1183,37 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     or weight_ty == SparseType.INT4
                     or weight_ty == SparseType.INT2
                 ):
-                    splits.append(
-                        (
-                            weights_shifts[:, self.scale_bias_size_in_bytes :],
-                            weights_shifts[:, : self.scale_bias_size_in_bytes],
+                    if split_scale_and_shift:
+                        assert (
+                            self.scale_bias_size_in_bytes == DEFAULT_SCALE_SIZE_IN_BYTES
+                        ), f"split_scale_and_shift mode can be used only scale_bias_size_in_bytes({self.scale_bias_size_in_bytes}) is default {DEFAULT_SCALE_SIZE_IN_BYTES}"
+                        splits.append(
+                            (
+                                weights_shifts[:, DEFAULT_SCALE_SIZE_IN_BYTES:],
+                                weights_shifts[:, :DEFAULT_SCALE_SIZE_IN_BYTES],
+                                weights_shifts[
+                                    :,
+                                    DEFAULT_SCALE_SIZE_IN_BYTES:DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+                                ],
+                            )
                         )
-                    )
+                    else:
+                        splits.append(
+                            (
+                                weights_shifts[:, self.scale_bias_size_in_bytes :],
+                                weights_shifts[:, : self.scale_bias_size_in_bytes],
+                                None,
+                            )
+                        )
                 else:
                     assert (
                         weight_ty == SparseType.FP8
                         or weight_ty == SparseType.FP16
                         or weight_ty == SparseType.FP32
                     )
-                    splits.append(
-                        (
-                            weights_shifts,
-                            None,
-                        )
-                    )
+                    splits.append((weights_shifts, None, None))
             else:
-                splits.append((weights_shifts, None))
+                splits.append((weights_shifts, None, None))
 
         return splits
 
