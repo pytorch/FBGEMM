@@ -496,7 +496,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         xws_acc_type = copy.deepcopy(xws)
 
         for t in range(T):
-            (weights, scale_shift) = emb.split_embedding_weights()[t]
+            (weights, scale_shift, _) = emb.split_embedding_weights()[t]
 
             if scale_shift is not None:
                 (E, R) = scale_shift.shape

@@ -18,7 +18,11 @@ MAX_PREFETCH_DEPTH = 100
 
 # GPU and CPU use 16-bit scale and bias for quantized embedding bags in TBE
 # The total size is 2 + 2 = 4 bytes
-DEFAULT_SCALE_BIAS_SIZE_IN_BYTES = 4
+DEFAULT_SCALE_SIZE_IN_BYTES: int = 2
+DEFAULT_BIAS_SIZE_IN_BYTES: int = 2
+DEFAULT_SCALE_BIAS_SIZE_IN_BYTES: int = (
+    DEFAULT_SCALE_SIZE_IN_BYTES + DEFAULT_BIAS_SIZE_IN_BYTES
+)
 
 
 class EmbeddingLocation(enum.IntEnum):
