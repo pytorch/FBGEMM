@@ -1014,25 +1014,36 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # sync weights between two ops
         split_weights = op.split_embedding_weights()
+        split_weights_with_separate_scale_and_bias = (
+            op.split_embedding_weights_with_separate_scale_and_bias()
+        )
         ref_split_weights = op_ref.split_embedding_weights()
         for t in range(T):
-            (weights, scale_shift) = split_weights[t]
-            (ref_weights, ref_scale_shift) = ref_split_weights[t]
+            (weights, scale_bias) = split_weights[t]
+            (weights2, scale, bias) = split_weights_with_separate_scale_and_bias[t]
+            (ref_weights, ref_scale_bias) = ref_split_weights[t]
             self.assertEqual(weights.size(), ref_weights.size())
+            torch.testing.assert_close(weights2, weights)
+            if scale is None:
+                self.assertIsNone(scale_bias)
+                self.assertIsNone(bias)
+            else:
+                torch.testing.assert_close(scale, scale_bias[:, : scale_bias.size(1) // 2])
+                torch.testing.assert_close(bias, scale_bias[:, scale_bias.size(1) // 2 :])
             element_size = weights_ty_list[t].bit_rate() / 8.0
             rand_tensor = torch.rand(
                 ref_weights.shape[0], int(ref_weights.shape[1] / element_size)
             )
-            rand_weights, rand_scale_shift = quantize_embs(
+            rand_weights, rand_scale_bias = quantize_embs(
                 rand_tensor, weights_ty_list[t]
             )
             ref_weights.copy_(rand_weights)
             weights.copy_(ref_weights)
-            if rand_scale_shift is not None:
-                self.assertIsNotNone(scale_shift)
-                self.assertIsNotNone(ref_scale_shift)
-                ref_scale_shift.copy_(rand_scale_shift)
-                scale_shift.copy_(ref_scale_shift)
+            if rand_scale_bias is not None:
+                self.assertIsNotNone(scale_bias)
+                self.assertIsNotNone(ref_scale_bias)
+                ref_scale_bias.copy_(rand_scale_bias)
+                scale_bias.copy_(ref_scale_bias)
 
         requests = generate_requests(1, B, T, L, min(Es), reuse=0.1)
         for indices, offsets, _ in requests:
