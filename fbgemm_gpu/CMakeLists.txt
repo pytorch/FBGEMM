@@ -168,7 +168,6 @@ file(GLOB_RECURSE asmjit_sources
 
 set(COMMON_OPTIMIZERS
     adagrad
-    partial_rowwise_lamb
     rowwise_adagrad
     rowwise_adagrad_with_counter
     rowwise_weighted_adagrad
@@ -181,6 +180,7 @@ set(GPU_ONLY_OPTIMIZERS
   adam
   lamb
   partial_rowwise_adam
+  partial_rowwise_lamb
   lars_sgd
   rowwise_adagrad_with_weight_decay
   approx_rowwise_adagrad_with_weight_decay)
