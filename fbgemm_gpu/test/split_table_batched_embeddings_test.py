@@ -1081,6 +1081,127 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 equal_nan=True,
             )
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
+        output_dtype=st.sampled_from(
+            [
+                SparseType.FP16,
+                SparseType.BF16,
+                SparseType.INT8,
+            ]
+        )
+        if not TEST_WITH_ROCM
+        else st.sampled_from(
+            [
+                SparseType.FP16,
+                # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
+                SparseType.INT8,
+            ]
+        ),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_nbit_split_embedding_weights_with_scale_and_bias(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_ty: SparseType,
+        output_dtype: SparseType,
+    ) -> None:
+        D_alignment = max(weights_ty.align_size() for t in range(T))
+        D_alignment = max(D_alignment, output_dtype.align_size())
+        D = round_up(D, D_alignment)
+        # BF16 output only works for CUDA device sm80+ (e.g., A100)
+        assume(
+            torch.cuda.is_available()
+            and torch.cuda.get_device_capability() >= (8, 0)
+            or not output_dtype == SparseType.BF16
+        )
+        Ds = [
+            round_up(
+                np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+                D_alignment,
+            )
+            for _ in range(T)
+        ]
+        Ds = [D] * T
+        E = int(10**log_E)
+        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
+
+        weights_ty_list = [weights_ty] * T
+        managed = [EmbeddingLocation.DEVICE] * T
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    W_TY,
+                    EmbeddingLocation(M),
+                )
+                for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+            ],
+            output_dtype=output_dtype,
+            device=torch.cuda.current_device(),
+        )
+        # Initialize the random weights for int nbit table split embedding bag
+        op.fill_random_weights()
+
+        # sync weights between two ops
+        split_weights = op.split_embedding_weights()
+        split_weights_with_scale_bias = op.split_embedding_weights_with_scale_bias(
+            split_scale_bias_mode=2
+        )
+        for t in range(T):
+            (weights, scale_bias) = split_weights[t]
+            (weights2, scale, bias) = split_weights_with_scale_bias[t]
+            torch.testing.assert_close(weights2, weights)
+            if scale is None:
+                self.assertIsNone(scale_bias)
+                self.assertIsNone(bias)
+            else:
+                torch.testing.assert_close(
+                    scale.cpu(),
+                    torch.tensor(
+                        scale_bias[:, : scale_bias.size(1) // 2]
+                        .contiguous()
+                        .cpu()
+                        .numpy()
+                        .view(np.float16)
+                    ),
+                )
+                torch.testing.assert_close(
+                    bias.cpu(),
+                    torch.tensor(
+                        scale_bias[:, scale_bias.size(1) // 2 :]
+                        .contiguous()
+                        .cpu()
+                        .numpy()
+                        .view(np.float16)
+                    ),
+                )
+
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=128),
