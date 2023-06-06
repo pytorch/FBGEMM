@@ -184,34 +184,32 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
     {{ args.split_function_args | join(", ") }}) {
 
-    TENSOR_ON_CUDA_GPU(grad_output);
-    TENSOR_ON_CUDA_GPU(dev_weights);
-    {% if not dense %}
-    TENSOR_ON_CUDA_GPU(uvm_weights);
-    TENSOR_ON_CUDA_GPU(lxu_cache_weights);
-    TENSOR_ON_CUDA_GPU(weights_placements);
-    {% endif %}
-    {% if vbe %}
-    TENSOR_ON_CUDA_GPU(vbe_metadata.B_offsets);
-    TENSOR_ON_CUDA_GPU(vbe_metadata.output_offsets);
-    TENSOR_ON_CUDA_GPU(vbe_metadata.b_t_map);
-    TENSORS_ON_SAME_DEVICE(dev_weights, vbe_metadata.B_offsets);
-    TENSORS_ON_SAME_DEVICE(dev_weights, vbe_metadata.output_offsets);
-    TENSORS_ON_SAME_DEVICE(dev_weights, vbe_metadata.b_t_map);
-    {% endif %}
-    TENSOR_ON_CUDA_GPU(weights_offsets);
-    {% if not nobag %}
-    TENSOR_ON_CUDA_GPU(D_offsets);
-    {% endif %}
-    TENSOR_ON_CUDA_GPU(hash_size_cumsum);
-    TENSOR_ON_CUDA_GPU(indices);
-    TENSOR_ON_CUDA_GPU(offsets);
-    {% if weighted %}
-    TENSOR_ON_CUDA_GPU(indice_weights);
-    {% endif %}
-    {% if not dense %}
-    TENSOR_ON_CUDA_GPU(lxu_cache_locations);
-    {% endif %}
+   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+        dev_weights,
+        {% if not dense %}
+        uvm_weights,
+        lxu_cache_weights,
+        weights_placements,
+        {% endif %}
+        {% if vbe %}
+        vbe_metadata.B_offsets,
+        vbe_metadata.output_offsets,
+        vbe_metadata.b_t_map,
+        {% endif %}
+        weights_offsets,
+        {% if not nobag %}
+        D_offsets,
+        {% endif %}
+        hash_size_cumsum,
+        indices,
+        offsets,
+        {% if weighted %}
+        indice_weights,
+        {% endif %}
+        {% if not dense %}
+        lxu_cache_locations,
+        {% endif %}
+        grad_output);
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());

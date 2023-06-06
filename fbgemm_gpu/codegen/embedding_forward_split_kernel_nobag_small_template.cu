@@ -104,7 +104,7 @@ __launch_bounds__(kForwardMaxThreads) __global__ void
                 nullptr,
                 D,
                 nullptr);
-            float2 qparams_emb;
+            [[maybe_unused]] float2 qparams_emb;
             if (std::is_same<emb_t, uint8_t>::value) {
                 qparams_emb = weight_row_emb.load_qparams();
             }

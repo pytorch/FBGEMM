@@ -168,13 +168,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const int batch_size,
       const c10::optional<Tensor>& weights) {
     // TODO: Add weights support
-    TENSOR_ON_CUDA_GPU(lengths);
-    TENSOR_ON_CUDA_GPU(offsets);
-    TENSOR_ON_CUDA_GPU(values);
-    TENSOR_ON_CUDA_GPU(indices);
-    TENSORS_ON_SAME_DEVICE(lengths, indices);
-    TENSORS_ON_SAME_DEVICE(offsets, indices);
-    TENSORS_ON_SAME_DEVICE(values, indices);
+    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, offsets, values, indices);
     TORCH_CHECK(values.dim() == 1, "values must be a 1D tensor");
     TORCH_CHECK(lengths.dim() == 1, "lengths must be a 1D tensor");
     TORCH_CHECK(offsets.dim() == 1, "offsets must be a 1D tensor");

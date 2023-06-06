@@ -78,10 +78,8 @@ Tensor jagged_index_add_2d_forward_cuda(
     const Tensor& output_offsets,
     const int64_t num_dense_input_rows,
     const int64_t num_output_rows) {
-  TENSOR_ON_CUDA_GPU(values);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(input_offsets);
-  TENSOR_ON_CUDA_GPU(output_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      values, indices, input_offsets, output_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(values.get_device());
