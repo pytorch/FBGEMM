@@ -89,10 +89,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
     const Tensor& v,
     const Tensor& a_values,
     const Tensor& a_offsets) {
-  TENSOR_ON_CUDA_GPU(grad_output);
-  TENSOR_ON_CUDA_GPU(a_values);
-  TENSOR_ON_CUDA_GPU(a_offsets);
-  TENSOR_ON_CUDA_GPU(v);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(grad_output, a_values, a_offsets, v);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_output.get_device());

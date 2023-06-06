@@ -127,9 +127,8 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
     const Tensor& grad_output, // [B_local][Sum_T_global(D)]
     const Tensor& dim_sum_per_rank,
     const Tensor& cumsum_dim_sum_per_rank) {
-  TENSOR_ON_CUDA_GPU(grad_output);
-  TENSOR_ON_CUDA_GPU(dim_sum_per_rank);
-  TENSOR_ON_CUDA_GPU(cumsum_dim_sum_per_rank);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      grad_output, dim_sum_per_rank, cumsum_dim_sum_per_rank);
   TORCH_CHECK(grad_output.is_contiguous());
 
   at::cuda::OptionalCUDAGuard device_guard;

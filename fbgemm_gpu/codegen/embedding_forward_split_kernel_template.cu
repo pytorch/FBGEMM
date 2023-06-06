@@ -194,7 +194,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
                     nullptr,
                     D,
                     nullptr);
-                float2 qparams_emb;
+                [[maybe_unused]] float2 qparams_emb;
                 if (std::is_same<emb_t, uint8_t>::value) {
                     qparams_emb = weight_row_emb.load_qparams();
                 }

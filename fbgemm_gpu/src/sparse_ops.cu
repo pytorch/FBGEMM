@@ -171,10 +171,7 @@ Tensor segment_sum_csr_cuda(
     const int64_t batch_size,
     const Tensor& csr_seg,
     const Tensor& values) {
-  TENSOR_ON_CUDA_GPU(csr_seg);
-  TENSOR_ON_CUDA_GPU(values);
-
-  TENSORS_ON_SAME_DEVICE(csr_seg, values);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(csr_seg, values);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(values.get_device());
@@ -410,15 +407,8 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
     const Tensor& indices,
     const c10::optional<Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum) {
-  TENSOR_ON_CUDA_GPU(permute);
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(weights);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
   TORCH_CHECK(lengths.dim() == 2);
-
-  TENSORS_ON_SAME_DEVICE(permute, lengths);
-  TENSORS_ON_SAME_DEVICE(permute, indices);
-  TENSORS_ON_SAME_DEVICE(permute, weights);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
@@ -590,14 +580,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
     const Tensor& indices,
     const c10::optional<Tensor>& weights,
     const c10::optional<int64_t>& permuted_lengths_sum) {
-  TENSOR_ON_CUDA_GPU(permute);
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(weights);
-
-  TENSORS_ON_SAME_DEVICE(permute, lengths);
-  TENSORS_ON_SAME_DEVICE(permute, indices);
-  TENSORS_ON_SAME_DEVICE(permute, weights);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
@@ -772,12 +755,9 @@ Tensor expand_into_jagged_permute_cuda(
     const Tensor& input_offsets,
     const Tensor& output_offsets,
     int64_t output_size) {
-  TENSOR_ON_CUDA_GPU(permute);
-  TENSOR_ON_CUDA_GPU(input_offsets);
-  TENSOR_ON_CUDA_GPU(output_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      permute, input_offsets, output_offsets);
 
-  TENSORS_ON_SAME_DEVICE(permute, input_offsets);
-  TENSORS_ON_SAME_DEVICE(permute, output_offsets);
   TORCH_CHECK(permute.numel() > 0);
   TORCH_CHECK(permute.numel() == input_offsets.numel() - 1);
   TORCH_CHECK(permute.numel() == output_offsets.numel() - 1);
@@ -920,11 +900,7 @@ block_bucketize_sparse_features_cuda(
     Tensor block_sizes,
     int64_t my_size,
     c10::optional<Tensor> weights) {
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSORS_ON_SAME_DEVICE(lengths, indices);
-  TENSOR_ON_CUDA_GPU(weights);
-  TENSORS_ON_SAME_DEVICE(lengths, weights);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(lengths.get_device());
@@ -1387,11 +1363,7 @@ bucketize_sparse_features_cuda(
     const bool bucketize_pos,
     const int64_t my_size,
     const c10::optional<Tensor>& weights) {
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSORS_ON_SAME_DEVICE(lengths, indices);
-  TENSOR_ON_CUDA_GPU(weights);
-  TENSORS_ON_SAME_DEVICE(lengths, weights);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(lengths.get_device());
@@ -1594,9 +1566,7 @@ Tensor reorder_batched_ad_lengths_gpu(
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
     const bool broadcast_lengths) {
-  TENSOR_ON_CUDA_GPU(cat_ad_lengths);
-  TENSOR_ON_CUDA_GPU(batch_offsets);
-  TENSORS_ON_SAME_DEVICE(cat_ad_lengths, batch_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(cat_ad_lengths, batch_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_lengths.get_device());
@@ -1704,13 +1674,8 @@ Tensor reorder_batched_ad_indices_gpu(
     const int64_t num_ads_in_batch,
     const bool broadcast_indices,
     const int64_t num_indices_after_broadcast) {
-  TENSOR_ON_CUDA_GPU(cat_ad_offsets);
-  TENSOR_ON_CUDA_GPU(cat_ad_indices);
-  TENSOR_ON_CUDA_GPU(reordered_cat_ad_offsets);
-  TENSOR_ON_CUDA_GPU(batch_offsets);
-  TENSORS_ON_SAME_DEVICE(cat_ad_offsets, cat_ad_indices);
-  TENSORS_ON_SAME_DEVICE(cat_ad_offsets, reordered_cat_ad_offsets);
-  TENSORS_ON_SAME_DEVICE(cat_ad_offsets, batch_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      cat_ad_offsets, cat_ad_indices, reordered_cat_ad_offsets, batch_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(cat_ad_offsets.get_device());
@@ -1920,11 +1885,8 @@ Tensor batched_unary_embeddings_backward_cuda(
     const Tensor& table_offsets,
     const Tensor& offsets,
     const Tensor& indices) {
-  TENSOR_ON_CUDA_GPU(grad_output);
-  TENSOR_ON_CUDA_GPU(weight);
-  TENSOR_ON_CUDA_GPU(table_offsets);
-  TENSOR_ON_CUDA_GPU(offsets);
-  TENSOR_ON_CUDA_GPU(indices);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      grad_output, weight, table_offsets, offsets, indices);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_output.get_device());
@@ -2087,14 +2049,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
     const Tensor& lengths,
     const Tensor& indices,
     const c10::optional<Tensor>& weights) {
-  TENSOR_ON_CUDA_GPU(permute);
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(weights);
-
-  TENSORS_ON_SAME_DEVICE(permute, lengths);
-  TENSORS_ON_SAME_DEVICE(permute, indices);
-  TENSORS_ON_SAME_DEVICE(permute, weights);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
@@ -2379,12 +2334,7 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
     const Tensor& lengths,
     const Tensor& embeddings) {
   // wrapper for permute_2D_sparse_data_cuda, kept for BC
-  TENSOR_ON_CUDA_GPU(permute);
-  TENSOR_ON_CUDA_GPU(lengths);
-  TENSOR_ON_CUDA_GPU(embeddings);
-
-  TENSORS_ON_SAME_DEVICE(permute, lengths);
-  TENSORS_ON_SAME_DEVICE(permute, embeddings);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, embeddings);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(embeddings.get_device());
@@ -2459,8 +2409,7 @@ Tensor pack_segments_forward_cuda(
     const Tensor& t_in,
     const Tensor& lengths,
     const int64_t max_length) {
-  TENSOR_ON_CUDA_GPU(t_in);
-  TENSOR_ON_CUDA_GPU(lengths);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(t_in, lengths);
   TENSOR_NDIM_IS_GE(t_in, 1);
   TENSOR_NDIM_EQUALS(lengths, 1);
   TORCH_CHECK(
@@ -2561,8 +2510,7 @@ Tensor pack_segments_backward_cuda(
     const Tensor& lengths,
     int64_t total_length,
     int64_t max_length) {
-  TENSOR_ON_CUDA_GPU(data);
-  TENSOR_ON_CUDA_GPU(lengths);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(data, lengths);
   TENSOR_NDIM_IS_GE(data, 2);
   TENSOR_NDIM_EQUALS(lengths, 1);
   TORCH_CHECK_EQ(data.size(0), lengths.size(0));

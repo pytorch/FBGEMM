@@ -116,8 +116,7 @@ Tensor jagged_softmax_forward_cuda(
     const Tensor& values,
     const Tensor& offsets,
     const int64_t max_L) {
-  TENSOR_ON_CUDA_GPU(values);
-  TENSOR_ON_CUDA_GPU(offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(values, offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(values.get_device());

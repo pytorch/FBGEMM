@@ -153,9 +153,7 @@ Tensor jagged_dense_bmm_forward_cuda(
     const Tensor& x_offsets,
     const Tensor& y,
     const int64_t max_L) {
-  TENSOR_ON_CUDA_GPU(x_values);
-  TENSOR_ON_CUDA_GPU(x_offsets);
-  TENSOR_ON_CUDA_GPU(y);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(x_values, x_offsets, y);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(x_values.get_device());

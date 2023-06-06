@@ -132,10 +132,8 @@ Tensor pruned_hashmap_lookup_cuda(
     Tensor offsets,
     Tensor hash_table,
     Tensor hash_table_offsets) {
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(offsets);
-  TENSOR_ON_CUDA_GPU(hash_table);
-  TENSOR_ON_CUDA_GPU(hash_table_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      indices, offsets, hash_table, hash_table_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());
@@ -166,10 +164,8 @@ Tensor pruned_array_lookup_cuda(
     Tensor offsets,
     Tensor index_remappings,
     Tensor index_remappings_offsets) {
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(offsets);
-  TENSOR_ON_CUDA_GPU(index_remappings);
-  TENSOR_ON_CUDA_GPU(index_remappings_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      indices, offsets, index_remappings, index_remappings_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(indices.get_device());

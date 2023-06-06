@@ -54,9 +54,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
     const Tensor& v,
     const Tensor& a_values,
     const Tensor& a_offsets) {
-  TENSOR_ON_CUDA_GPU(v);
-  TENSOR_ON_CUDA_GPU(a_values);
-  TENSOR_ON_CUDA_GPU(a_offsets);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(v, a_values, a_offsets);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(v.get_device());

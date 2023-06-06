@@ -75,10 +75,7 @@ Tensor masked_index_put_cuda(
     Tensor indices,
     Tensor values,
     Tensor count) {
-  TENSOR_ON_CUDA_GPU(self);
-  TENSOR_ON_CUDA_GPU(indices);
-  TENSOR_ON_CUDA_GPU(values);
-  TENSOR_ON_CUDA_GPU(count);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(self, indices, values, count);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(self.get_device());
@@ -220,9 +217,8 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
     int64_t time_stamp,
     int64_t prefetch_dist,
     Tensor lru_state) {
-  TENSOR_ON_CUDA_GPU(linear_indices);
-  TENSOR_ON_CUDA_GPU(lxu_cache_state);
-  TENSOR_ON_CUDA_GPU(lru_state);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      linear_indices, lxu_cache_state, lru_state);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(linear_indices.get_device());

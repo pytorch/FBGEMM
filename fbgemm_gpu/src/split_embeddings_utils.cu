@@ -458,14 +458,10 @@ void populate_vbe_metadata_foreach_sample_inplace(
     const bool nobag,
     const int32_t info_B_num_bits,
     const int64_t total_B) {
-  TENSOR_ON_CUDA_GPU(vbe_metadata.B_offsets);
-  TENSOR_ON_CUDA_GPU(vbe_metadata.B_offsets_rank_per_feature);
-  TENSOR_ON_CUDA_GPU(vbe_metadata.output_offsets_feature_rank);
-
-  TENSORS_ON_SAME_DEVICE(
-      vbe_metadata.B_offsets, vbe_metadata.B_offsets_rank_per_feature);
-  TENSORS_ON_SAME_DEVICE(
-      vbe_metadata.B_offsets, vbe_metadata.output_offsets_feature_rank);
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      vbe_metadata.B_offsets,
+      vbe_metadata.B_offsets_rank_per_feature,
+      vbe_metadata.output_offsets_feature_rank);
 
   TENSOR_NDIM_EQUALS(vbe_metadata.B_offsets, 1);
   TENSOR_NDIM_EQUALS(vbe_metadata.B_offsets_rank_per_feature, 2);
