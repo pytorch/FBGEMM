@@ -19,7 +19,6 @@ function(BLOCK_PRINT)
   message("")
 endfunction()
 
-set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules)
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/third_party)
 
@@ -87,10 +86,6 @@ add_link_options($<$<CONFIG:RELEASE>:-s>)
 # FBGEMM_GPU Build Kickstart
 ################################################################################
 
-if(SKBUILD)
-  BLOCK_PRINT("The project is built using scikit-build")
-endif()
-
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
   project(
     fbgemm_gpu
@@ -103,7 +98,9 @@ else()
     LANGUAGES CXX C CUDA)
 endif()
 
-include(${CMAKEMODULES}/FindAVX.cmake)
+if(SKBUILD)
+  BLOCK_PRINT("The project is built using scikit-build")
+endif()
 
 
 ################################################################################
@@ -364,15 +361,9 @@ else()
     DEPENDS "${codegen_dependencies}")
 endif()
 
-if(CXX_AVX2_FOUND)
-  set_source_files_properties(${gen_cpu_source_files}
-    PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma;-fopenmp")
-else()
-  set_source_files_properties(${gen_cpu_source_files}
-    PROPERTIES COMPILE_OPTIONS
-    "-fopenmp")
-endif()
+set_source_files_properties(${gen_cpu_source_files}
+  PROPERTIES COMPILE_OPTIONS
+  "-mavx2;-mf16c;-mfma;-fopenmp")
 
 set_source_files_properties(${gen_cpu_source_files}
   PROPERTIES INCLUDE_DIRECTORIES
@@ -423,27 +414,22 @@ set(fbgemm_sources_avx2
 set(fbgemm_sources_avx512
   "${FBGEMM}/src/EmbeddingSpMDMAvx512.cc")
 
-if(CXX_AVX2_FOUND)
-  set_source_files_properties(${fbgemm_sources_avx2}
-    PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma")
-endif()
+# Add compilation flags
+set_source_files_properties(${fbgemm_sources_avx2}
+  PROPERTIES COMPILE_OPTIONS
+  "-mavx2;-mf16c;-mfma")
 
-if(CXX_AVX512_FOUND)
-  set_source_files_properties(${fbgemm_sources_avx512}
-    PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl")
-endif()
+set_source_files_properties(${fbgemm_sources_avx512}
+  PROPERTIES COMPILE_OPTIONS
+  "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl")
 
-set(fbgemm_sources ${fbgemm_sources_normal})
-if(CXX_AVX2_FOUND)
+if(USE_ROCM)
   set(fbgemm_sources
-    ${fbgemm_sources}
+    ${fbgemm_sources_normal}
     ${fbgemm_sources_avx2})
-endif()
-if(NOT USE_ROCM AND CXX_AVX512_FOUND)
+else()
   set(fbgemm_sources
-    ${fbgemm_sources}
+    ${fbgemm_sources_normal}
     ${fbgemm_sources_avx2}
     ${fbgemm_sources_avx512})
 endif()
@@ -524,15 +510,9 @@ if(NOT FBGEMM_CPU_ONLY)
   endif()
 endif()
 
-if(CXX_AVX2_FOUND)
-  set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
-    PROPERTIES COMPILE_OPTIONS
-    "-mavx;-mf16c;-mfma;-mavx2;-fopenmp")
-else()
-  set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
-    PROPERTIES COMPILE_OPTIONS
-    "-fopenmp")
-endif()
+set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
+  PROPERTIES COMPILE_OPTIONS
+  "-mavx;-mf16c;-mfma;-mavx2;-fopenmp")
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu

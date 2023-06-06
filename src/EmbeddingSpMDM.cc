@@ -1038,9 +1038,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       input_stride = block_size;
     }
   }
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   const inst_set_t isa = fbgemmInstructionSet();
-#endif
   if (no_bag == true) {
     return [=](int64_t output_size,
                int64_t index_size,
@@ -1071,7 +1069,6 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     };
   }
 
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   if ((std::is_same<inType, float>::value ||
        std::is_same<inType, uint16_t>::value) &&
       block_size == 1 && isYmm(isa) && output_stride == block_size &&
@@ -1180,7 +1177,6 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           internal::avx2_ps_or_epi32_combined_mask);
     };
   } else {
-#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
@@ -1211,9 +1207,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           no_bag,
           isbf16);
     };
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   }
-#endif
 }
 
 template <
@@ -1565,7 +1559,6 @@ void compressed_indices_remap(
   }
 
   const inst_set_t isa = fbgemmInstructionSet();
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   if (isZmm(isa)) {
 #ifndef __HIP_PLATFORM_HCC__
     if (weights == nullptr) {
@@ -1589,9 +1582,8 @@ void compressed_indices_remap(
           out_offsets,
           out_weights);
     }
-#endif // __HIP_PLATFORM_HCC__
+#endif
   } else {
-#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     compressed_indices_remap_ref<IndexType>(
         offsets_len,
         indices,
@@ -1601,9 +1593,7 @@ void compressed_indices_remap(
         out_indices,
         out_offsets,
         out_weights);
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   }
-#endif
 }
 
 #define INSTANTIATE_REMAP_BASE(INDEX_TYPE)           \
