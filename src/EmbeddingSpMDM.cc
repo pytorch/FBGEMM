@@ -1564,8 +1564,8 @@ void compressed_indices_remap(
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
 
-  const inst_set_t isa = fbgemmInstructionSet();
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
 #ifndef __HIP_PLATFORM_HCC__
     if (weights == nullptr) {
