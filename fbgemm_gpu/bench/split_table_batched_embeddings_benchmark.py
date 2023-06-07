@@ -61,6 +61,7 @@ if open_source:
         benchmark_requests,
         benchmark_requests_refer,
         benchmark_torch_function,
+        benchmark_vbe,
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
@@ -68,6 +69,7 @@ else:
         benchmark_requests,
         benchmark_requests_refer,
         benchmark_torch_function,
+        benchmark_vbe,
     )
 
 
@@ -2835,6 +2837,136 @@ def device_with_spec(  # noqa C901
         f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
+def _to_offsets(lengths: torch.Tensor) -> torch.Tensor:
+    return torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+
+@cli.command()
+@click.option("--batch-size", default=128000)
+@click.option("--compressed-batch-size", default=12800)
+@click.option("--embedding-dim", default=128)
+@click.option("--bag-size", default=5)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=20)
+@click.option("--compressed-tables", default=10)
+@click.option("--iters", default=100)
+def vbe(
+    batch_size: int,
+    compressed_batch_size: int,
+    embedding_dim: int,
+    bag_size: int,
+    num_embeddings: int,
+    num_tables: int,
+    compressed_tables: int,
+    iters: int,
+) -> None:
+    torch.manual_seed(42)
+    B = batch_size
+    cB = compressed_batch_size
+    D = embedding_dim
+    L = bag_size
+    E = num_embeddings
+    T = num_tables
+    cT = compressed_tables
+    Ds = [D] * T
+    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
+    managed_option = (
+        EmbeddingLocation.DEVICE
+        if torch.cuda.is_available()
+        else EmbeddingLocation.HOST
+    )
+    pooling_mode = PoolingMode.SUM
+
+    emb = SplitTableBatchedEmbeddingBagsCodegen(
+        [
+            (
+                E,
+                d,
+                managed_option,
+                ComputeDevice.CUDA,
+            )
+            for d in Ds
+        ],
+        optimizer=optimizer,
+        learning_rate=0.1,
+        eps=0.1,
+        weights_precision=SparseType.FP32,
+        stochastic_rounding=False,
+        output_dtype=SparseType.FP32,
+        pooling_mode=pooling_mode,
+        bounds_check_mode=BoundsCheckMode(BoundsCheckMode.NONE.value),
+    ).to(get_device())
+
+    compressed_batch_sizes = ([cB] * cT) + ([B] * (T - cT))
+    compressed_lengths = [L] * sum(compressed_batch_sizes)
+    compressed_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+        torch.tensor(compressed_lengths, device=get_device())
+    )
+    compressed_values = torch.randint(
+        low=0,
+        high=E,
+        size=(sum(compressed_lengths),),
+        device=get_device(),
+        dtype=torch.int32,
+    )
+
+    batch_sizes = [B] * T
+    lengths = [L] * sum(batch_sizes)
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+        torch.tensor(lengths, device=get_device())
+    )
+    reindex = []
+
+    for t in range(cT):
+        start = t * cB
+        end = cB * (t + 1)
+        reindex.extend(range(start, end))
+        for _ in range(B - cB):
+            i = random.randint(t * cB, cB * (t + 1))
+            reindex.append(i)
+    reindex.extend(range(cB * cT, (cB * cT) + (B * cT)))
+
+    reindex = torch.tensor(reindex, device=get_device())
+    values = torch.index_select(compressed_values.reshape(-1, L), 0, reindex).flatten()
+
+    requests = [
+        (
+            values,
+            offsets,
+        )
+        for _ in range(iters)
+    ]
+    compressed_requests = [
+        (
+            compressed_values,
+            compressed_offsets,
+        )
+        for _ in range(iters)
+    ]
+
+    out = benchmark_vbe(
+        requests,
+        compressed_requests,
+        baseline_func=lambda indices, offsets: emb.forward(
+            indices.long(),
+            offsets.long(),
+        ),
+        compressed_func=lambda indices, offsets: emb.forward(
+            indices.long(),
+            offsets.long(),
+            batch_size_per_feature_per_rank=[[bs] for bs in compressed_batch_sizes],
+        ),
+        reindex=reindex,
+        embedding_dim=D,
+    )
+    logging.info(
+        f"Uncompressed, B: {B}, T: {T}, D: {D}, L: {L}, "
+        f"T: {out.avg * 1.0e6:.0f}us, fwd: {out.fwd * 1.0e6:.0f}us, bwd: {out.bwd * 1.0e6:.0f}us\n"
+        f"Compressed, B: {B}, cB: {cB}, T: {T - cT}, cT: {cT}, D: {D}, L: {L}, "
+        f"T: {out.compressed_avg * 1.0e6:.0f}us, fwd: {out.compressed_fwd * 1.0e6:.0f}us, reindex: {out.reindex * 1.0e6:.0f}us, bwd: {out.compressed_bwd * 1.0e6:.0f}us"
     )
 
 
