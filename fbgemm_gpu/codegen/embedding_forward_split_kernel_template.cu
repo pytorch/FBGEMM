@@ -337,7 +337,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 
 /*
     Explicitly instantiate the kernel function template.  The instantiations are
-    based on the types enumerated by DISPATCH_EMB_GRAD_CACHE_TYPES macro used in
+    based on the types enumerated by DISPATCH_EMB_CACHE_TYPES macro used in
     embedding_forward_split_template.cu
 */
 
