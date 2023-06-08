@@ -27,7 +27,7 @@ Tensor dense_embedding_codegen_forward_unweighted_cuda(
     Tensor offsets,
     int64_t pooling_mode,
     int64_t output_dtype,
-    int64_t BT_block_size);
+    bool is_experimental);
 
 Tensor dense_embedding_codegen_forward_weighted_cuda(
     Tensor dev_weights,
@@ -40,7 +40,7 @@ Tensor dense_embedding_codegen_forward_weighted_cuda(
     int64_t pooling_mode,
     Tensor indice_weights,
     int64_t output_dtype,
-    int64_t BT_block_size);
+    bool is_experimental);
 
 Tensor dense_embedding_codegen_grad_indice_weights_cuda(
     Tensor grad_output,
@@ -117,11 +117,6 @@ class SplitLookupFunction_Dense_Op
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
     ctx->saved_data["pooling_mode"] = pooling_mode;
 
-#ifdef __HIP_PLATFORM_HCC__
-    constexpr int32_t BT_block_size = 64;
-#else
-    constexpr int32_t BT_block_size = 32;
-#endif
     if (!indice_weights.has_value()) {
       return {dense_embedding_codegen_forward_unweighted_cuda(
           dev_weights,
@@ -133,7 +128,7 @@ class SplitLookupFunction_Dense_Op
           offsets,
           pooling_mode,
           output_dtype,
-          BT_block_size)};
+          /*is_experimental=*/false)};
     } else {
       return {dense_embedding_codegen_forward_weighted_cuda(
           dev_weights,
@@ -146,7 +141,7 @@ class SplitLookupFunction_Dense_Op
           pooling_mode,
           indice_weights.value(),
           output_dtype,
-          BT_block_size)};
+          /*is_experimental=*/false)};
     }
   }
 
@@ -276,7 +271,7 @@ Tensor dense_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     int64_t output_dtype,
-    int64_t unused);
+    bool is_experimental);
 
 Tensor split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
     Tensor grad_output,
@@ -316,7 +311,13 @@ class SplitNoBagLookupFunction_Dense_Op
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
 
     return {dense_embedding_nobag_codegen_forward_unweighted_cuda(
-        dev_weights, weights_offsets, D, indices, offsets, output_dtype, 0)};
+        dev_weights,
+        weights_offsets,
+        D,
+        indices,
+        offsets,
+        output_dtype,
+        /*is_experimental*/ false)};
   }
 
   static torch::autograd::variable_list backward(
