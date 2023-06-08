@@ -8,6 +8,9 @@
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 
+#include <c10/cuda/CUDADeviceAssertion.h>
+#include <c10/cuda/CUDAException.h>
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -35,7 +38,8 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
                                     // dummy PackedTensorAccessor
     const int64_t bounds_check_mode_,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
-    FixedDivisor fd) {
+    FixedDivisor fd,
+    TORCH_DSA_KERNEL_ARGS) {
   int32_t T = rows_per_table.size(0);
   int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t b;
@@ -74,9 +78,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
   const index_t num_indices = indices.size(0);
 
   if (bounds_check_mode == BoundsCheckMode::FATAL) {
-    CUDA_KERNEL_ASSERT(indices_start >= 0);
-    CUDA_KERNEL_ASSERT(indices_start <= indices_end);
-    CUDA_KERNEL_ASSERT(indices_end <= num_indices);
+    CUDA_KERNEL_ASSERT2(indices_start >= 0);
+    CUDA_KERNEL_ASSERT2(indices_start <= indices_end);
+    CUDA_KERNEL_ASSERT2(indices_end <= num_indices);
   } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
     if (indices_start < 0 || indices_start > indices_end ||
         indices_end > num_indices) {
@@ -118,8 +122,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
       continue;
     }
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      CUDA_KERNEL_ASSERT(idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
-      CUDA_KERNEL_ASSERT(
+      CUDA_KERNEL_ASSERT2(
+          idx >= 0 && "Failed idx >= 0 in bounds_check_indices");
+      CUDA_KERNEL_ASSERT2(
           idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
     } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
       if (idx < 0 || idx >= num_rows) {
@@ -148,7 +153,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
   }
 
   if (bounds_check_mode == BoundsCheckMode::FATAL) {
-    CUDA_KERNEL_ASSERT(num_indices == offsets[total_B]);
+    CUDA_KERNEL_ASSERT2(num_indices == offsets[total_B]);
   } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
     if (num_indices != offsets[total_B]) {
       if (gpuAtomicIncrement(&warning[0]) == 0) {
@@ -225,11 +230,12 @@ void bounds_check_indices_cuda(
     const auto bounds_check_kernel =
         (vbe ? bounds_check_indices_kernel<index_t, true>
              : bounds_check_indices_kernel<index_t, false>);
-    bounds_check_kernel<<<
+    TORCH_DSA_KERNEL_LAUNCH(
+        bounds_check_kernel,
         div_round_up(max_B_ * T, kNumThreads / fbgemm_gpu::kWarpSize),
         dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
+        at::cuda::getCurrentCUDAStream(),
         rows_per_table.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
         indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
         offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
@@ -237,6 +243,5 @@ void bounds_check_indices_cuda(
         bounds_check_mode_,
         warning.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
         FixedDivisor(max_B_));
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   });
 }
