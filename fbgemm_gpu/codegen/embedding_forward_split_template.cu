@@ -50,8 +50,42 @@ __global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forw
     );
 {%- endif %}
 
+{% if not dense %}
+#ifndef __HIP_PLATFORM_HCC__
+// Support only the split-pooled TBE case
+template <
+    typename emb_t,
+    typename cache_t,
+    typename output_t,
+    typename index_t,
+    bool USE_LXU_CACHE
+    >
+__launch_bounds__(kForwardMaxThreads, 2048 / kForwardMaxThreads)
+__global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
+    const emb_t* __restrict__ const dev_weights,
+    const emb_t* __restrict__ const uvm_weights,
+    const cache_t* __restrict__ const lxu_cache_weights,
+    const int32_t* __restrict__ const weights_placements,
+    const uint32_t B,
+    const uint32_t T,
+    const bool mean_pooling,
+    const uint32_t max_D_cache,
+    const FixedDivisor fd_num_warps_per_table,
+    const index_t* __restrict__ const indices,
+    {%- if weighted %}
+    const float* __restrict__ const index_weights,
+    {%- endif %}
+    const index_t* __restrict__ const  offsets,
+    const uint32_t* __restrict__ const D_offsets,
+    const int64_t* __restrict__ const weights_offsets,
+    const int32_t* __restrict__ const lxu_cache_locations,
+    output_t* __restrict__ const output);
+#endif
+{% endif %} // if not dense
+
 {%- for nobag in [True, False] %}
 {%- if not nobag or (not weighted and not vbe) %}
+{%- set has_experimental = (not dense and not nobag and not vbe) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -101,7 +135,6 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D]
     );
 
-
 Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_cuda(
     Tensor dev_weights,
     {%- if not dense %}
@@ -129,12 +162,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     Tensor lxu_cache_locations,
     {%- endif %}
     int64_t output_dtype,
-    int64_t unused
-    {% if vbe %},
+    {%- if vbe %}
     const VBEMetadata& vbe_metadata,
     const int32_t info_B_num_bits,
-    const uint32_t info_B_mask
-    {% endif %}
+    const uint32_t info_B_mask,
+    {%- endif %}
+    bool is_experimental
 ) {
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
         {%- if not dense %}
@@ -223,9 +256,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
     {%- endif %} // if nobag
 
     if (B == 0) {
-        {% if vbe %}
+        {%- if vbe %}
         output = output.reshape({-1});
-        {% endif %}
+        {%- endif %}
         return output;
     }
 
@@ -242,6 +275,17 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         // Check if LXU cache is used
         bool use_lxu_cache = lxu_cache_weights.numel() > 0;
         {%- endif %}
+
+        {%- if has_experimental %}
+        if (is_experimental) {
+          if (std::is_same<emb_t, uint8_t>() || std::is_same<output_t, uint8_t>()) {
+            is_experimental = false;
+          }
+        }
+
+        if (!is_experimental) {
+        {%- endif %} // if has_experimental
+
         {%- if not nobag %}
         {%- for use_cache in ["false", "true"] %}
         // The dense case does not have cache so we have to generate code for
@@ -302,9 +346,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                         2,
                         at::RestrictPtrTraits>()
                     );
-                {% if vbe %}
+                {%- if vbe %}
                 output = output.reshape({-1});
-                {% endif %}
+                {%- endif %}
                 return;
             }
             {%- endif %}
@@ -388,9 +432,51 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         {%- endif %} // if (not dense) or (use_cache == "true" and not vbe)
         {%- endfor %} // for use_cache in ["false", "true"]
         {%- endif %}
+        {%- if has_experimental %}
+        } // if (!is_experimental)
+        else {
+#ifdef __HIP_PLATFORM_HCC__
+            TORCH_CHECK(false, "is_experimental=True is not supported in ROCm");
+#else
+            // Allocate num warps per table based on max_D
+            const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
+            const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
+
+            const auto split_embedding_codegen_forward_{{ wdesc }}_v2_kernel_ =
+                (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, true>
+                               : split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, false>);
+
+            split_embedding_codegen_forward_{{ wdesc }}_v2_kernel_
+              <<<div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
+              dim3(kWarpSize, num_warps_per_threadblock),
+              0,
+              at::cuda::getCurrentCUDAStream()>>>(
+                  dev_weights.data_ptr<emb_t>(),
+                  uvm_weights.data_ptr<emb_t>(),
+                  lxu_cache_weights.data_ptr<cache_t>(),
+                  weights_placements.data_ptr<int32_t>(),
+                  B,
+                  T,
+                  static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                  use_lxu_cache ? lxu_cache_weights.size(1) : 0,
+                  FixedDivisor(num_warps_per_table),
+                  indices.data_ptr<int64_t>(),
+                  {%- if weighted %}
+                  // TODO: update indice_weights type
+                  indice_weights.data_ptr<float>(),
+                  {%- endif %}
+                  offsets.data_ptr<int64_t>(),
+                  reinterpret_cast<uint32_t*>(D_offsets.data_ptr<int32_t>()),
+                  weights_offsets.data_ptr<int64_t>(),
+                  lxu_cache_locations.data_ptr<int32_t>(),
+                  output.data_ptr<output_t>()
+                  );
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+#endif
+        }
+        {%- endif %} // if has_experimental
         });
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return output;
 }
 {%- endif %}
