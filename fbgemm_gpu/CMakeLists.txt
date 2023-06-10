@@ -214,6 +214,12 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_split_weighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_vbe_codegen_cuda.cu")
 
+if(NOT USE_ROCM)
+  list(APPEND gen_gpu_kernel_source_files
+    "gen_embedding_forward_split_weighted_v2_kernel.cu"
+    "gen_embedding_forward_split_unweighted_v2_kernel.cu")
+endif()
+
 foreach(wdesc dense split)
   list(APPEND gen_gpu_kernel_source_files
     "gen_embedding_forward_${wdesc}_unweighted_nobag_kernel_small.cu")
@@ -316,6 +322,7 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.h
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_v2_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_nobag_small_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_template_helpers.cuh

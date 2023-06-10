@@ -39,14 +39,11 @@ Tensor split_embedding_codegen_forward_unweighted{{ vbe_desc }}_cuda(
     Tensor lxu_cache_locations,
     int64_t output_dtype,
     {% if vbe %}
-    int64_t BT_block_size,
     const VBEMetadata& vbe_metadata,
     const int32_t info_B_num_bits,
-    const uint32_t info_B_mask
-    {% else %}
-    int64_t BT_block_size
+    const uint32_t info_B_mask,
     {% endif %}
-);
+    bool is_experimental);
 
 Tensor split_embedding_codegen_forward_weighted{{ vbe_desc }}_cuda(
     Tensor dev_weights,
@@ -64,14 +61,11 @@ Tensor split_embedding_codegen_forward_weighted{{ vbe_desc }}_cuda(
     Tensor lxu_cache_locations,
     int64_t output_dtype,
     {% if vbe %}
-    int64_t BT_block_size,
     const VBEMetadata& vbe_metadata,
     const int32_t info_B_num_bits,
-    const uint32_t info_B_mask
-    {% else %}
-    int64_t BT_block_size
+    const uint32_t info_B_mask,
     {% endif %}
-);
+    bool is_experimental);
 
 Tensor split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
     Tensor grad_output,
@@ -158,8 +152,7 @@ Tensor split_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor offsets,
     Tensor lxu_cache_locations,
     int64_t output_dtype,
-    int64_t unused
-);
+    bool is_experimental);
 
 void split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
     Tensor grad_output,
@@ -226,6 +219,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     const int32_t max_B_feature_rank,
     const int64_t vbe_output_size,
     {% endif %}
+    bool is_experimental,
     {{ args.split_function_args | join(", ") }}) {
 
     const auto T = weights_offsets.numel();
@@ -307,11 +301,6 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     {% endfor %}
 
     {% if not nobag %}
-#ifdef __HIP_PLATFORM_HCC__
-    constexpr int32_t BT_block_size = 64;
-#else
-    constexpr int32_t BT_block_size = 32;
-#endif
     if (!indice_weights) {
         return {
           split_embedding_codegen_forward_unweighted{{ vbe_desc }}_cuda(
@@ -329,13 +318,11 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
             lxu_cache_locations,
             output_dtype,
             {% if vbe %}
-            BT_block_size,
             vbe_metadata,
             info_B_num_bits,
-            info_B_mask
-            {% else %}
-            BT_block_size
+            info_B_mask,
             {% endif %}
+            is_experimental
           )
         };
     } else {
@@ -356,13 +343,11 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
             lxu_cache_locations,
             output_dtype,
             {% if vbe %}
-            BT_block_size,
             vbe_metadata,
             info_B_num_bits,
-            info_B_mask
-            {% else %}
-            BT_block_size
+            info_B_mask,
             {% endif %}
+            is_experimental
           )
         };
     }
@@ -379,7 +364,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         offsets,
         lxu_cache_locations,
         output_dtype,
-        0
+        /*is_experimental=*/false
       )
     };
     {% endif %}
@@ -521,6 +506,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
           Variable(), // max_B_feature_rank
           Variable(), // vbe_output_size
           {% endif %}
+          Variable(), // is_experimental
           {{ args.split_variables | join(", ") }}
       };
     } else {
@@ -601,6 +587,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
           Variable(), // max_B_feature_rank
           Variable(), // vbe_output_size
           {% endif %}
+          Variable(), // is_experimental
           {{ args.split_variables | join(", ") }}
       };
     }
@@ -652,6 +639,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         Variable(), // max_B_feature_rank
         Variable(), // vbe_output_size
         {% endif %}
+        Variable(), // is_experimental
         {{ args.split_variables | join(", ") }}
     };
     {% endif %}
@@ -691,7 +679,9 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const c10::optional<Tensor>& vbe_B_offsets_rank_per_feature = c10::optional<Tensor>(),
     const int64_t max_B = -1,
     const int64_t max_B_feature_rank = -1,
-    const int64_t vbe_output_size = -1) {
+    const int64_t vbe_output_size = -1,
+    const bool is_experimental = false
+) {
   {% if has_gpu_support %}
   {% for vbe in ([True, False] if has_vbe_support else [False]) %}
   {% set vbe_class_desc = "VBE" if vbe else "" %}
@@ -721,6 +711,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           gradient_clipping,
           max_gradient,
           stochastic_rounding,
+          is_experimental,
           {{ args.split_function_arg_names | join(", ") }})[0];
     } else {
       return Split{{ vbe_class_desc }}LookupFunction_{{ optimizer }}_Op::apply(
@@ -753,6 +744,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           max_B_feature_rank,
           vbe_output_size,
           {% endif %}
+          is_experimental,
           {{ args.split_function_arg_names | join(", ") }})[0];
     }
   {% if has_vbe_support %}
@@ -767,12 +759,12 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, int max_B=-1, int max_B_feature_rank=-1, int vbe_output_size=-1) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, int max_B=-1, int max_B_feature_rank=-1, int vbe_output_size=-1, bool is_experimental=False) -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, int max_B=-1, int max_B_feature_rank=-1, int vbe_output_size=-1) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, int max_B=-1, int max_B_feature_rank=-1, int vbe_output_size=-1, bool is_experimental=False) -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
 
