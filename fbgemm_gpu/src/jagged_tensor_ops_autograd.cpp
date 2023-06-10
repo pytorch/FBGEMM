@@ -8,12 +8,13 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/TensorUtils.h>
 #include <ATen/core/dispatch/Dispatcher.h>
+#include <c10/core/SymIntArrayRef.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <torch/torch.h>
 
-#include "ATen/TensorUtils.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 

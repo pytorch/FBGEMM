@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   build_and_test_amd:
-    runs-on: linux.12xlarge
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: ${{ matrix.container-image }}
       options: --user root
@@ -42,6 +42,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.12xlarge" },
+        ]
         container-image: [ "ubuntu:20.04" ]
         python-version: [ "3.8", "3.9", "3.10" ]
         rocm-version: [ "5.3", "5.4.2" ]
@@ -94,7 +97,7 @@ jobs:
 
 
   test_amd_gpu:
-    runs-on: rocm
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
       options: --user root --device=/dev/kfd --device=/dev/dri --ipc=host --shm-size 16G --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
@@ -108,6 +111,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "rocm" },
+        ]
         # ROCm machines are limited, so we only test against Python 3.10
         python-version: [ "3.10" ]
         rocm-version: [ "5.3", "5.4.2" ]
@@ -157,7 +163,7 @@ jobs:
 
 
   build_and_test_cpu:
-    runs-on: linux.12xlarge
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: ${{ matrix.container-image }}
       options: --user root
@@ -170,8 +176,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.4xlarge" },
+          { arch: arm, instance: "linux.t4g.2xlarge" },
+        ]
         container-image: [ "ubuntu:20.04", "ubuntu:22.04" ]
-        python-version: [ "3.8", "3.9", "3.10" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
 
     steps:
     - name: Setup Build Container
@@ -210,5 +220,5 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV cpu
 
     - name: Test FBGEMM_GPU-CPU Nightly Installation
-      timeout-minutes: 10
+      timeout-minutes: 15
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpu

@@ -7,6 +7,7 @@
 import math
 import os
 import struct
+import subprocess
 import unittest
 from functools import wraps
 from typing import Any, Callable, List, Tuple
@@ -177,6 +178,15 @@ gpu_available: bool = not gpu_unavailable[0]
 running_on_github: Tuple[bool, str] = (
     os.getenv("GITHUB_ENV") is not None,
     "Test is currently known to fail or hang when run in the GitHub runners",
+)
+
+# Used for `@unittest.skipIf` for tests that currently fail on ARM platform
+on_arm_platform: Tuple[bool, str] = (
+    subprocess.run(["uname", "-m"], stdout=subprocess.PIPE)
+    .stdout.decode("utf-8")
+    .strip()
+    == "aarch64",
+    "Test is currently known to fail when running on ARM platform",
 )
 
 
