@@ -255,6 +255,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 SparseType.BF16,
             ], "Fused pooled embedding quantization only supported for cuda."
 
+        if optimizer == OptimType.NONE:
+            assert all(
+                loc == EmbeddingLocation.DEVICE for loc in locations
+            ), "OptimType.NONE supports only EmbeddingLocation.DEVICE"
+            assert all(
+                cd == ComputeDevice.CUDA for cd in compute_devices
+            ), "OptimType.NONE supports only ComputeDevice.CUDA"
+            assert (
+                not mixed_D
+            ), "OptimType.NONE does not support mixed embedding dimension"
+
         if device is None:
             self.current_device: torch.device = (
                 torch.device("cpu")
@@ -305,16 +316,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "D_offsets",
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
-
         hash_size_cumsum = [0] + list(accumulate(rows))
-        if hash_size_cumsum[-1] == 0:
+        self.total_hash_size: int = int(hash_size_cumsum[-1])
+        if hash_size_cumsum == 0:
             self.total_hash_size_bits: int = 0
         else:
-            self.total_hash_size_bits: int = int(log2(float(hash_size_cumsum[-1])) + 1)
+            self.total_hash_size_bits: int = int(log2(float(self.total_hash_size)) + 1)
         # The last element is to easily access # of rows of each table by
         # hash_size_cumsum[t + 1] - hash_size_cumsum[t]
         hash_size_cumsum = [hash_size_cumsum[t] for t in self.feature_table_map] + [
-            hash_size_cumsum[-1]
+            self.total_hash_size
         ]
         self.register_buffer(
             "hash_size_cumsum",
@@ -356,6 +367,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             #  `Type[_dtype]`.
             dtype=table_embedding_dtype,
             enforce_hbm=enforce_hbm,
+            make_dev_param=optimizer == OptimType.NONE,
+            dev_reshape=(-1, self.max_D) if optimizer == OptimType.NONE else None,
         )
 
         assert optimizer not in (
@@ -382,6 +395,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.LARS_SGD,
                 OptimType.PARTIAL_ROWWISE_ADAM,
                 OptimType.PARTIAL_ROWWISE_LAMB,
+                OptimType.NONE,
             ), f"Optimizer {optimizer} is not supported."
 
         self.stochastic_rounding = stochastic_rounding
@@ -443,110 +457,115 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             is_tail_id_thresh_ratio=int(
                 counter_based_regularization.tail_id_threshold.is_ratio
             ),
+            total_hash_size=self.total_hash_size,
         )
 
-        if optimizer in (OptimType.EXACT_SGD,):
-            # NOTE: make TorchScript work!
-            self._register_nonpersistent_buffers("momentum1")
-        else:
-            rowwise = optimizer in [
-                OptimType.EXACT_ROWWISE_ADAGRAD,
+        if optimizer != OptimType.NONE:
+            if optimizer in (OptimType.EXACT_SGD,):
+                # NOTE: make TorchScript work!
+                self._register_nonpersistent_buffers("momentum1")
+            else:
+                rowwise = optimizer in [
+                    OptimType.EXACT_ROWWISE_ADAGRAD,
+                    OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
+                ]
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=rowwise,
+                        cacheable=False,
+                        placement=EmbeddingLocation.MANAGED
+                        if ((not rowwise) and uvm_non_rowwise_momentum)
+                        else None,
+                    ),
+                    prefix="momentum1",
+                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
+                    #  but got `Type[torch.float32]`.
+                    dtype=torch.float32,
+                    enforce_hbm=enforce_hbm,
+                )
+            if optimizer in (
+                OptimType.ADAM,
+                OptimType.PARTIAL_ROWWISE_ADAM,
+                OptimType.LAMB,
+                OptimType.PARTIAL_ROWWISE_LAMB,
+            ):
+                rowwise = optimizer in (
+                    OptimType.PARTIAL_ROWWISE_ADAM,
+                    OptimType.PARTIAL_ROWWISE_LAMB,
+                )
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=rowwise,
+                        cacheable=False,
+                        placement=EmbeddingLocation.MANAGED
+                        if ((not rowwise) and uvm_non_rowwise_momentum)
+                        else None,
+                    ),
+                    prefix="momentum2",
+                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
+                    #  but got `Type[torch.float32]`.
+                    dtype=torch.float32,
+                )
+            else:
+                # NOTE: make TorchScript work!
+                self._register_nonpersistent_buffers("momentum2")
+            if self._used_rowwise_adagrad_with_counter:
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=True,
+                        cacheable=False,
+                    ),
+                    prefix="prev_iter",
+                    # TODO: ideally we should use int64 to track iter but it failed to compile.
+                    # It may be related to low precision training code. Currently using float32
+                    # as a workaround while investigating the issue.
+                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
+                    #  but got `Type[torch.float32]`.
+                    dtype=torch.float32,
+                )
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=True,
+                        cacheable=False,
+                    ),
+                    prefix="row_counter",
+                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
+                    #  but got `Type[torch.float32]`.
+                    dtype=torch.float32,
+                )
+                self.register_buffer(
+                    "max_counter", torch.tensor([1], dtype=torch.float32)
+                )
+            else:
+                self._register_nonpersistent_buffers("prev_iter")
+                self._register_nonpersistent_buffers("row_counter")
+                self.register_buffer(
+                    "max_counter",
+                    torch.ones(1, dtype=torch.float32, device=self.current_device),
+                    persistent=False,
+                )
+            if optimizer in (
+                OptimType.ADAM,
                 OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
-            ]
-            self._apply_split(
-                construct_split_state(
-                    embedding_specs,
-                    rowwise=rowwise,
-                    cacheable=False,
-                    placement=EmbeddingLocation.MANAGED
-                    if ((not rowwise) and uvm_non_rowwise_momentum)
-                    else None,
-                ),
-                prefix="momentum1",
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
-                enforce_hbm=enforce_hbm,
-            )
-        if optimizer in (
-            OptimType.ADAM,
-            OptimType.PARTIAL_ROWWISE_ADAM,
-            OptimType.LAMB,
-            OptimType.PARTIAL_ROWWISE_LAMB,
-        ):
-            rowwise = optimizer in (
+                OptimType.LAMB,
                 OptimType.PARTIAL_ROWWISE_ADAM,
                 OptimType.PARTIAL_ROWWISE_LAMB,
-            )
-            self._apply_split(
-                construct_split_state(
-                    embedding_specs,
-                    rowwise=rowwise,
-                    cacheable=False,
-                    placement=EmbeddingLocation.MANAGED
-                    if ((not rowwise) and uvm_non_rowwise_momentum)
-                    else None,
-                ),
-                prefix="momentum2",
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
-            )
-        else:
-            # NOTE: make TorchScript work!
-            self._register_nonpersistent_buffers("momentum2")
-        if self._used_rowwise_adagrad_with_counter:
-            self._apply_split(
-                construct_split_state(
-                    embedding_specs,
-                    rowwise=True,
-                    cacheable=False,
-                ),
-                prefix="prev_iter",
-                # TODO: ideally we should use int64 to track iter but it failed to compile.
-                # It may be related to low precision training code. Currently using float32
-                # as a workaround while investigating the issue.
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
-            )
-            self._apply_split(
-                construct_split_state(
-                    embedding_specs,
-                    rowwise=True,
-                    cacheable=False,
-                ),
-                prefix="row_counter",
-                # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                #  but got `Type[torch.float32]`.
-                dtype=torch.float32,
-            )
-            self.register_buffer("max_counter", torch.tensor([1], dtype=torch.float32))
-        else:
-            self._register_nonpersistent_buffers("prev_iter")
-            self._register_nonpersistent_buffers("row_counter")
-            self.register_buffer(
-                "max_counter",
-                torch.ones(1, dtype=torch.float32, device=self.current_device),
-                persistent=False,
-            )
-        if optimizer in (
-            OptimType.ADAM,
-            OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
-            OptimType.LAMB,
-            OptimType.PARTIAL_ROWWISE_ADAM,
-            OptimType.PARTIAL_ROWWISE_LAMB,
-        ):
-            self.register_buffer(
-                "iter", torch.zeros(1, dtype=torch.int64, device=self.current_device)
-            )
+            ):
+                self.register_buffer(
+                    "iter",
+                    torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                )
 
-        else:
-            self.register_buffer(
-                "iter",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
-                persistent=False,
-            )
+            else:
+                self.register_buffer(
+                    "iter",
+                    torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                    persistent=False,
+                )
 
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
@@ -589,7 +608,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         logging.info(
-            f"Using fused {optimizer} with optimizer_args={self.optimizer_args}\n"
+            f"Using fused {optimizer} with optimizer_args={self.optimizer_args if optimizer != OptimType.NONE else None}\n"
             f"Using rowwise_adagrad_with_counter={self._used_rowwise_adagrad_with_counter}"
         )
 
@@ -673,6 +692,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # 2D tensor of batch size for each rank and feature.
         # Shape (number of features, number of ranks)
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        total_unique_indices: Optional[int] = None,
     ) -> Tensor:
         if batch_size_per_feature_per_rank is not None:
             assert (
@@ -813,7 +833,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             vbe_metadata=vbe_metadata,
         )
 
-        if self.optimizer == OptimType.EXACT_SGD:
+        if self.optimizer == OptimType.NONE:
+            assert (
+                total_unique_indices is not None
+                and total_unique_indices <= indices.numel()
+            ), f"OptimType.NONE requires total_unique_indices. Please pass it or check the value (total_unique_indices = {total_unique_indices})"
+            return invokers.lookup_none.invoke(
+                common_args, self.optimizer_args, total_unique_indices
+            )
+        elif self.optimizer == OptimType.EXACT_SGD:
             return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
@@ -1197,6 +1225,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights = self.weights_host
             else:
                 weights = self.weights_uvm
+            # pyre-ignore[29]
+            if weights.dim() == 2:
+                weights = weights.flatten()
             splits.append(
                 weights.detach()[offset : offset + rows * dim].view(rows, dim)
             )
@@ -1204,6 +1235,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.ignore
     def get_optimizer_buffer(self, state: str) -> torch.Tensor:
+        if self.optimizer == OptimType.NONE:
+            raise NotImplementedError(
+                f"Getting optimizer buffer is not supported for {self.optimizer}"
+            )
         for name, buffer in self.named_buffers():
             if name == state:
                 return buffer
@@ -1255,6 +1290,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Returns a list of states, split by table
         """
+        if self.optimizer == OptimType.NONE:
+            raise NotImplementedError(
+                f"Getting optimizer states is not supported for {self.optimizer}"
+            )
 
         def get_optimizer_states(
             state_dev: Tensor,
@@ -1384,6 +1423,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Sets the learning rate.
         """
+        if self.optimizer == OptimType.NONE:
+            raise NotImplementedError(
+                f"Setting learning rate is not supported for {self.optimizer}"
+            )
         self._set_learning_rate(lr)
 
     @torch.jit.ignore
@@ -1400,6 +1443,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Sets the optimizer step.
         """
+        if self.optimizer == OptimType.NONE:
+            raise NotImplementedError(
+                f"Setting optimizer step is not supported for {self.optimizer}"
+            )
         self.iter[0] = step
 
     @torch.jit.export
@@ -1427,6 +1474,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         prefix: str,
         dtype: Type[torch.dtype],
         enforce_hbm: bool = False,
+        make_dev_param: bool = False,
+        dev_reshape: Optional[Tuple[int, ...]] = None,
     ) -> None:
         setattr(self, f"{prefix}_physical_placements", split.placements)
         setattr(self, f"{prefix}_physical_offsets", split.offsets)
@@ -1442,18 +1491,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(placements, device=self.current_device, dtype=torch.int32),
         )
         if split.dev_size > 0:
-            self.register_buffer(
-                f"{prefix}_dev",
-                # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for 3rd
-                #  param but got `Type[Type[torch._dtype]]`.
-                torch.zeros(split.dev_size, device=self.current_device, dtype=dtype),
+            dev_buffer = torch.zeros(
+                split.dev_size,
+                device=self.current_device,
+                # pyre-fixme[6]
+                dtype=dtype,
+            )
+            dev_buffer = (
+                dev_buffer.view(*dev_reshape) if dev_reshape is not None else dev_buffer
             )
         else:
-            self.register_buffer(
-                f"{prefix}_dev",
-                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
-                torch.empty(0, device=self.current_device, dtype=dtype),
-            )
+            # pyre-fixme[6]
+            dev_buffer = torch.empty(0, device=self.current_device, dtype=dtype)
+        if make_dev_param:
+            setattr(self, f"{prefix}_dev", nn.Parameter(dev_buffer))
+        else:
+            self.register_buffer(f"{prefix}_dev", dev_buffer)
         if split.host_size > 0:
             if dtype == torch.uint8:
                 self.register_buffer(
@@ -1730,6 +1783,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         logical_table_ids: Tensor,
         buffer_ids: Tensor,
     ) -> None:
+        if self.optimizer == OptimType.NONE:
+            raise NotImplementedError(
+                f"Resetting embedding weight momentum is not supported for {self.optimizer}"
+            )
         total_cache_hash_size = 0
         if isinstance(self.total_cache_hash_size, Tensor):
             total_cache_hash_size = self.total_cache_hash_size.item()

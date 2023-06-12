@@ -61,6 +61,7 @@ class OptimizerArgs(NamedTuple):
     grad_sum_decay: int
     tail_id_threshold: float
     is_tail_id_thresh_ratio: int
+    total_hash_size: int  # Required for OptimType.NONE
 
 
 class Momentum(NamedTuple):

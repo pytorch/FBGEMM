@@ -16,3 +16,4 @@ import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_rowwise_adagrad
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_rowwise_adagrad_with_counter as lookup_rowwise_adagrad_with_counter  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_sgd as lookup_sgd  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_rowwise_weighted_adagrad as lookup_rowwise_weighted_adagrad  # noqa: F401
+import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_none as lookup_none # noqa: F401
