@@ -9,6 +9,7 @@
 
 import enum
 import logging
+import os
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
@@ -209,6 +210,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         uvm_non_rowwise_momentum: bool = False,  # place non-rowwise momentum on UVM
+        use_experimental_tbe: bool = False,  # set to True to use TBE v2 (only support NVIDIA GPUs)
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -595,6 +597,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.step = 0
 
+        # Check whether to use TBE v2
+        is_experimental = False
+        fbgemm_exp_tbe = os.environ.get("FBGEMM_EXPERIMENTAL_TBE")
+        if use_experimental_tbe:
+            is_experimental = True
+            logging.info(
+                "use_experimental_tbe is set to True; Use experimental TBE: True"
+            )
+        elif fbgemm_exp_tbe is not None:
+            is_experimental = int(fbgemm_exp_tbe) == 1
+            logging.info(
+                f"FBGEMM_EXPERIMENTAL_TBE is set to {fbgemm_exp_tbe}; "
+                f"Use experimental TBE: {is_experimental}"
+            )
+        self.is_experimental: bool = is_experimental
+
     def _register_nonpersistent_buffers(self, prefix: str) -> None:
         # NOTE: make TorchScript work!
         self.register_buffer(
@@ -811,6 +829,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_locations=lxu_cache_locations,
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
+            is_experimental=self.is_experimental,
         )
 
         if self.optimizer == OptimType.EXACT_SGD:
