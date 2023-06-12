@@ -221,7 +221,8 @@ at::Tensor _FP8rowwise_to_float_gpu(
 at::Tensor _paddedFP8rowwise_to_float_gpu(
     const at::Tensor& input,
     const bool forward = true,
-    const int64_t row_dim = 256);
+    const int64_t row_dim = 256,
+    const int64_t output_last_dim = -1);
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,

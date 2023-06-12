@@ -462,7 +462,6 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
 }
 
 __global__ inline void _get_padding_value_kernel(
-    const int nrows,
     const int ncols,
     const int row_dim,
     const std::uint8_t* const __restrict__ input,
@@ -470,12 +469,38 @@ __global__ inline void _get_padding_value_kernel(
   const int64_t row = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int row_ext = row_dim + 8;
   const auto threads = (ncols + row_ext - 1) / row_ext;
-  if (row >= threads)
+  if (row > threads)
     return;
   const std::uint8_t* const input_row = input + row * row_ext;
   int pad = *reinterpret_cast<const int*>(input_row + row_dim + 4);
   pad = (pad > 0) ? pad : 0;
   offsets[row] = pad;
+}
+
+__global__ inline void _single_thread_sum_padding_kernel(
+    const int ncols,
+    const int row_dim,
+    const std::uint8_t* const __restrict__ input,
+    int* __restrict__ total_pad) {
+  // this is to count the sum of padding in the first row of 2D input
+  // in one kernel launch to remove multiple H to D Syncs.
+  const auto tid = (int)blockIdx.x * blockDim.x + threadIdx.x;
+  if (tid != 0) {
+    return;
+  }
+  const int row_ext = row_dim + 8;
+  int offset = row_dim + 4;
+  int pad = 0;
+  total_pad[0] = 0;
+  while (offset + 4 <= ncols) {
+    pad = *reinterpret_cast<const int*>(input + offset);
+    if (pad < 0) {
+      offset += -pad * row_ext;
+    } else {
+      total_pad[0] += pad;
+      offset += row_ext;
+    }
+  }
 }
 
 template <typename output_t>
@@ -1172,7 +1197,8 @@ template <typename output_t>
 Tensor _paddedFP8rowwise_to_float_gpu_t(
     const Tensor& input,
     const bool forward,
-    const int64_t row_dim) {
+    const int64_t row_dim,
+    const int64_t output_last_dim) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
@@ -1193,24 +1219,48 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
   // that size).
   auto output_dims = input_sizes.vec();
 
-  std::uint8_t pad[4];
+  constexpr int threads_per_block = 256;
+  const auto num_blocks = cuda_calc_xblock_count(
+      (nrows == 1) ? (ncols + row_ext - 1) / row_ext + 1 : nrows,
+      threads_per_block);
+  Tensor offsets = at::empty(
+      (nrows == 1) ? num_blocks * threads_per_block + 1
+                   : 0, // 4 = sizeof(float)
+      input.options().dtype(at::kInt));
   int total_pad = 0;
-  int col = 0;
-  while (col < ncols) {
-    for (int i = 0; i < 4; i++) {
-      pad[i] = input[0][col + row_ext - 4 + i].item<uint8_t>();
-    }
-    // rule: if pad value is less than zero, its abs is the offset to the
-    // nearest padding value's address
-    int pad_int = *reinterpret_cast<int*>(pad);
-    if (pad_int < 0) {
-      col -= pad_int * row_ext;
-    } else {
-      total_pad += pad_int;
-      col += row_ext;
-    }
+  if (nrows == 1) {
+    _get_padding_value_kernel<<<
+        num_blocks,
+        threads_per_block,
+        0,
+        at::cuda::getCurrentCUDAStream()>>>(
+        ncols,
+        row_dim,
+        input.data_ptr<std::uint8_t>(),
+        offsets.data_ptr<int>());
+    offsets = asynchronous_complete_cumsum_gpu(offsets);
   }
-  output_columns -= total_pad;
+  if (output_last_dim < 0) {
+    if (nrows != 1) {
+      Tensor total_pad_tensor = at::empty(1, input.options().dtype(at::kInt));
+      _single_thread_sum_padding_kernel<<<
+          1,
+          1,
+          0,
+          at::cuda::getCurrentCUDAStream()>>>(
+          ncols,
+          row_dim,
+          input.data_ptr<std::uint8_t>(),
+          total_pad_tensor.data_ptr<int>());
+      total_pad = total_pad_tensor[0].item<int>();
+    } else {
+      total_pad = offsets[((ncols + row_ext - 1) / row_ext)].item<int>();
+    }
+    output_columns -= total_pad;
+  } else {
+    output_columns = output_last_dim;
+  }
+
   output_dims[last_dim] = output_columns;
   Tensor output;
   if constexpr (std::is_same_v<output_t, float>) {
@@ -1225,29 +1275,6 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
 
   if (nrows == 0 || output_columns == 0) {
     return output;
-  }
-
-  constexpr int threads_per_block = 256;
-  const auto num_blocks = cuda_calc_xblock_count(
-      nrows == 1 ? (ncols + row_ext - 1) / row_ext + 1 : nrows,
-      threads_per_block);
-
-  Tensor offsets = at::empty(
-      (nrows == 1) ? num_blocks * threads_per_block : 0, // 4 = sizeof(float)
-      input.options().dtype(at::kInt));
-
-  if (nrows == 1) {
-    _get_padding_value_kernel<<<
-        num_blocks,
-        threads_per_block,
-        0,
-        at::cuda::getCurrentCUDAStream()>>>(
-        nrows,
-        ncols,
-        row_dim,
-        input.data_ptr<std::uint8_t>(),
-        offsets.data_ptr<int>());
-    offsets = asynchronous_complete_cumsum_gpu(offsets);
   }
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -1278,8 +1305,10 @@ at::Tensor _FP8rowwise_to_float_gpu(const at::Tensor& input, bool forward) {
 at::Tensor _paddedFP8rowwise_to_float_gpu(
     const at::Tensor& input,
     const bool forward,
-    const int64_t row_dim) {
-  return _paddedFP8rowwise_to_float_gpu_t<float>(input, forward, row_dim);
+    const int64_t row_dim,
+    const int64_t output_last_dim) {
+  return _paddedFP8rowwise_to_float_gpu_t<float>(
+      input, forward, row_dim, output_last_dim);
 }
 
 ///@ingroup quantize-data-cuda
