@@ -140,6 +140,7 @@ __print_system_info_linux () {
   echo "################################################################################"
   echo "[INFO] Print Linux distribution info ..."
   print_exec uname -a
+  print_exec uname -m
   print_exec cat /proc/version
   print_exec cat /etc/os-release
 }
