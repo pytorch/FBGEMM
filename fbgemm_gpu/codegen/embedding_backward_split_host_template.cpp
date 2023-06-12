@@ -89,7 +89,7 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
     {% endif %}
 );
 
-void split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vbe_desc }}_cuda(
+Tensor split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vbe_desc }}_cuda(
     Tensor grad_output,
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -106,7 +106,9 @@ void split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vbe_des
     Tensor lxu_cache_locations,
     int64_t BT_block_size,
     int64_t max_segment_length_per_warp,
+    {% if optimizer != "none" %}
     bool stochastic_rounding,
+    {% endif %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {% if vbe %}
@@ -114,7 +116,7 @@ void split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vbe_des
     {% endif %}
     {{ args.split_function_args | join(", ") }});
 
-void split_embedding_backward_codegen_{{ optimizer }}_weighted_exact{{ vbe_desc }}_cuda(
+Tensor split_embedding_backward_codegen_{{ optimizer }}_weighted_exact{{ vbe_desc }}_cuda(
     Tensor grad_output,
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -132,7 +134,9 @@ void split_embedding_backward_codegen_{{ optimizer }}_weighted_exact{{ vbe_desc 
     Tensor lxu_cache_locations,
     int64_t BT_block_size,
     int64_t max_segment_length_per_warp,
+    {% if optimizer != "none" %}
     bool stochastic_rounding,
+    {% endif %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {% if vbe %}
@@ -154,7 +158,7 @@ Tensor split_embedding_nobag_codegen_forward_unweighted_cuda(
     int64_t output_dtype,
     bool is_experimental);
 
-void split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
+Tensor split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
     Tensor grad_output,
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -169,7 +173,9 @@ void split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cud
     Tensor lxu_cache_locations,
     int64_t BT_block_size,
     int64_t max_segment_length_per_warp,
+    {% if optimizer != "none" %}
     bool stochastic_rounding,
+    {% endif %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {{ args.split_function_args | join(", ") }});
@@ -208,9 +214,11 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     c10::optional<Tensor> feature_requires_grad,
     {% endif %}
     Tensor lxu_cache_locations,
+    {% if optimizer != "none" %}
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
+    {% endif %}
     {% if vbe %}
     const c10::optional<Tensor>& B_offsets,
     const c10::optional<Tensor>& vbe_output_offsets_feature_rank,
@@ -280,7 +288,8 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         vbe_metadata.output_offsets,
         vbe_metadata.b_t_map,
         {% endif %}
-        {{ args.split_saved_tensors | join(", ") }} });
+        {{ args.split_saved_tensors | join(", ") }}
+    });
 
     {% if not nobag %}
     ctx->saved_data["max_D"] = max_D;
@@ -289,9 +298,12 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     ctx->saved_data["D"] = D;
     {% endif %}
     ctx->saved_data["total_hash_size_bits"] = total_hash_size_bits;
+
+    {% if optimizer != "none" %}
     ctx->saved_data["gradient_clipping"] = gradient_clipping;
     ctx->saved_data["max_gradient"] = max_gradient;
     ctx->saved_data["stochastic_rounding"] = stochastic_rounding;
+    {% endif %} // if optimizer != "none"
     ctx->saved_data["info_B_num_bits"] = info_B_num_bits;
     uint64_t info_B_mask_64 = info_B_mask;
     ctx->saved_data["info_B_mask"] = *reinterpret_cast<int64_t*>(&info_B_mask_64);
@@ -299,6 +311,11 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     {% for (var, _) in args.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
     {% endfor %}
+
+    {% if optimizer == "none" %}
+    // Flatten
+    dev_weights = dev_weights.flatten();
+    {% endif %}
 
     {% if not nobag %}
     if (!indice_weights) {
@@ -408,9 +425,12 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     auto D = ctx->saved_data["D"].toInt();
     {% endif %}
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
+
+    {% if optimizer != "none" %}
     auto gradient_clipping = ctx->saved_data["gradient_clipping"].toBool();
     auto max_gradient = ctx->saved_data["max_gradient"].toDouble();
     auto stochastic_rounding = ctx->saved_data["stochastic_rounding"].toBool();
+    {% endif %} // if optimizer != "none"
     const int32_t info_B_num_bits = ctx->saved_data["info_B_num_bits"].toInt();
     const int64_t info_B_mask_64 = ctx->saved_data["info_B_mask"].toInt();
     const uint32_t info_B_mask = *reinterpret_cast<const uint64_t*>(&info_B_mask_64);
@@ -430,7 +450,12 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
 #endif
     using torch::autograd::Variable;
 
+    {% if optimizer != "none" %}
     auto grad_output = gradient_clipping ? clamp(grad_outputs[0], -max_gradient, max_gradient) : grad_outputs[0];
+    {% else %}
+    auto& grad_output = grad_outputs[0];
+    {% endif %}
+
     // FIXME: to support aligned memory access in Vec4T load/store function
     // 16 for FP32 and 8 for FP16
     if (grad_output.dim() > 1 &&
@@ -451,8 +476,37 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     {% endif %}
 
     {% if not nobag %}
-    if (!indice_weights.defined()) {
-      split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vbe_desc }}_cuda(
+    {% if optimizer == "none" %}
+    // Flatten (dev_weights is used in
+    // split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda)
+    dev_weights = dev_weights.flatten();
+    {% endif %}
+    const auto grad_indice_weights = !indice_weights.defined() ?
+      Variable() :
+      split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
+        grad_output,
+        dev_weights,
+        uvm_weights,
+        lxu_cache_weights,
+        weights_placements,
+        weights_offsets,
+        D_offsets,
+        max_D,
+        indices,
+        offsets,
+        lxu_cache_locations,
+        {% if vbe %}
+        feature_requires_grad,
+        vbe_metadata,
+        info_B_num_bits,
+        info_B_mask
+        {% else %}
+        feature_requires_grad
+        {% endif %}
+        );
+    const auto grad_dev_weights = !indice_weights.defined() ?
+      {% for weighted in [False, True] %}
+      split_embedding_backward_codegen_{{ optimizer }}_{{ "weighted" if weighted else "unweighted" }}_exact{{ vbe_desc }}_cuda(
           grad_output,
           dev_weights,
           uvm_weights,
@@ -466,133 +520,60 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
           indices,
           offsets,
           pooling_mode,
-          lxu_cache_locations,
-          BT_block_size,
-          max_segment_length_per_warp,
-          stochastic_rounding,
-          info_B_num_bits,
-          info_B_mask,
-          {% if vbe %}
-          vbe_metadata,
-          {% endif %}
-          {{ args.split_function_arg_names | join(", ") }});
-      return {
-          Tensor(), // placeholder autograd tensor
-          Variable(), // output_dtype
-          Tensor(), // dev_weights
-          Variable(), // uvm_weights
-          Variable(), // lxu_cache_weights
-          Variable(), // weights_placements
-          Variable(), // weights_offsets
-          Variable(), // D_offsets
-          Variable(), // total_D
-          Variable(), // max_D
-          Variable(), // hash_size_cumsum
-          Variable(), //total_hash_size_bits
-          Variable(), // indices
-          Variable(), // offsets
-          Variable(), // pooling_mode
-          Variable(), // indice_weights
-          Variable(), // feature_requires_grad
-          Variable(), // lxu_cache_locations
-          Variable(), // gradient_clipping
-          Variable(), // max_gradient
-          Variable(), // stochastic_rounding
-          Variable(), // B_offsets
-          {% if vbe %}
-          Variable(), // vbe_output_offsets_feature_rank
-          Variable(), // vbe_B_offsets_rank_per_feature
-          Variable(), // max_B
-          Variable(), // max_B_feature_rank
-          Variable(), // vbe_output_size
-          {% endif %}
-          Variable(), // is_experimental
-          {{ args.split_variables | join(", ") }}
-      };
-    } else {
-      auto grad_indice_weights = split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
-          grad_output,
-          dev_weights,
-          uvm_weights,
-          lxu_cache_weights,
-          weights_placements,
-          weights_offsets,
-          D_offsets,
-          max_D,
-          indices,
-          offsets,
-          lxu_cache_locations,
-          {% if vbe %}
-          feature_requires_grad,
-          vbe_metadata,
-          info_B_num_bits,
-          info_B_mask
-          {% else %}
-          feature_requires_grad
-          {% endif %}
-          );
-      split_embedding_backward_codegen_{{ optimizer }}_weighted_exact{{ vbe_desc }}_cuda(
-          grad_output,
-          dev_weights,
-          uvm_weights,
-          lxu_cache_weights,
-          weights_placements,
-          weights_offsets,
-          D_offsets,
-          max_D,
-          hash_size_cumsum,
-          total_hash_size_bits,
-          indices,
-          offsets,
-          pooling_mode,
+          {% if weighted %}
           indice_weights,
+          {% endif %}
           lxu_cache_locations,
           BT_block_size,
           max_segment_length_per_warp,
+          {% if optimizer != "none" %}
           stochastic_rounding,
+          {% endif %}
           info_B_num_bits,
           info_B_mask,
           {% if vbe %}
           vbe_metadata,
           {% endif %}
-          {{ args.split_function_arg_names | join(", ") }});
-      return {
-          Tensor(), // placeholder autograd tensor
-          Variable(), // output_dtype
-          Tensor(), // dev_weights
-          Variable(), // uvm_weights
-          Variable(), // lxu_cache_weights
-          Variable(), // weights_placements
-          Variable(), // weights_offsets
-          Variable(), // D_offsets
-          Variable(), // total_D
-          Variable(), // max_D
-          Variable(), // hash_size_cumsum
-          Variable(), //total_hash_size_bits
-          Variable(), // indices
-          Variable(), // offsets
-          Variable(), // pooling_mode
-          grad_indice_weights,
-          Variable(), // indice_weights
-          Variable(), // feature_requires_grad
-          Variable(), // lxu_cache_locations
-          Variable(), // gradient_clipping
-          Variable(), // max_gradient
-          Variable(), // stochastic_rounding
-          {% if vbe %}
-          Variable(), // B_offsets
-          Variable(), // vbe_output_offsets_feature_rank
-          Variable(), // vbe_B_offsets_rank_per_feature
-          Variable(), // max_B
-          Variable(), // max_B_feature_rank
-          Variable(), // vbe_output_size
-          {% endif %}
-          Variable(), // is_experimental
-          {{ args.split_variables | join(", ") }}
-      };
-    }
+          {{ args.split_function_arg_names | join(", ") }}
+      ) {{ ":" if not weighted else ";" }}
+      {% endfor %} // for weighted in [False, True]
+    return {
+        Tensor(), // placeholder autograd tensor
+        Variable(), // output_dtype
+        grad_dev_weights, // dev_weights
+        Variable(), // uvm_weights
+        Variable(), // lxu_cache_weights
+        Variable(), // weights_placements
+        Variable(), // weights_offsets
+        Variable(), // D_offsets
+        Variable(), // total_D
+        Variable(), // max_D
+        Variable(), // hash_size_cumsum
+        Variable(), //total_hash_size_bits
+        Variable(), // indices
+        Variable(), // offsets
+        Variable(), // pooling_mode
+        grad_indice_weights, // indice_weights
+        Variable(), // feature_requires_grad
+        Variable(), // lxu_cache_locations
+        {% if optimizer != "none" %}
+        Variable(), // gradient_clipping
+        Variable(), // max_gradient
+        Variable(), // stochastic_rounding
+        {% endif %}
+        {% if vbe %}
+        Variable(), // B_offsets
+        Variable(), // vbe_output_offsets_feature_rank
+        Variable(), // vbe_B_offsets_rank_per_feature
+        Variable(), // max_B
+        Variable(), // max_B_feature_rank
+        Variable(), // vbe_output_size
+        {% endif %}
+        Variable(), // is_experimental
+        {{ args.split_variables | join(", ") }}
+    };
     {% else %}
-    split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
+    const auto grad_dev_weights = split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_cuda(
         grad_output,
         dev_weights,
         uvm_weights,
@@ -607,17 +588,20 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         lxu_cache_locations,
         BT_block_size,
         max_segment_length_per_warp,
+        {% if optimizer != "none" %}
         stochastic_rounding,
+        {% endif %}
         info_B_num_bits,
         info_B_mask,
         {% if vbe %}
         vbe_metadata,
         {% endif %}
-        {{ args.split_function_arg_names | join(", ") }});
+        {{ args.split_function_arg_names | join(", ") }}
+    );
     return {
         Tensor(), // placeholder autograd tensor
         Variable(), // output_dtype
-        Tensor(), // dev_weights
+        grad_dev_weights, // dev_weights
         Variable(), // uvm_weights
         Variable(), // lxu_cache_weights
         Variable(), // weights_placements
@@ -628,9 +612,11 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         Variable(), // indices
         Variable(), // offsets
         Variable(), // lxu_cache_locations
+        {% if optimizer != "none" %}
         Variable(), // gradient_clipping
         Variable(), // max_gradient
         Variable(), // stochastic_rounding
+        {% endif %}
         {% if vbe %}
         Variable(), // B_offsets
         Variable(), // vbe_output_offsets_feature_rank
@@ -669,9 +655,11 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     c10::optional<Tensor> indice_weights,
     c10::optional<Tensor> feature_requires_grad,
     Tensor lxu_cache_locations,
+    {% if optimizer != "none" %}
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
+    {% endif %}
     {{ args.split_function_args | join(", ") }},
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
     const c10::optional<Tensor>& B_offsets = c10::optional<Tensor>(),
@@ -708,9 +696,11 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           indices,
           offsets,
           lxu_cache_locations,
+          {% if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
           stochastic_rounding,
+          {% endif %}
           is_experimental,
           {{ args.split_function_arg_names | join(", ") }})[0];
     } else {
@@ -733,9 +723,11 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           indice_weights,
           feature_requires_grad,
           lxu_cache_locations,
+          {% if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
           stochastic_rounding,
+          {% endif %}
           {% if vbe %}
           B_offsets,
           vbe_output_offsets_feature_rank,
@@ -759,12 +751,72 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, int max_B=-1, int max_B_feature_rank=-1, int vbe_output_size=-1, bool is_experimental=False) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function("
+          "Tensor placeholder_autograd_tensor, "
+          "Tensor dev_weights, Tensor uvm_weights, "
+          "Tensor lxu_cache_weights, "
+          "Tensor weights_placements, "
+          "Tensor weights_offsets, "
+          "Tensor D_offsets, "
+          "int total_D, "
+          "int max_D, "
+          "Tensor hash_size_cumsum, "
+          "int total_hash_size_bits, "
+          "Tensor indices, "
+          "Tensor offsets, "
+          "int pooling_mode, "
+          "Tensor? indice_weights, "
+          "Tensor? feature_requires_grad, "
+          "Tensor lxu_cache_locations, "
+          {% if optimizer != "none" %}
+          "bool gradient_clipping, "
+          "float max_gradient, "
+          "bool stochastic_rounding, "
+          {% endif %}
+          "{{ args.split_function_schemas | join(", ") }}, "
+          "int output_dtype=0, "
+          "Tensor? B_offsets=None, "
+          "Tensor? vbe_output_offsets_feature_rank=None, "
+          "Tensor? vbe_B_offsets_rank_per_feature=None, "
+          "int max_B=-1, "
+          "int max_B_feature_rank=-1, "
+          "int vbe_output_size=-1, "
+          "bool is_experimental=False) -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function(Tensor placeholder_autograd_tensor, Tensor dev_weights, Tensor uvm_weights, Tensor lxu_cache_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, Tensor lxu_cache_locations, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, int max_B=-1, int max_B_feature_rank=-1, int vbe_output_size=-1, bool is_experimental=False) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function("
+          "Tensor placeholder_autograd_tensor, "
+          "Tensor dev_weights, Tensor uvm_weights, "
+          "Tensor lxu_cache_weights, "
+          "Tensor weights_placements, "
+          "Tensor weights_offsets, "
+          "Tensor D_offsets, "
+          "int total_D, "
+          "int max_D, "
+          "Tensor hash_size_cumsum, "
+          "int total_hash_size_bits, "
+          "Tensor indices, "
+          "Tensor offsets, "
+          "int pooling_mode, "
+          "Tensor? indice_weights, "
+          "Tensor? feature_requires_grad, "
+          "Tensor lxu_cache_locations, "
+          {% if optimizer != "none" %}
+          "bool gradient_clipping, "
+          "float max_gradient, "
+          "bool stochastic_rounding, "
+          {% endif %}
+          "{{ args.split_function_schemas | join(", ") }}, "
+          "int output_dtype=0, "
+          "Tensor? B_offsets=None, "
+          "Tensor? vbe_output_offsets_feature_rank=None, "
+          "Tensor? vbe_B_offsets_rank_per_feature=None, "
+          "int max_B=-1, "
+          "int max_B_feature_rank=-1, "
+          "int vbe_output_size=-1, "
+          "bool is_experimental=False) -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
 
