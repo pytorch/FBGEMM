@@ -30,7 +30,7 @@ concurrency:
 jobs:
   # Build on CPU hosts, run tests, and upload to GHA
   build_artifact:
-    runs-on: linux.4xlarge
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
       options: --user root
@@ -45,6 +45,10 @@ jobs:
       # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.4xlarge" },
+          { arch: arm, instance: "linux.t4g.2xlarge" },
+        ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
 
     steps:
@@ -75,7 +79,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch-CPU Test
-      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cpu
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
@@ -86,13 +90,13 @@ jobs:
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v3
       with:
-        name: fbgemm_gpu_cpu_${{ matrix.python-version }}.whl
+        name: fbgemm_gpu_release_cpu_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}.whl
         path: fbgemm_gpu/dist/fbgemm_gpu_cpu-*.whl
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    runs-on: linux.4xlarge
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
       options: --user root
@@ -105,6 +109,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.4xlarge" },
+          { arch: arm, instance: "linux.t4g.2xlarge" },
+        ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
     needs: build_artifact
 
@@ -120,7 +128,7 @@ jobs:
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v3
       with:
-        name: fbgemm_gpu_cpu_${{ matrix.python-version }}.whl
+        name: fbgemm_gpu_release_cpu_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}.whl
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -135,7 +143,7 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cpu
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV

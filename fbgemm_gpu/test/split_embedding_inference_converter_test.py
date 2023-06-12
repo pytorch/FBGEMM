@@ -46,9 +46,9 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, on_arm_platform
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, on_arm_platform
 
 EMB_WEIGHT_UNIFORM_INIT_BOUND = 0.000316
 MAX_EXAMPLES = 40
@@ -233,6 +233,7 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-1,
         )
 
+    @unittest.skipIf(*on_arm_platform)
     @given(
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),

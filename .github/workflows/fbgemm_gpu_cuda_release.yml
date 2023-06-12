@@ -30,7 +30,7 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
-    runs-on: linux.24xlarge
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
       options: --user root
@@ -45,6 +45,9 @@ jobs:
       # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.24xlarge" },
+        ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0" ]
 
@@ -93,13 +96,13 @@ jobs:
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v3
       with:
-        name: fbgemm_gpu_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+        name: fbgemm_gpu_release_cuda_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
         path: fbgemm_gpu/dist/fbgemm_gpu-*.whl
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    runs-on: linux.g5.4xlarge.nvidia.gpu
+    runs-on: ${{ matrix.host-machine.instance }}
     defaults:
       run:
         shell: bash
@@ -110,6 +113,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
+        ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0" ]
         # Specify exactly ONE CUDA version for artifact publish
@@ -125,7 +131,7 @@ jobs:
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v3
       with:
-        name: fbgemm_gpu_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+        name: fbgemm_gpu_release_cuda_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
 
     - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
       uses: pytorch/test-infra/.github/actions/setup-nvidia@main

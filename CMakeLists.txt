@@ -108,7 +108,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Add address sanitizer
 set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
-# Check if compiler supports avx512
+# Check if compiler supports AVX512
 include(CheckCXXCompilerFlag)
 if(MSVC)
   CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
