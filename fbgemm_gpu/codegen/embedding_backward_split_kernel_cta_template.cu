@@ -24,6 +24,7 @@ template <
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1(
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -31,6 +32,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {%- endif %}
+    {%- endif %} // if optimizer != "none"
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
@@ -59,17 +61,20 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {%- if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
-    {%- if not dense %}
+    {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- if optimizer == "none" %}
+    const int32_t max_D,
     {%- endif %}
+    {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    {% endif %}
-    {% if not nobag %}
+    {%- endif %}
+    {%- if not nobag %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
@@ -145,9 +150,9 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             const auto b_t = sl_j < sl_end ? reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start + sl_j] : 0;
             const auto b = b_t & info_B_mask;
             const auto t = b_t >> info_B_num_bits;
-            {% if vbe %}
+            {%- if vbe %}
             const auto grad_offset = output_offsets[B_offsets[t] + b];
-            {% else %} // if vbe
+            {%- else %} // if vbe
             int32_t D_start = sl_j < sl_end ? D_offsets[t] : 0;
             {%- endif %} // if vbe
             {%- else %} // if not nobag
@@ -340,8 +345,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
         }
 
-        int64_t weights_offset = weights_offsets[t_0];
-        {%- if not dense %}
+        {%- if not dense and optimizer != "none" %}
+        const int64_t weights_offset = weights_offsets[t_0];
         emb_t* __restrict__ weights{nullptr};
         cache_t* __restrict__ cache_weights{nullptr};
         int32_t D_emb = D;
@@ -428,6 +433,15 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         {{ split_post_update }}
 
         {%- else %}
+        // Write deduplicated gradient to grad_dev_weights gradient is sparse
+        // for split_embedding and dense for dense_embedding
+        {%- if dense %}
+        const int64_t weights_offset = weights_offsets[t_0];
+        {%- else %}
+        // Compute offset of sparse gradient
+        const int64_t weights_offset = current_run_id * max_D;
+        idx = 0;
+        {%- endif %}
         #pragma unroll kMaxVecsPerThread
         for (int32_t i = 0;
             i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
@@ -485,6 +499,7 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
   {{ kThreadGroupSize }}
 > (
     const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
@@ -492,6 +507,7 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {%- endif %}
+    {%- endif %} // if optimizer != "none"
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
@@ -520,12 +536,15 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
     {%- if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
-    {%- if not dense %}
+    {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- if optimizer == "none" %}
+    const int32_t max_D,
     {%- endif %}
+    {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
@@ -575,6 +594,7 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
   {{ kThreadGroupSize }}
 > (
     const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
@@ -582,6 +602,7 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {%- endif %}
+    {%- endif %} // if optimizer != "none"
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
@@ -610,12 +631,15 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
     {%- if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
-    {%- if not dense %}
+    {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<{{ cache_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- if optimizer == "none" %}
+    const int32_t max_D,
     {%- endif %}
+    {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,

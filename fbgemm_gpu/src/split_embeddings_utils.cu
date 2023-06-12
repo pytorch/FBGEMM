@@ -152,7 +152,8 @@ transpose_embedding_input(
     bool nobag,
     const c10::optional<Tensor>& vbe_b_t_map,
     const int64_t info_B_num_bits,
-    const int64_t info_B_mask) {
+    const int64_t info_B_mask,
+    const int64_t total_unique_indices) {
   const bool vbe = vbe_b_t_map.has_value();
   TORCH_CHECK(nobag || !vbe || info_B_num_bits > 0);
   TORCH_CHECK(!vbe || info_B_mask > 0);
@@ -238,10 +239,17 @@ transpose_embedding_input(
                         at::cuda::getCurrentCUDAStream(),
                         false));
               }
-
-              sorted_linear_indices_run = at::empty_like(indices);
-              sorted_linear_indices_run_lengths =
-                  at::zeros_like(indices, indices.options().dtype(at::kInt));
+              if (total_unique_indices != -1) {
+                TORCH_CHECK(total_unique_indices >= 0);
+                sorted_linear_indices_run =
+                    at::empty({total_unique_indices}, indices.options());
+                sorted_linear_indices_run_lengths = at::zeros(
+                    {total_unique_indices}, indices.options().dtype(at::kInt));
+              } else {
+                sorted_linear_indices_run = at::empty_like(indices);
+                sorted_linear_indices_run_lengths =
+                    at::zeros_like(indices, indices.options().dtype(at::kInt));
+              }
               sorted_linear_indices_num_runs =
                   at::zeros({1}, indices.options().dtype(at::kInt));
 
