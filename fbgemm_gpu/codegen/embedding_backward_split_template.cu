@@ -24,6 +24,7 @@ template <
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1(
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
+    {% if optimizer != "none" %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -31,6 +32,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {% endif %}
+    {% endif %} // if optimizer != "none"
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {% if not nobag %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
@@ -59,12 +61,15 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% if weighted %}
     const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {% endif %}
-    {% if not dense %}
+    {% if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {% else %}
-    at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {% if optimizer == "none" %}
+    const int32_t max_D,
     {% endif %}
+    {% endif %} // if not dense and optimizer != "none"
     {% if vbe %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
@@ -80,7 +85,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const bool use_deterministic_algorithms,
     {{ args.split_kernel_args | join(",\n    ") }});
 
-
 template <
     typename emb_t,
     typename grad_t,
@@ -93,12 +97,14 @@ void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1(
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
+    {% if optimizer != "none" %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
     at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
+    {% endif %}
     {% endif %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {% if not nobag %}
@@ -127,12 +133,15 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_num_runs,
     int32_t max_segment_length_per_warp,
-    {% if not dense %}
+    {% if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {% else %}
-    at::PackedTensorAccessor64<cache_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {% if optimizer == "none" %}
+    const int32_t max_D,
     {% endif %}
+    {% endif %} // if not dense and optimizer != "none"
     {% if vbe %}
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
@@ -143,8 +152,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {% endif %}
     {{ args.split_kernel_args | join(", ") }});
 
-
-{{ "void" if not dense else "Tensor" }} split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vbe_desc }}_cuda(
+Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vbe_desc }}_cuda(
     Tensor grad_output,
     Tensor dev_weights,
     {% if not dense %}
@@ -175,17 +183,29 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     int64_t unused_,
     int64_t max_segment_length_per_warp,
     {% if not dense %}
+    {% if optimizer != "none" %}
     bool stochastic_rounding,
+    {% endif %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {% endif %}
     {% if vbe %}
     const VBEMetadata& vbe_metadata,
     {% endif %}
-    {{ args.split_function_args | join(", ") }}) {
+    {% if optimizer != "none" %}
+    {{ args.split_function_args | join(", ") }}
+    {% else %}
+    // This is acutally passed via args.split_function_args but explicitly list
+    // it here for code readability
+    int64_t total_hash_size,
+    int64_t total_unique_indices
+    {% endif %}
+    ) {
 
    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+        {% if optimizer != "none" %}
         dev_weights,
+        {% endif %}
         {% if not dense %}
         uvm_weights,
         lxu_cache_weights,
@@ -214,13 +234,36 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 
+    {% if nobag %}
+    auto max_D = D;
+    {% endif %}
+    TORCH_CHECK(max_D <= {{ max_embedding_dim }});
+
+    {% if optimizer == "none" %}
+    // grad_dev_weights has emb_t type
+    auto grad_dev_weights = at::empty({total_unique_indices * max_D}, dev_weights.options());
+    {% else %}
+    // Set total_unique_indices to total num indices by default
+    const auto total_unique_indices = indices.numel();
     {% if dense %}
     auto grad_dev_weights = zeros_like(dev_weights);
+    {% endif %}
     {% endif %}
 
     // short-circuit if there are zero indices.
     if (indices.numel() == 0) {
-        return {{ "grad_dev_weights" if dense else "" }};
+        {% if dense %}
+        return grad_dev_weights;
+        {% elif optimizer == "none" %}
+        return at::sparse_coo_tensor(
+            at::empty({1, 0}, indices.options()),
+            grad_dev_weights.reshape({0, max_D}),
+            {total_hash_size, max_D},
+            dev_weights.options().layout(at::kSparse)
+        );
+        {% else %}
+        return Tensor();
+        {% endif %}
     }
 
     {% if not nobag %}
@@ -235,10 +278,6 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     TORCH_CHECK(total_B > 0);
     auto BT_block_size = kMaxThreads / kWarpSize;
     TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
-    {% if nobag %}
-    auto max_D = D;
-    {% endif %}
-    TORCH_CHECK(max_D <= {{ max_embedding_dim }});
 
     {% if vbe %}
     TORCH_CHECK(vbe_metadata.B_offsets.numel() == T + 1);
@@ -294,7 +333,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             {{ "true" if nobag else "false" }},
             {{ "c10::optional<Tensor>(vbe_metadata.b_t_map)" if vbe else "c10::optional<Tensor>()" }},
             info_B_num_bits,
-            info_B_mask);
+            info_B_mask,
+            total_unique_indices);
 
     {% if not dense %}
     auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
@@ -416,7 +456,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
             {% endif %}
 
-            {% if not dense %}
+            {% if not dense and optimizer != "none" %}
             at::PhiloxCudaState rng_engine_inputs;
             if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
                 auto gen = at::cuda::detail::getDefaultCUDAGenerator();
@@ -449,7 +489,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 BT_block_size = 1;
             }
 
-            auto long_run_ids = at::empty_like(sorted_linear_indices_run_lengths);
+            auto long_run_ids = at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
             auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
             const bool use_deterministic_algorithms = at::globalContext().deterministicAlgorithms();
@@ -460,7 +500,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     at::empty(0, sorted_linear_indices_run_lengths.options());
             } else {
                 long_run_id_to_really_long_run_ids =
-                    at::empty_like(sorted_linear_indices_run_lengths);
+                    at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
             }
             auto num_really_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
             auto grad_accum_counter = at::empty(
@@ -468,7 +508,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 indices.options().dtype(at::kInt));
 
             split_embedding_backward_codegen_find_long_segments<<<
-                div_round_up(indices.numel(), kMaxThreads),
+                div_round_up(total_unique_indices, kMaxThreads),
                 kMaxThreads,
                 0,
                 at::cuda::getCurrentCUDAStream()
@@ -491,7 +531,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                 grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
 
             int32_t grid_size = std::min(
-                div_round_up(long_run_ids.numel(), kMaxThreads),
+                div_round_up(total_unique_indices, kMaxThreads),
                 get_max_thread_blocks_());
 
             // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
@@ -527,6 +567,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                         kMaxVecsPerThread,
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
+                    {% if optimizer != "none" %}
                     {% if not dense %}
                     dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                     uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
@@ -535,6 +576,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% else %}
                     dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                     {% endif %}
+                    {% endif %} // if optimizer != "none"
                     weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                     {% if not nobag %}
                     D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
@@ -559,12 +601,15 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     {% if weighted %}
                     indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
                     {% endif %}
-                    {% if not dense %}
+                    {% if not dense and optimizer != "none" %}
                     stochastic_rounding,
                     rng_engine_inputs,
                     {% else %}
-                    grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                    grad_dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    {% if optimizer == "none" %}
+                    max_D,
                     {% endif %}
+                    {% endif %} // if not dense and optimizer != "none"
                     {% if vbe %}
                     vbe_metadata.B_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     vbe_metadata.output_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -582,7 +627,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
 
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             grid_size = std::min(
-                div_round_up(sorted_linear_indices_run.numel(), kBackwardMaxThreads / kThreadGroupSize),
+                div_round_up(total_unique_indices, kBackwardMaxThreads / kThreadGroupSize),
                 get_max_thread_blocks_());
 
             // Shared memory is not needed for non uint8_t weights
@@ -615,6 +660,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     shmem_bytes,
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
+                    {% if optimizer != "none" %}
                     {% if not dense %}
                     dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
                     uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
@@ -622,6 +668,7 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     {% else %}
                     dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    {% endif %}
                     {% endif %}
                     weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                     {% if not nobag %}
@@ -648,12 +695,15 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
                     sorted_linear_indices_num_runs
                         .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     max_segment_length_per_warp,
-                    {% if not dense %}
+                    {% if not dense and optimizer != "none" %}
                     stochastic_rounding,
                     rng_engine_inputs,
                     {% else %}
-                    grad_dev_weights.packed_accessor64<cache_t, 1, at::RestrictPtrTraits>(),
+                    grad_dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                    {% if optimizer == "none" %}
+                    max_D,
                     {% endif %}
+                    {% endif %} // if not dense and optimizer != "none"
                     {% if vbe %}
                     vbe_metadata.B_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                     vbe_metadata.output_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -670,7 +720,17 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
         {% endfor %}
         });
 
-    return {{ "grad_dev_weights" if dense else "" }};
+    {% if dense %}
+    return grad_dev_weights;
+    {% elif optimizer == "none" %}
+    return at::sparse_coo_tensor(
+        sorted_linear_indices_run.unsqueeze(0),
+        grad_dev_weights.reshape({total_unique_indices, max_D}),
+        {total_hash_size, max_D},
+        dev_weights.options().layout(at::kSparse));
+    {% else %}
+    return Tensor();
+    {% endif %}
 }
 
 // clang-format on

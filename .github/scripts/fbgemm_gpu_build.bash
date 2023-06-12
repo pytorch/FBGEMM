@@ -294,14 +294,17 @@ build_fbgemm_gpu_package () {
   echo "################################################################################"
   echo ""
 
-  # manylinux1_x86_64 is specified for PyPI upload
+  # manylinux2014 is specified, bc manylinux1 does not support aarch64
+  # See https://github.com/pypa/manylinux
+  local plat_name="manylinux2014_${MACHINE_NAME}"
+
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
   print_exec conda run -n "${env_name}" \
     python setup.py bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
-      --plat-name="manylinux1_${MACHINE_NAME}" \
+      --plat-name="${plat_name}" \
       "${build_args[@]}"
 
   # Run checks on the built libraries

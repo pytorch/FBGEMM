@@ -29,21 +29,21 @@ template <
     >
 __launch_bounds__(kForwardMaxThreads) __global__ void
 {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
-    const at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    const at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    const at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     int64_t D,
     FixedDivisor fd_B,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {%- if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
     {%- endif %}
-    at::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D],
+    pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D],
     ) {
     int32_t T = weights_offsets.size(0);
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -153,21 +153,21 @@ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forward_unweigh
   {{ index_type }},
   {{ kEmbeddingSize // 4 }}
 > (
-    const at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
+    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    const at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
-    const at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    const pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     int64_t D,
     FixedDivisor fd_B,
-    const at::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> indices,
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> offsets,
     {%- if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
     {%- endif %}
-    at::PackedTensorAccessor64<{{ output_type }}, 2, at::RestrictPtrTraits> output);
+    pta::PackedTensorAccessor64<{{ output_type }}, 2, at::RestrictPtrTraits> output);
 
 {%- endfor %}
 {%- endfor %}

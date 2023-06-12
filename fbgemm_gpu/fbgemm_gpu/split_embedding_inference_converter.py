@@ -11,11 +11,9 @@ import logging
 import math
 from typing import cast, Optional, Tuple
 
-import numpy as np
 import torch
 
 from fbgemm_gpu.split_embedding_configs import QuantizationConfig, SparseType
-
 from fbgemm_gpu.split_embedding_utils import FP8QuantizationConfig, quantize_embs
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
@@ -25,8 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-
-from torch import nn, Tensor  # usort:skip
+from torch import Tensor  # usort:skip
 
 
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
@@ -45,7 +42,7 @@ class SplitEmbInferenceConverter:
         self.use_array_for_index_remapping = use_array_for_index_remapping
         self.quantization_config = quantization_config
 
-    def convert_model(self, model: torch.nn.Module) -> nn.Module:
+    def convert_model(self, model: torch.nn.Module) -> torch.nn.Module:
         self._process_split_embs(model)
         return model
 
@@ -98,7 +95,7 @@ class SplitEmbInferenceConverter:
         fp8_quant_config = cast(FP8QuantizationConfig, self.quantization_config)
         return quantize_embs(weight, weight_ty, fp8_quant_config)
 
-    def _process_split_embs(self, model: nn.Module) -> None:
+    def _process_split_embs(self, model: torch.nn.Module) -> None:
         for name, child in model.named_children():
             if isinstance(
                 child,

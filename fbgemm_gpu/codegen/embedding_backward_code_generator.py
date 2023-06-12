@@ -1641,6 +1641,23 @@ def backward_dense() -> None:
     )
 
 
+def none_optimizer() -> None:
+    generate(
+        optimizer="none",
+        dense=False,
+        args=make_args(
+            [
+                (INT, "total_hash_size"),
+                (INT, "total_unique_indices"),
+            ]
+        ),
+        # Generate only GPU code
+        has_cpu_support=False,
+        has_gpu_support=True,
+        has_vbe_support=False,
+    )
+
+
 def gen__init__py() -> None:
     template = env.get_template("__init__.template")
     src_py = template.render()
@@ -1670,6 +1687,8 @@ def emb_codegen(
     rowwise_adagrad_with_counter()
     rowwise_weighted_adagrad()
     sgd()
+    none_optimizer()
+
     gen__init__py()
 
 

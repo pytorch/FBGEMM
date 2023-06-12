@@ -1678,6 +1678,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "jagged_slice(Tensor x_values, Tensor x_lengths, Tensor start, int slice_length) -> (Tensor, Tensor)");
   m.def(
       "jagged_slice_forward(Tensor x_values, Tensor x_lengths, Tensor src_start, Tensor output_lengths, Tensor tgt_start, int num_output_rows, int slice_length, bool fill_zeros) -> Tensor");
+  m.def(
+      "jagged_unique_indices(Tensor hash_size_cumsum, Tensor offsets, Tensor indices) -> (Tensor, Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

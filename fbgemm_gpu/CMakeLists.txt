@@ -183,7 +183,8 @@ set(GPU_ONLY_OPTIMIZERS
   partial_rowwise_lamb
   lars_sgd
   rowwise_adagrad_with_weight_decay
-  approx_rowwise_adagrad_with_weight_decay)
+  approx_rowwise_adagrad_with_weight_decay
+  none)
 
 set(DEPRECATED_OPTIMIZERS
   approx_sgd
@@ -565,6 +566,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/jagged_tensor_ops/jagged_tensor_ops.cu
       src/jagged_tensor_ops/jagged_to_padded_dense_backward.cu
       src/jagged_tensor_ops/jagged_to_padded_dense_forward.cu
+      src/jagged_tensor_ops/jagged_unique_indices.cu
       src/jagged_tensor_ops/keyed_jagged_index_select_dim1.cu
       src/jagged_tensor_ops/stacked_jagged_1d_to_dense.cu
       src/jagged_tensor_ops/stacked_jagged_2d_to_dense.cu

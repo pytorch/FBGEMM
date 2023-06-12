@@ -38,7 +38,7 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
-    runs-on: linux.24xlarge
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
       options: --user root
@@ -53,6 +53,9 @@ jobs:
       # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.24xlarge" },
+        ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0", "12.1.1"]
 
@@ -102,7 +105,7 @@ jobs:
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v3
       with:
-        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+        name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
         path: fbgemm_gpu/dist/fbgemm_gpu_nightly-*.whl
 
 
@@ -110,7 +113,7 @@ jobs:
   test_and_publish_artifact:
     # runs-on: linux.4xlarge.nvidia.gpu
     # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
-    runs-on: linux.g5.4xlarge.nvidia.gpu
+    runs-on: ${{ matrix.host-machine.instance }}
     defaults:
       run:
         shell: bash
@@ -121,6 +124,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
+        ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.7.1", "11.8.0", "12.1.1"]
         # Specify exactly ONE CUDA version for artifact publish
@@ -136,7 +142,7 @@ jobs:
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v3
       with:
-        name: fbgemm_gpu_nightly_${{ matrix.python-version }}_cuda${{ matrix.cuda-version }}.whl
+        name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
 
     # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
     - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
