@@ -40,6 +40,7 @@ class CommonArgs(NamedTuple):
     lxu_cache_locations: torch.Tensor
     output_dtype: int
     vbe_metadata: VBEMetadata
+    is_experimental: bool
 
 
 class OptimizerArgs(NamedTuple):
