@@ -156,6 +156,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         use_cpu: bool,
         output_dtype: SparseType,
+        use_experimental_tbe: bool,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
@@ -324,6 +325,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,
             output_dtype=output_dtype,
+            use_experimental_tbe=use_experimental_tbe,
         )
         # NOTE: test TorchScript-compatible!
         cc = torch.jit.script(cc)
@@ -412,6 +414,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+            False,  # use_experimental_tbe
         )
 
     def test_forward_cpu_fp32(
@@ -456,6 +459,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+            False,  # use_experimental_tbe
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -505,11 +509,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+            False,  # use_experimental_tbe
         )
 
     @unittest.skipIf(*gpu_unavailable)
+    @given(
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
     def test_forward_gpu_no_cache_fp16(
         self,
+        use_experimental_tbe: bool,
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
@@ -527,15 +542,17 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 PoolingMode.SUM,
                 PoolingMode.MEAN,
-                PoolingMode.NONE,
             ]
+            + ([PoolingMode.NONE] if not use_experimental_tbe else [])
         )
         if pooling_mode == PoolingMode.NONE:
             mixed = False
             mixed_B = False
         else:
             mixed = random.choice([True, False])
-            mixed_B = random.choice([True, False])
+            mixed_B = (
+                random.choice([True, False]) if not use_experimental_tbe else False
+            )
         if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
@@ -555,11 +572,22 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+            use_experimental_tbe,
         )
 
     @unittest.skipIf(*gpu_unavailable)
+    @given(
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
     def test_forward_gpu_no_cache_fp32(
         self,
+        use_experimental_tbe: bool,
     ) -> None:
         weights_precision = SparseType.FP32
         use_cpu = False
@@ -577,15 +605,17 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 PoolingMode.SUM,
                 PoolingMode.MEAN,
-                PoolingMode.NONE,
             ]
+            + ([PoolingMode.NONE] if not use_experimental_tbe else [])
         )
         if pooling_mode == PoolingMode.NONE:
             mixed = False
             mixed_B = False
         else:
             mixed = random.choice([True, False])
-            mixed_B = random.choice([True, False])
+            mixed_B = (
+                random.choice([True, False]) if not use_experimental_tbe else False
+            )
         if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
@@ -605,6 +635,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+            use_experimental_tbe,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -668,11 +699,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             output_dtype,
+            False,  # use_experimental_tbe
         )
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
         cache_algorithm=st.sampled_from(CacheAlgorithm),
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -683,6 +716,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_forward_gpu_uvm_cache_fp16(
         self,
         cache_algorithm: CacheAlgorithm,
+        use_experimental_tbe: bool,
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
@@ -698,8 +732,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 PoolingMode.SUM,
                 PoolingMode.MEAN,
-                PoolingMode.NONE,
             ]
+            + ([PoolingMode.NONE] if not use_experimental_tbe else [])
         )
         output_dtype = random.choice(
             [
@@ -731,11 +765,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             output_dtype,
+            use_experimental_tbe,
         )
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
         cache_algorithm=st.sampled_from(CacheAlgorithm),
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -746,6 +782,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_forward_gpu_uvm_cache_fp32(
         self,
         cache_algorithm: CacheAlgorithm,
+        use_experimental_tbe: bool,
     ) -> None:
         weights_precision = SparseType.FP32
         use_cpu = False
@@ -761,8 +798,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 PoolingMode.SUM,
                 PoolingMode.MEAN,
-                PoolingMode.NONE,
             ]
+            + ([PoolingMode.NONE] if not use_experimental_tbe else [])
         )
         output_dtype = random.choice(
             [
@@ -794,6 +831,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             output_dtype,
+            use_experimental_tbe,
         )
 
     @unittest.skipIf(*gpu_unavailable)

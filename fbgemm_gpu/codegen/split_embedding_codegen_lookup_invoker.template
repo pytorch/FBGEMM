@@ -277,5 +277,6 @@ def invoke(
         max_counter=max_counter,
         {% endif %}
         output_dtype=common_args.output_dtype,
+        is_experimental=common_args.is_experimental,
     )
     {% endif %}
