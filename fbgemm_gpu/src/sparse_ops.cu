@@ -15,6 +15,8 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
+#include <c10/cuda/CUDADeviceAssertion.h>
+#include <c10/cuda/CUDADeviceAssertionHost.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/library.h>
 
@@ -2376,10 +2378,11 @@ __global__ void pack_segments_cuda_kernel(
     const int64_t num_seq,
     const int64_t cell_size,
     const Data_T padding,
-    Data_T* const out_ptr) {
+    Data_T* const out_ptr,
+    TORCH_DSA_KERNEL_ARGS) {
   // PackSegments requires that the sum of the lengths is equal to the first
   //  dimension of data
-  CUDA_KERNEL_ASSERT(
+  CUDA_KERNEL_ASSERT2(
       data_size_0 == lengths_cum_sum[num_seq - 1] + lengths_ptr[num_seq - 1]);
 
   CUDA_KERNEL_LOOP(i, num_seq * max_length * cell_size) {
@@ -2455,21 +2458,21 @@ Tensor pack_segments_forward_cuda(
           auto* const out_data = packed_tensor.data_ptr<scalar_t>();
           const auto num_seq = lengths.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
-          pack_segments_cuda_kernel<index_t, scalar_t>
-              <<<cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
-                 128,
-                 0,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  data_ptr,
-                  t_in_c.size(0),
-                  lengths_data,
-                  lps_data,
-                  max_length,
-                  num_seq,
-                  cell_size,
-                  static_cast<scalar_t>(0),
-                  out_data);
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          TORCH_DSA_KERNEL_LAUNCH(
+              (pack_segments_cuda_kernel<index_t, scalar_t>),
+              cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
+              128,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              data_ptr,
+              t_in_c.size(0),
+              lengths_data,
+              lps_data,
+              max_length,
+              num_seq,
+              cell_size,
+              static_cast<scalar_t>(0),
+              out_data);
         });
   });
 
@@ -2588,16 +2591,17 @@ __global__ __launch_bounds__(kMaxThreads) void index_select_2d_kernel(
     const at::PackedTensorAccessor64<index_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
         orig_indices,
-    at::PackedTensorAccessor64<scalar_t, 2> output) {
+    at::PackedTensorAccessor64<scalar_t, 2> output,
+    TORCH_DSA_KERNEL_ARGS) {
   const int N = indices.size(0);
   const int input_size = input.size(0);
   const int D = input.size(1);
-  CUDA_KERNEL_ASSERT(output.size(0) == N)
+  CUDA_KERNEL_ASSERT2(output.size(0) == N);
 
   for (int row = blockIdx.x; row < N; row += gridDim.x) {
     const index_t src_idx = indices[row];
     const int64_t dst_idx = indices_sorted ? orig_indices[row] : row;
-    CUDA_KERNEL_ASSERT(src_idx < input_size)
+    CUDA_KERNEL_ASSERT2(src_idx < input_size);
     int col;
     for (col = threadIdx.x * UNROLL_FACTOR;
          col < D / UNROLL_FACTOR * UNROLL_FACTOR;
@@ -2759,19 +2763,23 @@ Tensor index_select_cuda(
   const int UNROLL_FACTOR = 2;
 
 #define LAUNCH_INDEX_SELECT(INDICES_SORTED)                                   \
-  index_select_2d_kernel<index_t, scalar_t, UNROLL_FACTOR, INDICES_SORTED>    \
-      <<<cuda_calc_xblock_count(N, 1),                                        \
-         std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads),               \
-         0,                                                                   \
-         at::cuda::getCurrentCUDAStream()>>>(                                 \
-          input_reshaped                                                      \
-              .packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(),       \
-          indices.packed_accessor64<index_t, 1, at::RestrictPtrTraits>(),     \
-          INDICES_SORTED                                                      \
-              ? orig_indices                                                  \
-                    .packed_accessor64<int64_t, 1, at::RestrictPtrTraits>()   \
-              : dummy_packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(), \
-          output.packed_accessor64<scalar_t, 2>());
+  TORCH_DSA_KERNEL_LAUNCH(                                                    \
+      (index_select_2d_kernel<                                                \
+          index_t,                                                            \
+          scalar_t,                                                           \
+          UNROLL_FACTOR,                                                      \
+          INDICES_SORTED>),                                                   \
+      cuda_calc_xblock_count(N, 1),                                           \
+      std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads),                  \
+      0,                                                                      \
+      at::cuda::getCurrentCUDAStream(),                                       \
+      input_reshaped.packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(), \
+      indices.packed_accessor64<index_t, 1, at::RestrictPtrTraits>(),         \
+      INDICES_SORTED                                                          \
+          ? orig_indices                                                      \
+                .packed_accessor64<int64_t, 1, at::RestrictPtrTraits>()       \
+          : dummy_packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),     \
+      output.packed_accessor64<scalar_t, 2>());
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "index_add_2d_kernel_1", [&] {
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
@@ -2781,7 +2789,6 @@ Tensor index_select_cuda(
           } else {
             LAUNCH_INDEX_SELECT(false)
           }
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
   });
 
@@ -3045,7 +3052,6 @@ void group_index_select_or_add_cuda(
                   INVOKE_GROUP_INDEX_SELECT_OR_ADD(false, false);
                 }
               }
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
 
