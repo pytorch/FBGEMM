@@ -1379,7 +1379,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         assert output.size() == output_ref.size()
 
-    @unittest.skipIf(*running_on_github)
     @unittest.skipIf(*symint_vector_unsupported())
     @given(
         num_jagged_dim=st.integers(1, 4),
@@ -2193,7 +2192,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(x_values.grad, x_values_ref.grad)
         torch.testing.assert_close(y.grad, y_ref.grad)
 
-    @unittest.skipIf(*running_on_github)
     @unittest.skipIf(*symint_vector_unsupported())
     @given(
         B=st.integers(10, 512),
