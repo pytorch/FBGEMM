@@ -9,6 +9,8 @@
 #include <ATen/ATen.h>
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDADeviceAssertion.h>
+#include <c10/cuda/CUDADeviceAssertionHost.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
@@ -25,7 +27,8 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
     at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> self,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> values,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count) {
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count,
+    TORCH_DSA_KERNEL_ARGS) {
   const int32_t N = indices.size(0);
   const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= N) {
@@ -47,7 +50,8 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
     at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> self,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
     const at::PackedTensorAccessor32<uint8_t, 2, at::RestrictPtrTraits> values,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count) {
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count,
+    TORCH_DSA_KERNEL_ARGS) {
   const int32_t N = indices.size(0);
   const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= N) {
@@ -61,7 +65,7 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
   const auto D = self.size(1);
   // each row is padded with row_alignment (16 bytes on GPUs), so each row will
   // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
-  CUDA_KERNEL_ASSERT(
+  CUDA_KERNEL_ASSERT2(
       D % 16 == 0 && "D needs to be padded to be multiple of 16");
   auto vec_self = reinterpret_cast<uint4*>(&self[idx][0]);
   auto vec_values = reinterpret_cast<const uint4*>(&values[n][0]);
@@ -94,15 +98,16 @@ Tensor masked_index_put_cuda(
       [&] {
         const int32_t tx = std::min<int32_t>(D / 4, kMaxThreads);
         const dim3 threads(tx, kMaxThreads / tx);
-        masked_index_put_kernel<scalar_t>
-            <<<div_round_up(N, kMaxThreads / tx),
-               dim3(tx, kMaxThreads / tx),
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                self.packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(),
-                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
-                count.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+        TORCH_DSA_KERNEL_LAUNCH(
+            masked_index_put_kernel<scalar_t>,
+            div_round_up(N, kMaxThreads / tx),
+            dim3(tx, kMaxThreads / tx),
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            self.packed_accessor64<scalar_t, 2, at::RestrictPtrTraits>(),
+            indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
+            count.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
       } // lambda
   );
 
@@ -130,8 +135,8 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
         assigned_cache_slots,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         evicted_indices,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        actions_count) {
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> actions_count,
+    TORCH_DSA_KERNEL_ARGS) {
   const int32_t C = lxu_cache_state.size(0);
 
   const int32_t N = sorted_cache_sets.size(0);
@@ -167,7 +172,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
   // This will mean that we can't insert all the indices for our segment,
   // which will break the guarantees required for the SSD embedding.
   // If you hit this, increase the cache size.
-  CUDA_KERNEL_ASSERT(SL <= kWarpSize);
+  CUDA_KERNEL_ASSERT2(SL <= kWarpSize);
   // now, we need to insert the (unique!) values in indices[n:n + SL] into
   // our slots.
   const int32_t slot = threadIdx.x;
@@ -197,7 +202,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
     // evicted from the cache. This will break the guarantees required
     // for the SSD embedding.
     // If you hit this assert, increase the cache size.
-    CUDA_KERNEL_ASSERT(insert_time < (time_stamp - prefetch_dist));
+    CUDA_KERNEL_ASSERT2(insert_time < (time_stamp - prefetch_dist));
   }
 
   evicted_indices[n + l] = current_idx; // -1 if not set, >= 0 if valid.
@@ -260,11 +265,12 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
       uvm_cache_stats);
   auto sorted_cache_sets = cache_sets_and_unique_indices.first;
   auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
-  ssd_cache_actions_insert_kernel<<<
+  TORCH_DSA_KERNEL_LAUNCH(
+      ssd_cache_actions_insert_kernel,
       div_round_up(N, kMaxThreads / kWarpSize),
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       lxu_cache_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
       sorted_cache_sets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       cache_set_sorted_unique_indices
@@ -276,7 +282,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
           .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
       evicted_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
       actions_count.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
   return std::make_tuple(
       cache_set_sorted_unique_indices,
       evicted_indices,
