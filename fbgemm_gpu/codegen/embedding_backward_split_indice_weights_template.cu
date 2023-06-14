@@ -25,33 +25,33 @@ template <
 __global__
 __launch_bounds__(kForwardMaxThreads) void {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights{{ vbe_desc }}_kernel(
     // [\sum_t E_t x D_t]
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {% if not dense %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         indices, // [N = \sum_{b,t} L_{b,t} total indices, i.e. flattened
                  // [B][T][L]
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         offsets, // [B x T + 1]
     {% if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
     {% endif %}
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         feature_requires_grad, // [T],
-    at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>
         grad_indice_weights,
     {% if vbe %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask
     {% else %}
@@ -275,6 +275,11 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
 
             {% for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
             if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
+
+#ifdef FBGEMM_GPU_MEMCHECK
+            const auto func_name = "{{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights{{ vbe_desc }}_kernel";
+#endif
+
             {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights{{ vbe_desc }}_kernel<
                 emb_t,
                 grad_t,
@@ -284,25 +289,25 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
-                grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>(),
-                dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA(grad_output, grad_t, 2, 64),
+                MAKE_PTA(dev_weights, emb_t, 1, 64),
                 {% if not dense %}
-                uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA(uvm_weights, emb_t, 1, 64),
+                MAKE_PTA(lxu_cache_weights, cache_t, 2, 64),
+                MAKE_PTA(weights_placements, int32_t, 1, 32),
                 {% endif %}
-                weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA(weights_offsets, int64_t, 1, 32),
+                MAKE_PTA(D_offsets, int32_t, 1, 32),
+                MAKE_PTA(indices, int64_t, 1, 32),
+                MAKE_PTA(offsets, int64_t, 1, 32),
                 {% if not dense %}
-                lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA(lxu_cache_locations, int32_t, 1, 32),
                 {% endif %}
-                feature_requires_grad.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                grad_indice_weights.packed_accessor32<at::acc_type<grad_t, true>, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA(feature_requires_grad, int32_t, 1, 32),
+                MAKE_PTA_ACC(grad_indice_weights, grad_t, 1, 32),
                 {% if vbe %}
-                vbe_metadata.output_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                vbe_metadata.b_t_map.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA(vbe_metadata.output_offsets, int64_t, 1, 32),
+                MAKE_PTA(vbe_metadata.b_t_map, int32_t, 1, 32),
                 info_B_num_bits,
                 info_B_mask
                 {% else %}
