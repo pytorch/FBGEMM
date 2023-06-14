@@ -1186,6 +1186,26 @@ template float convert_to_float_ref(uint16_t src, bool is_bf16);
 template float convert_from_float_ref(float src, bool is_bf16);
 template uint16_t convert_from_float_ref(float bfloat16, bool is_bf16);
 
+template <typename OutType>
+void assembleOutput(
+    OutType* out,
+    const vector<float>& buf,
+    int64_t start_idx,
+    int64_t count,
+    bool is_bf16) {
+  for (int64_t i = start_idx; i < start_idx + count; ++i) {
+    if (is_same<OutType, float>::value) {
+      out[i] = buf[i];
+    } else {
+      if (is_bf16) {
+        out[i] = cpu_float2bfloat16(buf[i]);
+      } else {
+        out[i] = cpu_float2half_rn(buf[i]);
+      }
+    }
+  }
+}
+
 template <
     typename InType,
     typename IndexType,
@@ -1264,10 +1284,7 @@ bool EmbeddingSpMDM_ref(
                    (scale_bias_last ? 0 : 2 * sizeof(float16))],
               buf[j] + bias);
         }
-        for (int j = 0; j < block_size; ++j) {
-          out[j] = is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
-                                                    : buf[j];
-        }
+        assembleOutput(out, buf, 0, block_size, is_bf16);
         out += output_stride;
       } // m
       return true;
@@ -1321,10 +1338,7 @@ bool EmbeddingSpMDM_ref(
           buf[j] *= scale;
         }
       }
-      for (int j = 0; j < block_size; ++j) {
-        out[j] = is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
-                                                  : buf[j];
-      }
+      assembleOutput(out, buf, 0, block_size, is_bf16);
       out += output_stride;
     }
     return current == index_size;
@@ -1417,7 +1431,8 @@ bool EmbeddingSpMDMNBit_ref(
     bool use_offsets,
     int64_t output_stride,
     int64_t input_stride,
-    bool scale_bias_last) {
+    bool scale_bias_last,
+    bool is_bf16) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
   int num_elem_per_byte = 8 / bit_rate;
 
@@ -1478,10 +1493,7 @@ bool EmbeddingSpMDMNBit_ref(
         buf[j] *= scale;
       }
     }
-    for (int j = 0; j < block_size; ++j) {
-      out[j] = std::is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
-                                                     : buf[j];
-    }
+    assembleOutput(out, buf, 0, block_size, is_bf16);
     out += output_stride;
   }
   return current == index_size;
@@ -1504,7 +1516,8 @@ bool EmbeddingSpMDMFP8_ref(
     int64_t output_stride,
     int64_t input_stride,
     int exponent_bits,
-    int exponent_bias) {
+    int exponent_bias,
+    bool is_bf16) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1552,10 +1565,7 @@ bool EmbeddingSpMDMFP8_ref(
         buf[j] *= scale;
       }
     }
-    for (int j = 0; j < block_size; ++j) {
-      out[j] =
-          is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j]) : buf[j];
-    }
+    assembleOutput(out, buf, 0, block_size, is_bf16);
     out += output_stride;
   }
   return current == index_size;
@@ -2104,7 +2114,8 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       bool use_offsets,                                           \
       int64_t output_stride,                                      \
       int64_t input_stride,                                       \
-      bool scale_bias_last);                                      \
+      bool scale_bias_last,                                       \
+      bool is_bf16);                                              \
   template FBGEMM_API bool EmbeddingSpMDMFP8_ref(                 \
       const int64_t block_size,                                   \
       const int64_t output_size,                                  \
@@ -2121,7 +2132,8 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       int64_t output_stride,                                      \
       int64_t input_stride,                                       \
       int exponent_bits,                                          \
-      int exponent_bias);
+      int exponent_bias,                                          \
+      bool is_bf16);
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)        \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)        \

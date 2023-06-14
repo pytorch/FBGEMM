@@ -260,7 +260,8 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     bool use_offsets = true,
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
-    bool scale_bias_last = true);
+    bool scale_bias_last = true,
+    bool is_bf16 = false);
 
 template <
     typename IndexType = std::int64_t,
@@ -282,7 +283,8 @@ bool EmbeddingSpMDMFP8_ref(
     int64_t output_stride = -1,
     int64_t input_stride = -1,
     int exponent_bits = 4,
-    int exponent_bias = 7);
+    int exponent_bias = 7,
+    bool is_bf16 = false);
 
 template <
     typename InType = std::uint8_t,

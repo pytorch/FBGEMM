@@ -1262,7 +1262,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         int64_t output_stride /*=-1*/,
         int64_t input_stride /*=-1*/,
         int exponent_bits,
-        int exponent_bias) {
+        int exponent_bias,
+        bool isbf16) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1294,7 +1295,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         output_stride,
         input_stride,
         exponent_bits,
-        exponent_bias);
+        exponent_bias,
+        isbf16);
   };
 }
 
@@ -1473,7 +1475,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int64_t output_stride,                                               \
       int64_t input_stride,                                                \
       int exponent_bits,                                                   \
-      int exponent_bias);
+      int exponent_bias,                                                   \
+      bool is_bf16);
 
 #define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
