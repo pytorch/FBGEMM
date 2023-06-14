@@ -30,6 +30,16 @@
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+/*
+ * We annotate the public fbgemm functions and hide the rest. Those
+ * public symbols can be called via fbgemm_gpu::func() or pytorch
+ * operator dispatcher. We'll hide other symbols, especially cub APIs,
+ * because different .so may include the same cub CUDA kernels, which
+ * results in confusion and libA may end up calling libB's cub kernel,
+ * causing failures when we static link libcudart_static.a
+ */
+#define DLL_PUBLIC __attribute__((visibility("default")))
+
 #ifdef __HIP_PLATFORM_HCC__
 #include <hipblas.h>
 #endif
@@ -102,7 +112,8 @@ __global__ __launch_bounds__(kMaxThreads) void _offsets_range_cuda_kernel(
   }
 }
 
-Tensor offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
+DLL_PUBLIC Tensor
+offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
   TENSOR_ON_CUDA_GPU(offsets);
   TENSOR_NDIM_EQUALS(offsets, 1);
 
@@ -169,7 +180,7 @@ __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
   }
 }
 
-Tensor segment_sum_csr_cuda(
+DLL_PUBLIC Tensor segment_sum_csr_cuda(
     const int64_t batch_size,
     const Tensor& csr_seg,
     const Tensor& values) {
@@ -197,7 +208,7 @@ Tensor segment_sum_csr_cuda(
   return output;
 }
 
-Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
+DLL_PUBLIC Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -234,7 +245,7 @@ Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
-Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
+DLL_PUBLIC Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -271,7 +282,7 @@ Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   return t_out;
 }
 
-Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
+DLL_PUBLIC Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -403,7 +414,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_lengths_kernel(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cuda(
+DLL_PUBLIC std::tuple<Tensor, Tensor, c10::optional<Tensor>>
+permute_2D_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -576,7 +588,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_1D_data_kernel(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cuda(
+DLL_PUBLIC std::tuple<Tensor, Tensor, c10::optional<Tensor>>
+permute_1D_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -709,7 +722,7 @@ __global__ __launch_bounds__(kMaxThreads) void invert_permute_kernel(
   }
 }
 
-Tensor invert_permute_cuda(const Tensor& permute) {
+DLL_PUBLIC Tensor invert_permute_cuda(const Tensor& permute) {
   TENSOR_ON_CUDA_GPU(permute);
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(permute.get_device());
@@ -752,7 +765,7 @@ __launch_bounds__(kMaxThreads) void expand_into_jagged_permute_kernel(
   }
 }
 
-Tensor expand_into_jagged_permute_cuda(
+DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
     const Tensor& permute,
     const Tensor& input_offsets,
     const Tensor& output_offsets,
@@ -888,7 +901,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
 
 // This function partitions sparse features
 // continuously along the sparse dimension into my_size blocks
-std::tuple<
+DLL_PUBLIC std::tuple<
     Tensor,
     Tensor,
     c10::optional<Tensor>,
@@ -1358,6 +1371,7 @@ __launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel2(
 
 // This function partitions sparse features
 // cyclically along the sparse dimension into my_size blocks
+DLL_PUBLIC
 std::tuple<Tensor, Tensor, c10::optional<Tensor>, c10::optional<Tensor>>
 bucketize_sparse_features_cuda(
     const Tensor& lengths,
@@ -1563,7 +1577,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
   }
 }
 
-Tensor reorder_batched_ad_lengths_gpu(
+DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
     const Tensor& cat_ad_lengths,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
@@ -1668,7 +1682,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
   }
 }
 
-Tensor reorder_batched_ad_indices_gpu(
+DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     const Tensor& cat_ad_offsets,
     const Tensor& cat_ad_indices,
     const Tensor& reordered_cat_ad_offsets,
@@ -1881,7 +1895,7 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
   grad_weight[n * sum_E + table_offset + idx] = grad_sum;
 }
 
-Tensor batched_unary_embeddings_backward_cuda(
+DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
     const Tensor& grad_output,
     const Tensor& weight,
     const Tensor& table_offsets,
@@ -1966,7 +1980,7 @@ Tensor batched_unary_embeddings_backward_cuda(
   return grad_weight;
 }
 
-Tensor lengths_range_cuda(
+DLL_PUBLIC Tensor lengths_range_cuda(
     const Tensor& t_in,
     const c10::optional<std::vector<int64_t>>& shape) {
   TENSOR_ON_CUDA_GPU(t_in);
@@ -2046,7 +2060,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
+DLL_PUBLIC std::tuple<Tensor, Tensor, c10::optional<Tensor>>
+permute_sparse_features_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -2171,7 +2186,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cuda(
 // B: batch_size, k, n
 // C: m, batch_size, n
 // bias: batch_size, n
-Tensor permute102_baddbmm_permute102_cuda(
+DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
     const Tensor& bias,
     const Tensor& A,
     const Tensor& B) {
@@ -2331,7 +2346,7 @@ __global__ void permute_embeddings_kernel(
   }
 }
 
-std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
+DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& embeddings) {
@@ -2408,7 +2423,7 @@ __global__ void pack_segments_cuda_kernel(
 /// @return packed_tensor
 ///         packed_tensor  N + 1 dim Tensor where dim(1) is the max length,
 ///                        dim(0) is the batch size.
-Tensor pack_segments_forward_cuda(
+DLL_PUBLIC Tensor pack_segments_forward_cuda(
     const Tensor& t_in,
     const Tensor& lengths,
     const int64_t max_length) {
@@ -2508,7 +2523,7 @@ __global__ void unpack_segments_cuda_kernel(
 /// @param total_length Sum of elements in the 1D tensor legnths
 /// @param max_length   The pre-defined max_length for the packed segments.
 /// @return unpacked_tensor N-dimensional tensor
-Tensor pack_segments_backward_cuda(
+DLL_PUBLIC Tensor pack_segments_backward_cuda(
     const Tensor& data,
     const Tensor& lengths,
     int64_t total_length,
@@ -2697,7 +2712,7 @@ __launch_bounds__(kMaxThreads) void compute_frequency_sequence_kernel(
   atomicAdd(&output[input[i] - start_input], 1);
 }
 
-void compute_frequency_sequence(
+DLL_PUBLIC void compute_frequency_sequence(
     const Tensor& input,
     Tensor& output,
     const int start_input,
@@ -2739,7 +2754,7 @@ dummy_packed_accessor64() {
   return {nullptr, zeros.data(), zeros.data()};
 }
 
-Tensor index_select_cuda(
+DLL_PUBLIC Tensor index_select_cuda(
     const Tensor& input,
     const Tensor& indices,
     const Tensor& orig_indices,
@@ -2797,7 +2812,7 @@ Tensor index_select_cuda(
   return output.reshape(output_shape);
 }
 
-Tensor index_add_with_unique_indices_cuda(
+DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
     const Tensor& grad_output,
     const Tensor& sorted_indices,
     const Tensor& orig_indices,
@@ -2985,7 +3000,7 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
   }
 }
 
-void group_index_select_or_add_cuda(
+DLL_PUBLIC void group_index_select_or_add_cuda(
     const int64_t* input_ptrs,
     const int64_t* output_ptrs,
     const int64_t* indices_ptrs,
@@ -3139,7 +3154,8 @@ __global__ void zipf_kernel(
   }
 }
 
-Tensor zipf_cuda(const double a, const int64_t n, const int64_t seed) {
+DLL_PUBLIC Tensor
+zipf_cuda(const double a, const int64_t n, const int64_t seed) {
   Tensor y = at::empty(
       {n},
       at::TensorOptions().dtype(at::kLong).device(
