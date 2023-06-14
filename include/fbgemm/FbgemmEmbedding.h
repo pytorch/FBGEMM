@@ -135,7 +135,8 @@ GenerateEmbeddingSpMDMNBit(
     bool normalize_by_lengths,
     int prefetch = 16,
     bool is_weight_positional = false,
-    bool use_offsets = true);
+    bool use_offsets = true,
+    bool isbf16 = false);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
@@ -166,7 +167,8 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     bool use_offsets = true,
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
-    bool scale_bias_last = true);
+    bool scale_bias_last = true,
+    bool isbf16 = false);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
@@ -194,7 +196,8 @@ GenerateEmbeddingSpMDMFP8WithStrides(
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
     int exponent_bits = 4,
-    int exponent_bias = 7);
+    int exponent_bias = 7,
+    bool isbf16 = false);
 
 template <
     typename InType,
