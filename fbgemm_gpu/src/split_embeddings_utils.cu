@@ -20,6 +20,16 @@
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
+/*
+ * We annotate the public fbgemm functions and hide the rest. Those
+ * public symbols can be called via fbgemm_gpu::func() or pytorch
+ * operator dispatcher. We'll hide other symbols, especially cub APIs,
+ * because different .so may include the same cub CUDA kernels, which
+ * results in confusion and libA may end up calling libB's cub kernel,
+ * causing failures when we static link libcudart_static.a
+ */
+#define DLL_PUBLIC __attribute__((visibility("default")))
+
 inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
@@ -136,7 +146,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
   }
 }
 
-std::tuple<
+DLL_PUBLIC std::tuple<
     Tensor /*linear_indices*/,
     Tensor /*linear_indices_sorted*/,
     Tensor /*infos_sorted*/,
@@ -304,7 +314,9 @@ get_infos_metadata(Tensor unused, int64_t B, int64_t T) {
   return adjust_info_B_num_bits(B, T);
 }
 
-std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(int32_t B, int32_t T) {
+DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
+    int32_t B,
+    int32_t T) {
   int32_t info_B_num_bits = DEFAULT_INFO_B_NUM_BITS;
   uint32_t info_B_mask = DEFAULT_INFO_B_MASK;
   uint32_t max_T = MAX_T;
@@ -349,7 +361,7 @@ std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(int32_t B, int32_t T) {
 }
 
 #define DEF_RADIX_SORT_PAIRS_FN(KeyT, ValueT)                        \
-  cudaError_t radix_sort_pairs(                                      \
+  DLL_PUBLIC cudaError_t radix_sort_pairs(                           \
       void* d_temp_storage,                                          \
       size_t& temp_storage_bytes,                                    \
       const KeyT* d_keys_in,                                         \
@@ -459,7 +471,7 @@ __launch_bounds__(kMaxThreads) void populate_vbe_metadata_foreach_sample_inplace
 ///                         (Used for populating b_t_map).
 /// @param total_B          The total number of samples (i.e., the total number
 ///                         of b and t pairs).
-void populate_vbe_metadata_foreach_sample_inplace(
+DLL_PUBLIC void populate_vbe_metadata_foreach_sample_inplace(
     VBEMetadata& vbe_metadata,
     const Tensor& D_offsets,
     const int32_t D,
