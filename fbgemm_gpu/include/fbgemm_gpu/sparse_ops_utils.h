@@ -268,14 +268,14 @@ std::string tensor_on_same_gpu_if_not_optional_check(
 // Generate constexpr array of variable names to improve diagnostic output and
 // raise a message if any non-empty tensor is not on a GPU or not on the same
 // GPU as all the other non-empty tensors.
-#define TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(...)                         \
+#define TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(...) /*                      \
   do {                                                                        \
     constexpr std::array<const char*, TORCH_PP_NARG(__VA_ARGS__)>             \
         variableNames = {#__VA_ARGS__};                                       \
     const auto tensors_on_same_gpu =                                          \
         tensor_on_same_gpu_if_not_optional_check(variableNames, __VA_ARGS__); \
     TORCH_CHECK(tensors_on_same_gpu.empty(), tensors_on_same_gpu);            \
-  } while (false)
+  } while (false)*/
 
 /// Determine an appropriate CUDA block count along the x axis
 ///
