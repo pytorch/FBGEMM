@@ -159,6 +159,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
         cacheline_alignment: bool = True,
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
+        only_weights_on_meta: bool = False,  # If true, then when device is meta, we still put buffers on cpu except weights.
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -182,6 +183,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.embedding_specs = embedding_specs
         self.output_dtype: int = output_dtype.as_int()
         self.uvm_host_mapped = uvm_host_mapped
+
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
@@ -260,9 +262,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.max_float16_D: int = max_ty_D(SparseType.FP16)
         self.max_float32_D: int = max_ty_D(SparseType.FP32)
 
+        self.buffer_device: torch.device = (
+            torch.device("cpu")
+            if only_weights_on_meta and self.current_device.type == "meta"
+            else self.current_device
+        )
+
         self.register_buffer(
             "D_offsets",
-            torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
+            torch.tensor(D_offsets, device=self.buffer_device, dtype=torch.int32),
         )
         assert self.D_offsets.numel() == T + 1
 
@@ -270,21 +278,19 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "rows_per_table",
             torch.tensor(
                 [rows[t] for t in self.feature_table_map],
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.int64,
             ),
         )
         self.register_buffer(
             "bounds_check_warning",
-            torch.tensor([0], device=self.current_device, dtype=torch.int64),
+            torch.tensor([0], device=self.buffer_device, dtype=torch.int64),
         )
 
         weights_tys_int = [weights_tys[t].as_int() for t in self.feature_table_map]
         self.register_buffer(
             "weights_tys",
-            torch.tensor(
-                weights_tys_int, device=self.current_device, dtype=torch.uint8
-            ),
+            torch.tensor(weights_tys_int, device=self.buffer_device, dtype=torch.uint8),
         )
         self.weight_initialized: bool = False
 
@@ -329,23 +335,23 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Handle index remapping for embedding pruning.
         self.register_buffer(
             "index_remappings_array_offsets",
-            torch.empty(0, device=self.current_device, dtype=torch.int64),
+            torch.empty(0, device=self.buffer_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remappings_array",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.buffer_device, dtype=torch.int32),
         )
         self.register_buffer(
             "index_remapping_hash_table_offsets",
-            torch.empty(0, device=self.current_device, dtype=torch.int64),
+            torch.empty(0, device=self.buffer_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remapping_hash_table",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.buffer_device, dtype=torch.int32),
         )
         self.register_buffer(
             "original_rows_per_table",
-            torch.empty(0, device=self.current_device, dtype=torch.int64),
+            torch.empty(0, device=self.buffer_device, dtype=torch.int64),
         )
         # pyre-fixme[4]: Attribute must be annotated.
         self.index_remapping_hash_table_cpu = None
@@ -365,7 +371,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "table_wise_cache_miss",
                 torch.zeros(
                     num_tables,
-                    device=self.current_device,
+                    device=self.buffer_device,
                     dtype=torch.int64,
                 ),
             )
@@ -375,7 +381,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "table_wise_cache_miss",
                 torch.zeros(
                     0,
-                    device=self.current_device,
+                    device=self.buffer_device,
                     dtype=torch.int64,
                 ),
             )
@@ -939,37 +945,37 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if cache_state.total_cache_hash_size == 0 or self.use_cpu:
             self.register_buffer(
                 "lxu_cache_weights",
-                torch.zeros(0, 0, device=self.current_device, dtype=torch.uint8),
+                torch.zeros(0, 0, device=self.buffer_device, dtype=torch.uint8),
             )
             # NOTE: make TorchScript work!
             self.register_buffer(
                 "cache_hash_size_cumsum",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                torch.zeros(1, dtype=torch.int64, device=self.buffer_device),
                 persistent=False,
             )
             self.register_buffer(
                 "total_cache_hash_size",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                torch.zeros(1, dtype=torch.int64, device=self.buffer_device),
                 persistent=False,
             )
             self.register_buffer(
                 "cache_index_table_map",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                torch.zeros(1, dtype=torch.int64, device=self.buffer_device),
                 persistent=False,
             )
             self.register_buffer(
                 "lxu_cache_state",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                torch.zeros(1, dtype=torch.int64, device=self.buffer_device),
                 persistent=False,
             )
             self.register_buffer(
                 "lxu_state",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                torch.zeros(1, dtype=torch.int64, device=self.buffer_device),
                 persistent=False,
             )
             self.register_buffer(
                 "lxu_cache_miss_timestamp",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
+                torch.zeros(1, dtype=torch.int64, device=self.buffer_device),
                 persistent=False,
             )
             self.register_buffer(
@@ -981,7 +987,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "uvm_cache_stats",
                 torch.zeros(
                     size=(self.uvm_cache_stats_size,),
-                    device=self.current_device,
+                    device=self.buffer_device,
                     dtype=torch.int64,
                 ),
                 persistent=False,
@@ -990,7 +996,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "local_uvm_cache_stats",
                 torch.zeros(
                     size=(self.uvm_cache_stats_size,),
-                    device=self.current_device,
+                    device=self.buffer_device,
                     dtype=torch.int32,
                 ),
                 persistent=False,
@@ -1039,7 +1045,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "cache_hash_size_cumsum",
             torch.tensor(
                 cache_state.cache_hash_size_cumsum,
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.int64,
             ),
         )
@@ -1047,7 +1053,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "cache_index_table_map",
             torch.tensor(
                 cache_state.cache_index_table_map,
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.int32,
             ),
         )
@@ -1056,7 +1062,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(
                 cache_sets,
                 self.cache_assoc,
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.int64,
             ).fill_(-1),
         )
@@ -1065,7 +1071,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(
                 cache_sets * self.cache_assoc,
                 self.max_D_cache,
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.uint8,
             ),
         )
@@ -1075,7 +1081,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 size=(self.total_cache_hash_size + 1,)
                 if cache_algorithm == CacheAlgorithm.LFU
                 else (cache_sets, self.cache_assoc),
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.int64,
             ),
         )
@@ -1085,7 +1091,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(
                     cache_sets,
                     self.cache_assoc,
-                    device=self.current_device,
+                    device=self.buffer_device,
                     dtype=torch.int64,
                 ),
             )
@@ -1093,18 +1099,18 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # make TorchScript work
             self.register_buffer(
                 "lxu_cache_miss_timestamp",
-                torch.zeros(1, device=self.current_device, dtype=torch.int64),
+                torch.zeros(1, device=self.buffer_device, dtype=torch.int64),
                 persistent=False,
             )
         self.register_buffer(
             "cache_miss_counter",
-            torch.tensor([0, 0, 0, 0], device=self.current_device, dtype=torch.int64),
+            torch.tensor([0, 0, 0, 0], device=self.buffer_device, dtype=torch.int64),
         )
         self.register_buffer(
             "uvm_cache_stats",
             torch.zeros(
                 size=(self.uvm_cache_stats_size,),
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.int64,
             ),
             persistent=False,
@@ -1113,7 +1119,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "local_uvm_cache_stats",
             torch.zeros(
                 size=(self.uvm_cache_stats_size,),
-                device=self.current_device,
+                device=self.buffer_device,
                 dtype=torch.int32,
             ),
             persistent=False,
