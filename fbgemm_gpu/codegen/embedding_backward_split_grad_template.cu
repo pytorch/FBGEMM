@@ -8,6 +8,7 @@
 
 // clang-format off
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using Tensor = at::Tensor;
@@ -15,19 +16,19 @@ using namespace fbgemm_gpu;
 
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_find_long_segments(
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_num_runs,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_run_lengths,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         num_long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         num_really_long_run_ids,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         grad_accum_counter,
     const int32_t max_segment_length_per_warp,
     const int32_t max_segment_length_per_cta,
@@ -60,15 +61,15 @@ split_embedding_backward_codegen_find_long_segments(
 {% set vbe_desc = "_vbe" if vbe else "" %}
 template <typename grad_t>
 __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
-    at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean,
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask
     {% else %}
@@ -125,20 +126,23 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////
 // Explicitly instantiate the template based on DISPATCH_EMB_GRAD_CACHE_TYPES
+////////////////////////////////////////////////////////////////////////////////
+
 {% for grad_type in ['at::Half', 'float'] %}
 template __global__ __launch_bounds__(kMaxThreads)
 void grad_mean{{ vbe_desc }}_kernel
 <{{ grad_type }}> (
-    at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output_mean,
-    const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask
     {% else %}

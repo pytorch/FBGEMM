@@ -10,10 +10,15 @@
 {% set wdesc = "weighted" if weighted else "unweighted" %}
 {% set vbe_desc = "_vbe" if vbe else "" %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
+
+////////////////////////////////////////////////////////////////////////////////
+// External Function Declarations
+////////////////////////////////////////////////////////////////////////////////
 
 template <
     typename emb_t,
@@ -91,9 +96,7 @@ template <
     typename cache_t,
     size_t kMaxVecsPerThread,
     int32_t kThreadGroupSize = kWarpSize>
-__global__
-__launch_bounds__(kBackwardMaxThreads)
-void
+__global__ __launch_bounds__(kBackwardMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1(
     const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
@@ -151,6 +154,41 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     const uint32_t info_B_mask,
     {% endif %}
     {{ args.split_kernel_args | join(", ") }});
+
+__global__ __launch_bounds__(kMaxThreads) void
+split_embedding_backward_codegen_find_long_segments(
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run_lengths,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_really_long_run_ids,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
+    const int32_t max_segment_length_per_warp,
+    const int32_t max_segment_length_per_cta,
+    const bool use_deterministic_algorithms);
+
+
+template <typename grad_t>
+__global__ __launch_bounds__(kMaxThreads) void
+grad_mean{{ vbe_desc }}_kernel(
+    pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output_mean,
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    {% if vbe %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask
+    {% else %}
+    FixedDivisor fd_B
+    {% endif %}
+);
+
+////////////////////////////////////////////////////////////////////////////////
+// Operator Code
+////////////////////////////////////////////////////////////////////////////////
 
 Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vbe_desc }}_cuda(
     Tensor grad_output,
@@ -427,27 +465,29 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
               grad_output_mean = at::empty_like(grad_output);
               {% if not dense or not vbe %}
-              {{ "grad_mean_vbe_kernel" if vbe else "grad_mean_kernel" }}
-                  <<<div_round_up(total_B, kMaxThreads / kWarpSize),
-                     dim3(kWarpSize, kMaxThreads / kWarpSize),
-                     0,
-                     at::cuda::getCurrentCUDAStream()>>>
-                     (
-                         grad_output_mean.packed_accessor64<
-                             grad_t, 2, at::RestrictPtrTraits>(),
-                         grad_output_accessor,
-                         D_offsets
-                             .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                         offsets
-                             .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                         {% if vbe %}
-                         vbe_metadata.output_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                         vbe_metadata.b_t_map.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                         info_B_num_bits,
-                         info_B_mask
-                         {% else %}
-                         FixedDivisor(total_B / T)
-                         {% endif %}
+
+#ifdef FBGEMM_GPU_MEMCHECK
+              const auto func_name0 = "grad_mean{{ vbe_desc }}_kernel";
+#endif
+
+              grad_mean{{ vbe_desc }}_kernel<<<
+                    div_round_up(total_B, kMaxThreads / kWarpSize),
+                    dim3(kWarpSize, kMaxThreads / kWarpSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>
+                    (
+                        MAKE_PTA_WITH_NAME(func_name0, grad_output_mean, grad_t, 2, 64),
+                        MAKE_PTA_WITH_NAME(func_name0, grad_output, grad_t, 2, 64),
+                        MAKE_PTA_WITH_NAME(func_name0, D_offsets, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name0, offsets, int64_t, 1, 32),
+                        {% if vbe %}
+                        MAKE_PTA_WITH_NAME(func_name0, vbe_metadata.output_offsets, int64_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name0, vbe_metadata.b_t_map, int32_t, 1, 32),
+                        info_B_num_bits,
+                        info_B_mask
+                        {% else %}
+                        FixedDivisor(total_B / T)
+                        {% endif %}
                     );
               C10_CUDA_KERNEL_LAUNCH_CHECK();
               {% endif %} // if not dense or not vbe
@@ -507,19 +547,23 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                 use_deterministic_algorithms ? 0 : (indices.numel() / max_segment_length_per_cta),
                 indices.options().dtype(at::kInt));
 
+#ifdef FBGEMM_GPU_MEMCHECK
+            const auto func_name0 = "split_embedding_backward_codegen_find_long_segments";
+#endif
+
             split_embedding_backward_codegen_find_long_segments<<<
                 div_round_up(total_unique_indices, kMaxThreads),
                 kMaxThreads,
                 0,
                 at::cuda::getCurrentCUDAStream()
             >>>(
-                sorted_linear_indices_num_runs.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                sorted_linear_indices_run_lengths.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                num_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name0, sorted_linear_indices_num_runs, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name0, sorted_linear_indices_run_lengths, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name0, long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name0, num_long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name0, long_run_id_to_really_long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name0, num_really_long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name0, grad_accum_counter, int32_t, 1, 32),
                 max_segment_length_per_warp,
                 max_segment_length_per_cta,
                 use_deterministic_algorithms);
