@@ -93,12 +93,13 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
   int32_t t;
   const auto total_B = offsets.size(0) - 1;
   bool valid = b_t < total_B;
-  auto info = 0;
+  // info must be uint32_t (using auto will assign int32_t to info)
+  uint32_t info = 0;
 
   if (vbe && valid) {
     info = vbe_b_t_map[b_t];
     reinterpret_cast<uint32_t*>(&t)[0] = info >> info_B_num_bits;
-    reinterpret_cast<uint32_t*>(&b)[0] = info | info_B_mask;
+    reinterpret_cast<uint32_t*>(&b)[0] = info & info_B_mask;
   } else {
     fd.DivMod(b_t, &t, &b);
   }
@@ -443,8 +444,7 @@ __launch_bounds__(kMaxThreads) void populate_vbe_metadata_foreach_sample_inplace
 
   // Relative sample ID in the table
   const auto b_ = B_start_r_t + b;
-  // Shift b_t_map by two because the first two elements are info_B_num_bits
-  // and info_B_mask. b_t is always positive.
+  // b_t is always positive.
   *reinterpret_cast<uint32_t*>(&b_t_map[b_t]) =
       (reinterpret_cast<uint32_t*>(&t)[0] << info_B_num_bits) |
       reinterpret_cast<const uint32_t*>(&b_)[0];
