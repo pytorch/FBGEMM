@@ -62,6 +62,14 @@ inline bool torch_tensor_on_same_device_check(
   return !ten2.has_value() || ten1.get_device() == ten2->get_device();
 }
 
+inline bool torch_tensor_undefined(const at::Tensor& ten) {
+  return ten.defined();
+}
+
+inline bool torch_tensor_undefined(const c10::optional<at::Tensor>& ten) {
+  return !ten.has_value() || torch_tensor_undefined(ten.value());
+}
+
 inline bool torch_tensor_on_cuda_gpu_check(const at::Tensor& ten) {
   return ten.is_cuda();
 }
@@ -194,33 +202,9 @@ inline bool torch_tensor_empty_or_on_cpu_check(
       " and ",                                                         \
       (y).numel())
 
-// clang-format off
-// Count the number of __VA_ARGS__, up to 60
-#define TORCH_PP_NARG(...) \
-         TORCH_PP_NARG_(__VA_ARGS__,TORCH_PP_RSEQ_N())
-#define TORCH_PP_NARG_(...) \
-         TORCH_PP_ARG_N(__VA_ARGS__)
-#define TORCH_PP_ARG_N( \
-          _1, _2, _3, _4, _5, _6, _7, _8, _9,_10, \
-         _11,_12,_13,_14,_15,_16,_17,_18,_19,_20, \
-         _21,_22,_23,_24,_25,_26,_27,_28,_29,_30, \
-         _31,_32,_33,_34,_35,_36,_37,_38,_39,_40, \
-         _41,_42,_43,_44,_45,_46,_47,_48,_49,_50, \
-         _51,_52,_53,_54,_55,_56,_57,_58,_59,_60, \
-         _61,_62,_63,N,...) N
-#define TORCH_PP_RSEQ_N() \
-         63,62,61,60,                   \
-         59,58,57,56,55,54,53,52,51,50, \
-         49,48,47,46,45,44,43,42,41,40, \
-         39,38,37,36,35,34,33,32,31,30, \
-         29,28,27,26,25,24,23,22,21,20, \
-         19,18,17,16,15,14,13,12,11,10, \
-         9,8,7,6,5,4,3,2,1,0
-// clang-format on
-
-template <size_t N, typename... Tensors>
+template <typename... Tensors>
 std::string tensor_on_same_gpu_if_not_optional_check(
-    const std::array<const char*, N>& var_names,
+    const std::string& var_names_str,
     const Tensors&... tensors) {
   std::optional<int64_t> gpu_index;
   bool on_same_gpu = true;
@@ -229,6 +213,9 @@ std::string tensor_on_same_gpu_if_not_optional_check(
   // that all tensors are on this same index.
   (
       [&](const auto& tensor) {
+        if (!torch_tensor_undefined(tensor)) {
+          return;
+        }
         if (!torch_tensor_on_cuda_gpu_check(tensor)) {
           on_same_gpu = false;
           return;
@@ -244,8 +231,22 @@ std::string tensor_on_same_gpu_if_not_optional_check(
       }(tensors),
       ...);
 
-  if (!gpu_index || on_same_gpu) {
+  if (on_same_gpu) {
     return "";
+  }
+
+  std::vector<std::string> var_names;
+  {
+    std::string temp = "";
+    for (const auto& x : var_names_str) {
+      if (x == ',') {
+        var_names.push_back(temp);
+        temp = "";
+      } else {
+        temp.push_back(x);
+      }
+    }
+    var_names.push_back(temp);
   }
 
   // Not all the tensors on a GPU or on the same GPU, generate a message.
@@ -257,7 +258,7 @@ std::string tensor_on_same_gpu_if_not_optional_check(
           msg.append(", ");
         }
         msg.append(
-            std::string(var_names[current_idx++]) + "(" +
+            var_names.at(current_idx++) + "(" +
             torch_tensor_device_name(tensor) + ")");
       }(tensors),
       ...);
@@ -268,14 +269,12 @@ std::string tensor_on_same_gpu_if_not_optional_check(
 // Generate constexpr array of variable names to improve diagnostic output and
 // raise a message if any non-empty tensor is not on a GPU or not on the same
 // GPU as all the other non-empty tensors.
-#define TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(...) /*                      \
-  do {                                                                        \
-    constexpr std::array<const char*, TORCH_PP_NARG(__VA_ARGS__)>             \
-        variableNames = {#__VA_ARGS__};                                       \
-    const auto tensors_on_same_gpu =                                          \
-        tensor_on_same_gpu_if_not_optional_check(variableNames, __VA_ARGS__); \
-    TORCH_CHECK(tensors_on_same_gpu.empty(), tensors_on_same_gpu);            \
-  } while (false)*/
+#define TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(...)                        \
+  do {                                                                       \
+    const auto tensors_on_same_gpu =                                         \
+        tensor_on_same_gpu_if_not_optional_check(#__VA_ARGS__, __VA_ARGS__); \
+    TORCH_CHECK(tensors_on_same_gpu.empty(), tensors_on_same_gpu);           \
+  } while (false)
 
 /// Determine an appropriate CUDA block count along the x axis
 ///
