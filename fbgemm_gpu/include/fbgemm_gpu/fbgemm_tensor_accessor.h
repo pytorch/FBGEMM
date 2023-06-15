@@ -575,3 +575,7 @@ make_packed_tensor_accessor64(
       N,                                              \
       PTR_TRAITS>(TENSOR)
 #endif
+
+#define MAKE_PTA_WITH_NAME(FUNC_NAME, TENSOR, T, N, INDEX_NBITS) \
+  MAKE_PACKED_TENSOR_ACCESSOR_BASE(                              \
+      FUNC_NAME, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)
