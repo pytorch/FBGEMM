@@ -1800,7 +1800,9 @@ Tensor batched_unary_embeddings_forward_cuda(
   auto output = at::empty({N, B, T}, weight.options());
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_forward_kernel", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        AT_DISPATCH_FLOATING_TYPES_AND2(
+            at::ScalarType::Half,
+            at::ScalarType::BFloat16,
             weight.scalar_type(),
             "batched_unary_embeddings_forward_kernel",
             [&] {
@@ -1952,7 +1954,9 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
   auto grad_weight = at::zeros_like(weight);
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "batched_unary_embeddings_backward_kernel", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        AT_DISPATCH_FLOATING_TYPES_AND2(
+            at::ScalarType::Half,
+            at::ScalarType::BFloat16,
             grad_output.scalar_type(),
             "batched_unary_embeddings_backward_kernel",
             [&] {
