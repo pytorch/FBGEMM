@@ -167,7 +167,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor output;
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
-    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8);
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8 || o_dtype == SparseType::BF16);
+    bool output_is_bf16 = o_dtype == SparseType::BF16;
     {% if not nobag %}
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
@@ -228,16 +229,20 @@ for (const auto t : c10::irange(T)) {
                 // default to 1 byte alignment for CPU TBE
                 const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
+                // NOTE: currently we only support bf16 output when input is int4 or int2
+                TORCH_CHECK(o_dtype != SparseType::BF16 || (o_dtype == SparseType::BF16 && (weight_ty == SparseType::INT4 || weight_ty == SparseType::INT2)));
+
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
                 size_t num_rows = ((tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t]) / D_bytes;
                 const index_t* offsets_begin_ptr = offsets_acc + t * B;
 
                 using float16 = uint16_t;
+                using bfloat16 = uint16_t;
                 using fbgemm_out_t = typename std::conditional<
                     std::is_same<output_t, at::Half>::value,
                     float16,
-                    float>::type;
+                    std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, float>::type >::type;
 
                 bool success = true;
                 bool has_weight = {{ "true" if weighted else "false" }};
@@ -397,7 +402,8 @@ for (const auto t : c10::irange(T)) {
                         /*output_stride=*/D,
                         {% endif %}
                         /*input_stride=*/D_bytes / sizeof(uint8_t),
-                        /*scale_bias_last=*/false);
+                        /*scale_bias_last=*/false,
+                        /*is_bf16_out=*/output_is_bf16);
                     success = kernel(
                         B,
                         index_size,

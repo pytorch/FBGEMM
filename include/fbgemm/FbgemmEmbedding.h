@@ -166,7 +166,8 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     bool use_offsets = true,
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
-    bool scale_bias_last = true);
+    bool scale_bias_last = true,
+    bool is_bf16_out = false);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size

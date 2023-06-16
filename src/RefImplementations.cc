@@ -1417,7 +1417,8 @@ bool EmbeddingSpMDMNBit_ref(
     bool use_offsets,
     int64_t output_stride,
     int64_t input_stride,
-    bool scale_bias_last) {
+    bool scale_bias_last,
+    bool is_bf16_out) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
   int num_elem_per_byte = 8 / bit_rate;
 
@@ -1479,8 +1480,20 @@ bool EmbeddingSpMDMNBit_ref(
       }
     }
     for (int j = 0; j < block_size; ++j) {
+#if !defined(__APPLE__) && !defined(_WIN32)
+      if (std::is_same<OutType, float16>::value) {
+        if (is_bf16_out) {
+          out[j] = cpu_float2bfloat16(buf[j]);
+        } else {
+          out[j] = cpu_half2float(buf[j]);
+        }
+      } else {
+        out[j] = buf[j];
+      }
+#else
       out[j] = std::is_same<OutType, float16>::value ? cpu_float2half_rn(buf[j])
                                                      : buf[j];
+#endif
     }
     out += output_stride;
   }
@@ -2104,7 +2117,8 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       bool use_offsets,                                           \
       int64_t output_stride,                                      \
       int64_t input_stride,                                       \
-      bool scale_bias_last);                                      \
+      bool scale_bias_last,                                       \
+      bool is_bf16_out);                                          \
   template FBGEMM_API bool EmbeddingSpMDMFP8_ref(                 \
       const int64_t block_size,                                   \
       const int64_t output_size,                                  \
