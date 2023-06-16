@@ -94,7 +94,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     {%- if vbe %}
     const auto info = reinterpret_cast<const uint32_t*>(&b_t_map[b_t])[0];
     reinterpret_cast<uint32_t*>(&t)[0] = info >> info_B_num_bits;
-    reinterpret_cast<uint32_t*>(&b)[0] = info | info_B_mask;
+    reinterpret_cast<uint32_t*>(&b)[0] = info & info_B_mask;
     {%- else %}
     fd_B.DivMod(b_t, &t, &b);
     {%- endif %}
