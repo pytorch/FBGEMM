@@ -3990,7 +3990,81 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             weights_ty: SparseType = nbit_weights_ty
             mixed_weights_ty = False
-        output_dtype = random.choice([SparseType.FP32, SparseType.FP16])
+        output_dtype = random.choice(
+            (
+                [SparseType.BF16]
+                if weights_ty in [SparseType.INT4, SparseType.INT2]
+                else []
+            )
+            + [SparseType.FP32, SparseType.FP16]
+        )
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cache,
+            cache_algorithm,
+            use_cpu,
+            use_array_for_index_remapping,
+            do_pruning,
+            mixed_weights_ty,
+            output_dtype,
+        )
+
+    @given(
+        nbit_weights_ty=st.sampled_from([SparseType.INT4, SparseType.INT2]),
+        use_array_for_index_remapping=st.booleans(),
+        do_pruning=st.booleans(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_nbit_forward_cpu_bf16_out(
+        self,
+        nbit_weights_ty: Optional[SparseType],
+        use_array_for_index_remapping: bool,
+        do_pruning: bool,
+    ) -> None:
+        use_cpu = True
+        T = random.randint(1, 50)
+        B = random.randint(0, 128)
+        L = random.randint(0, 32)
+        D = random.randint(2, 2048)
+        log_E = random.randint(2, 4)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = CacheAlgorithm.LRU
+
+        pooling_mode = random.choice(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+            ]
+        )
+        mixed = random.choice([True, False])
+
+        if pooling_mode == PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+
+        if nbit_weights_ty is None:
+            # don't care when mixed type is used.
+            weights_ty: SparseType = SparseType.INT8
+            mixed_weights_ty = True
+        else:
+            weights_ty: SparseType = nbit_weights_ty
+            mixed_weights_ty = False
+        output_dtype = SparseType.BF16
         self.execute_nbit_forward_(
             T,
             D,
