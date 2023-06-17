@@ -36,8 +36,7 @@ try:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
     )
-except Exception as e:
-    logging.error(f"Cannot open cpu ops due to {str(e)}.")
+except Exception:
     pass
 
 
