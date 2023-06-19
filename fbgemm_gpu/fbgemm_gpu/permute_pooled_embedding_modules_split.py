@@ -24,6 +24,11 @@ except Exception:
     )
 
 
+@torch.fx.wrap
+def _fx_wrap_tensor_to_device(t: torch.Tensor, device: torch.device) -> torch.Tensor:
+    return t.to(device=device)
+
+
 class PermutePooledEmbeddingsSplit(nn.Module):
     def __init__(
         self,
@@ -68,9 +73,11 @@ class PermutePooledEmbeddingsSplit(nn.Module):
     def forward(self, pooled_embs: torch.Tensor) -> torch.Tensor:
         result = torch.ops.fbgemm.permute_pooled_embs_auto_grad_split(
             pooled_embs,
-            self._offset_dim_list.to(device=pooled_embs.device),
-            self._permute.to(device=pooled_embs.device),
-            self._inv_offset_dim_list.to(device=pooled_embs.device),
-            self._inv_permute.to(device=pooled_embs.device),
+            _fx_wrap_tensor_to_device(self._offset_dim_list, device=pooled_embs.device),
+            _fx_wrap_tensor_to_device(self._permute, device=pooled_embs.device),
+            _fx_wrap_tensor_to_device(
+                self._inv_offset_dim_list, device=pooled_embs.device
+            ),
+            _fx_wrap_tensor_to_device(self._inv_permute, device=pooled_embs.device),
         )
         return result
