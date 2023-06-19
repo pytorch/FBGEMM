@@ -4135,7 +4135,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             weights_ty: SparseType = nbit_weights_ty
             mixed_weights_ty = False
-        output_dtype = random.choice([SparseType.FP32, SparseType.FP16])
+        output_dtype = random.choice(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        )
         self.execute_nbit_forward_(
             T,
             D,
