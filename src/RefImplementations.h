@@ -238,7 +238,7 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     std::int64_t input_stride = -1,
     bool scale_bias_last = true,
     bool no_bag = false,
-    bool is_bf16 = false);
+    bool is_bf16_out = false);
 
 template <
     typename IndexType = std::int64_t,
