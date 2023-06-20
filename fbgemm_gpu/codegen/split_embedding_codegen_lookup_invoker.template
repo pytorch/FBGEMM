@@ -55,6 +55,9 @@ def invoke(
     {% if "max_counter" in args.split_function_arg_names %}
     max_counter: float,
     {% endif %}
+    {% if "total_unique_indices" in args.split_function_arg_names %}
+    total_unique_indices: int,
+    {% endif %}
 ) -> torch.Tensor:
     {% if has_cpu_support %}
     if (common_args.host_weights.numel() > 0):
@@ -192,9 +195,13 @@ def invoke(
         max_B_feature_rank=vbe_metadata.max_B_feature_rank,
         vbe_output_size=vbe_metadata.output_size,
         # optimizer_args
+        {% if optimizer == "none" %}
+        total_hash_size = optimizer_args.total_hash_size,
+        {% else %}
         gradient_clipping = optimizer_args.gradient_clipping,
         max_gradient=optimizer_args.max_gradient,
         stochastic_rounding=optimizer_args.stochastic_rounding,
+        {% endif %} # if optimizer == none
         {% if "learning_rate" in args.split_function_arg_names %}
         learning_rate=optimizer_args.learning_rate,
         {% endif %}
@@ -275,6 +282,10 @@ def invoke(
         # max counter
         {% if "max_counter" in args.split_function_arg_names %}
         max_counter=max_counter,
+        {% endif %}
+        # total_unique_indices
+        {% if "total_unique_indices" in args.split_function_arg_names %}
+        total_unique_indices = total_unique_indices,
         {% endif %}
         output_dtype=common_args.output_dtype,
         is_experimental=common_args.is_experimental,

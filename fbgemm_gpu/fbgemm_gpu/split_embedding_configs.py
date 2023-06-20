@@ -30,6 +30,7 @@ class EmbOptimType(enum.Enum):
     SHAMPOO = "shampoo"  # not currently supported for sparse embedding tables
     MADGRAD = "madgrad"
     EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"
+    NONE = "none"
 
     def __str__(self) -> str:
         return self.value
