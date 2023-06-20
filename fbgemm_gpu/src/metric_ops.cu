@@ -269,7 +269,8 @@ at::Tensor batch_auc(
           num_entries,                                             \
           last_block_num_entries,                                  \
           padded_num_entries_per_block,                            \
-          num_blocks);
+          num_blocks);                                             \
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "auc_wrapper_1", [&] {
     AT_DISPATCH_ALL_TYPES_AND(

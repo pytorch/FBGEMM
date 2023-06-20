@@ -314,6 +314,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 FixedDivisor(total_B / T)
                 {% endif %}
             );
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
             }
             {% endfor %}

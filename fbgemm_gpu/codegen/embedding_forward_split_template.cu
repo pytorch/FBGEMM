@@ -349,6 +349,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     {%- endif %} // if not dense
                     MAKE_PTA(output, output_t, 2, 64)
                     );
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
                 {%- if vbe %}
                 output = output.reshape({-1});
                 {%- endif %}
@@ -395,6 +396,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             {%- endif %}
             MAKE_PTA(output, output_t, 2, 64)
             );
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         }
         {%- endfor %}
@@ -434,6 +436,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 {%- endif %}
                 MAKE_PTA(output, output_t, 2, 64)
                 );
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
                 return;
         {%- if not dense %}
         } // if (use_lxu_cache == {{ use_cache }})

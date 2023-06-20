@@ -3170,6 +3170,8 @@ zipf_cuda(const double a, const int64_t n, const int64_t seed) {
       0,
       at::cuda::getCurrentCUDAStream()>>>(
       a, seed, y.packed_accessor64<long, 1, at::RestrictPtrTraits>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
   return y;
 }
 

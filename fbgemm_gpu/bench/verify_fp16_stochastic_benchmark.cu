@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/cuda/CUDAException.h>
+
 #include <cuda.h>
 #include <cuda_fp16.h>
 #include <curand.h>
@@ -142,7 +144,7 @@ void flush_cache(
   cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice);
   const unsigned num_blocks = cache_size / 512;
   flush_gpu<<<num_blocks, 512>>>(d_flush, d_flush2, do_write);
-  cudaDeviceSynchronize();
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 int main(int argc, char* argv[]) {
@@ -207,6 +209,7 @@ int main(int argc, char* argv[]) {
   auto start = std::chrono::high_resolution_clock::now();
   convert_float_to_half_direct<<<num_blocks, block_size>>>(
       d_f16_direct_array, d_f32_array, test_size);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   cudaDeviceSynchronize();
   auto end = std::chrono::high_resolution_clock::now();
   cudaError_t e = cudaGetLastError();
@@ -223,6 +226,7 @@ int main(int argc, char* argv[]) {
   start = std::chrono::high_resolution_clock::now();
   convert_float_to_half_bitcarry<<<num_blocks, block_size>>>(
       d_f16_bitcarry_array, d_f32_array, test_size);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   cudaDeviceSynchronize();
   end = std::chrono::high_resolution_clock::now();
   e = cudaGetLastError();
@@ -239,6 +243,7 @@ int main(int argc, char* argv[]) {
   start = std::chrono::high_resolution_clock::now();
   convert_float_to_half_shortrand<<<num_blocks, block_size>>>(
       d_f16_shortrand_array, d_f32_array, d_random_number, test_size);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   cudaDeviceSynchronize();
   end = std::chrono::high_resolution_clock::now();
   e = cudaGetLastError();
@@ -255,6 +260,7 @@ int main(int argc, char* argv[]) {
   start = std::chrono::high_resolution_clock::now();
   convert_float_to_half_assemblefloat<<<num_blocks, block_size>>>(
       d_f16_assemblefloat_array, d_f32_array, d_random_number, test_size);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   cudaDeviceSynchronize();
   end = std::chrono::high_resolution_clock::now();
   e = cudaGetLastError();
