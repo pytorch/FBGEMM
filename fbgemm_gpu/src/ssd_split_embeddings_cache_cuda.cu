@@ -111,7 +111,6 @@ Tensor masked_index_put_cuda(
       } // lambda
   );
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return self;
 }
 
