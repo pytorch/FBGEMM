@@ -7,6 +7,7 @@
 
 # pyre-unsafe
 
+import random
 import unittest
 from math import sqrt
 from typing import List, Tuple
@@ -26,6 +27,21 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     from fbgemm_gpu.test.test_utils import gpu_unavailable
+
+
+# Relative tolerances
+TOLERANCE_REL = {
+    torch.float32: 1e-4,
+    torch.float16: 1e-2,
+    torch.bfloat16: 0.1,
+}
+
+# Absolute tolerances
+TOLERANCE_ABS = {
+    torch.float32: 1e-4,
+    torch.float16: 1e-2,
+    torch.bfloat16: 1e-2,
+}
 
 
 class TableBatchedEmbeddingsTest(unittest.TestCase):
@@ -91,6 +107,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         batch_size = 128
         hash_sizes = [100, 200]
         num_tasks = 3
+        emb_dtype = random.choice([torch.float, torch.half, torch.bfloat16])
         # generate unary features
         lengths = []
         offsets = []
@@ -111,26 +128,42 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             lengths_tensor.view(-1)
         )
         # forward with int_32
-        ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device)
-        unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
-            num_tasks, hash_sizes
-        ).to(device)
+        ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device).to(emb_dtype)
+        unary_emb = (
+            batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(num_tasks, hash_sizes)
+            .to(device)
+            .to(emb_dtype)
+        )
         for i, param in enumerate(unary_emb.split_embedding_weights()):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         output = unary_emb(offsets_tensor, indices_tensor)
-        torch.testing.assert_close(output_ref, output)
+        torch.testing.assert_close(
+            output_ref,
+            output,
+            atol=TOLERANCE_ABS[emb_dtype],
+            rtol=TOLERANCE_REL[emb_dtype],
+        )
 
         # forward with int_64
-        ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device)
-        unary_emb = batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
-            num_tasks=num_tasks, hash_sizes=hash_sizes, long_index=True
-        ).to(device)
+        ref_emb = self.RefEmb(num_tasks, hash_sizes).to(device).to(emb_dtype)
+        unary_emb = (
+            batched_unary_embeddings_ops.BatchedUnaryEmbeddingBag(
+                num_tasks=num_tasks, hash_sizes=hash_sizes, long_index=True
+            )
+            .to(device)
+            .to(emb_dtype)
+        )
         for i, param in enumerate(unary_emb.split_embedding_weights()):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
         output = unary_emb(offsets_tensor.long(), indices_tensor.long())
-        torch.testing.assert_close(output_ref, output)
+        torch.testing.assert_close(
+            output_ref,
+            output,
+            atol=TOLERANCE_ABS[emb_dtype],
+            rtol=TOLERANCE_REL[emb_dtype],
+        )
 
         # No implementation for CPU backprop yet
         if not gpu_infer:
@@ -146,7 +179,12 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             d_weight_ref.append(emb.weight.grad)
         d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, sum(hash_sizes), -1)
         d_weight = unary_emb.weight.grad
-        torch.testing.assert_close(d_weight_ref, d_weight)
+        torch.testing.assert_close(
+            d_weight_ref,
+            d_weight,
+            atol=TOLERANCE_ABS[emb_dtype],
+            rtol=TOLERANCE_REL[emb_dtype],
+        )
 
         # Testing the case where we add permute operation, which produces
         # in contiguous grad tensor, this should also work
