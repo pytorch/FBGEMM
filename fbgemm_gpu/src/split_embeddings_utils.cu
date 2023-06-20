@@ -217,7 +217,6 @@ transpose_embedding_input(
               } else {
                 INVOKE_LINEARIZE_INDEX_KERNEL(int64_t, true);
               }
-
               {
                 size_t temp_storage_bytes = 0;
                 AT_CUDA_CHECK(

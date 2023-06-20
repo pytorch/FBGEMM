@@ -246,9 +246,8 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
                     .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-  return;
 }
 
 namespace {
@@ -1102,8 +1101,8 @@ void lru_cache_insert_cuda(
                 gather_cache_stats,
                 uvm_cache_stats
                     .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 } // namespace
@@ -1753,8 +1752,8 @@ void lfu_update_counts_cuda(
             unique_indices_count
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 constexpr int32_t kCacheSetBits = 24;
@@ -2127,8 +2126,8 @@ void lfu_cache_insert_cuda(
                     .packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
                 stochastic_rounding,
                 rng_engine_inputs);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 } // namespace
@@ -2394,9 +2393,8 @@ void lfu_cache_insert_byte_cuda(
                 .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
             lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
             row_alignment);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 } // namespace
@@ -2978,6 +2976,6 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
             buffer_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
             lxu_cache_locations
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }

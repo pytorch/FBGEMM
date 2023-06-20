@@ -7,6 +7,9 @@
  */
 
 #pragma once
+
+#include <c10/cuda/CUDAException.h>
+
 #include <cuda.h>
 #include <curand.h>
 #include <curand_kernel.h>
@@ -33,10 +36,9 @@ void flush_cache(int cache_size_mb = 40, bool do_write = false) {
   CUDA_CHECK(
       cudaMemcpy(d_flush, flush.data(), cache_size, cudaMemcpyHostToDevice));
   flush_gpu<<<cache_size / 512, 512>>>(d_flush, d_flush2, do_write);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   CUDA_CHECK(cudaFree(d_flush));
   CUDA_CHECK(cudaFree(d_flush2));
-  CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(cudaGetLastError());
 }
 
 void generate_random_table(float* d_f32_table, unsigned size) {
