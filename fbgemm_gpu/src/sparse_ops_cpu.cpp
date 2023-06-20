@@ -1348,43 +1348,47 @@ Tensor batched_unary_embeddings_forward_cpu(
   TORCH_CHECK(T > 0);
   TORCH_CHECK(B > 0);
 
-  // Only supporting limited data types for now.
-  TORCH_CHECK(weight.scalar_type() == at::ScalarType::Float);
-
   // Make sure the index_t are consistent among table_offsets, offsets and
   // indices
   TORCH_CHECK(table_offsets.scalar_type() == offsets.scalar_type());
   TORCH_CHECK(table_offsets.scalar_type() == indices.scalar_type());
 
   auto output = at::empty({N, B, T}, weight.options());
-  auto* output_data = output.data_ptr<float>();
-  const auto* weight_data = weight.data_ptr<float>();
 
   AT_DISPATCH_INDEX_TYPES(table_offsets.scalar_type(), "unary_indices", [&] {
-    const index_t* table_offsets_data = table_offsets.data_ptr<index_t>();
-    const index_t* offsets_data = offsets.data_ptr<index_t>();
-    const index_t* indices_data = indices.data_ptr<index_t>();
-    const index_t sum_E = table_offsets_data[T];
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        weight.scalar_type(),
+        "batched_unary_embeddings_forward_cpu",
+        [&] {
+          const index_t* table_offsets_data = table_offsets.data_ptr<index_t>();
+          const index_t* offsets_data = offsets.data_ptr<index_t>();
+          const index_t* indices_data = indices.data_ptr<index_t>();
+          const index_t sum_E = table_offsets_data[T];
+          auto* output_data = output.data_ptr<scalar_t>();
+          const auto* weight_data = weight.data_ptr<scalar_t>();
 
-    for (const auto n : c10::irange(N)) {
-      for (const auto b : c10::irange(B)) {
-        for (const auto t : c10::irange(T)) {
-          const index_t indices_start = offsets_data[t * B + b];
-          const index_t indices_end = offsets_data[t * B + b + 1];
-          float sum = 0;
-          for (const auto l : c10::irange(indices_start, indices_end)) {
-            const index_t idx =
-                n * sum_E + table_offsets_data[t] + indices_data[l];
-            // Since we don't care about the performance of CPU impl, adding
-            // the boundary check here. OOB will result in undefined
-            // behavior for GPU impl.
-            TORCH_CHECK(idx < weight.numel());
-            sum += weight_data[idx];
+          for (const auto n : c10::irange(N)) {
+            for (const auto b : c10::irange(B)) {
+              for (const auto t : c10::irange(T)) {
+                const index_t indices_start = offsets_data[t * B + b];
+                const index_t indices_end = offsets_data[t * B + b + 1];
+                float sum = 0;
+                for (const auto l : c10::irange(indices_start, indices_end)) {
+                  const index_t idx =
+                      n * sum_E + table_offsets_data[t] + indices_data[l];
+                  // Since we don't care about the performance of CPU impl,
+                  // adding the boundary check here. OOB will result in
+                  // undefined behavior for GPU impl.
+                  TORCH_CHECK(idx < weight.numel());
+                  sum += weight_data[idx];
+                }
+                output_data[(n * B + b) * T + t] = sum;
+              }
+            }
           }
-          output_data[(n * B + b) * T + t] = sum;
-        }
-      }
-    }
+        });
   });
 
   return output;
