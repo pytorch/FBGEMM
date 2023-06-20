@@ -255,6 +255,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             is_tail_id_thresh_ratio=int(
                 counter_based_regularization.tail_id_threshold.is_ratio
             ),
+            total_hash_size=-1,  # Unused
         )
         self.weights_dev = nn.Parameter(
             torch.empty((0,), device=self.current_device, dtype=torch.float32)
