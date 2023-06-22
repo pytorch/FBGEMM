@@ -7,8 +7,8 @@
  */
 
 // clang-format off
-{% set wdesc = "weighted" if weighted else "unweighted" %}
-{% set vbe_desc = "_vbe" if vbe else "" %}
+{%- set wdesc = "weighted" if weighted else "unweighted" %}
+{%- set vbe_desc = "_vbe" if vbe else "" %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
@@ -28,67 +28,60 @@ template <
     int32_t kThreadGroupSize>
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1(
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
-    {% if optimizer != "none" %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    {% if not dense %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        weights_placements,
-    {% endif %}
-    {% endif %} // if optimizer != "none"
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {% else %}
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    {%- endif %} // if optimizer != "none"
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
     int64_t D,
-    {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        long_run_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        num_long_run_ids,
-    {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% else %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% endif %}
-    {% if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_lxu_cache_locations,
-    {% endif %}
-    {% if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
-    {% endif %}
-    {% if not dense and optimizer != "none" %}
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- else %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    {%- endif %}
+    {%- if weighted %}
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    {%- endif %}
+    {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
-    {% else %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {% if optimizer == "none" %}
+    {%- else %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- if optimizer == "none" %}
     const int32_t max_D,
-    {% endif %}
-    {% endif %} // if not dense and optimizer != "none"
-    {% if vbe %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    {% endif %}
-    {% if not nobag %}
+    {%- endif %}
+    {%- endif %} // if not dense and optimizer != "none"
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    {%- endif %}
+    {%- if not nobag %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
-    {% endif %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
+    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
-    {{ args.split_kernel_args | join(",\n    ") }});
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }});
 
 template <
     typename emb_t,
@@ -98,62 +91,55 @@ template <
     int32_t kThreadGroupSize = kWarpSize>
 __global__ __launch_bounds__(kBackwardMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1(
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
-        grad_output,
-    {% if optimizer != "none" %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    {% if not dense %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        weights_placements,
-    {% endif %}
-    {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {% else %}
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
     int64_t D,
-    {% endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_cumulative_run_lengths,
-    {% if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% else %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
-    {% endif %}
-    {% if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_lxu_cache_locations,
-    {% endif %}
-    {% if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
-    {% endif %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_num_runs,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- else %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    {%- endif %}
+    {%- if weighted %}
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
     int32_t max_segment_length_per_warp,
-    {% if not dense and optimizer != "none" %}
+    {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
-    {% else %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {% if optimizer == "none" %}
+    {%- else %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- if optimizer == "none" %}
     const int32_t max_D,
-    {% endif %}
-    {% endif %} // if not dense and optimizer != "none"
-    {% if vbe %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    {% endif %}
-    {% if not nobag %}
+    {%- endif %}
+    {%- endif %} // if not dense and optimizer != "none"
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    {%- endif %}
+    {%- if not nobag %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
-    {% endif %}
-    {{ args.split_kernel_args | join(", ") }});
+    {%- endif %}
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }});
 
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_find_long_segments(
@@ -176,139 +162,147 @@ grad_mean{{ vbe_desc }}_kernel(
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    {% if vbe %}
+    {%- if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask
-    {% else %}
+    {%- else %}
     FixedDivisor fd_B
-    {% endif %}
+    {%- endif %}
 );
 
 ////////////////////////////////////////////////////////////////////////////////
 // Operator Code
 ////////////////////////////////////////////////////////////////////////////////
 
+
+{%- set func_name0 = "split_embedding{}_backward_codegen_{}_{}_exact{}_cuda".format(
+    "_nobag" if nobag else "",
+    optimizer,
+    wdesc,
+    vbe_desc)
+%}
+
 Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vbe_desc }}_cuda(
     Tensor grad_output,
     Tensor dev_weights,
-    {% if not dense %}
+    {%- if not dense %}
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
     Tensor weights_placements,
-    {% endif %}
+    {%- endif %}
     Tensor weights_offsets,
-    {% if not nobag %}
+    {%- if not nobag %}
     Tensor D_offsets,
     int64_t max_D,
-    {% else %}
+    {%- else %}
     int64_t D,
-    {% endif %}
+    {%- endif %}
     Tensor hash_size_cumsum,
     int64_t total_hash_size_bits,
     Tensor indices,
     Tensor offsets,
-    {% if not nobag %}
+    {%- if not nobag %}
     int64_t pooling_mode,
-    {% endif %}
-    {% if weighted %}
+    {%- endif %}
+    {%- if weighted %}
     Tensor indice_weights,
-    {% endif %}
-    {% if not dense %}
+    {%- endif %}
+    {%- if not dense %}
     Tensor lxu_cache_locations,
-    {% endif %}
+    {%- endif %}
     int64_t unused_,
     int64_t max_segment_length_per_warp,
-    {% if not dense %}
-    {% if optimizer != "none" %}
+    {%- if not dense %}
+    {%- if optimizer != "none" %}
     bool stochastic_rounding,
-    {% endif %}
+    {%- endif %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
-    {% endif %}
-    {% if vbe %}
+    {%- endif %}
+    {%- if vbe %}
     const VBEMetadata& vbe_metadata,
-    {% endif %}
-    {% if optimizer != "none" %}
+    {%- endif %}
+    {%- if optimizer != "none" %}
     {{ args.split_function_args | join(", ") }}
-    {% else %}
+    {%- else %}
     // This is acutally passed via args.split_function_args but explicitly list
     // it here for code readability
     int64_t total_hash_size,
     int64_t total_unique_indices
-    {% endif %}
+    {%- endif %}
     ) {
 
    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-        {% if optimizer != "none" %}
+        {%- if optimizer != "none" %}
         dev_weights,
-        {% endif %}
-        {% if not dense %}
+        {%- endif %}
+        {%- if not dense %}
         uvm_weights,
         lxu_cache_weights,
         weights_placements,
-        {% endif %}
-        {% if vbe %}
+        {%- endif %}
+        {%- if vbe %}
         vbe_metadata.B_offsets,
         vbe_metadata.output_offsets,
         vbe_metadata.b_t_map,
-        {% endif %}
+        {%- endif %}
         weights_offsets,
-        {% if not nobag %}
+        {%- if not nobag %}
         D_offsets,
-        {% endif %}
+        {%- endif %}
         hash_size_cumsum,
         indices,
         offsets,
-        {% if weighted %}
+        {%- if weighted %}
         indice_weights,
-        {% endif %}
-        {% if not dense %}
+        {%- endif %}
+        {%- if not dense %}
         lxu_cache_locations,
-        {% endif %}
+        {%- endif %}
         grad_output);
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
 
-    {% if nobag %}
+    {%- if nobag %}
     auto max_D = D;
-    {% endif %}
+    {%- endif %}
     TORCH_CHECK(max_D <= {{ max_embedding_dim }});
 
-    {% if optimizer == "none" %}
+    {%- if optimizer == "none" %}
     // grad_dev_weights has emb_t type
     auto grad_dev_weights = at::empty({total_unique_indices * max_D}, dev_weights.options());
-    {% else %}
+    {%- else %}
     // Set total_unique_indices to total num indices by default
     const auto total_unique_indices = indices.numel();
-    {% if dense %}
+    {%- if dense %}
     auto grad_dev_weights = zeros_like(dev_weights);
-    {% endif %}
-    {% endif %}
+    {%- endif %}
+    {%- endif %}
 
     // short-circuit if there are zero indices.
     if (indices.numel() == 0) {
-        {% if dense %}
+        {%- if dense %}
         return grad_dev_weights;
-        {% elif optimizer == "none" %}
+        {%- elif optimizer == "none" %}
         return at::sparse_coo_tensor(
             at::empty({1, 0}, indices.options()),
             grad_dev_weights.reshape({0, max_D}),
             {total_hash_size, max_D},
             dev_weights.options().layout(at::kSparse)
         );
-        {% else %}
+        {%- else %}
         return Tensor();
-        {% endif %}
+        {%- endif %}
     }
 
-    {% if not nobag %}
+    {%- if not nobag %}
     int32_t T = D_offsets.numel() - 1;
-    {% else %}
+    {%- else %}
     int32_t T = weights_offsets.numel();
-    {% endif %}
+    {%- endif %}
 
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
@@ -317,17 +311,17 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
     auto BT_block_size = kMaxThreads / kWarpSize;
     TORCH_CHECK(BT_block_size * kWarpSize <= kMaxThreads);
 
-    {% if vbe %}
+    {%- if vbe %}
     TORCH_CHECK(vbe_metadata.B_offsets.numel() == T + 1);
     TORCH_CHECK(vbe_metadata.output_offsets.numel() == total_B);
     TORCH_CHECK(vbe_metadata.b_t_map.numel() == total_B);
-    {% endif %}
+    {%- endif %}
 
-    {% if dense %}
+    {%- if dense %}
     int32_t info_B_num_bits;
     uint32_t info_B_mask;
     std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(total_B / T, T);
-    {% endif %}
+    {%- endif %}
 
     // V100: 96 KB; A100: 160 KB; H100: 228 KB.
     int max_shared_bytes = 0;
@@ -374,7 +368,7 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
             info_B_mask,
             total_unique_indices);
 
-    {% if not dense %}
+    {%- if not dense %}
     auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
     if (lxu_cache_locations.size(0) > 0) {
         size_t temp_storage_bytes = 0;
@@ -406,19 +400,19 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
             at::cuda::getCurrentCUDAStream(),
             false));
     }
-    {% endif %}
+    {%- endif %}
 
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
         grad_output.scalar_type(),
-        {% if not dense %}
+        {%- if not dense %}
         lxu_cache_weights.scalar_type(),
-        {% else %}
+        {%- else %}
         dev_weights.scalar_type(),
-        {% endif %}
+        {%- endif %}
             "split_embedding_backward_{{ optimizer }}_exact_kernel",
         [&] {
-            {% if weighted %}
+            {%- if weighted %}
             auto indice_weights_sorted = at::empty_like(indice_weights);
             {
             size_t temp_storage_bytes = 0;
@@ -450,24 +444,26 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                 at::cuda::getCurrentCUDAStream(),
                 false));
             }
-            {% endif %}
+            {%- endif %}
 
             // early memory release
             linear_indices.reset();
             linear_indices_sorted.reset();
 
-            {% if vbe %}
+            {%- if vbe %}
             grad_output = grad_output.reshape({1, -1});
-            {% endif %}
-            auto grad_output_accessor = grad_output.packed_accessor64<grad_t, 2, at::RestrictPtrTraits>();
-            {% if not nobag %}
+            {%- endif %}
+
+            auto grad_output_accessor = MAKE_PTA_WITH_NAME("{{ func_name0 }}.1", grad_output, grad_t, 2, 64);
+
+            {%- if not nobag %}
             Tensor grad_output_mean;
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
               grad_output_mean = at::empty_like(grad_output);
-              {% if not dense or not vbe %}
+              {%- if not dense or not vbe %}
 
 #ifdef FBGEMM_GPU_MEMCHECK
-              const auto func_name0 = "grad_mean{{ vbe_desc }}_kernel";
+              const auto func_name1 = "grad_mean{{ vbe_desc }}_kernel";
 #endif
 
               grad_mean{{ vbe_desc }}_kernel<<<
@@ -476,27 +472,28 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                     0,
                     at::cuda::getCurrentCUDAStream()>>>
                     (
-                        MAKE_PTA_WITH_NAME(func_name0, grad_output_mean, grad_t, 2, 64),
-                        MAKE_PTA_WITH_NAME(func_name0, grad_output, grad_t, 2, 64),
-                        MAKE_PTA_WITH_NAME(func_name0, D_offsets, int32_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name0, offsets, int64_t, 1, 32),
-                        {% if vbe %}
-                        MAKE_PTA_WITH_NAME(func_name0, vbe_metadata.output_offsets, int64_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name0, vbe_metadata.b_t_map, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, grad_output_mean, grad_t, 2, 64),
+                        MAKE_PTA_WITH_NAME(func_name1, grad_output, grad_t, 2, 64),
+                        MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, offsets, int64_t, 1, 32),
+                        {%- if vbe %}
+                        MAKE_PTA_WITH_NAME(func_name1, vbe_metadata.output_offsets, int64_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, vbe_metadata.b_t_map, int32_t, 1, 32),
                         info_B_num_bits,
                         info_B_mask
-                        {% else %}
+                        {%- else %}
                         FixedDivisor(total_B / T)
-                        {% endif %}
+                        {%- endif %}
                     );
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-              {% endif %} // if not dense or not vbe
-              grad_output_accessor = grad_output_mean.packed_accessor64<
-                  grad_t, 2, at::RestrictPtrTraits>();
-            }
-            {% endif %}
+              {%- endif %} // if not dense or not vbe
 
-            {% if not dense and optimizer != "none" %}
+
+              grad_output_accessor = MAKE_PTA_WITH_NAME("{{ func_name0 }}.2", grad_output_mean, grad_t, 2, 64);
+            }
+            {%- endif %}
+
+            {%- if not dense and optimizer != "none" %}
             at::PhiloxCudaState rng_engine_inputs;
             if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
                 auto gen = at::cuda::detail::getDefaultCUDAGenerator();
@@ -505,11 +502,11 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                     at::check_generator<at::CUDAGeneratorImpl>(gen)
                         ->philox_cuda_state(4);
             }
-            {% endif %}
+            {%- endif %}
             // kMaxElemPerThread is # of elements handled by thread if we use a full warp for a row
             // We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
-            {% for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-            {% if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+            {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+            {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
             if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
             // hipcc can't use max in constexpr
             constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
@@ -548,7 +545,7 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                 indices.options().dtype(at::kInt));
 
 #ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name0 = "split_embedding_backward_codegen_find_long_segments";
+            const auto func_name2 = "split_embedding_backward_codegen_find_long_segments";
 #endif
 
             split_embedding_backward_codegen_find_long_segments<<<
@@ -557,13 +554,13 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                 0,
                 at::cuda::getCurrentCUDAStream()
             >>>(
-                MAKE_PTA_WITH_NAME(func_name0, sorted_linear_indices_num_runs, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name0, sorted_linear_indices_run_lengths, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name0, long_run_ids, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name0, num_long_run_ids, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name0, long_run_id_to_really_long_run_ids, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name0, num_really_long_run_ids, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name0, grad_accum_counter, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, sorted_linear_indices_num_runs, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, sorted_linear_indices_run_lengths, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, num_long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, long_run_id_to_really_long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, num_really_long_run_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, grad_accum_counter, int32_t, 1, 32),
                 max_segment_length_per_warp,
                 max_segment_length_per_cta,
                 use_deterministic_algorithms);
@@ -598,6 +595,11 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                 used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
 #endif
             C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+#ifdef FBGEMM_GPU_MEMCHECK
+            const auto func_name3 = "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1";
+#endif
+
             // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1<
                 emb_t,
@@ -611,63 +613,61 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                         kMaxVecsPerThread,
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
-                    {% if optimizer != "none" %}
-                    {% if not dense %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% endif %} // if optimizer != "none"
-                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
+                    {%- if optimizer != "none" %}
+                    {%- if not dense %}
+                    MAKE_PTA_WITH_NAME(func_name3, dev_weights, emb_t, 1, 64),
+                    MAKE_PTA_WITH_NAME(func_name3, uvm_weights, emb_t, 1, 64),
+                    MAKE_PTA_WITH_NAME(func_name3, lxu_cache_weights, cache_t, 2, 64),
+                    MAKE_PTA_WITH_NAME(func_name3, weights_placements, int32_t, 1, 32),
+                    {%- else %}
+                    MAKE_PTA_WITH_NAME(func_name3, dev_weights, emb_t, 1, 64),
+                    {%- endif %}
+                    {%- endif %} // if optimizer != "none"
+                    MAKE_PTA_WITH_NAME(func_name3, weights_offsets, int64_t, 1, 32),
+                    {%- if not nobag %}
+                    MAKE_PTA_WITH_NAME(func_name3, D_offsets, int32_t, 1, 32),
+                    {%- else %}
                     D,
-                    {% endif %}
-                    hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run
-                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    num_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not dense %}
-                    lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if weighted %}
-                    indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not dense and optimizer != "none" %}
+                    {%- endif %}
+                    MAKE_PTA_WITH_NAME(func_name3, hash_size_cumsum, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_run, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name3, long_run_ids, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name3, num_long_run_ids, int32_t, 1, 32),
+                    {%- if not nobag %}
+                    MAKE_PTA_WITH_NAME(func_name3, infos_sorted, int32_t, 1, 32),
+                    {%- else %}
+                    MAKE_PTA_WITH_NAME(func_name3, infos_sorted, int64_t, 1, 32),
+                    {%- endif %}
+                    {%- if not dense %}
+                    MAKE_PTA_WITH_NAME(func_name3, lxu_cache_locations_sorted, int32_t, 1, 32),
+                    {%- endif %}
+                    {%- if weighted %}
+                    MAKE_PTA_ACC_WITH_NAME(func_name3, indice_weights_sorted, cache_t, 1, 32),
+                    {%- endif %}
+                    {%- if not dense and optimizer != "none" %}
                     stochastic_rounding,
                     rng_engine_inputs,
-                    {% else %}
-                    grad_dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    {% if optimizer == "none" %}
+                    {%- else %}
+                    MAKE_PTA_WITH_NAME(func_name3, grad_dev_weights, emb_t, 1, 64),
+                    {%- if optimizer == "none" %}
                     max_D,
-                    {% endif %}
-                    {% endif %} // if not dense and optimizer != "none"
-                    {% if vbe %}
-                    vbe_metadata.B_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    vbe_metadata.output_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not nobag %}
+                    {%- endif %}
+                    {%- endif %} // if not dense and optimizer != "none"
+                    {%- if vbe %}
+                    MAKE_PTA_WITH_NAME(func_name3, vbe_metadata.B_offsets, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name3, vbe_metadata.output_offsets, int64_t, 1, 32),
+                    {%- endif %}
+                    {%- if not nobag %}
                     info_B_num_bits,
                     info_B_mask,
-                    {% endif %}
-                    long_run_id_to_really_long_run_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    temp_grad_accum.packed_accessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits>(),
-                    grad_accum_counter.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {%- endif %}
+                    MAKE_PTA_WITH_NAME(func_name3, long_run_id_to_really_long_run_ids, int32_t, 1, 32),
+                    MAKE_PTA_ACC_WITH_NAME(func_name3, temp_grad_accum, cache_t, 2, 32),
+                    MAKE_PTA_WITH_NAME(func_name3, grad_accum_counter, int32_t, 1, 32),
                     max_segment_length_per_cta,
                     use_deterministic_algorithms,
-                    {{ args.split_kernel_arg_constructors | join(", ") }});
+                    {{ args.split_kernel_arg_constructors | make_pta_acc_format("func_name3") | join(",\n                    ") }});
 
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             grid_size = std::min(
@@ -692,6 +692,10 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
 #endif
             }
 
+#ifdef FBGEMM_GPU_MEMCHECK
+            const auto func_name4 = "split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1";
+#endif
+
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1<
                 emb_t,
@@ -704,76 +708,74 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                     shmem_bytes,
                     at::cuda::getCurrentCUDAStream()>>>(
                     grad_output_accessor,
-                    {% if optimizer != "none" %}
-                    {% if not dense %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                    weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% endif %}
-                    weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
+                    {%- if optimizer != "none" %}
+                    {%- if not dense %}
+                    MAKE_PTA_WITH_NAME(func_name4, dev_weights, emb_t, 1, 64),
+                    MAKE_PTA_WITH_NAME(func_name4, uvm_weights, emb_t, 1, 64),
+                    MAKE_PTA_WITH_NAME(func_name4, lxu_cache_weights, cache_t, 2, 64),
+                    MAKE_PTA_WITH_NAME(func_name4, weights_placements, int32_t, 1, 32),
+                    {%- else %}
+                    MAKE_PTA_WITH_NAME(func_name4, dev_weights, emb_t, 1, 64),
+                    {%- endif %}
+                    {%- endif %}
+                    MAKE_PTA_WITH_NAME(func_name4, weights_offsets, int64_t, 1, 32),
+                    {%- if not nobag %}
+                    MAKE_PTA_WITH_NAME(func_name4, D_offsets, int32_t, 1, 32),
+                    {%- else %}
                     D,
-                    {% endif %}
-                    hash_size_cumsum.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_run
-                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    sorted_linear_indices_cumulative_run_lengths
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% if not nobag %}
-                    infos_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% else %}
-                    infos_sorted.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not dense %}
-                    lxu_cache_locations_sorted.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if weighted %}
-                    indice_weights_sorted.packed_accessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    sorted_linear_indices_num_runs
-                        .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                    {%- endif %}
+                    MAKE_PTA_WITH_NAME(func_name4, hash_size_cumsum, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_run, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
+
+                    {%- if not nobag %}
+                    MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int32_t, 1, 32),
+                    {%- else %}
+                    MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int64_t, 1, 32),
+                    {%- endif %}
+                    {%- if not dense %}
+                    MAKE_PTA_WITH_NAME(func_name4, lxu_cache_locations_sorted, int32_t, 1, 32),
+                    {%- endif %}
+                    {%- if weighted %}
+                    MAKE_PTA_ACC_WITH_NAME(func_name4, indice_weights_sorted, cache_t, 1, 32),
+                    {%- endif %}
+                    MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_num_runs, int32_t, 1, 32),
                     max_segment_length_per_warp,
-                    {% if not dense and optimizer != "none" %}
+                    {%- if not dense and optimizer != "none" %}
                     stochastic_rounding,
                     rng_engine_inputs,
-                    {% else %}
-                    grad_dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                    {% if optimizer == "none" %}
+                    {%- else %}
+                    MAKE_PTA_WITH_NAME(func_name4, grad_dev_weights, emb_t, 1, 64),
+                    {%- if optimizer == "none" %}
                     max_D,
-                    {% endif %}
-                    {% endif %} // if not dense and optimizer != "none"
-                    {% if vbe %}
-                    vbe_metadata.B_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                    vbe_metadata.output_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    {% endif %}
-                    {% if not nobag %}
+                    {%- endif %}
+                    {%- endif %} // if not dense and optimizer != "none"
+                    {%- if vbe %}
+                    MAKE_PTA_WITH_NAME(func_name4, vbe_metadata.B_offsets, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name4, vbe_metadata.output_offsets, int64_t, 1, 32),
+                    {%- endif %}
+                    {%- if not nobag %}
                     info_B_num_bits,
                     info_B_mask,
-                    {% endif %}
-                    {{ args.split_kernel_arg_constructors | join(", ") }});
+                    {%- endif %}
+                    {{ args.split_kernel_arg_constructors | make_pta_acc_format("func_name4") | join(",\n                    ") }});
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         }
-        {% endif %}
-        {% endfor %}
+        {%- endif %}
+        {%- endfor %}
         });
 
-    {% if dense %}
+    {%- if dense %}
     return grad_dev_weights;
-    {% elif optimizer == "none" %}
+    {%- elif optimizer == "none" %}
     return at::sparse_coo_tensor(
         sorted_linear_indices_run.unsqueeze(0),
         grad_dev_weights.reshape({total_unique_indices, max_D}),
         {total_hash_size, max_D},
         dev_weights.options().layout(at::kSparse));
-    {% else %}
+    {%- else %}
     return Tensor();
-    {% endif %}
+    {%- endif %}
 }
 // clang-format on

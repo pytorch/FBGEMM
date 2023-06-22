@@ -485,7 +485,7 @@ template <
     size_t N,
     template <typename U> class PtrTraits = at::DefaultPtrTraits,
     typename index_t = int64_t>
-const fbgemm_gpu::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>
+fbgemm_gpu::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>
 make_generic_packed_tensor_accessor(
     const at::Tensor& tensor,
     const char* const ptr_name,
@@ -512,8 +512,7 @@ template <
     typename T,
     size_t N,
     template <typename U> class PtrTraits = at::DefaultPtrTraits>
-const pta::PackedTensorAccessor32<T, N, PtrTraits>
-make_packed_tensor_accessor32(
+pta::PackedTensorAccessor32<T, N, PtrTraits> make_packed_tensor_accessor32(
 #ifdef FBGEMM_GPU_MEMCHECK
     const at::Tensor& tensor,
     const char* const ptr_name,
@@ -537,8 +536,7 @@ template <
     typename T,
     size_t N,
     template <typename U> class PtrTraits = at::DefaultPtrTraits>
-const pta::PackedTensorAccessor64<T, N, PtrTraits>
-make_packed_tensor_accessor64(
+pta::PackedTensorAccessor64<T, N, PtrTraits> make_packed_tensor_accessor64(
 #ifdef FBGEMM_GPU_MEMCHECK
     const at::Tensor& tensor,
     const char* const ptr_name,
@@ -578,4 +576,8 @@ make_packed_tensor_accessor64(
 
 #define MAKE_PTA_WITH_NAME(FUNC_NAME, TENSOR, T, N, INDEX_NBITS) \
   MAKE_PACKED_TENSOR_ACCESSOR_BASE(                              \
+      FUNC_NAME, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)
+
+#define MAKE_PTA_ACC_WITH_NAME(FUNC_NAME, TENSOR, T, N, INDEX_NBITS) \
+  MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE(                         \
       FUNC_NAME, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)

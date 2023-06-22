@@ -10,6 +10,7 @@
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set vbe_desc = "_vbe" if vbe else "" %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 {% if optimizer != "none" and not dense %}
 #include "gen_embedding_optimizer_{{ optimizer }}_split_device_kernel.cuh"
@@ -26,67 +27,60 @@ template <
     int32_t kThreadGroupSize >
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_cta_per_row_1(
-    const at::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
+    const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        weights_placements,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
     {%- endif %} // if optimizer != "none"
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
     int64_t D,
     {%- endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        long_run_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        num_long_run_ids,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
     {%- if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- else %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_lxu_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
     {%- endif %}
     {%- if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
     {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- if optimizer == "none" %}
     const int32_t max_D,
     {%- endif %}
     {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
     {%- endif %}
     {%- if not nobag %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
+    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
-    {{ args.split_kernel_args | join(",\n    ") }}) {
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}) {
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
   const unsigned int shfl_sync_mask =
         ((1L << kThreadGroupSize) - 1) <<
@@ -434,67 +428,62 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
   {{ kMaxVecsPerThread }},
   {{ kThreadGroupSize }}
 > (
-    const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
+    const pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {%- endif %}
     {%- endif %} // if optimizer != "none"
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
     int64_t D,
     {%- endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        long_run_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        num_long_run_ids,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
     {%- if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- else %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_lxu_cache_locations,
     {%- endif %}
     {%- if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    const pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
     {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- if optimizer == "none" %}
     const int32_t max_D,
     {%- endif %}
     {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
     {%- endif %}
     {%- if not nobag %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
+    pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
-    {{ args.split_kernel_args_no_defaults | join(",\n    ") | replace("cache_t", cache_type) }});
+    {{ args.split_kernel_args_no_defaults | replace_pta_namespace() | join(",\n    ") | replace("cache_t", cache_type) }});
 
 {%- endfor %}
 
@@ -529,67 +518,62 @@ void split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimize
   {{ kMaxVecsPerThread }},
   {{ kThreadGroupSize }}
 > (
-    const at::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
+    const pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     {%- endif %}
     {%- endif %} // if optimizer != "none"
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     {%- if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
     int64_t D,
     {%- endif %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_run,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_linear_indices_cumulative_run_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        long_run_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        num_long_run_ids,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
     {%- if not nobag %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- else %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_lxu_cache_locations,
     {%- endif %}
     {%- if weighted %}
-    const at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    const pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
     {%- endif %}
     {%- if not dense and optimizer != "none" %}
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
     {%- if optimizer == "none" %}
     const int32_t max_D,
     {%- endif %}
     {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
     {%- endif %}
     {%- if not nobag %}
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
-    at::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_id_to_really_long_run_ids,
+    pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 2, at::RestrictPtrTraits> temp_grad_accum,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
-    {{ args.split_kernel_args_no_defaults | join(",\n    ") | replace("cache_t", cache_type) }});
+    {{ args.split_kernel_args_no_defaults | replace_pta_namespace() | join(",\n    ") | replace("cache_t", cache_type) }});
 
 {%- endfor %}
 
