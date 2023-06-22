@@ -204,6 +204,12 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 # Optimizers with the VBE support
 set(VBE_OPTIMIZERS rowwise_adagrad)
 
+# Individual optimizers (not fused with SplitTBE backward)
+set(DEFUSED_OPTIMIZERS rowwise_adagrad)
+
+# Individual optimizers (not fused with SplitTBE backward)
+set(DEFUSED_OPTIMIZERS rowwise_adagrad)
+
 set(gen_gpu_kernel_source_files
     "gen_embedding_forward_dense_weighted_codegen_cuda.cu"
     "gen_embedding_forward_dense_unweighted_codegen_cuda.cu"
@@ -281,13 +287,14 @@ foreach(optimizer ${CPU_OPTIMIZERS})
 endforeach()
 
 foreach(optimizer ${GPU_OPTIMIZERS})
+  list(APPEND gen_gpu_kernel_source_files
+    "gen_embedding_optimizer_${optimizer}_split_device_kernel.cuh")
   foreach(wdesc weighted unweighted_nobag unweighted)
     list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_backward_${optimizer}_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_kernel_cta.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_kernel_warp.cu")
   endforeach()
-
 endforeach()
 
 foreach(optimizer ${VBE_OPTIMIZERS})
@@ -300,10 +307,20 @@ foreach(optimizer ${VBE_OPTIMIZERS})
   endforeach()
 endforeach()
 
+foreach(optimizer ${DEFUSED_OPTIMIZERS})
+  list(APPEND gen_defused_optim_source_files
+    "gen_embedding_optimizer_${optimizer}_split.cpp"
+    "gen_embedding_optimizer_${optimizer}_split_cuda.cu"
+    "gen_embedding_optimizer_${optimizer}_split_kernel.cu")
+  list(APPEND gen_defused_optim_py_files
+    "${CMAKE_BINARY_DIR}/split_embedding_optimizer_${optimizer}.py")
+endforeach()
+
 set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
-set(codegen_dependencies
+set(embedding_codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py
+    ${CMAKE_CODEGEN_DIR}/embedding_common_code_generator.py
     ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host_cpu.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_approx_template.cpp
@@ -330,6 +347,7 @@ set(codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/__init__.template
     ${CMAKE_CODEGEN_DIR}/lookup_args.py
     ${CMAKE_CODEGEN_DIR}/split_embedding_codegen_lookup_invoker.template
+    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_device_kernel_template.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cpu_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cub_namespace_prefix.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cub_namespace_postfix.cuh
@@ -344,6 +362,22 @@ set(codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_tensor_accessor.h)
 
+set(optimizer_codegen_dependencies
+    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py
+    ${CMAKE_CODEGEN_DIR}/embedding_common_code_generator.py
+    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_host_template.cpp
+    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_template.cu
+    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_device_kernel_template.cuh
+    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_kernel_template.cu
+    ${CMAKE_CODEGEN_DIR}/optimizer_args.py
+    ${CMAKE_CODEGEN_DIR}/split_embedding_optimizer_codegen.template
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/dispatch_macros.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh)
+
 if(USE_ROCM)
   message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" "--opensource --is_rocm")
 
@@ -351,7 +385,13 @@ if(USE_ROCM)
     COMMAND
       "${PYTHON_EXECUTABLE}"
       "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
-      "--opensource" "--is_rocm" DEPENDS "${codegen_dependencies}")
+      "--opensource" "--is_rocm" DEPENDS "${embedding_codegen_dependencies}")
+
+  execute_process(
+    COMMAND
+      "${PYTHON_EXECUTABLE}"
+      "${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py"
+      "--opensource" "--is_rocm" DEPENDS "${optimizer_codegen_dependencies}")
 
   set(header_include_dir
       ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -369,7 +409,17 @@ else()
     COMMAND
       "${PYTHON_EXECUTABLE}"
       "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" "--opensource"
-    DEPENDS "${codegen_dependencies}")
+    DEPENDS "${embedding_codegen_dependencies}")
+
+  add_custom_command(
+    OUTPUT
+      ${gen_defused_optim_source_files}
+      ${gen_defused_optim_py_files}
+    COMMAND
+      "${PYTHON_EXECUTABLE}"
+      "${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py"
+      "--opensource"
+    DEPENDS "${optimizer_codegen_dependencies}")
 endif()
 
 if(CXX_AVX2_FOUND)
@@ -400,14 +450,24 @@ set_source_files_properties(${gen_gpu_kernel_source_files}
   PROPERTIES COMPILE_OPTIONS
   "${TORCH_CUDA_OPTIONS}")
 
+set_source_files_properties(${gen_defused_optim_source_files}
+  PROPERTIES INCLUDE_DIRECTORIES
+  "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include"
+)
+
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gen
     ${gen_gpu_kernel_source_files}
     ${gen_gpu_host_source_files}
-    ${gen_cpu_source_files})
+    ${gen_cpu_source_files}
+    ${gen_defused_optim_source_files})
 else()
   set(fbgemm_gpu_sources_gen
-    ${gen_cpu_source_files})
+    ${gen_cpu_source_files}
+    # To force embedding_optimizer_code_generator to generate Python
+    # files
+    ${gen_defused_optim_py_files}
+  )
 endif()
 
 
@@ -694,3 +754,9 @@ install(FILES ${gen_python_source_files}
 
 install(FILES ${CMAKE_CODEGEN_DIR}/lookup_args.py
         DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
+
+install(FILES ${gen_defused_optim_py_files}
+        DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
+
+install(FILES ${CMAKE_CODEGEN_DIR}/optimizer_args.py
+        DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)

@@ -8,12 +8,13 @@
 # pyre-ignore-all-errors[56]
 
 import enum
+import functools
 import logging
 import os
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
@@ -144,6 +145,117 @@ def construct_split_state(
         placements=placements,
         offsets=offsets,
     )
+
+
+def apply_split_helper(
+    persistent_state_fn: Callable[[str, Tensor], None],
+    set_attr_fn: Callable[
+        [str, Union[Tensor, List[int], List[EmbeddingLocation]]], None
+    ],
+    current_device: torch.device,
+    use_cpu: bool,
+    feature_table_map: List[int],
+    split: SplitState,
+    prefix: str,
+    dtype: Type[torch.dtype],
+    enforce_hbm: bool = False,
+    make_dev_param: bool = False,
+    dev_reshape: Optional[Tuple[int, ...]] = None,
+) -> None:
+    set_attr_fn(f"{prefix}_physical_placements", split.placements)
+    set_attr_fn(f"{prefix}_physical_offsets", split.offsets)
+
+    offsets = [split.offsets[t] for t in feature_table_map]
+    placements = [split.placements[t] for t in feature_table_map]
+    persistent_state_fn(
+        f"{prefix}_offsets",
+        torch.tensor(offsets, device=current_device, dtype=torch.int64),
+    )
+    persistent_state_fn(
+        f"{prefix}_placements",
+        torch.tensor(placements, device=current_device, dtype=torch.int32),
+    )
+    if split.dev_size > 0:
+        dev_buffer = torch.zeros(
+            split.dev_size,
+            device=current_device,
+            # pyre-fixme[6]
+            dtype=dtype,
+        )
+        dev_buffer = (
+            dev_buffer.view(*dev_reshape) if dev_reshape is not None else dev_buffer
+        )
+    else:
+        # pyre-fixme[6]
+        dev_buffer = torch.empty(0, device=current_device, dtype=dtype)
+    if make_dev_param:
+        set_attr_fn(f"{prefix}_dev", nn.Parameter(dev_buffer))
+    else:
+        persistent_state_fn(f"{prefix}_dev", dev_buffer)
+    if split.host_size > 0:
+        if dtype == torch.uint8:
+            persistent_state_fn(
+                f"{prefix}_host",
+                torch.zeros(
+                    split.host_size,
+                    device=current_device,
+                    # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
+                    #  3rd param but got `Type[Type[torch._dtype]]`.
+                    dtype=dtype,
+                ),
+            )
+        else:
+            set_attr_fn(
+                f"{prefix}_host",
+                nn.Parameter(
+                    torch.zeros(
+                        split.host_size,
+                        device=current_device,
+                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
+                        #  for 3rd param but got `Type[Type[torch._dtype]]`.
+                        dtype=dtype,
+                    )
+                ),
+            )
+    else:
+        persistent_state_fn(
+            f"{prefix}_host",
+            # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
+            torch.empty(0, device=current_device, dtype=dtype),
+        )
+    if split.uvm_size > 0:
+        assert not use_cpu
+        if enforce_hbm:
+            logging.info("Enforce hbm for the cache location")
+            persistent_state_fn(
+                f"{prefix}_uvm",
+                torch.zeros(
+                    split.uvm_size,
+                    device=current_device,
+                    # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
+                    #  3rd param but got `Type[Type[torch._dtype]]`.
+                    dtype=dtype,
+                ),
+            )
+        else:
+            persistent_state_fn(
+                f"{prefix}_uvm",
+                torch.zeros(
+                    split.uvm_size,
+                    out=torch.ops.fbgemm.new_managed_tensor(
+                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
+                        #  for 3rd param but got `Type[Type[torch._dtype]]`.
+                        torch.zeros(1, device=current_device, dtype=dtype),
+                        [split.uvm_size],
+                    ),
+                ),
+            )
+    else:
+        persistent_state_fn(
+            f"{prefix}_uvm",
+            # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
+            torch.empty(0, device=current_device, dtype=dtype),
+        )
 
 
 # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
@@ -1496,101 +1608,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         make_dev_param: bool = False,
         dev_reshape: Optional[Tuple[int, ...]] = None,
     ) -> None:
-        setattr(self, f"{prefix}_physical_placements", split.placements)
-        setattr(self, f"{prefix}_physical_offsets", split.offsets)
-
-        offsets = [split.offsets[t] for t in self.feature_table_map]
-        placements = [split.placements[t] for t in self.feature_table_map]
-        self.register_buffer(
-            f"{prefix}_offsets",
-            torch.tensor(offsets, device=self.current_device, dtype=torch.int64),
+        apply_split_helper(
+            self.register_buffer,
+            functools.partial(setattr, self),
+            self.current_device,
+            self.use_cpu,
+            self.feature_table_map,
+            split,
+            prefix,
+            dtype,
+            enforce_hbm,
+            make_dev_param,
+            dev_reshape,
         )
-        self.register_buffer(
-            f"{prefix}_placements",
-            torch.tensor(placements, device=self.current_device, dtype=torch.int32),
-        )
-        if split.dev_size > 0:
-            dev_buffer = torch.zeros(
-                split.dev_size,
-                device=self.current_device,
-                # pyre-fixme[6]
-                dtype=dtype,
-            )
-            dev_buffer = (
-                dev_buffer.view(*dev_reshape) if dev_reshape is not None else dev_buffer
-            )
-        else:
-            # pyre-fixme[6]
-            dev_buffer = torch.empty(0, device=self.current_device, dtype=dtype)
-        if make_dev_param:
-            setattr(self, f"{prefix}_dev", nn.Parameter(dev_buffer))
-        else:
-            self.register_buffer(f"{prefix}_dev", dev_buffer)
-        if split.host_size > 0:
-            if dtype == torch.uint8:
-                self.register_buffer(
-                    f"{prefix}_host",
-                    torch.zeros(
-                        split.host_size,
-                        device=self.current_device,
-                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
-                        #  3rd param but got `Type[Type[torch._dtype]]`.
-                        dtype=dtype,
-                    ),
-                )
-            else:
-                setattr(
-                    self,
-                    f"{prefix}_host",
-                    nn.Parameter(
-                        torch.zeros(
-                            split.host_size,
-                            device=self.current_device,
-                            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
-                            #  for 3rd param but got `Type[Type[torch._dtype]]`.
-                            dtype=dtype,
-                        )
-                    ),
-                )
-        else:
-            self.register_buffer(
-                f"{prefix}_host",
-                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
-                torch.empty(0, device=self.current_device, dtype=dtype),
-            )
-        if split.uvm_size > 0:
-            assert not self.use_cpu
-            if enforce_hbm:
-                logging.info("Enforce hbm for the cache location")
-                self.register_buffer(
-                    f"{prefix}_uvm",
-                    torch.zeros(
-                        split.uvm_size,
-                        device=self.current_device,
-                        # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]` for
-                        #  3rd param but got `Type[Type[torch._dtype]]`.
-                        dtype=dtype,
-                    ),
-                )
-            else:
-                self.register_buffer(
-                    f"{prefix}_uvm",
-                    torch.zeros(
-                        split.uvm_size,
-                        out=torch.ops.fbgemm.new_managed_tensor(
-                            # pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`
-                            #  for 3rd param but got `Type[Type[torch._dtype]]`.
-                            torch.zeros(1, device=self.current_device, dtype=dtype),
-                            [split.uvm_size],
-                        ),
-                    ),
-                )
-        else:
-            self.register_buffer(
-                f"{prefix}_uvm",
-                # pyre-fixme[6]: For 3rd param expected `dtype` but got `Type[dtype]`.
-                torch.empty(0, device=self.current_device, dtype=dtype),
-            )
 
     def _apply_cache_state(
         self,

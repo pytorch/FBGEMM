@@ -12,11 +12,11 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
-#include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using Tensor = at::Tensor;
+
 using namespace fbgemm_gpu;
 
 {% if has_gpu_support %}
@@ -819,5 +819,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "bool is_experimental=False) -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
-
   // clang-format on

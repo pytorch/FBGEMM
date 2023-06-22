@@ -122,17 +122,33 @@ struct Vec4T<float> {
   }
 
   DEVICE_INLINE Vec4T(const float* p) {
-    acc = *((const float4*)p);
+    load(p);
   }
 
   DEVICE_INLINE Vec4T(const double* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const at::Half* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE void load(const float* p) {
+    acc = *((const float4*)p);
+  }
+
+  DEVICE_INLINE void load(const double* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
   }
 
-  DEVICE_INLINE Vec4T(const at::Half* p) {
+  DEVICE_INLINE void load(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
     union U {
       half2 h[2];
@@ -171,11 +187,15 @@ struct Vec4T<float> {
 #endif
   }
 
-  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+  DEVICE_INLINE void load(const at::BFloat16* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
+  }
+
+  DEVICE_INLINE void load(const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
   }
 
   DEVICE_INLINE void store(float* p) {
@@ -267,6 +287,22 @@ struct Vec4T<at::Half> {
   }
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const float* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const double* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE void load(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
     union U {
       half2 h[2];
@@ -305,22 +341,26 @@ struct Vec4T<at::Half> {
 #endif
   }
 
-  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+  DEVICE_INLINE void load(const at::BFloat16* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
   }
 
-  DEVICE_INLINE Vec4T(const float* p) {
+  DEVICE_INLINE void load(const float* p) {
     acc = *((const float4*)p);
   }
 
-  DEVICE_INLINE Vec4T(const double* p) {
+  DEVICE_INLINE void load(const double* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
+  }
+
+  DEVICE_INLINE void load(const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
   }
 
   DEVICE_INLINE void store(at::Half* p) {
@@ -454,13 +494,29 @@ struct Vec4T<at::BFloat16> {
   }
 
   DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const at::Half* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const float* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const double* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE void load(const at::BFloat16* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
   }
 
-  DEVICE_INLINE Vec4T(const at::Half* p) {
+  DEVICE_INLINE void load(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
     union U {
       half2 h[2];
@@ -499,15 +555,19 @@ struct Vec4T<at::BFloat16> {
 #endif
   }
 
-  DEVICE_INLINE Vec4T(const float* p) {
+  DEVICE_INLINE void load(const float* p) {
     acc = *((const float4*)p);
   }
 
-  DEVICE_INLINE Vec4T(const double* p) {
+  DEVICE_INLINE void load(const double* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
+  }
+
+  DEVICE_INLINE void load(const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
   }
 
   DEVICE_INLINE void store(at::Half* p) {
@@ -621,6 +681,22 @@ struct Vec4T<double> {
   }
 
   DEVICE_INLINE Vec4T(const at::Half* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const float* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec4T(const double* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE void load(const at::Half* p) {
 #ifdef __HIP_PLATFORM_HCC__
     union U {
       half2 h[2];
@@ -659,21 +735,25 @@ struct Vec4T<double> {
 #endif
   }
 
-  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
+  DEVICE_INLINE void load(const at::BFloat16* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
   }
 
-  DEVICE_INLINE Vec4T(const float* p) {
+  DEVICE_INLINE void load(const float* p) {
     acc.x = p[0];
     acc.y = p[1];
     acc.z = p[2];
     acc.w = p[3];
   }
 
-  DEVICE_INLINE Vec4T(const double* p) {
+  DEVICE_INLINE void load(const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void load(const double* p) {
     acc = *((const double4*)p);
   }
 

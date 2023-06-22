@@ -13,7 +13,7 @@ import pickle
 import random
 import unittest
 from itertools import accumulate
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 import fbgemm_gpu
 import hypothesis.strategies as st
@@ -24,6 +24,11 @@ from fbgemm_gpu.split_embedding_configs import (
     EmbOptimType as OptimType,
     FP8QuantizationConfig,
     SparseType,
+)
+from fbgemm_gpu.split_embedding_optimizer_ops import (
+    SplitEmbeddingArgs,
+    SplitEmbeddingOptimizerParams,
+    SplitEmbeddingRowwiseAdagrad,
 )
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
@@ -1529,7 +1534,37 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    def test_backward_none_optimizer(  # noqa C901
+    def test_backward_none(self, **kwargs: Any) -> None:
+        self.execute_backward_none_(**kwargs)
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        output_dtype=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_none_with_rowwise_adagrad(self, **kwargs: Any) -> None:
+        self.execute_backward_none_(optimizer=OptimType.EXACT_ROWWISE_ADAGRAD, **kwargs)
+
+    def execute_backward_none_(  # noqa C901
         self,
         T: int,
         D: int,
@@ -1541,6 +1576,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: PoolingMode,
         output_dtype: SparseType,
+        optimizer: Optional[OptimType] = None,
     ) -> None:
         use_cpu = False
         mixed = False
@@ -1646,30 +1682,69 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
-        fs = (
-            [
-                b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
-                for (b, x) in zip(bs, xs)
-            ]
-            if not weighted
-            else [
-                b_indices(
-                    b,
-                    x,
-                    per_sample_weights=xw.view(-1),
-                    use_cpu=use_cpu,
-                    do_pooling=do_pooling,
+        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+
+        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
+        embedding_specs = [
+            (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
+        ]
+
+        # Hyperparameters in case optimizer is not None
+        lr = 0.5
+        eps = 0.2
+        stochastic_rounding = random.choice([True, False])
+
+        if optimizer is None:
+            fs = (
+                [
+                    b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
+                    for (b, x) in zip(bs, xs)
+                ]
+                if not weighted
+                else [
+                    b_indices(
+                        b,
+                        x,
+                        per_sample_weights=xw.view(-1),
+                        use_cpu=use_cpu,
+                        do_pooling=do_pooling,
+                    )
+                    for (b, x, xw) in zip(bs, xs, xws)
+                ]
+            )
+            gos: Union[List[Tensor], Tensor] = [torch.randn_like(f) for f in fs]
+            [f.backward(go) for (f, go) in zip(fs, gos)]
+        else:
+            bs_ = SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=embedding_specs,
+                optimizer=optimizer,
+                feature_table_map=feature_table_map,
+                weights_precision=weights_precision,
+                pooling_mode=pooling_mode,
+                output_dtype=output_dtype,
+                learning_rate=lr,
+                eps=eps,
+                stochastic_rounding=stochastic_rounding,
+            )
+
+            for t in range(T):
+                bs_.split_embedding_weights()[t].data.copy_(bs[t].weight)
+
+            fs = (
+                bs_(indices, offsets)
+                if not weighted
+                else bs_(
+                    indices,
+                    offsets,
+                    to_device(xw.contiguous().view(-1), use_cpu),
                 )
-                for (b, x, xw) in zip(bs, xs, xws)
-            ]
-        )
-        gos = [torch.randn_like(f) for f in fs]
-        [f.backward(go) for (f, go) in zip(fs, gos)]
+            )
+            gos: Union[List[Tensor], Tensor] = torch.rand_like(fs)
+            fs.backward(gos)
 
         cc = SplitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
-            ],
+            embedding_specs=embedding_specs,
             optimizer=OptimType.NONE,
             feature_table_map=feature_table_map,
             weights_precision=weights_precision,
@@ -1679,11 +1754,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
-
-        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
-
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
 
         total_unique_indices = 0
         # Compute number of unique indices
@@ -1703,44 +1773,75 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 total_unique_indices=total_unique_indices,
             )
         )
-        if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
+        if optimizer is None:
+            assert type(gos) == list
+            if do_pooling:
+                goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
+            else:
+                goc = torch.cat(gos, dim=0)
         else:
-            goc = torch.cat(gos, dim=0)
+            assert type(gos) == Tensor
+            goc = gos.clone()
         fc2.backward(goc)
+
+        if optimizer is not None:
+            # pyre-ignore[6]
+            params = SplitEmbeddingOptimizerParams(weights_dev=cc.weights_dev)
+            embedding_args = SplitEmbeddingArgs(
+                # pyre-ignore[6]
+                weights_placements=cc.weights_placements,
+                # pyre-ignore[6]
+                weights_offsets=cc.weights_offsets,
+                max_D=cc.max_D,
+            )
+            optim = SplitEmbeddingRowwiseAdagrad(
+                params,
+                embedding_args,
+                embedding_specs,
+                feature_table_map,
+                learning_rate=lr,
+                eps=eps,
+                stochastic_rounding=stochastic_rounding,
+            )
+            optim.step()
 
         if use_cache:
             cc.flush()
 
-        weight_grads = []
-        for t in range(T):
-            grad = bs[t].weight.grad
-            # Check grad to suppress pyre error
-            assert grad is not None
-            weight_grads.append(grad)
+        if optimizer is None:
+            test_tensor = cc.weights_dev.grad
+            weight_grads = []
+            for t in range(T):
+                grad = bs[t].weight.grad
+                # Check grad to suppress pyre error
+                assert grad is not None
+                weight_grads.append(grad)
+            ref_grad = torch.concat(weight_grads, dim=0).to_sparse().coalesce()
+            ref_tensor = (
+                ref_grad.half() if weights_precision == SparseType.FP16 else ref_grad
+            )
+        else:
+            # pyre-ignore[16]
+            indices = cc.weights_dev.grad._indices().flatten()
+            # Select only the part in the table that is updated
+            test_tensor = torch.index_select(cc.weights_dev.view(-1, D), 0, indices)
+            ref_tensor = torch.index_select(bs_.weights_dev.view(-1, D), 0, indices)
 
-        ref_grad = torch.concat(weight_grads, dim=0).to_sparse().coalesce()
-        ref_grad = ref_grad.half() if weights_precision == SparseType.FP16 else ref_grad
-
+        tolerance = (
+            1.0e-2
+            if long_segments
+            else (
+                1.0e-4
+                if weights_precision == SparseType.FP32
+                and output_dtype == SparseType.FP32
+                else 1.0e-2
+            )
+        )
         torch.testing.assert_close(
-            cc.weights_dev.grad,
-            ref_grad,
-            atol=1.0e-2
-            if long_segments
-            else (
-                5.0e-3
-                if weights_precision == SparseType.FP16
-                or output_dtype == SparseType.FP16
-                else 1.0e-5
-            ),
-            rtol=1.0e-1
-            if long_segments
-            else (
-                2.0e-2
-                if weights_precision == SparseType.FP16
-                or output_dtype == SparseType.FP16
-                else 1.0e-5
-            ),
+            test_tensor,
+            ref_tensor,
+            atol=tolerance,
+            rtol=tolerance,
         )
 
     def execute_backward_sgd_(  # noqa C901
