@@ -11,6 +11,9 @@
 {%- set vbe_desc = "_vbe" if vbe else "" %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+{% if optimizer != "none" and not dense %}
+#include "gen_embedding_optimizer_{{ optimizer }}_split_device_kernel.cuh"
+{% endif %}
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -188,91 +191,25 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
             }
         }
         {%- if not dense and optimizer != "none" %}
-        const int64_t weights_offset = weights_offsets[t_0];
-        emb_t* __restrict__ weights{nullptr};
-        cache_t* __restrict__ cache_weights{nullptr};
-        int32_t D_emb = D;
-        if (std::is_same<emb_t, uint8_t>::value) {
-            D_emb += kINT8QparamsBytes;
-        }
-        const auto weights_placement = static_cast<PlacementType>(weights_placements[t_0]);
-        if (weights_placement == PlacementType::DEVICE) {
-            weights = &dev_weights[weights_offset + idx * D_emb];
-        } else {
-            weights = &uvm_weights[weights_offset + idx * D_emb];
-        }
-        if (weights_placement == PlacementType::MANAGED_CACHING) {
-            int32_t cache_idx = sorted_lxu_cache_locations[segment_start];
-            if (cache_idx != kCacheLocationMissing) {
-                cache_weights = &lxu_cache_weights[cache_idx][0];
-            }
-        }
-        {%- for tensor in args.split_tensors %}
-        at::acc_type<cache_t, true>* __restrict__ {{ tensor }};
-        const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t_0]);
-        int64_t {{ tensor }}_offset = {{ tensor }}_offsets[t_0];
-        if ({{ tensor }}_placement == PlacementType::DEVICE) {
-            {{ tensor }} = &{{ tensor }}_dev[{{ tensor }}_offset];
-        } else {
-            {{ tensor }} = &{{ tensor }}_uvm[{{ tensor }}_offset];
-        }
-        {%- endfor %}
-
-        struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> weight_update_buffer;
-        Vec4T<at::acc_type<cache_t, true>>* shared_weight_update_row = weight_update_buffer.getPointer();
-        auto weight_row_template = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
-        if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
-            StochasticRoundingRNGState state;
-            // different for every *run* and every *thread*.
-            auto stochastic_rounding_seeds =
-                at::cuda::philox::unpack(stochastic_rounding_philox_args);
-            stochastic_rounding_init(
-                std::get<0>(stochastic_rounding_seeds) ^
-                    std::get<1>(stochastic_rounding_seeds),
-                threadIdx.x + run_id * blockDim.x,
-                &state);
-            weight_row_template.set_stoc_state(&state);
-        }
-        float2 qparams_template;
-        if (std::is_same<emb_t, uint8_t>::value && !cache_weights){
-            qparams_template = weight_row_template.load_qparams();
-        }
-
-        {{ split_precomputation }}
-
-        float2 qparams_new;
-        #pragma unroll kMaxVecsPerThread
-        for (int32_t i = 0;
-                i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-                ++i) {
-            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-            Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
-            auto& grad = grad_sum[i];
-            {{ split_weight_update }}
-            if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
-                shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize] = weight_new;
-            } else {
-                weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if type is not int8
-            }
-        }
-
-        if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
-            // calculate new qparams after row update
-            qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(&shared_weight_update_row[threadIdx.y * kMaxVecsPerThread * kThreadGroupSize], D);
-            weight_row_template.store_qparams(qparams_new);
-
-            // fetch cached updated row from shared mem and quantize on-the-fly when saving to lowp embedding
-            #pragma unroll kMaxVecsPerThread
-            for (int32_t i = 0;
-                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-                    ++i) {
-                int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                weight_row_template.store(shared_weight_update_row[threadIdx.x + (i + threadIdx.y * kMaxVecsPerThread) * kThreadGroupSize], d, qparams_new);
-            }
-        }
-
-        {{ split_post_update }}
-
+        split_{{ optimizer }}_table_update_kernel
+          <emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH>(
+              dev_weights,
+              uvm_weights,
+              lxu_cache_weights,
+              weights_placements,
+              weights_offsets,
+              sorted_lxu_cache_locations,
+              grad_sum,
+              stochastic_rounding,
+              stochastic_rounding_philox_args,
+              run_id,
+              D,
+              t_0,
+              idx,
+              segment_start,
+              shfl_sync_mask,
+              threadIdx.y * kMaxVecsPerThread * kThreadGroupSize, // shared_weight_offset
+              {{ args.split_function_arg_names | join(", ") }});
         {%- else %}
         // Write deduplicated gradient to grad_dev_weights gradient is sparse
         // for split_embedding and dense for dense_embedding
