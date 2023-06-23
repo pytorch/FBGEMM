@@ -7,6 +7,9 @@
 
 # flake8: noqa F401
 
+import re
+from typing import Optional
+
 try:
     # Internal
     from .embedding_common_code_generator import *

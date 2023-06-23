@@ -9,6 +9,7 @@
 
 import argparse
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -140,6 +141,44 @@ def int64_arg_no_default(name: str) -> str:
 
 def int_arg(name: str, default: int = 0) -> str:
     return f"int {name} = {default}"
+
+
+# Format the macro call to generate pta::PackedTensorAccessors
+def make_pta_acc_format(pta_str_list: List[str], func_name: str) -> List[str]:
+    new_str_list = []
+    for pta_str in pta_str_list:
+        if "packed_accessor" in pta_str:
+            match = re.search(
+                r"([a-zA-z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
+            )
+            assert match is not None and len(match.groups()) == 3
+            tensor, acc_nbits, args = match.groups()
+            if "acc_type" in args:
+                match = re.search("at::acc_type<([a-zA-Z_]*), true>", args)
+                assert match is not None and len(match.groups()) == 1
+                new_type = match.group(1)
+                args = re.sub("at::acc_type<[a-zA-Z_]*, true>", new_type, args)
+                macro_name = "MAKE_PTA_ACC_WITH_NAME"
+            else:
+                macro_name = "MAKE_PTA_WITH_NAME"
+            args = args.replace(", at::RestrictPtrTraits", "")
+            new_str_list.append(
+                f"{macro_name}({func_name}, {tensor}, {args}, {acc_nbits})"
+            )
+        else:
+            new_str_list.append(pta_str)
+    return new_str_list
+
+
+def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
+    return [
+        pta_str.replace("at::PackedTensorAccessor", "pta::PackedTensorAccessor")
+        for pta_str in pta_str_list
+    ]
+
+
+env.filters["make_pta_acc_format"] = make_pta_acc_format
+env.filters["replace_pta_namespace"] = replace_pta_namespace
 
 
 @dataclass
