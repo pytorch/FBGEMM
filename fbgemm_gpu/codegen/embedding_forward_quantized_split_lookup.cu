@@ -7,6 +7,7 @@
  */
 
 #include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
@@ -15,15 +16,17 @@ namespace nbit {
 
 __global__
 __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel(
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
-    const at::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        offsets,
+    const pta::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits>
         hash_table,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_table_offsets,
     const int32_t B,
     const int32_t T,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         dense_indices) {
   // uint32_t capacity = hash_table.size(0);
   const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -88,15 +91,17 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
 
 __global__
 __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         index_remappings,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         index_remappings_offsets,
     const int32_t B,
     const int32_t T,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         dense_indices) {
   const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t t = b_t / B;
@@ -143,18 +148,25 @@ Tensor pruned_hashmap_lookup_cuda(
   TORCH_CHECK(B > 0);
   TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
   constexpr size_t kForwardMaxThreads = 256;
+
+#ifdef FBGEMM_GPU_MEMCHECK
+  const auto func_name =
+      "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel";
+#endif
+
   nbit::int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<<<
       nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
       dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      hash_table.packed_accessor64<int32_t, 2, at::RestrictPtrTraits>(),
-      hash_table_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      MAKE_PTA_WITH_NAME(func_name, indices, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, offsets, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, hash_table, int32_t, 2, 64),
+      MAKE_PTA_WITH_NAME(func_name, hash_table_offsets, int64_t, 1, 32),
       B,
       T,
-      dense_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+      MAKE_PTA_WITH_NAME(func_name, dense_indices, int32_t, 1, 32));
+
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
 }
@@ -191,19 +203,24 @@ Tensor pruned_array_lookup_cuda(
       index_remappings_offsets.dim());
   TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
   constexpr size_t kForwardMaxThreads = 256;
+
+#ifdef FBGEMM_GPU_MEMCHECK
+  const auto func_name =
+      "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel";
+#endif
+
   nbit::int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<<<
       nbit::div_round_up(offsets.size(0), kForwardMaxThreads / kWarpSize),
       dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      index_remappings.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      index_remappings_offsets
-          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      MAKE_PTA_WITH_NAME(func_name, indices, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, offsets, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, index_remappings, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, index_remappings_offsets, int64_t, 1, 32),
       B,
       T,
-      dense_indices.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+      MAKE_PTA_WITH_NAME(func_name, dense_indices, int32_t, 1, 32));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
 }
