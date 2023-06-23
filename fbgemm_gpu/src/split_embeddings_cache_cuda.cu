@@ -871,7 +871,6 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         uvm_cache_stats) {
   const int32_t C = lxu_cache_state.size(0);
   int32_t n_conflict_misses = 0;
-  int32_t n_inserted = 0;
   for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
@@ -893,6 +892,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
       SL += 1;
     }
+    int32_t n_inserted = 0;
 
     // now, we need to insert the (unique!) values in indices[n:n + SL] into
     // our slots.
@@ -1221,7 +1221,6 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     const int64_t row_alignment) {
   const int32_t C = lxu_cache_state.size(0);
   int64_t n_conflict_misses = 0;
-  int64_t n_inserted = 0;
   for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
@@ -1243,6 +1242,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
     while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
       SL += 1;
     }
+    int64_t n_inserted = 0;
 
     // now, we need to insert the (unique!) values in indices[n:n + SL] into
     // our slots.
