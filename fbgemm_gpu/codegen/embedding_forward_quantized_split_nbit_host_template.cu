@@ -9,6 +9,7 @@
 // clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
@@ -16,7 +17,7 @@ using Tensor = at::Tensor;
 namespace nbit {
 
 /*
-  Looping over the weight types is requires to generate all the C++ template
+  Looping over the weight types is required to generate all the C++ template
   declarations (not definitions) that will be invoked by the function
   `Tensor int_nbit_split_embedding*_codegen_forward_*_cuda(...)` later in the
   same generated source file.
@@ -25,33 +26,33 @@ namespace nbit {
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
   {% if not nobag %}
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
   {% else %}
   const int64_t D,
   {% endif %}
   FixedDivisor fd_B, // FixedDivisor(div_round_up(B, OutputRowsPerThread))
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   {% if not nobag %}
   const int64_t pooling_mode,
   {% endif %}
   const int64_t row_alignment,
   {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
+  pta::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
   {% endif %}
   {% if type_map[emb_weight_type].enum_name == "FP8" %}
   const int exponent_bits,
   const int exponent_bias,
   {% endif %}
-  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
-  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
+  pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
+  const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   );
 {% endfor %} // for emb_weight_type in ["FP32", "FP16", "FP8", "INT8", "INT4", "INT2"]
 
@@ -174,34 +175,42 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         X(false, __VA_ARGS__) \
       };
 
-    // launch 2-bit kernel
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Launch 2-bit int kernel
+    ////////////////////////////////////////////////////////////////////////////
+
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name1 = "nbit::INT2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
+#endif
+
     #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::INT2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name1, dev_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name1, uvm_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name1, weights_placements, int32_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name1, weights_offsets, int64_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name1, weights_tys, uint8_t, 1, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name1, indices, index_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PTA_WITH_NAME(func_name1, indice_weights, float, 1, 32), {% endif %} \
+        MAKE_PTA_WITH_NAME(func_name1, output, output_t, 2, 32), \
+        MAKE_PTA_WITH_NAME(func_name1, lxu_cache_weights, uint8_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name1, lxu_cache_locations, int32_t, 1, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -223,34 +232,41 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     #undef X
 
 
-    // launch 4-bit kernel
+    ////////////////////////////////////////////////////////////////////////////
+    // Launch 4-bit int kernel
+    ////////////////////////////////////////////////////////////////////////////
+
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name2 = "nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
+#endif
+
     #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name2, dev_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name2, uvm_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name2, weights_placements, int32_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name2, weights_offsets, int64_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name2, weights_tys, uint8_t, 1, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name2, D_offsets, int32_t, 1, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name2, indices, index_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name2, offsets, index_t, 1, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PTA_WITH_NAME(func_name2, indice_weights, float, 1, 32), {% endif %} \
+        MAKE_PTA_WITH_NAME(func_name2, output, output_t, 2, 32), \
+        MAKE_PTA_WITH_NAME(func_name2, lxu_cache_weights, uint8_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name2, lxu_cache_locations, int32_t, 1, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -274,34 +290,42 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
-    // launch 8-bit int kernel
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Launch 8-bit int kernel
+    ////////////////////////////////////////////////////////////////////////////
+
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name3 = "nbit::INT8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
+#endif
+
     #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::INT8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name3, dev_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name3, uvm_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name3, weights_placements, int32_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name3, weights_offsets, int64_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name3, weights_tys, uint8_t, 1, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name3, D_offsets, int32_t, 1, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name3, indices, index_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name3, offsets, index_t, 1, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PTA_WITH_NAME(func_name3, indice_weights, float, 1, 32), {% endif %} \
+        MAKE_PTA_WITH_NAME(func_name3, output, output_t, 2, 32), \
+        MAKE_PTA_WITH_NAME(func_name3, lxu_cache_weights, uint8_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name3, lxu_cache_locations, int32_t, 1, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -328,36 +352,44 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
-    // launch 8-bit float kernel
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Launch 8-bit float kernel
+    ////////////////////////////////////////////////////////////////////////////
+
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name4 = "nbit::FP8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
+#endif
+
     #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::FP8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name4, dev_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name4, uvm_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name4, weights_placements, int32_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name4, weights_offsets, int64_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name4, weights_tys, uint8_t, 1, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name4, D_offsets, int32_t, 1, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name4, indices, index_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name4, offsets, index_t, 1, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
+        {% if weighted %} MAKE_PTA_WITH_NAME(func_name4, indice_weights, float, 1, 32), {% endif %} \
         fp8_exponent_bits, \
         fp8_exponent_bias, \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        MAKE_PTA_WITH_NAME(func_name4, output, output_t, 2, 32), \
+        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_weights, uint8_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_locations, int32_t, 1, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -384,34 +416,42 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
-    // launch 16-bit kernel
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Launch 16-bit float kernel
+    ////////////////////////////////////////////////////////////////////////////
+
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name5 = "nbit::FP16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
+#endif
+
     #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::FP16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name5, dev_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name5, uvm_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name5, weights_placements, int32_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name5, weights_offsets, int64_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name5, weights_tys, uint8_t, 1, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name5, D_offsets, int32_t, 1, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name5, indices, index_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name5, offsets, index_t, 1, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PTA_WITH_NAME(func_name5, indice_weights, float, 1, 32), {% endif %} \
+        MAKE_PTA_WITH_NAME(func_name5, output, output_t, 2, 32), \
+        MAKE_PTA_WITH_NAME(func_name5, lxu_cache_weights, uint8_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name5, lxu_cache_locations, int32_t, 1, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
@@ -438,34 +478,42 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }));
     #undef X
 
-    // launch 32-bit kernel
+
+    ////////////////////////////////////////////////////////////////////////////
+    // Launch 32-bit float kernel
+    ////////////////////////////////////////////////////////////////////////////
+
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name6 = "nbit::FP32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
+#endif
+
     #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
     nbit::FP32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
         nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
         at::cuda::getCurrentCUDAStream()>>>( \
-        dev_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        uvm_weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(), \
-        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
-        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(), \
-        weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name6, dev_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name6, uvm_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name6, weights_placements, int32_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name6, weights_offsets, int64_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name6, weights_tys, uint8_t, 1, 32), \
         {% if not nobag %} \
-        D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name6, D_offsets, int32_t, 1, 32), \
         {% else %} \
         D, \
         {% endif %} \
         FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(), \
+        MAKE_PTA_WITH_NAME(func_name6, indices, index_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name6, offsets, index_t, 1, 32), \
         {% if not nobag %} \
         pooling_mode, \
         {% endif %} \
         row_alignment, \
-        {% if weighted %} indice_weights.packed_accessor32<float, 1, at::RestrictPtrTraits>(), {% endif %} \
-        output.packed_accessor32<output_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_weights.packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(), \
-        lxu_cache_locations.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>() \
+        {% if weighted %} MAKE_PTA_WITH_NAME(func_name6, indice_weights, float, 1, 32), {% endif %} \
+        MAKE_PTA_WITH_NAME(func_name6, output, output_t, 2, 32), \
+        MAKE_PTA_WITH_NAME(func_name6, lxu_cache_weights, uint8_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name6, lxu_cache_locations, int32_t, 1, 32) \
     ); \
     C10_CUDA_KERNEL_LAUNCH_CHECK(); \
 
