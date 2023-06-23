@@ -12,9 +12,9 @@
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
-{% if optimizer != "none" and not dense %}
+{%- if optimizer != "none" and not dense %}
 #include "gen_embedding_optimizer_{{ optimizer }}_split_device_kernel.cuh"
-{% endif %}
+{%- endif %}
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
