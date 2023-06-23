@@ -9,6 +9,7 @@
 // clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
@@ -19,33 +20,33 @@ namespace nbit {
 template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
   {% if not nobag %}
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
   {% else %}
   const int64_t D,
   {% endif %}
   FixedDivisor fd_B, // FixedDivisor(div_round_up(B, OutputRowsPerThread))
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-  const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
   {% if not nobag %}
   const int64_t pooling_mode,
   {% endif %}
   const int64_t row_alignment,
   {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
+  pta::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
   {% endif %}
   {% if emb_weight_type.enum_name == "FP8" %}
   const int exponent_bits,
   const int exponent_bias,
   {% endif %}
-  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
-  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
+  pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
+  const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
   const int32_t T = weights_offsets.size(0);
   {% if not nobag %}
@@ -323,33 +324,33 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
   {{ params.min_128b_rows }},
   {{ params.max_128b_rows }},
   {{ device_only }} > (
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
-  const at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-  const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-  const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
+  const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits> weights_tys,
   {% if not nobag %}
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
   {% else %}
   const int64_t D,
   {% endif %}
   FixedDivisor fd_B, // FixedDivisor(div_round_up(B, OutputRowsPerThread))
-  const at::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> indices,
-  const at::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> offsets,
+  const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> indices,
+  const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> offsets,
   {% if not nobag %}
   const int64_t pooling_mode,
   {% endif %}
   const int64_t row_alignment,
   {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
+  pta::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
   {% endif %}
   {% if emb_weight_type.enum_name == "FP8" %}
   const int exponent_bits,
   const int exponent_bias,
   {% endif %}
-  at::PackedTensorAccessor32<{{ output_type }}, 2, at::RestrictPtrTraits> output, // [B][total_D],
-  const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-  const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
+  pta::PackedTensorAccessor32<{{ output_type }}, 2, at::RestrictPtrTraits> output, // [B][total_D],
+  const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   );
 
 {% if output_type == 'at::BFloat16' %}
