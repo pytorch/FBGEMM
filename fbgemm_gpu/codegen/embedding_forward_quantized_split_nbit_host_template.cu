@@ -43,15 +43,13 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   {% endif %}
   const int64_t row_alignment,
   {% if weighted %}
-  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
-      indice_weights,
+  at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
   {% endif %}
   {% if type_map[emb_weight_type].enum_name == "FP8" %}
   const int exponent_bits,
   const int exponent_bias,
   {% endif %}
-  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits>
-      output, // [B][total_D],
+  at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
   const at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
   const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   );

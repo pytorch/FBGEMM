@@ -8,6 +8,7 @@
 
 // clang-format off
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using namespace fbgemm_gpu;
@@ -20,15 +21,12 @@ template <
     int32_t VEC_WIDTH
 >
 DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& dev_weights,
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>& lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>&
-        weights_placements,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>&
-        weights_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>&
-        sorted_lxu_cache_locations,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>& lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& weights_placements,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>& weights_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& sorted_lxu_cache_locations,
     Vec4T<at::acc_type<cache_t, true>>* grad_sum,
     const bool stochastic_rounding,
     const at::PhiloxCudaState& stochastic_rounding_philox_args,
@@ -39,7 +37,7 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     const int32_t segment_start,
     const uint32_t shfl_sync_mask,
     const int32_t shared_weight_offset,
-    {{ args.split_ref_kernel_args | join(", ") }}
+    {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {
     constexpr auto is_int8 = std::is_same<emb_t, uint8_t>::value;
     const int64_t weights_offset = weights_offsets[t];
