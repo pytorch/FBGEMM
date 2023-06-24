@@ -19,8 +19,8 @@ template <
     int32_t kThreadGroupSize = kWarpSize,
     int32_t VEC_WIDTH
 >
-__global__ __launch_bounds__(kMaxThreads)
-void split_{{ optimizer }}_update_kernel(
+__global__ __launch_bounds__(kMaxThreads) void
+split_{{ optimizer }}_update_kernel(
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
     at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
@@ -58,12 +58,12 @@ void split_embedding_{{ optimizer }}_update(
     TENSOR_ON_CUDA_GPU(grad_dev_indices);
     TENSOR_ON_CUDA_GPU(weights_placements);
     TENSOR_ON_CUDA_GPU(weights_offsets);
-    {% for tensor in args.split_tensors %}
+    {%- for tensor in args.split_tensors %}
     TENSOR_ON_CUDA_GPU({{ tensor }}_dev);
     TENSOR_ON_CUDA_GPU({{ tensor }}_uvm);
     TENSOR_ON_CUDA_GPU({{ tensor }}_placements);
     TENSOR_ON_CUDA_GPU({{ tensor }}_offsets);
-    {% endfor %}
+    {%- endfor %}
 
     TENSORS_ON_SAME_DEVICE(dev_weights, uvm_weights);
     TENSORS_ON_SAME_DEVICE(dev_weights, lxu_cache_weights);
@@ -71,12 +71,12 @@ void split_embedding_{{ optimizer }}_update(
     TENSORS_ON_SAME_DEVICE(dev_weights, grad_dev_indices);
     TENSORS_ON_SAME_DEVICE(dev_weights, weights_placements);
     TENSORS_ON_SAME_DEVICE(dev_weights, weights_offsets);
-    {% for tensor in args.split_tensors %}
+    {%- for tensor in args.split_tensors %}
     TENSORS_ON_SAME_DEVICE(dev_weights, {{ tensor }}_dev);
     TENSORS_ON_SAME_DEVICE(dev_weights, {{ tensor }}_uvm);
     TENSORS_ON_SAME_DEVICE(dev_weights, {{ tensor }}_placements);
     TENSORS_ON_SAME_DEVICE(dev_weights, {{ tensor }}_offsets);
-    {% endfor %}
+    {%- endfor %}
 
     if (grad_dev_indices.numel() == 0) {
         return;
@@ -105,8 +105,8 @@ void split_embedding_{{ optimizer }}_update(
                     at::check_generator<at::CUDAGeneratorImpl>(gen)
                         ->philox_cuda_state(4);
             }
-            {% for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-            {% if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+            {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+            {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
             if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
                 // hipcc can't use max in constexpr
                 constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
@@ -142,8 +142,8 @@ void split_embedding_{{ optimizer }}_update(
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
                 return;
             }
-            {% endif %}
-            {% endfor %}
+            {%- endif %}
+            {%- endfor %}
         }
     );
 }

@@ -322,32 +322,32 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                     dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA(dev_weights, emb_t, 1, 64),
+                    MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
                     {%- if not dense %}
-                    MAKE_PTA(uvm_weights, emb_t, 1, 64),
-                    MAKE_PTA(lxu_cache_weights, cache_t, 2, 64),
-                    MAKE_PTA(weights_placements, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+                    MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
+                    MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
                     {%- endif %}
-                    MAKE_PTA(weights_offsets, int64_t, 1, 32),
-                    MAKE_PTA(D_offsets, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
                     {%- if vbe %}
-                    MAKE_PTA(vbe_metadata.output_offsets, int64_t, 1, 32),
-                    MAKE_PTA(vbe_metadata.b_t_map, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, vbe_metadata.output_offsets, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, vbe_metadata.b_t_map, int32_t, 1, 32),
                     info_B_num_bits,
                     info_B_mask,
                     {%- else %}
                     FixedDivisor(B),
                     {%- endif %}
-                    MAKE_PTA(indices, int64_t, 1, 32),
-                    MAKE_PTA(offsets, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
                     pooling_mode,
                     {%- if weighted %}
-                    MAKE_PTA_ACC(indice_weights, cache_t, 1, 32),
+                    MAKE_PTA_ACC_WITH_NAME(func_name, indice_weights, cache_t, 1, 32),
                     {%- endif %}
                     {%- if not dense %}
-                    MAKE_PTA(lxu_cache_locations, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
                     {%- endif %} // if not dense
-                    MAKE_PTA(output, output_t, 2, 64)
+                    MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
                     );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
                 {%- if vbe %}
@@ -380,21 +380,21 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA(dev_weights, emb_t, 1, 64),
+            MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
             {%- if not dense %}
-            MAKE_PTA(uvm_weights, emb_t, 1, 64),
-            MAKE_PTA(lxu_cache_weights, cache_t, 2, 64),
-            MAKE_PTA(weights_placements, int32_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
+            MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
             {%- endif %}
-            MAKE_PTA(weights_offsets, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
             D,
             FixedDivisor(B),
-            MAKE_PTA(indices, int64_t, 1, 32),
-            MAKE_PTA(offsets, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
             {%- if not dense %}
-            MAKE_PTA(lxu_cache_locations, int32_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
             {%- endif %}
-            MAKE_PTA(output, output_t, 2, 64)
+            MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
             );
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
@@ -420,21 +420,21 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA(dev_weights, emb_t, 1, 64),
+                MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
                 {%- if not dense %}
-                MAKE_PTA(uvm_weights, emb_t, 1, 64),
-                MAKE_PTA(lxu_cache_weights, cache_t, 2, 64),
-                MAKE_PTA(weights_placements, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+                MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
+                MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
                 {%- endif %}
-                MAKE_PTA(weights_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
                 D,
                 FixedDivisor(B),
-                MAKE_PTA(indices, int64_t, 1, 32),
-                MAKE_PTA(offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
                 {%- if not dense %}
-                MAKE_PTA(lxu_cache_locations, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
                 {%- endif %}
-                MAKE_PTA(output, output_t, 2, 64)
+                MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
                 );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
                 return;
