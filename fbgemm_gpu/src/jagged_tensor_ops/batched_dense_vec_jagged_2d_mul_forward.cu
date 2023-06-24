@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// clang-format off
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -14,10 +15,10 @@ namespace fbgemm_gpu {
 
 template <typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
-    const at::PackedTensorAccessor32<scalar_t, 2> v,
-    const at::PackedTensorAccessor32<scalar_t, 2> a_values,
-    const at::PackedTensorAccessor32<index_t, 1> a_offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output) {
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> v,
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> a_values,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> a_offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = v.size(1);
@@ -83,15 +84,19 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
               a_values.scalar_type(),
               "dense_vec_jagged_2d_bmm_kernel_2",
               [&] {
+
+#ifdef FBGEMM_GPU_MEMCHECK
+                const auto func_name1 = "dense_vec_jagged_2d_bmm";
+#endif
                 dense_vec_jagged_2d_bmm<index_t, scalar_t>
                     <<<div_round_up(B * H, block_dim_y),
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        v.packed_accessor32<scalar_t, 2>(),
-                        a_values.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        output.packed_accessor32<scalar_t, 2>());
+                        MAKE_PTA_WITH_NAME(func_name1, v, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, a_values, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, a_offsets, index_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, output, scalar_t, 2, 32));
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });

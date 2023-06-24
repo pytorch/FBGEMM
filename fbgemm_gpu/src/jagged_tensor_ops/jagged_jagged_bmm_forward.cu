@@ -24,10 +24,13 @@ template <
     typename index_t,
     typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_jagged_bmm_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> x_values,
-    const at::PackedTensorAccessor32<scalar_t, 2> y_values,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 3> output,
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+        x_values,
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+        y_values,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        offsets,
+    pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
     const int max_L) {
   const auto B = offsets.size(0) - 1;
   const auto M = x_values.size(1);
@@ -212,6 +215,11 @@ Tensor jagged_jagged_bmm_forward_cuda(
                 x_values.scalar_type(),
                 "jagged_jagged_bmm_kernel_2",
                 [&] {
+
+#ifdef FBGEMM_GPU_MEMCHECK
+                  const auto func_name1 = "jagged_jagged_bmm_kernel.1";
+#endif
+
                   jagged_jagged_bmm_kernel<
                       BLOCK_TILE_M,
                       BLOCK_TILE_N,
@@ -224,10 +232,14 @@ Tensor jagged_jagged_bmm_forward_cuda(
                          THREADS_PER_BLOCK,
                          0,
                          at::cuda::getCurrentCUDAStream()>>>(
-                          x_values.packed_accessor32<scalar_t, 2>(),
-                          y_values.packed_accessor32<scalar_t, 2>(),
-                          offsets.packed_accessor32<index_t, 1>(),
-                          output.packed_accessor32<scalar_t, 3>(),
+                          MAKE_PTA_WITH_NAME(
+                              func_name1, x_values, scalar_t, 2, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name1, y_values, scalar_t, 2, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name1, offsets, index_t, 1, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name1, output, scalar_t, 3, 32),
                           (int)max_L);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
@@ -263,6 +275,11 @@ Tensor jagged_jagged_bmm_forward_cuda(
                 x_values.scalar_type(),
                 "jagged_jagged_bmm_kernel_2",
                 [&] {
+
+#ifdef FBGEMM_GPU_MEMCHECK
+                  const auto func_name2 = "jagged_jagged_bmm_kernel.2";
+#endif
+
                   jagged_jagged_bmm_kernel<
                       BLOCK_TILE_M,
                       BLOCK_TILE_N,
@@ -275,10 +292,14 @@ Tensor jagged_jagged_bmm_forward_cuda(
                          THREADS_PER_BLOCK,
                          0,
                          at::cuda::getCurrentCUDAStream()>>>(
-                          x_values.packed_accessor32<scalar_t, 2>(),
-                          y_values.packed_accessor32<scalar_t, 2>(),
-                          offsets.packed_accessor32<index_t, 1>(),
-                          output.packed_accessor32<scalar_t, 3>(),
+                          MAKE_PTA_WITH_NAME(
+                              func_name2, x_values, scalar_t, 2, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name2, y_values, scalar_t, 2, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name2, offsets, index_t, 1, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name2, output, scalar_t, 3, 32),
                           (int)max_L);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });

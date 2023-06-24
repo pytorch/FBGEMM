@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// clang-format off
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -14,10 +15,10 @@ namespace fbgemm_gpu {
 
 template <typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
-    const at::PackedTensorAccessor32<scalar_t, 2> x,
-    const at::PackedTensorAccessor32<scalar_t, 2> y,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output_values) {
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> x,
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> y,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output_values) {
   const int B = offsets.size(0) - 1;
   const int H = x.size(0) / B;
   const int max_L = x.size(1);
@@ -45,10 +46,10 @@ __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
 template <typename index_t, typename scalar_t>
 __global__
 __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
-    const at::PackedTensorAccessor32<scalar_t, 2> v,
-    const at::PackedTensorAccessor32<scalar_t, 2> a_values,
-    const at::PackedTensorAccessor32<index_t, 1> a_offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> output) {
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> v,
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> a_values,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> a_offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = output.size(1);
@@ -120,30 +121,40 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
                     div_round_up(max_L, kWarpSize) * kWarpSize, kMaxThreads);
                 int block_dim_y = kMaxThreads / block_dim_x;
 
+#ifdef FBGEMM_GPU_MEMCHECK
+                const auto func_name1 = "dense_vec_jagged_2d_transposed_bmm";
+#endif
+
                 dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>
                     <<<div_round_up(B * H, block_dim_y),
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        a_values.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        v_grad.packed_accessor32<scalar_t, 2>());
+                        MAKE_PTA_WITH_NAME(func_name1, grad_output, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, a_values, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, a_offsets, index_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, v_grad, scalar_t, 2, 32)
+                        );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
 
                 block_dim_x = std::min(
                     div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
                 block_dim_y = kMaxThreads / block_dim_x;
 
+#ifdef FBGEMM_GPU_MEMCHECK
+                const auto func_name2 = "outer_prod_jagged_2d_output";
+#endif
+
                 outer_prod_jagged_2d_output<index_t, scalar_t>
                     <<<div_round_up(B * H * max_L, block_dim_y),
                        dim3(block_dim_x, block_dim_y),
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        v.packed_accessor32<scalar_t, 2>(),
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        a_offsets.packed_accessor32<index_t, 1>(),
-                        a_values_grad.packed_accessor32<scalar_t, 2>());
+                        MAKE_PTA_WITH_NAME(func_name2, v, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, grad_output, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, a_offsets, index_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, a_values_grad, scalar_t, 2, 32)
+                        );
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
