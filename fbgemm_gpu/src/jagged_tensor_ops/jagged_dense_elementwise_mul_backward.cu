@@ -21,12 +21,12 @@ namespace fbgemm_gpu {
 template <int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F>
 __global__
 __launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kernel_(
-    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         x_values,
     StackArray<index_t*> x_offsets,
-    const at::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         y_values,
-    at::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor32<scalar_t, 3, at::RestrictPtrTraits> output,
     StackArray<int64_t> jagged_dims,
     F f,
     const scalar_t padding_value) {
@@ -93,27 +93,27 @@ void jagged_jagged_elementwise_dense_output_(
   // Canonicalize output to 3D, collapsing jagged dimensions.
   Tensor output_reshaped = output.view({output.size(0), -1, output.size(-1)});
 
-#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                                \
-  {                                                                           \
-    std::vector<Tensor> x_offsets_contig;                                     \
-    x_offsets_contig.resize(num_jagged_dim);                                  \
-    StackArray<index_t*> x_offset_ptrs;                                       \
-    x_offset_ptrs.ndim = num_jagged_dim;                                      \
-    for (int d = 0; d < num_jagged_dim; ++d) {                                \
-      x_offsets_contig[d] = x_offsets[d].contiguous();                        \
-      x_offset_ptrs.vals[d] =                                                 \
-          x_offsets_contig[d].template data_ptr<index_t>();                   \
-    }                                                                         \
-    jagged_jagged_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, index_t>   \
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
-            x_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
-            x_offset_ptrs,                                                    \
-            y_values.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(), \
-            output_reshaped                                                   \
-                .packed_accessor32<scalar_t, 3, at::RestrictPtrTraits>(),     \
-            jagged_dims_tensor,                                               \
-            f,                                                                \
-            padding_value);                                                   \
+#define INVOKE_KERNEL_WITH_DIM(NUM_JAGGED_DIM)                               \
+  {                                                                          \
+    std::vector<Tensor> x_offsets_contig;                                    \
+    x_offsets_contig.resize(num_jagged_dim);                                 \
+    StackArray<index_t*> x_offset_ptrs;                                      \
+    x_offset_ptrs.ndim = num_jagged_dim;                                     \
+    for (int d = 0; d < num_jagged_dim; ++d) {                               \
+      x_offsets_contig[d] = x_offsets[d].contiguous();                       \
+      x_offset_ptrs.vals[d] =                                                \
+          x_offsets_contig[d].template data_ptr<index_t>();                  \
+    }                                                                        \
+    const auto func_name = "jagged_jagged_elementwise_dense_output_kernel_"; \
+    jagged_jagged_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, index_t>  \
+        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(          \
+            MAKE_PTA_WITH_NAME(func_name, x_values, scalar_t, 2, 32),        \
+            x_offset_ptrs,                                                   \
+            MAKE_PTA_WITH_NAME(func_name, y_values, scalar_t, 2, 32),        \
+            MAKE_PTA_WITH_NAME(func_name, output_reshaped, scalar_t, 3, 32), \
+            jagged_dims_tensor,                                              \
+            f,                                                               \
+            padding_value);                                                  \
   }
 
   JAGGED_TENSOR_DISPATCH_DIMS();

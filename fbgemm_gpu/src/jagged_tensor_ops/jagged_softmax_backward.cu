@@ -14,10 +14,13 @@ namespace fbgemm_gpu {
 
 template <const int THREADS_PER_BLOCK, typename index_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_softmax_backward_kernel(
-    const at::PackedTensorAccessor32<scalar_t, 2> grad_output,
-    const at::PackedTensorAccessor32<scalar_t, 2> output,
-    const at::PackedTensorAccessor32<index_t, 1> offsets,
-    at::PackedTensorAccessor32<scalar_t, 2> grad_input,
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+        grad_output,
+    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+        output,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        offsets,
+    pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits> grad_input,
     const int max_L) {
   const auto B = offsets.size(0) - 1;
   const auto D = grad_output.size(1);
@@ -113,6 +116,11 @@ Tensor jagged_softmax_backward_cuda(
               grad_output.scalar_type(),
               "jagged_softmax_backward_kernel_2",
               [&] {
+
+#ifdef FBGEMM_GPU_MEMCHECK
+                const auto func_name1 = "jagged_softmax_backward_kernel";
+#endif
+
                 jagged_softmax_backward_kernel<
                     THREADS_PER_BLOCK,
                     index_t,
@@ -121,10 +129,12 @@ Tensor jagged_softmax_backward_cuda(
                        THREADS_PER_BLOCK,
                        0,
                        at::cuda::getCurrentCUDAStream()>>>(
-                        grad_output.packed_accessor32<scalar_t, 2>(),
-                        output.packed_accessor32<scalar_t, 2>(),
-                        offsets.packed_accessor32<index_t, 1>(),
-                        grad_input.packed_accessor32<scalar_t, 2>(),
+                        MAKE_PTA_WITH_NAME(
+                            func_name1, grad_output, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, output, scalar_t, 2, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(
+                            func_name1, grad_input, scalar_t, 2, 32),
                         (int)max_L);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
