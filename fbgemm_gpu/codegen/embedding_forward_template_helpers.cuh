@@ -39,14 +39,6 @@
 #define SHFL_SYNC(val, srcLane) \
   shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
 
-#define MAKE_PTA(TENSOR, T, N, INDEX_NBITS) \
-  MAKE_PACKED_TENSOR_ACCESSOR_BASE(         \
-      func_name, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)
-
-#define MAKE_PTA_ACC(TENSOR, T, N, INDEX_NBITS) \
-  MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE(    \
-      func_name, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)
-
 constexpr int32_t kCacheLocationMissing = -1;
 constexpr size_t kForwardMaxThreads = 512;
 
