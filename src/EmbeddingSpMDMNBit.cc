@@ -398,9 +398,7 @@ GenEmbeddingSpMDMNBitLookup<
         x86::Ymm mask_vreg; // mask for avx2
         x86::Xmm mask2_vreg;
         x86::Xmm mask_fp16_vreg;
-#if !defined(__APPLE__) && !defined(_WIN32)
         vec_reg_t ones_vreg;
-#endif
 
         // We need 2 vec registers for 1. scale 2. bias
         --unroll_factor;
@@ -408,7 +406,6 @@ GenEmbeddingSpMDMNBitLookup<
         --unroll_factor;
         bias_vreg = vec_reg_t(unroll_factor);
 
-#if !defined(__APPLE__) && !defined(_WIN32)
         if (is_bf16_out) {
           --unroll_factor;
           ones_vreg = vec_reg_t(unroll_factor);
@@ -416,7 +413,6 @@ GenEmbeddingSpMDMNBitLookup<
           a->vpinsrd(ones_vreg.xmm(), ones_vreg.xmm(), scratchReg2_, 0);
           a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
         }
-#endif
 
         --unroll_factor;
         src_vreg = vec_reg_t(unroll_factor);
@@ -883,19 +879,15 @@ GenEmbeddingSpMDMNBitLookup<
             } else {
               // 16-bit output
               if (instSet == inst_set_t::avx2) {
-#if !defined(__APPLE__) && !defined(_WIN32)
                 if (is_bf16_out) {
                   a->vpaddd(out_vreg, out_vreg, ones_vreg);
                   a->vpsrld(out_vreg, out_vreg, 16);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
                   a->vpermq(out_vreg, out_vreg, 0xd8);
                 } else {
-#endif
                   // round nearest with no exception
                   a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
-#if !defined(__APPLE__) && !defined(_WIN32)
                 }
-#endif
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                   if (remainder > 1) {
                     a->vmaskmovps(dst_addr, mask_fp16_vreg, out_vreg.xmm());
@@ -918,31 +910,23 @@ GenEmbeddingSpMDMNBitLookup<
                 }
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-#if !defined(__APPLE__) && !defined(_WIN32)
                   if (is_bf16_out) {
                     // bf16
                     a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
                     a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   } else {
-#endif
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
-#if !defined(__APPLE__) && !defined(_WIN32)
                   }
-#endif
                 } else {
-#if !defined(__APPLE__) && !defined(_WIN32)
                   if (is_bf16_out) {
                     // bf16
                     a->vpaddd(out_vreg, out_vreg, ones_vreg);
                     a->vpsrld(out_vreg, out_vreg, 16);
                     a->vpmovdw(dst_addr, out_vreg);
                   } else {
-#endif
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
-#if !defined(__APPLE__) && !defined(_WIN32)
                   }
-#endif
                 }
               }
             }
