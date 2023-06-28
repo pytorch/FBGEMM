@@ -48,6 +48,8 @@ class SparseAdagradTest
     : public testing::TestWithParam<tuple<bool, int, bool, bool, bool>> {};
 }; // namespace
 
+constexpr float ABS_TOL = 1e-6;
+
 // Test:
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
@@ -184,16 +186,16 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
           counter_halflife);
     }
 
-    EXPECT_EQ(ret_fbgemm, ret_ref)
+    EXPECT_NEAR(ret_fbgemm, ret_ref, ABS_TOL)
         << "return vals differ, reference is: " << ret_ref
         << " ,fbgemm is: " << ret_fbgemm;
     for (size_t i = 0; i < h.size(); ++i) {
-      EXPECT_EQ(h[i], h_ref[i])
+      EXPECT_NEAR(h[i], h_ref[i], ABS_TOL)
           << "results for h differ at (" << i << ") reference: " << h_ref[i]
           << ", FBGEMM: " << h[i] << " emb dim :" << block_size;
     }
     for (size_t i = 0; i < w.size(); ++i) {
-      EXPECT_EQ(w[i], w_ref[i])
+      EXPECT_NEAR(w[i], w_ref[i], ABS_TOL)
           << "results for h differ at (" << i << ") reference: " << w_ref[i]
           << ", FBGEMM: " << w[i] << " emb dim :" << block_size;
     }
@@ -322,16 +324,18 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
           counter_halflife);
     }
 
-    EXPECT_EQ(ret_fbgemm, ret_ref)
+    EXPECT_NEAR(ret_fbgemm, ret_ref, ABS_TOL)
         << "return vals differ, reference is: " << ret_ref
         << " ,fbgemm is: " << ret_fbgemm;
     for (size_t i = 0; i < h.size(); ++i) {
-      EXPECT_EQ(h[i], h_ref[i])
+      // Set the absolute tolerance of rowwise momentum to 1e-3 because it a
+      // product of square, add, div which the rounding error can be very high
+      EXPECT_NEAR(h[i], h_ref[i], 1e-3)
           << "results for h differ at (" << i << ") reference: " << h_ref[i]
           << ", FBGEMM: " << h[i] << " emb dim :" << block_size;
     }
     for (size_t i = 0; i < w.size(); ++i) {
-      EXPECT_EQ(w[i], w_ref[i])
+      EXPECT_NEAR(w[i], w_ref[i], ABS_TOL)
           << "results for w differ at (" << i << ") reference: " << w_ref[i]
           << ", FBGEMM: " << w[i] << " emb dim :" << block_size;
     }
