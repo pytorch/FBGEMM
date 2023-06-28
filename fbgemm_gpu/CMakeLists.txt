@@ -635,7 +635,15 @@ if(NOT FBGEMM_CPU_ONLY)
       src/permute_pooled_embedding_ops_split.cu
       src/permute_pooled_embedding_ops.cu
       src/quantize_ops.cu
+      src/sparse_ops/sparse_async_cumsum.cu
+      src/sparse_ops/sparse_batched_unary_embeddings.cu
+      src/sparse_ops/sparse_invert_permute.cu
       src/sparse_ops/sparse_ops.cu
+      src/sparse_ops/sparse_permute_1d.cu
+      src/sparse_ops/sparse_permute_2d.cu
+      src/sparse_ops/sparse_range.cu
+      src/sparse_ops/sparse_segment_sum_csr.cu
+      src/sparse_ops/sparse_zipf.cu
       src/split_embeddings_cache_cuda.cu
       src/split_embeddings_utils.cu)
 
