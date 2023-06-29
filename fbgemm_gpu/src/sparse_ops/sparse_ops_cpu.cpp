@@ -464,7 +464,9 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
-  TENSOR_ON_CPU(weights);
+  if (weights) {
+    TENSOR_ON_CPU(weights);
+  }
   TORCH_CHECK(lengths.dim() == 2);
 
   const auto permute_contig = permute.expect_contiguous();
@@ -477,7 +479,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
-  Tensor permuted_weights;
+  c10::optional<Tensor> permuted_weights;
 
   permuted_lengths = at::empty({T, B}, lengths.options());
 
@@ -539,7 +541,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
                           input_offsets.data_ptr<offsets_t>(),
                           output_offsets_per_thread_cumsum.data(),
                           permuted_indices.data_ptr<indices_t>(),
-                          permuted_weights.data_ptr<weights_t>(),
+                          permuted_weights->data_ptr<weights_t>(),
                           permuted_lengths.data_ptr<offsets_t>());
                     } else {
                       _permute_2D_indices_weights_kernel_cpu<
