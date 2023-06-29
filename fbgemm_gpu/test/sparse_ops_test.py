@@ -69,6 +69,22 @@ def get_n_rand_num_summing_to_k(n: int, k: int) -> np.ndarray:
     return np.random.multinomial(k, np.ones(n) / n, size=1)[0]
 
 
+@torch.jit.script
+def permute_scripted(
+    permute: torch.Tensor, lengths: torch.Tensor, indices: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    (
+        permuted_lengths_cpu,
+        permuted_indices_cpu,
+        permuted_weights_cpu,
+    ) = torch.ops.fbgemm.permute_2D_sparse_data(permute, lengths, indices, None, None)
+    return (
+        permuted_lengths_cpu,
+        permuted_indices_cpu,
+        permuted_weights_cpu,
+    )
+
+
 class SparseOpsTest(unittest.TestCase):
     @staticmethod
     def permute_indices_ref_(
@@ -245,6 +261,43 @@ class SparseOpsTest(unittest.TestCase):
                 )
             else:
                 assert permuted_weights_gpu is None
+
+    # TorchScript has different behaviors than eager mode. We can see undefined
+    # models returned. So we need to add a unittest to ensure the op return
+    # real None, not an undefined tensor.
+    def test_permute_indices_scripted_with_none_weights(
+        self,
+    ) -> None:
+        index_dtype = torch.int32
+        lengths = torch.randint(low=1, high=2, size=(1, 1)).type(index_dtype)
+        weights = None
+        indices = torch.randint(
+            low=1,
+            high=int(1e5),
+            # pyre-fixme[6]: Expected `Union[int, typing.Tuple[int, ...]]` for 3rd
+            #  param but got `Tuple[typing.Union[float, int]]`.
+            size=(lengths.sum().item(),),
+        ).type(index_dtype)
+        permute_list = list(range(1))
+        random.shuffle(permute_list)
+
+        permute = torch.IntTensor(permute_list)
+
+        (
+            permuted_lengths_cpu,
+            permuted_indices_cpu,
+            permuted_weights_cpu,
+        ) = permute_scripted(permute, lengths, indices)
+        (
+            permuted_lengths_ref,
+            permuted_indices_ref,
+            permuted_weights_ref,
+            # pyre-fixme[6]: For 4th param expected `LongTensor` but got `Tensor`.
+        ) = self.permute_indices_ref_(lengths, indices, weights, permute.long(), False)
+        self.assertTrue(torch.equal(permuted_indices_cpu, permuted_indices_ref))
+        self.assertTrue(torch.equal(permuted_lengths_cpu, permuted_lengths_ref))
+        self.assertEqual(permuted_weights_cpu, None)
+        self.assertEqual(permuted_weights_ref, None)
 
     @given(
         permute_size=st.integers(min_value=30, max_value=1000),
