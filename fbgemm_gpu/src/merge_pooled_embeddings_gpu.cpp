@@ -132,22 +132,8 @@ void all_to_one(
     at::Device target_device,
     bool skip_if_same_device) {
   auto num_gpus = at::cuda::getNumGPUs();
-  // Create static thread local CUDAEvent as creating/destroying CUDAEvents
-  // can be expensive. In one call to this function, we use events created on
-  // the target device. Since target device can be different across each call,
-  // we store all the events in a 2-dimentionsal vector.
-  using PerDeviceEventList = std::vector<at::cuda::CUDAEvent>;
-  static thread_local std::vector<PerDeviceEventList> copy_begin_events;
-  static thread_local std::vector<PerDeviceEventList> copy_completion_events;
-  static thread_local std::once_flag flag1;
-  std::call_once(flag1, [num_gpus]() {
-    for (auto i = 0; i < num_gpus; i++) {
-      copy_begin_events.push_back(PerDeviceEventList(num_gpus));
-      copy_completion_events.push_back(PerDeviceEventList(num_gpus));
-    }
-  });
-
-  auto target_device_index = target_device.index();
+  std::vector<at::cuda::CUDAEvent> copy_begin_events(num_gpus);
+  std::vector<at::cuda::CUDAEvent> copy_completion_events(num_gpus);
 
   std::vector<TwoHopTransferContainer> two_hop_transfers;
   two_hop_transfers.reserve(input_tensors.size());
@@ -213,7 +199,7 @@ void all_to_one(
     // write-after-read dependencies on the destination side are handled, so
     // that no one is operating on the dst memory when we perform the copy.
     // src waits on dst barrier (src already waits on src)
-    auto& dst_ready = copy_begin_events[target_device_index][device_id];
+    auto& dst_ready = copy_begin_events[device_id];
     device_guard.set_device(target_device);
     dst_ready.record(at::cuda::getCurrentCUDAStream(target_device.index()));
     device_guard.set_device(src_device);
@@ -262,7 +248,7 @@ void all_to_one(
     // wait on first hop transfer
     two_hop_transfer.transfer_cuda_event->block(copy_stream);
     // synchronize with target rank
-    auto& dst_ready = copy_begin_events[target_device_index][src_device_id];
+    auto& dst_ready = copy_begin_events[src_device_id];
     device_guard.set_device(target_device);
     dst_ready.record(at::cuda::getCurrentCUDAStream(target_device.index()));
     device_guard.set_device(src_device);
@@ -313,7 +299,7 @@ void all_to_one(
       at::cuda::CUDAStream copy_stream =
           at::cuda::getCurrentCUDAStream(device_id);
 
-      auto& src_ready = copy_completion_events[target_device_index][device_id];
+      auto& src_ready = copy_completion_events[device_id];
       src_ready.record(copy_stream);
 
       device_guard.set_device(target_device);
@@ -327,20 +313,7 @@ Tensor sum_reduce_to_one(
     std::vector<Tensor> input_tensors,
     at::Device target_device) {
   auto num_gpus = at::cuda::getNumGPUs();
-  // Create static thread local CUDAEvent as creating/destroying CUDAEvents
-  // can be expensive. In one call to this function, we use events created on
-  // the target device. Since target device can be different across each call,
-  // we store all the events in a 2-dimentionsal vector.
-  using PerDeviceEventList = std::vector<at::cuda::CUDAEvent>;
-  static thread_local std::vector<PerDeviceEventList> copy_completion_events;
-  static thread_local std::once_flag flag1;
-  std::call_once(flag1, [num_gpus]() {
-    for (auto i = 0; i < num_gpus; i++) {
-      copy_completion_events.push_back(PerDeviceEventList(num_gpus));
-    }
-  });
-
-  auto target_device_index = target_device.index();
+  std::vector<at::cuda::CUDAEvent> copy_completion_events(num_gpus);
 
   // Local reduction for tensors residing the same GPU.
   // And if there's a tensor already in target device, use it for output tensor.
@@ -417,7 +390,7 @@ Tensor sum_reduce_to_one(
     at::cuda::CUDAStream copy_stream =
         at::cuda::getCurrentCUDAStream(device_id);
 
-    auto& src_ready = copy_completion_events[target_device_index][device_id];
+    auto& src_ready = copy_completion_events[device_id];
     src_ready.record(copy_stream);
 
     device_guard.set_device(intermediate_device);
@@ -482,7 +455,7 @@ Tensor sum_reduce_to_one(
       at::cuda::CUDAStream copy_stream =
           at::cuda::getCurrentCUDAStream(device_id);
 
-      auto& src_ready = copy_completion_events[target_device_index][device_id];
+      auto& src_ready = copy_completion_events[device_id];
       src_ready.record(copy_stream);
 
       device_guard.set_device(target_device);
