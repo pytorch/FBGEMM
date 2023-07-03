@@ -44,3 +44,5 @@ DLL_PUBLIC Tensor invert_permute_cuda(const Tensor& permute) {
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(CUDA, "invert_permute", fbgemm_gpu::invert_permute_cuda);

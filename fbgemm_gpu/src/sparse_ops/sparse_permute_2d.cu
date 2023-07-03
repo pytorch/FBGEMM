@@ -346,3 +346,16 @@ permute_sparse_features_cuda(
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute_sparse_data",
+    fbgemm_gpu::permute_2D_sparse_data_cuda);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute_2D_sparse_data",
+    fbgemm_gpu::permute_2D_sparse_data_cuda);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute_sparse_features",
+    fbgemm_gpu::permute_sparse_features_cuda);

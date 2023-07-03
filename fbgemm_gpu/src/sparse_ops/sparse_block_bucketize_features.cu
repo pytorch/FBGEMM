@@ -508,3 +508,8 @@ block_bucketize_sparse_features_cuda(
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "block_bucketize_sparse_features",
+    fbgemm_gpu::block_bucketize_sparse_features_cuda);

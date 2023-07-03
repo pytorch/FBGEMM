@@ -158,3 +158,6 @@ DLL_PUBLIC Tensor lengths_range_cuda(
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(CUDA, "offsets_range", fbgemm_gpu::offsets_range_cuda);
+FBGEMM_OP_DISPATCH(CUDA, "lengths_range", fbgemm_gpu::lengths_range_cuda);

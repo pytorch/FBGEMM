@@ -144,3 +144,8 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
 #endif
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute102_baddbmm_permute102",
+    fbgemm_gpu::permute102_baddbmm_permute102_cuda);
