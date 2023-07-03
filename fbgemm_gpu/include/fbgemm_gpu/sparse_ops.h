@@ -716,6 +716,13 @@ at::Tensor pack_segments_backward_cuda(
     int64_t max_length);
 
 ///@ingroup sparse-data-cuda
+void compute_frequency_sequence(
+    const at::Tensor& input,
+    at::Tensor& output,
+    const int start_input,
+    const int output_size);
+
+///@ingroup sparse-data-cuda
 at::Tensor index_select_cuda(
     const at::Tensor& input,
     const at::Tensor& sorted_indices,

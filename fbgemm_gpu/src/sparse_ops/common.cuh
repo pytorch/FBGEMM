@@ -51,3 +51,29 @@
 #endif
 
 using Tensor = at::Tensor;
+
+namespace fbgemm_gpu {
+
+constexpr int MAX_ELEMENTS_PER_THREAD = 4;
+
+template <
+    typename scalar_t,
+    int ndim,
+    template <typename U> class PtrTraits = at::DefaultPtrTraits>
+at::PackedTensorAccessor32<scalar_t, ndim, PtrTraits>
+dummy_packed_accessor32() {
+  std::array<int64_t, ndim> zeros{};
+  return {nullptr, zeros.data(), zeros.data()};
+}
+
+template <
+    typename scalar_t,
+    int ndim,
+    template <typename U> class PtrTraits = at::DefaultPtrTraits>
+at::PackedTensorAccessor64<scalar_t, ndim, PtrTraits>
+dummy_packed_accessor64() {
+  std::array<int64_t, ndim> zeros{};
+  return {nullptr, zeros.data(), zeros.data()};
+}
+
+} // namespace fbgemm_gpu
