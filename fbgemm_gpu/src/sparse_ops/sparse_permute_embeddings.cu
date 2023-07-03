@@ -83,3 +83,8 @@ DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute_sequence_embeddings",
+    fbgemm_gpu::permute_sequence_embeddings_cuda);

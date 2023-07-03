@@ -178,4 +178,18 @@ DLL_PUBLIC Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
     return t_out;
   }
 }
+
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "asynchronous_exclusive_cumsum",
+    fbgemm_gpu::asynchronous_exclusive_cumsum_gpu);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "asynchronous_complete_cumsum",
+    fbgemm_gpu::asynchronous_complete_cumsum_gpu);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "asynchronous_inclusive_cumsum",
+    fbgemm_gpu::asynchronous_inclusive_cumsum_gpu);

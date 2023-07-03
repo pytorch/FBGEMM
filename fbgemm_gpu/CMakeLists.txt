@@ -645,7 +645,6 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_index_add.cu
       src/sparse_ops/sparse_index_select.cu
       src/sparse_ops/sparse_invert_permute.cu
-      src/sparse_ops/sparse_ops.cu
       src/sparse_ops/sparse_pack_segments_backward.cu
       src/sparse_ops/sparse_pack_segments_forward.cu
       src/sparse_ops/sparse_permute_1d.cu
@@ -653,6 +652,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_permute102.cu
       src/sparse_ops/sparse_permute_embeddings.cu
       src/sparse_ops/sparse_range.cu
+      src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
       src/sparse_ops/sparse_zipf.cu
       src/split_embeddings_cache_cuda.cu

@@ -560,34 +560,9 @@ std::vector<Tensor> group_index_select_dim0_gpu(
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
-      "permute_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cuda);
-  DISPATCH_TO_CUDA(
-      "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cuda);
-  DISPATCH_TO_CUDA(
-      "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cuda);
-  DISPATCH_TO_CUDA("invert_permute", fbgemm_gpu::invert_permute_cuda);
-  DISPATCH_TO_CUDA(
-      "expand_into_jagged_permute",
-      fbgemm_gpu::expand_into_jagged_permute_cuda);
-  DISPATCH_TO_CUDA(
-      "block_bucketize_sparse_features",
-      fbgemm_gpu::block_bucketize_sparse_features_cuda);
-  DISPATCH_TO_CUDA(
-      "bucketize_sparse_features", fbgemm_gpu::bucketize_sparse_features_cuda);
-  DISPATCH_TO_CUDA(
-      "asynchronous_exclusive_cumsum",
-      fbgemm_gpu::asynchronous_exclusive_cumsum_gpu);
-  DISPATCH_TO_CUDA(
-      "asynchronous_complete_cumsum",
-      fbgemm_gpu::asynchronous_complete_cumsum_gpu);
-  DISPATCH_TO_CUDA(
-      "asynchronous_inclusive_cumsum",
-      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu);
-  DISPATCH_TO_CUDA(
       "reorder_batched_ad_lengths", fbgemm_gpu::reorder_batched_ad_lengths_gpu);
   DISPATCH_TO_CUDA(
       "reorder_batched_ad_indices", fbgemm_gpu::reorder_batched_ad_indices_gpu);
-  DISPATCH_TO_CUDA("offsets_range", fbgemm_gpu::offsets_range_cuda);
   DISPATCH_TO_CUDA(
       "batched_unary_embeddings",
       fbgemm_gpu::lookup_batched_unary_embedding_function);
@@ -600,20 +575,10 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "generic_histogram_binning_calibration_by_feature",
       fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cuda);
-  DISPATCH_TO_CUDA("segment_sum_csr", fbgemm_gpu::segment_sum_csr_cuda);
-  DISPATCH_TO_CUDA("lengths_range", fbgemm_gpu::lengths_range_cuda);
-  DISPATCH_TO_CUDA(
-      "permute_sparse_features", fbgemm_gpu::permute_sparse_features_cuda);
   DISPATCH_TO_CUDA(
       "Bfloat16QuantizedToFloat", fbgemm_gpu::_bfloat16_to_float_gpu);
   DISPATCH_TO_CUDA(
       "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_gpu);
-  DISPATCH_TO_CUDA(
-      "permute102_baddbmm_permute102",
-      fbgemm_gpu::permute102_baddbmm_permute102_cuda);
-  DISPATCH_TO_CUDA(
-      "permute_sequence_embeddings",
-      fbgemm_gpu::permute_sequence_embeddings_cuda);
   DISPATCH_TO_CUDA("pack_segments", fbgemm_gpu::pack_segments_cuda);
   DISPATCH_TO_CUDA("index_select_dim0", fbgemm_gpu::index_select_dim0_gpu);
   DISPATCH_TO_CUDA(

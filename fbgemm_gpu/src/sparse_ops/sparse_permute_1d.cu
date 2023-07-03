@@ -186,3 +186,8 @@ permute_1D_sparse_data_cuda(
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute_1D_sparse_data",
+    fbgemm_gpu::permute_1D_sparse_data_cuda);

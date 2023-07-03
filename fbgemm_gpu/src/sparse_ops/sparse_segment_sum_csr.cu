@@ -80,3 +80,5 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(CUDA, "segment_sum_csr", fbgemm_gpu::segment_sum_csr_cuda);

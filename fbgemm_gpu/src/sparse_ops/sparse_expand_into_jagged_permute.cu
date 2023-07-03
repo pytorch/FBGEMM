@@ -75,3 +75,8 @@ DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
 }
 
 } // namespace fbgemm_gpu
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "expand_into_jagged_permute",
+    fbgemm_gpu::expand_into_jagged_permute_cuda);

@@ -254,4 +254,5 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
       });
   return grad_weight;
 }
+
 } // namespace fbgemm_gpu
