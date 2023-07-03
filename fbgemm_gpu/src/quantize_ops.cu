@@ -514,7 +514,35 @@ __global__ inline void _single_thread_sum_padding_kernel(
 }
 
 template <typename output_t>
-__global__ inline void _PaddedFP8rowwise_to_float_cuda_kernel(
+__global__ inline void _PaddedFP8rowwise_to_float_1d_cuda_kernel(
+    output_t* const __restrict__ output,
+    const std::uint8_t* const __restrict__ input,
+    const int output_columns,
+    const int row_dim,
+    const int* const __restrict__ offsets,
+    const int row_ext,
+    const int ebit,
+    const int bias) {
+  const int64_t row = blockIdx.x;
+  // gridDim.x is num_rows
+  if (row >= gridDim.x) {
+    return;
+  }
+  const std::uint8_t* const input_row = input + row * row_ext;
+  const float* input_row_scale =
+      reinterpret_cast<const float*>(input_row + row_dim);
+  const auto scale = input_row_scale[0];
+  int pad = *reinterpret_cast<const int*>(&input_row_scale[1]);
+  pad = (pad > 0) ? pad : 0;
+  const auto pad_offset = offsets[row];
+  output_t* output_row = output + row * row_dim - pad_offset;
+  for (int col = threadIdx.x; col < row_dim - pad; col += blockDim.x) {
+    output_row[col] = hfp8_to_float(input_row[col], ebit, bias) / scale;
+  }
+}
+
+template <typename output_t>
+__global__ inline void _PaddedFP8rowwise_to_float_2d_cuda_kernel(
     const std::uint8_t* const __restrict__ input,
     const int nrows,
     const int ncols,
@@ -528,24 +556,7 @@ __global__ inline void _PaddedFP8rowwise_to_float_cuda_kernel(
   const int bias = forward ? 15 : 31;
 
   const int64_t row = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  if (row >= nrows && nrows != 1) {
-    return;
-  }
-  if (nrows == 1) {
-    const auto threads = (ncols + row_ext - 1) / row_ext;
-    if (row >= threads)
-      return;
-    const std::uint8_t* const input_row = input + row * row_ext;
-    output_t* output_row = output + row * row_dim;
-    const float* input_row_scale =
-        reinterpret_cast<const float*>(input_row + row_dim);
-    int pad = *reinterpret_cast<const int*>(&input_row_scale[1]);
-    pad = (pad > 0) ? pad : 0;
-    const int pad_offset = offsets[row];
-    for (int col = 0; col < row_dim - pad; col++) {
-      output_row[col - pad_offset] =
-          hfp8_to_float(input_row[col], ebit, bias) / input_row_scale[0];
-    }
+  if (row >= nrows) {
     return;
   }
   const std::uint8_t* const input_row = input + row * ncols;
@@ -1288,23 +1299,56 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
     return output;
   }
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      output.scalar_type(), "PaddedFP8rowwise_to_float_cuda_kernel", [&] {
-        _PaddedFP8rowwise_to_float_cuda_kernel<scalar_t>
-            <<<num_blocks,
-               threads_per_block,
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                input.data_ptr<std::uint8_t>(),
-                nrows,
-                ncols,
-                output_columns,
-                output.data_ptr<scalar_t>(),
-                forward,
-                row_dim,
-                offsets.data_ptr<int>());
-      });
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (nrows == 1) {
+    // Use one thread block to work on 1 row for nrows == 1
+    TORCH_CHECK(
+        ncols % row_ext == 0,
+        "ncols (",
+        ncols,
+        ") must be multiple of ",
+        row_ext)
+    const int num_rows = ncols / row_ext;
+    const int ebit = forward ? 4 : 5;
+    const int bias = forward ? 15 : 31;
+    constexpr int kMaxThreads = 1024;
+    const auto threads_per_block =
+        kMaxThreads < row_dim ? kMaxThreads : row_dim;
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        output.scalar_type(), "PaddedFP8rowwise_to_float_1d_cuda_kernel", [&] {
+          _PaddedFP8rowwise_to_float_1d_cuda_kernel<scalar_t>
+              <<<num_rows,
+                 threads_per_block,
+                 0,
+                 at::cuda::getCurrentCUDAStream()>>>(
+                  output.data_ptr<scalar_t>(),
+                  input.data_ptr<std::uint8_t>(),
+                  output_columns,
+                  row_dim,
+                  offsets.data_ptr<int>(),
+                  row_ext,
+                  ebit,
+                  bias);
+        });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  } else {
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        output.scalar_type(), "PaddedFP8rowwise_to_float_2d_cuda_kernel", [&] {
+          _PaddedFP8rowwise_to_float_2d_cuda_kernel<scalar_t>
+              <<<num_blocks,
+                 threads_per_block,
+                 0,
+                 at::cuda::getCurrentCUDAStream()>>>(
+                  input.data_ptr<std::uint8_t>(),
+                  nrows,
+                  ncols,
+                  output_columns,
+                  output.data_ptr<scalar_t>(),
+                  forward,
+                  row_dim,
+                  offsets.data_ptr<int>());
+        });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
 
   return output;
 }
