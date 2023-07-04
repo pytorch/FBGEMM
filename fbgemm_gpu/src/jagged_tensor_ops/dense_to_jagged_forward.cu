@@ -74,6 +74,7 @@ Tensor dense_to_jagged_forward(
 
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "dense_to_jagged_forward",
     fbgemm_gpu::dense_to_jagged_forward);

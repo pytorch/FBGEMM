@@ -60,6 +60,7 @@ Tensor jagged_2d_to_dense_gpu_backward(
 
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_to_padded_dense_backward",
     fbgemm_gpu::jagged_to_padded_dense_backward);

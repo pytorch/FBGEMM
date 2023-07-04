@@ -107,6 +107,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
 
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "batched_dense_vec_jagged_2d_mul_forward",
     fbgemm_gpu::batched_dense_vec_jagged_2d_mul_forward);

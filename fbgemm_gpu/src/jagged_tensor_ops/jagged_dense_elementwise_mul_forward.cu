@@ -57,6 +57,7 @@ Tensor jagged_dense_elementwise_mul_forward(
 }
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_dense_elementwise_mul_forward",
     fbgemm_gpu::jagged_dense_elementwise_mul_forward);

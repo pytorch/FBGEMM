@@ -124,6 +124,7 @@ Tensor jagged_index_select_2d_forward_cuda(
 
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_index_select_2d_forward",
     fbgemm_gpu::jagged_index_select_2d_forward_cuda);

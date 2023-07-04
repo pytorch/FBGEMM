@@ -423,6 +423,7 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
 
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "keyed_jagged_index_select_dim1",
     fbgemm_gpu::keyed_jagged_index_select_dim_1_gpu);

@@ -162,6 +162,7 @@ Tensor jagged_softmax_forward_cuda(
 }
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_softmax_forward",
     fbgemm_gpu::jagged_softmax_forward_cuda);

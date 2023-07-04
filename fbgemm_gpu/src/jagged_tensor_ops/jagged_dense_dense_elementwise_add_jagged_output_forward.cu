@@ -279,6 +279,7 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
 
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_dense_dense_elementwise_add_jagged_output_forward",
     fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);

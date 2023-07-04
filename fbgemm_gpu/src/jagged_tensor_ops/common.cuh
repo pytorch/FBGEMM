@@ -26,13 +26,9 @@
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
+#include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
-
-#define JAGGED_TENSOR_OPS_CUDA_DISPATCH(export_name, func_name) \
-  TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {                         \
-    DISPATCH_TO_CUDA(export_name, func_name);                   \
-  }
 
 namespace fbgemm_gpu {
 

@@ -11,6 +11,7 @@
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/ops_utils.h"
 
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
@@ -19,16 +20,6 @@
 #include <cub/device/device_scan.cuh>
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
-
-/*
- * We annotate the public fbgemm functions and hide the rest. Those
- * public symbols can be called via fbgemm_gpu::func() or pytorch
- * operator dispatcher. We'll hide other symbols, especially cub APIs,
- * because different .so may include the same cub CUDA kernels, which
- * results in confusion and libA may end up calling libB's cub kernel,
- * causing failures when we static link libcudart_static.a
- */
-#define DLL_PUBLIC __attribute__((visibility("default")))
 
 inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   at::cuda::OptionalCUDAGuard device_guard;

@@ -8,35 +8,32 @@
 
 #include "common.cuh"
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH("dense_to_jagged", fbgemm_gpu::dense_to_jagged);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(CUDA, "dense_to_jagged", fbgemm_gpu::dense_to_jagged);
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_to_padded_dense",
     fbgemm_gpu::jagged_to_padded_dense);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_dense_elementwise_add",
     fbgemm_gpu::jagged_dense_elementwise_add);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_dense_dense_elementwise_add_jagged_output",
     fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_dense_elementwise_mul",
     fbgemm_gpu::jagged_dense_elementwise_mul);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "batched_dense_vec_jagged_2d_mul",
     fbgemm_gpu::batched_dense_vec_jagged_2d_mul);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
-    "jagged_1d_to_dense",
-    fbgemm_gpu::jagged_1d_to_dense);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
-    "jagged_2d_to_dense",
-    fbgemm_gpu::jagged_2d_to_dense);
+FBGEMM_OP_DISPATCH(CUDA, "jagged_1d_to_dense", fbgemm_gpu::jagged_1d_to_dense);
+FBGEMM_OP_DISPATCH(CUDA, "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense);
 
 // TODO: combine the API with permute_2D_sparse_data and implement a CPU op
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH("jagged_softmax", fbgemm_gpu::jagged_softmax);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
-    "jagged_jagged_bmm",
-    fbgemm_gpu::jagged_jagged_bmm);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
-    "jagged_dense_bmm",
-    fbgemm_gpu::jagged_dense_bmm);
+FBGEMM_OP_DISPATCH(CUDA, "jagged_softmax", fbgemm_gpu::jagged_softmax);
+FBGEMM_OP_DISPATCH(CUDA, "jagged_jagged_bmm", fbgemm_gpu::jagged_jagged_bmm);
+FBGEMM_OP_DISPATCH(CUDA, "jagged_dense_bmm", fbgemm_gpu::jagged_dense_bmm);
