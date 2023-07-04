@@ -399,21 +399,27 @@ jagged_dense_elementwise_add_jagged_output_cuda(
 
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_to_padded_dense_forward",
     fbgemm_gpu::jagged_to_padded_dense_forward);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "stacked_jagged_1d_to_dense",
     fbgemm_gpu::stacked_jagged_1d_to_dense_gpu);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "stacked_jagged_2d_to_dense",
     fbgemm_gpu::stacked_jagged_2d_to_dense_gpu);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "stacked_jagged_2d_to_dense_forward",
     fbgemm_gpu::stacked_jagged_2d_to_dense_forward_cuda);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "stacked_jagged_2d_to_dense_backward",
     fbgemm_gpu::stacked_jagged_2d_to_dense_backward_cuda);
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_dense_elementwise_add_jagged_output",
     fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_cuda);

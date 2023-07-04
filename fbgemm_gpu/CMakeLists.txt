@@ -550,9 +550,9 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
     src/permute_pooled_embedding_ops_split_cpu.cpp
-    src/jagged_tensor_ops_autograd.cpp
-    src/jagged_tensor_ops_meta.cpp
-    src/jagged_tensor_ops_cpu.cpp
+    src/jagged_tensor_ops/jagged_tensor_ops_autograd.cpp
+    src/jagged_tensor_ops/jagged_tensor_ops_meta.cpp
+    src/jagged_tensor_ops/jagged_tensor_ops_cpu.cpp
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
     src/quantize_ops_cpu.cpp
@@ -615,7 +615,6 @@ if(NOT FBGEMM_CPU_ONLY)
       src/jagged_tensor_ops/dense_to_jagged_forward.cu
       src/jagged_tensor_ops/jagged_dense_bmm_forward.cu
       src/jagged_tensor_ops/jagged_dense_dense_elementwise_add_jagged_output_forward.cu
-      src/jagged_tensor_ops/jagged_dense_elementwise_add_jagged_output.cu
       src/jagged_tensor_ops/jagged_dense_elementwise_mul_backward.cu
       src/jagged_tensor_ops/jagged_dense_elementwise_mul_forward.cu
       src/jagged_tensor_ops/jagged_index_add_2d_forward.cu
@@ -628,8 +627,6 @@ if(NOT FBGEMM_CPU_ONLY)
       src/jagged_tensor_ops/jagged_to_padded_dense_forward.cu
       src/jagged_tensor_ops/jagged_unique_indices.cu
       src/jagged_tensor_ops/keyed_jagged_index_select_dim1.cu
-      src/jagged_tensor_ops/stacked_jagged_1d_to_dense.cu
-      src/jagged_tensor_ops/stacked_jagged_2d_to_dense.cu
       src/layout_transform_ops.cu
       src/metric_ops.cu
       src/permute_pooled_embedding_ops_split.cu

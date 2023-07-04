@@ -201,6 +201,7 @@ std::tuple<Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 }
 } // namespace fbgemm_gpu
 
-JAGGED_TENSOR_OPS_CUDA_DISPATCH(
+FBGEMM_OP_DISPATCH(
+    CUDA,
     "jagged_unique_indices",
     fbgemm_gpu::jagged_unique_indices_cuda);
