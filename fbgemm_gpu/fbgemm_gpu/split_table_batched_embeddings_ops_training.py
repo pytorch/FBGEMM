@@ -432,7 +432,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         hash_size_cumsum = [0] + list(accumulate(rows))
         self.total_hash_size: int = int(hash_size_cumsum[-1])
-        if hash_size_cumsum == 0:
+        if self.total_hash_size == 0:
             self.total_hash_size_bits: int = 0
         else:
             self.total_hash_size_bits: int = int(log2(float(self.total_hash_size)) + 1)
