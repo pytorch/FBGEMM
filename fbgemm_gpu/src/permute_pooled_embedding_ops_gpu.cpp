@@ -138,6 +138,15 @@ Tensor permute_pooled_embs_auto_grad_cpu(
       inv_offset_dim_list,
       inv_permute_list);
 }
+
+Tensor permute_pooled_embs_auto_grad_meta(
+    const Tensor& pooled_embs,
+    const Tensor& /* offset_dim_list */,
+    const Tensor& /* permute_list */,
+    const Tensor& /* inv_offset_dim_list */,
+    const Tensor& /* inv_permute_list */) {
+  return torch::empty_like(pooled_embs);
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -152,4 +161,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "permute_pooled_embs_auto_grad",
       fbgemm_gpu::permute_pooled_embs_auto_grad_gpu);
+  DISPATCH_TO_META(
+      "permute_pooled_embs_auto_grad",
+      fbgemm_gpu::permute_pooled_embs_auto_grad_meta);
 }
