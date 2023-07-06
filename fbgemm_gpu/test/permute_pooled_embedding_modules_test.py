@@ -11,6 +11,7 @@ from typing import Tuple
 
 import fbgemm_gpu
 import torch
+import torch._dynamo
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
 from hypothesis import given, HealthCheck, settings
 from torch import nn, Tensor
@@ -157,6 +158,21 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         assert torch.allclose(
             ref_permuted_pooled_emb.to(self.device), permuted_pooled_emb
         )
+
+    @unittest.skipIf(*typed_gpu_unavailable)
+    def test_permutation_autograd_meta(self) -> None:
+        """
+        Test that permute_pooled_embeddings_autograd works with meta tensor and
+        dynamo export mode
+        """
+        input = torch.randn(2, 1)
+        net = Net()
+
+        output_cpu = net(input)
+        output_meta = net.to("meta")(input.to("meta"))
+
+        assert output_meta.shape == output_cpu.shape
+        assert input.shape == output_meta.shape
 
 
 if __name__ == "__main__":
