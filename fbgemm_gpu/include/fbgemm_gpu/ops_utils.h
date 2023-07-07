@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <torch/library.h>
 
 /*
  * We annotate the public FBGEMM functions and hide the rest. Those

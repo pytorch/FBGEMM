@@ -575,10 +575,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "generic_histogram_binning_calibration_by_feature",
       fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cuda);
-  DISPATCH_TO_CUDA(
-      "Bfloat16QuantizedToFloat", fbgemm_gpu::_bfloat16_to_float_gpu);
-  DISPATCH_TO_CUDA(
-      "FloatToBfloat16Quantized", fbgemm_gpu::_float_to_bfloat16_gpu);
   DISPATCH_TO_CUDA("pack_segments", fbgemm_gpu::pack_segments_cuda);
   DISPATCH_TO_CUDA("index_select_dim0", fbgemm_gpu::index_select_dim0_gpu);
   DISPATCH_TO_CUDA(
