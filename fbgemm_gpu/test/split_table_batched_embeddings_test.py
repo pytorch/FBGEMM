@@ -4357,7 +4357,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @given(
-        nbit_weights_ty=st.sampled_from([SparseType.INT4, SparseType.INT2]),
+        nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
         do_pruning=st.booleans(),
     )

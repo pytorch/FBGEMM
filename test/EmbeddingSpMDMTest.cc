@@ -53,8 +53,8 @@ class EmbeddingSpMDMTest : public testing::TestWithParam<tuple<
                                int,
                                EmbeddingSpMDMWeightChoice,
                                EmbeddingSpMDMCornerCase,
-                               EmbeddingSpMDMDtypeChoice,
-                               EmbeddingSpMDMDtypeChoice>> {};
+                               EmbeddingSpMDMInputDtypeChoice,
+                               EmbeddingSpMDMOutputDtypeChoice>> {};
 
 class rowwiseSparseEmbeddingSpMDMTest
     : public testing::TestWithParam<
@@ -123,20 +123,16 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   int prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMDtypeChoice in_type;
-  EmbeddingSpMDMDtypeChoice out_type;
+  EmbeddingSpMDMInputDtypeChoice in_type;
+  EmbeddingSpMDMOutputDtypeChoice out_type;
   tie(prefetch, weight_choice, corner_case, in_type, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
   bool isFp16 = in_type == FLOAT16;
   bool isBf16 = in_type == BFLOAT16;
-  bool is_output_float = out_type == FLOAT;
-  bool is_output_bfloat16 = out_type == BFLOAT16;
+  bool is_output_float = (out_type == FLOAT);
+  bool is_output_bfloat16 = (out_type == BFLOAT16);
 
-  if (isBf16 ^ is_output_bfloat16) {
-    // only support both in and out are bf16 now
-    return;
-  }
   if (corner_case != NONE || is_wt_positional) {
     // Check corner case only for subset of tests.
     if (isFp16 || normalize_by_lengths || use_output_input_stride ||
@@ -148,6 +144,12 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     // weight positional only makes sense when use_weight is true
     return;
   }
+
+#if defined(__APPLE__)
+  if (in_type == BFLOAT16 && out_type == FLOAT) {
+    return;
+  }
+#endif
 
   for (auto input : inputs) {
     int batch_size = input[0];
@@ -255,6 +257,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       input_stride,                                            \
       true,                                                    \
       false,                                                   \
+      is_output_bfloat16,                                      \
       isBf16);                                                 \
                                                                \
   auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
@@ -273,6 +276,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       input_stride,                                            \
       true,                                                    \
       false,                                                   \
+      is_output_bfloat16,                                      \
       isBf16);                                                 \
   success = kernel(                                            \
       batch_size,                                              \

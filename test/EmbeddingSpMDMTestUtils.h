@@ -32,6 +32,9 @@ enum EmbeddingSpMDMDtypeChoice {
   BFLOAT16,
 };
 
+using EmbeddingSpMDMInputDtypeChoice = EmbeddingSpMDMDtypeChoice;
+using EmbeddingSpMDMOutputDtypeChoice = EmbeddingSpMDMDtypeChoice;
+
 /**
  * @return lengths_sum
  */
