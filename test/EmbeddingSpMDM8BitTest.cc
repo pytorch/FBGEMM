@@ -51,8 +51,11 @@ vector<int> prefetch_distances{0, 16, 1000000};
 namespace {
 
 class Fused8BitRowwiseEmbeddingLookupTest
-    : public testing::TestWithParam<
-          tuple<int, EmbeddingSpMDMWeightChoice, EmbeddingSpMDMCornerCase>> {};
+    : public testing::TestWithParam<tuple<
+          int,
+          EmbeddingSpMDMWeightChoice,
+          EmbeddingSpMDMCornerCase,
+          EmbeddingSpMDMOutputDtypeChoice>> {};
 }; // namespace
 
 INSTANTIATE_TEST_CASE_P(
@@ -68,7 +71,8 @@ INSTANTIATE_TEST_CASE_P(
             NONE,
             EMPTY_INDICES,
             OUT_OF_BOUND_INDICES,
-            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
+            UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM),
+        ::testing::Values(FLOAT, FLOAT16, BFLOAT16)));
 
 TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
@@ -80,19 +84,19 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   bool isOffset64b = bool_dist(generator);
   bool normalize_by_lengths = bool_dist(generator);
   bool use_offsets = bool_dist(generator);
-  bool is_output_float = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
   int prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
-  tie(prefetch, weight_choice, corner_case) = GetParam();
+  EmbeddingSpMDMOutputDtypeChoice out_type;
+  tie(prefetch, weight_choice, corner_case, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 
   if (corner_case != NONE || weight_choice == POSITIONAL_WEIGHTED) {
     // Check corner case only for subset of tests.
-    if (normalize_by_lengths || !is_output_float || !scale_bias_last) {
+    if (normalize_by_lengths || out_type != FLOAT || !scale_bias_last) {
       return;
     }
   }
@@ -161,12 +165,14 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     int output_size_wo_sentries = batch_size * embedding_dim;
     vector<float> output_ref(output_size_wo_sentries + num_sentries);
     vector<float> output(output_ref.size());
-    vector<float16> output_ref_fp16(output.size()), output_fp16(output.size());
+    vector<uint16_t> output_ref_16b(output.size()), output_16b(output.size());
     for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
       output_ref[i] = sentry_value;
       output[i] = sentry_value;
-      output_ref_fp16[i] = cpu_float2half_rn(sentry_value);
-      output_fp16[i] = cpu_float2half_rn(sentry_value);
+      output_ref_16b[i] =
+          convert_from_float_ref<uint16_t>(sentry_value, out_type == BFLOAT16);
+      output_16b[i] =
+          convert_from_float_ref<uint16_t>(sentry_value, out_type == BFLOAT16);
     }
 
     bool success, success_ref;
@@ -194,7 +200,9 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       use_offsets,                                             \
       /*output_stride=*/-1,                                    \
       /*input_stride=*/-1,                                     \
-      scale_bias_last);                                        \
+      scale_bias_last,                                         \
+      /*is_bf16_out=*/out_type == BFLOAT16,                    \
+      /*is_bf16_in=*/false);                                   \
                                                                \
   auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
       uint8_t,                                                 \
@@ -209,7 +217,9 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       use_offsets,                                             \
       /*output_stride=*/-1,                                    \
       /*input_stride=*/-1,                                     \
-      scale_bias_last);                                        \
+      scale_bias_last,                                         \
+      /*is_bf16_out=*/out_type == BFLOAT16,                    \
+      /*is_bf16_in=*/false);                                   \
   success = kernel(                                            \
       batch_size,                                              \
       lengths_sum,                                             \
@@ -221,7 +231,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       output.data());
 
 #define TEST_OUT_TYPE(indices, offsets_or_lengths, IndexType, OffsetType) \
-  if (is_output_float) {                                                  \
+  if (out_type == FLOAT) {                                                \
     TEST_BASE(                                                            \
         indices,                                                          \
         offsets_or_lengths,                                               \
@@ -234,8 +244,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     TEST_BASE(                                                            \
         indices,                                                          \
         offsets_or_lengths,                                               \
-        output_ref_fp16,                                                  \
-        output_fp16,                                                      \
+        output_ref_16b,                                                   \
+        output_16b,                                                       \
         IndexType,                                                        \
         OffsetType,                                                       \
         float16);                                                         \
@@ -267,10 +277,12 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     }
     if (success) {
       for (size_t i = 0; i < output.size(); ++i) {
-        float actual =
-            is_output_float ? output[i] : cpu_half2float(output_fp16[i]);
-        float expected = is_output_float ? output_ref[i]
-                                         : cpu_half2float(output_ref_fp16[i]);
+        float actual = (out_type == FLOAT)
+            ? output[i]
+            : convert_to_float_ref(output_16b[i], out_type == BFLOAT16);
+        float expected = (out_type == FLOAT)
+            ? output_ref[i]
+            : convert_to_float_ref(output_ref_16b[i], out_type == BFLOAT16);
         EXPECT_EQ(actual, expected)
             << "results differ at (" << i << ") reference: " << expected
             << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
@@ -278,11 +290,13 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       for (int offset = output_size_wo_sentries;
            offset < output_size_wo_sentries + num_sentries;
            ++offset) {
-        float actual = is_output_float ? output[offset]
-                                       : cpu_half2float(output_fp16[offset]);
-        float expected = is_output_float
+        float actual = (out_type == FLOAT)
+            ? output[offset]
+            : convert_to_float_ref(output_16b[offset], out_type == BFLOAT16);
+        float expected = (out_type == FLOAT)
             ? output_ref[offset]
-            : cpu_half2float(output_ref_fp16[offset]);
+            : convert_to_float_ref(
+                  output_ref_16b[offset], out_type == BFLOAT16);
         EXPECT_EQ(actual, expected)
             << "results differ at (" << offset << ") reference: " << expected
             << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
@@ -301,17 +315,17 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   bool isOffset64b = bool_dist(generator);
   bool normalize_by_lengths = bool_dist(generator);
   bool use_offsets = bool_dist(generator);
-  bool is_output_float = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
   int prefetch;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
-  tie(prefetch, weight_choice, corner_case) = GetParam();
+  EmbeddingSpMDMDtypeChoice out_type;
+  tie(prefetch, weight_choice, corner_case, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 
-  if (!is_output_float || !scale_bias_last) {
+  if (out_type != FLOAT || !scale_bias_last) {
     return;
   }
 
