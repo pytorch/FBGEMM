@@ -555,7 +555,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/jagged_tensor_ops/jagged_tensor_ops_cpu.cpp
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
-    src/quantize_ops_cpu.cpp
+    src/quantize_ops/quantize_ops_cpu.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     src/embedding_inplace_update_cpu.cpp)
@@ -569,7 +569,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops_split_gpu.cpp
-    src/quantize_ops_gpu.cpp
+    src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils.cpp
     src/split_table_batched_embeddings.cpp
@@ -631,7 +631,11 @@ if(NOT FBGEMM_CPU_ONLY)
       src/metric_ops.cu
       src/permute_pooled_embedding_ops_split.cu
       src/permute_pooled_embedding_ops.cu
-      src/quantize_ops.cu
+      src/quantize_ops/quantize_bfloat16.cu
+      src/quantize_ops/quantize_hfp8.cu
+      src/quantize_ops/quantize_msfp.cu
+      src/quantize_ops/quantize_ops.cu
+      src/quantize_ops/quantize_padded_fp8_rowwise.cu
       src/sparse_ops/sparse_async_cumsum.cu
       src/sparse_ops/sparse_block_bucketize_features.cu
       src/sparse_ops/sparse_bucketize_features.cu
