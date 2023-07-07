@@ -350,7 +350,7 @@ achieve better performance with a small loss in accuracy.</p>
 
 <dl class="cpp function">
 <dt>
-<span class="target" id="group__quantize-data-cuda_1gac0c20377454dbfafcc5ac245fe6427ce"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _msfp_to_float_gpu (const at::Tensor &amp;input, const int64_t ebits, const int64_t mbits, const int64_t bias)</code></dt>
+<span class="target" id="group__quantize-data-cuda_1ga31b9029d43a60ad1fc90dc6ec54af9db"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_to_FP8rowwise_gpu (const Tensor &amp;input, const bool forward)</code></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
@@ -361,11 +361,6 @@ achieve better performance with a small loss in accuracy.</p>
 <dl class="cpp function">
 <dt>
 <span class="target" id="group__quantize-data-cuda_1ga4520e7823d5bfd90451f544269ee308f"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_or_half_to_fused8bitrowwise_gpu (const Tensor &amp;input)</code></dt>
-<dd></dd></dl>
-
-<dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-data-cuda_1ga31b9029d43a60ad1fc90dc6ec54af9db"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_to_FP8rowwise_gpu (const Tensor &amp;input, const bool forward)</code></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
@@ -406,6 +401,11 @@ achieve better performance with a small loss in accuracy.</p>
 <dl class="cpp function">
 <dt>
 <span class="target" id="group__quantize-data-cuda_1ga07f4c02c95710472b815bdc1d7bfff19"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_or_half_gpu (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype)</code></dt>
+<dd></dd></dl>
+
+<dl class="cpp function">
+<dt>
+<span class="target" id="group__quantize-data-cuda_1gac0c20377454dbfafcc5ac245fe6427ce"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _msfp_to_float_gpu (const at::Tensor &amp;input, const int64_t ebits, const int64_t mbits, const int64_t bias)</code></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
