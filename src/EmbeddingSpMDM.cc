@@ -6,6 +6,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <cstdint>
+#include <stdexcept>
+#include <type_traits>
 #define FBGEMM_EXPORTS
 
 #include "fbgemm/FbgemmEmbedding.h"
@@ -106,7 +109,8 @@ class GenEmbeddingSpMDMLookup {
       int output_stride,
       int input_stride,
       bool scale_bias_last,
-      bool isbf16);
+      bool is_bf16_out,
+      bool is_bf16_in);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -123,7 +127,7 @@ class GenEmbeddingSpMDMLookup {
   // positional weights, normalize by lenths, prefetch distance, use_offsets,
   // output_stride, input_stride, and scale_bias_last
   static CodeCache<
-      std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool>,
+      std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
       typename ReturnFunctionSignature<
           inType,
           indxType,
@@ -160,7 +164,7 @@ template <
     bool ROWWISE_SPARSE,
     bool THREAD_LOCAL>
 CodeCache<
-    std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool>,
+    std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
     typename ReturnFunctionSignature<
         inType,
         indxType,
@@ -209,19 +213,20 @@ GenEmbeddingSpMDMLookup<
         int output_stride,
         int input_stride,
         bool scale_bias_last,
-        bool isbf16) {
-  std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool> kernelSig =
-      std::make_tuple(
-          block_size,
-          has_weight,
-          is_weight_positional,
-          normalize_by_lengths,
-          prefetch,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          isbf16);
+        bool is_bf16_out,
+        bool is_bf16_in) {
+  auto kernelSig = std::make_tuple(
+      block_size,
+      has_weight,
+      is_weight_positional,
+      normalize_by_lengths,
+      prefetch,
+      use_offsets,
+      output_stride,
+      input_stride,
+      scale_bias_last,
+      is_bf16_out,
+      is_bf16_in);
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -231,12 +236,11 @@ GenEmbeddingSpMDMLookup<
                 offsetType,
                 outType,
                 ROWWISE_SPARSE>::jit_embedding_kernel {
-        bool is8bit = std::is_same<inType, uint8_t>::value;
-        bool is16bit = std::is_same<inType, uint16_t>::value;
-        bool is16bitout = std::is_same<outType, uint16_t>::value;
-        bool isbf16out = isbf16;
-        bool isfp16 = is16bit && !isbf16;
-        bool isfp16out = is16bitout && !isbf16out;
+        bool is_8bit_in = std::is_same<inType, uint8_t>::value;
+        bool is_16bit_in = std::is_same<inType, uint16_t>::value;
+        bool is_16bit_out = std::is_same<outType, uint16_t>::value;
+        bool is_fp16_in = is_16bit_in && !is_bf16_in;
+        bool is_fp16_out = is_16bit_out && !is_bf16_out;
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
@@ -248,16 +252,16 @@ GenEmbeddingSpMDMLookup<
         x86::Emitter* a = assembler.as<x86::Emitter>();
 #if defined(FBGEMM_LOG_CODE)
         std::string filename = "embeddinglookup";
-        if (is8bit) {
+        if (is_8bit_in) {
           filename += "_8bit";
-        } else if (isfp16) {
+        } else if (is_fp16_in) {
           filename += "_fp16";
-        } else if (isbf16) {
+        } else if (is_bf16_in) {
           filename += "_bf16";
         }
-        if (isbf16out) {
+        if (is_bf16_out) {
           filename += "_bf16_out";
-        } else if (isfp16out) {
+        } else if (is_fp16_out) {
           filename += "_fp16_out";
         }
         filename += "_emd_dim_" + std::to_string(block_size);
@@ -422,7 +426,7 @@ GenEmbeddingSpMDMLookup<
         x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
         vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
 
-        if (is8bit) {
+        if (is_8bit_in) {
           // We need 2 vec registers for 1. scale 2. bias
           --unroll_factor;
           scale_vreg = vec_reg_t(unroll_factor);
@@ -430,7 +434,7 @@ GenEmbeddingSpMDMLookup<
           bias_vreg = vec_reg_t(unroll_factor);
         }
 
-        if (isbf16out) {
+        if (is_bf16_out) {
           --unroll_factor;
           ones_vreg = vec_reg_t(unroll_factor);
           a->mov(scratchReg2_, 1 << 15);
@@ -438,7 +442,8 @@ GenEmbeddingSpMDMLookup<
           a->vpbroadcastd(ones_vreg, ones_vreg.xmm());
         }
 
-        if (is8bit || is16bit || (remainder && instSet == inst_set_t::avx2)) {
+        if (is_8bit_in || is_16bit_in ||
+            (remainder && instSet == inst_set_t::avx2)) {
           --unroll_factor;
           src_vreg = vec_reg_t(unroll_factor);
         }
@@ -452,7 +457,7 @@ GenEmbeddingSpMDMLookup<
           // AVX512 doesn't need to use vector register for masking
           --unroll_factor;
           mask_vreg = x86::ymm(unroll_factor);
-          if (remainder > 1 && (is16bit || isbf16out || isfp16out)) {
+          if (remainder > 1 && (is_16bit_in || is_bf16_out || is_fp16_out)) {
             --unroll_factor;
             mask_fp16_vreg = x86::xmm(unroll_factor);
           }
@@ -469,7 +474,7 @@ GenEmbeddingSpMDMLookup<
                 mask_vreg,
                 x86::ymmword_ptr(
                     scratchReg1_, (vlen - remainder) % vlen * sizeof(int32_t)));
-            if (is16bit || isbf16out || isfp16out) {
+            if (is_16bit_in || is_bf16_out || is_fp16_out) {
               if (remainder > 1) {
                 a->vmovups(
                     mask_fp16_vreg,
@@ -680,7 +685,7 @@ GenEmbeddingSpMDMLookup<
           // broadcast the scale
           x86::Mem scale_src, bias_src;
           constexpr unsigned int CACHE_LINE_LEN = 64;
-          if (is8bit) {
+          if (is_8bit_in) {
             if (scale_bias_last) {
               scale_src = x86::dword_ptr(
                   input, scratchReg1_, 0, block_size * sizeof(uint8_t));
@@ -711,14 +716,14 @@ GenEmbeddingSpMDMLookup<
             }
           }
 
-          if (has_weight && is8bit) {
+          if (has_weight && is_8bit_in) {
             a->vmulps(scale_vreg, scale_vreg, w_vreg);
             a->vmulps(bias_vreg, bias_vreg, w_vreg);
           }
 
           // The main computation
           int src_addr_offset =
-              is8bit && !scale_bias_last ? 2 * sizeof(uint16_t) : 0;
+              is_8bit_in && !scale_bias_last ? 2 * sizeof(uint16_t) : 0;
           for (int v = 0; v < cur_unroll_factor; ++v) {
             constexpr int BYTES_PER_VLOAD = vlen * sizeof(inType);
             auto src_addr = x86::dword_ptr(
@@ -730,7 +735,7 @@ GenEmbeddingSpMDMLookup<
 
             // For 8bit SLS convert usigned 8-bit to 32bit int, then to float
             // multiply with scale and then add with bias
-            if (is8bit) {
+            if (is_8bit_in) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
                   instSet == inst_set_t::avx512) {
                 a->k(x86::k(1)).z().vpmovzxbd(src_vreg, src_addr);
@@ -743,7 +748,7 @@ GenEmbeddingSpMDMLookup<
               a->vcvtdq2ps(src_vreg, src_vreg);
               a->vaddps(out_vreg, out_vreg, bias_vreg);
               a->vfmadd231ps(out_vreg, src_vreg, scale_vreg);
-            } else if (is16bit) {
+            } else if (is_16bit_in) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                 if (instSet == inst_set_t::avx2) {
                   if (remainder % 2 == 0) {
@@ -772,18 +777,18 @@ GenEmbeddingSpMDMLookup<
                       a->vmovups(src_vreg.xmm(), x86::xmmword_ptr(x86::rsp));
                     } // remainder > 1
                   } // remainder % 2
-                  if (isfp16) {
+                  if (is_fp16_in) {
                     a->vcvtph2ps(src_vreg.ymm(), src_vreg.xmm());
-                  } else if (isbf16) {
+                  } else if (is_bf16_in) {
                     // bf16
                     a->vpmovzxwd(src_vreg.ymm(), src_vreg.xmm());
                     a->vpslld(src_vreg.ymm(), src_vreg.ymm(), 16);
                   }
                 } else {
                   // avx512
-                  if (isfp16) {
+                  if (is_fp16_in) {
                     a->k(x86::k(1)).z().vcvtph2ps(src_vreg, src_addr);
-                  } else if (isbf16) {
+                  } else if (is_bf16_in) {
                     // bf16
                     a->k(x86::k(1)).z().vpmovzxwd(src_vreg, src_addr);
                     a->k(x86::k(1)).z().vpslld(src_vreg, src_vreg, 16);
@@ -791,9 +796,9 @@ GenEmbeddingSpMDMLookup<
                 }
               } else {
                 // no remainder
-                if (isfp16) {
+                if (is_fp16_in) {
                   a->vcvtph2ps(src_vreg, src_addr);
-                } else if (isbf16) {
+                } else if (is_bf16_in) {
                   // bf16
                   a->vpmovzxwd(src_vreg, src_addr);
                   a->vpslld(src_vreg, src_vreg, 16);
@@ -869,9 +874,9 @@ GenEmbeddingSpMDMLookup<
               // fp16/bf16 output
               if (instSet == inst_set_t::avx2) {
                 // round nearest with no exception
-                if (isfp16out) {
+                if (is_fp16_out) {
                   a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
-                } else if (isbf16out) {
+                } else if (is_bf16_out) {
                   a->vpaddd(out_vreg, out_vreg, ones_vreg);
                   a->vpsrld(out_vreg, out_vreg, 16);
                   a->vpackusdw(out_vreg, out_vreg, out_vreg);
@@ -899,18 +904,18 @@ GenEmbeddingSpMDMLookup<
                 }
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                  if (isfp16out) {
+                  if (is_fp16_out) {
                     a->k(x86::k(1)).vcvtps2ph(dst_addr, out_vreg, 8);
-                  } else if (isbf16out) {
+                  } else if (is_bf16_out) {
                     // bf16
                     a->k(x86::k(1)).vpaddd(out_vreg, out_vreg, ones_vreg);
                     a->k(x86::k(1)).vpsrld(out_vreg, out_vreg, 16);
                     a->k(x86::k(1)).vpmovdw(dst_addr, out_vreg);
                   }
                 } else {
-                  if (isfp16out) {
+                  if (is_fp16_out) {
                     a->vcvtps2ph(dst_addr, out_vreg, 8);
-                  } else if (isbf16out) {
+                  } else if (is_bf16_out) {
                     // bf16
                     a->vpaddd(out_vreg, out_vreg, ones_vreg);
                     a->vpsrld(out_vreg, out_vreg, 16);
@@ -970,7 +975,7 @@ GenEmbeddingSpMDMLookup<
         a->bind(exit);
 
         if (remainder && instSet == inst_set_t::avx2 &&
-            (is16bit || isbf16out || isfp16out)) {
+            (is_16bit_in || is_bf16_out || is_fp16_out)) {
           a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
         }
 
@@ -1022,10 +1027,18 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         int64_t input_stride /*=-1*/,
         bool scale_bias_last /*=true*/,
         bool no_bag /*=false*/,
-        bool isbf16 /*=false*/) {
+        bool is_bf16_out /*=false*/,
+        bool is_bf16_in /*=false*/) {
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
+#if defined(__APPLE__)
+  if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
+      std::is_same<outType, float>::value) {
+    throw std::runtime_error(
+        "Bfloat16 input with float32 output is not yet supported on Apple");
+  }
+#endif
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1067,7 +1080,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           input_stride,
           scale_bias_last,
           no_bag,
-          isbf16);
+          is_bf16_out,
+          is_bf16_in);
     };
   }
 
@@ -1097,7 +1111,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
               reinterpret_cast<float*>(out),
               is_weight_positional,
               use_offsets,
-              isbf16);
+              is_bf16_out);
         };
   } else if (isZmm(isa)) {
     static GenEmbeddingSpMDMLookup<
@@ -1119,7 +1133,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         output_stride,
         input_stride,
         scale_bias_last,
-        isbf16);
+        is_bf16_out,
+        is_bf16_in);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t data_size,
@@ -1159,7 +1174,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         output_stride,
         input_stride,
         scale_bias_last,
-        isbf16);
+        is_bf16_out,
+        is_bf16_in);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t data_size,
@@ -1209,7 +1225,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           input_stride,
           scale_bias_last,
           no_bag,
-          isbf16);
+          is_bf16_out,
+          is_bf16_in);
     };
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   }
@@ -1231,7 +1248,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         int prefetch,
         bool is_weight_positional,
         bool use_offsets,
-        bool isbf16) {
+        bool is_bf16_out,
+        bool is_bf16_in) {
   return GenerateEmbeddingSpMDMWithStrides<
       inType,
       indxType,
@@ -1248,7 +1266,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       /*input_stride=*/-1,
       /*scale_bias_last=*/true,
       /*no_bag=*/false,
-      isbf16);
+      is_bf16_out,
+      is_bf16_in);
 }
 
 template <typename indxType, typename offsetType, typename outType>
@@ -1262,7 +1281,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         int64_t output_stride /*=-1*/,
         int64_t input_stride /*=-1*/,
         int exponent_bits,
-        int exponent_bias) {
+        int exponent_bias,
+        bool is_bf16_out) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1294,7 +1314,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         output_stride,
         input_stride,
         exponent_bits,
-        exponent_bias);
+        exponent_bias,
+        is_bf16_out);
   };
 }
 
@@ -1338,7 +1359,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
         /*output_stride=*/block_size,
         input_stride,
         /*scale_bias_last=*/true,
-        /*isbf16=*/false);
+        /*is_bf16_out=*/false,
+        /*is_bf16_in=*/false);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t uncompressed_data_size,
@@ -1379,7 +1401,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
         /*output_stride=*/block_size,
         input_stride,
         /*scale_bias_last=*/true,
-        /*isbf16=*/false);
+        /*is_bf16_out=*/false,
+        /*is_bf16_in=*/false);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t uncompressed_data_size,
@@ -1457,7 +1480,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int64_t input_stride,                                   \
       bool scale_bias_last,                                   \
       bool no_bag,                                            \
-      bool isbf16);
+      bool is_bf16_out,                                       \
+      bool is_bf16_in);
 
 #define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)       \
   template FBGEMM_API typename EmbeddingSpMDMKernelSignature<              \
@@ -1473,7 +1497,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int64_t output_stride,                                               \
       int64_t input_stride,                                                \
       int exponent_bits,                                                   \
-      int exponent_bias);
+      int exponent_bias,                                                   \
+      bool is_bf16_out);
 
 #define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
@@ -1494,7 +1519,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int prefetch,                                           \
       bool is_weight_positional,                              \
       bool use_offsets,                                       \
-      bool isbf16);
+      bool is_bf16_out,                                       \
+      bool is_bf16_in);
 
 #define INSTANTIATE_SPMDM_ROWWISE_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)   \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \

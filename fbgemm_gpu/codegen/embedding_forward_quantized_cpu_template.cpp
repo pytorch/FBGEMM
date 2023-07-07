@@ -229,9 +229,6 @@ for (const auto t : c10::irange(T)) {
                 // default to 1 byte alignment for CPU TBE
                 const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
-                // NOTE: currently we only support bf16 output when input is int4 or int2
-                TORCH_CHECK(o_dtype != SparseType::BF16 || (o_dtype == SparseType::BF16 && (weight_ty == SparseType::INT4 || weight_ty == SparseType::INT2)));
-
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
                 size_t num_rows = ((tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t]) / D_bytes;
@@ -268,10 +265,13 @@ for (const auto t : c10::irange(T)) {
                         {% endif %}
                         /*input_stride=*/D_bytes / sizeof(float),
                         {% if not nobag %}
-                        /*scale_bias_last=*/false);
+                        /*scale_bias_last=*/false,
+                        /*no_bag=*/false,
+                        /*is_bf16_out=*/output_is_bf16);
                         {% else %}
                         /*scale_bias_last=*/false,
-                        /*no_bag=*/true);
+                        /*no_bag=*/true,
+                        /*is_bf16_out=*/output_is_bf16);
                         {% endif %}
                     success = kernel(
                         {% if not nobag %}
@@ -301,10 +301,13 @@ for (const auto t : c10::irange(T)) {
                         {% endif %}
                         /*input_stride=*/D_bytes / sizeof(float16),
                         {% if not nobag %}
-                        /*scale_bias_last=*/false);
+                        /*scale_bias_last=*/false,
+                        /*no_bag=*/false,
+                        /*is_bf16_out=*/output_is_bf16);
                         {% else %}
                         /*scale_bias_last=*/false,
-                        /*no_bag=*/true);
+                        /*no_bag=*/true,
+                        /*is_bf16_out=*/output_is_bf16);
                         {% endif %}
                     success = kernel(
                         {% if not nobag %}
@@ -333,7 +336,8 @@ for (const auto t : c10::irange(T)) {
                         {% endif %}
                         /*input_stride=*/D_bytes / sizeof(uint8_t),
                         /*exponent_bits=*/fp8_exponent_bits,
-                        /*exponent_bias=*/fp8_exponent_bias);
+                        /*exponent_bias=*/fp8_exponent_bias,
+                        /*is_bf16_out=*/output_is_bf16);
                     success = kernel(
                         B,
                         index_size,
@@ -358,10 +362,13 @@ for (const auto t : c10::irange(T)) {
                         {% endif %}
                         /*input_stride=*/D_bytes / sizeof(uint8_t),
                         {% if not nobag %}
-                        /*scale_bias_last=*/false);
+                        /*scale_bias_last=*/false,
+                        /*no_bag=*/false,
+                        /*is_bf16_out=*/output_is_bf16);
                         {% else %}
                         /*scale_bias_last=*/false,
-                        /*no_bag=*/true);
+                        /*no_bag=*/true,
+                        /*is_bf16_out=*/output_is_bf16);
                         {% endif %}
                     success = kernel(
                         {% if not nobag %}
