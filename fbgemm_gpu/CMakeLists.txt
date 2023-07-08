@@ -549,7 +549,7 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
-    src/permute_pooled_embedding_ops_split_cpu.cpp
+    src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_cpu.cpp
     src/jagged_tensor_ops/jagged_tensor_ops_autograd.cpp
     src/jagged_tensor_ops/jagged_tensor_ops_meta.cpp
     src/jagged_tensor_ops/jagged_tensor_ops_cpu.cpp
@@ -567,8 +567,8 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_bounds_check_host.cpp
     src/cumem_utils_host.cpp
     src/layout_transform_ops_gpu.cpp
-    src/permute_pooled_embedding_ops_gpu.cpp
-    src/permute_pooled_embedding_ops_split_gpu.cpp
+    src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
+    src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils.cpp
@@ -629,8 +629,8 @@ if(NOT FBGEMM_CPU_ONLY)
       src/jagged_tensor_ops/keyed_jagged_index_select_dim1.cu
       src/layout_transform_ops.cu
       src/metric_ops.cu
-      src/permute_pooled_embedding_ops_split.cu
-      src/permute_pooled_embedding_ops.cu
+      src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split.cu
+      src/permute_pooled_embedding_ops/permute_pooled_embedding_ops.cu
       src/quantize_ops/quantize_bfloat16.cu
       src/quantize_ops/quantize_fp8_rowwise.cu
       src/quantize_ops/quantize_fused_8bit_rowwise.cu
