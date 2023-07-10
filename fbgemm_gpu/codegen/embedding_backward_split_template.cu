@@ -493,6 +493,7 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
             }
             {%- endif %}
 
+
             {%- if not dense and optimizer != "none" %}
             at::PhiloxCudaState rng_engine_inputs;
             if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
@@ -503,6 +504,8 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
                         ->philox_cuda_state(4);
             }
             {%- endif %}
+
+
             // kMaxElemPerThread is # of elements handled by thread if we use a full warp for a row
             // We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
             {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
