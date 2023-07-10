@@ -1032,11 +1032,11 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
   if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
       std::is_same<outType, float>::value) {
     throw std::runtime_error(
-        "Bfloat16 input with float32 output is not yet supported on Apple");
+        "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
   }
 #endif
   if (output_stride == -1) {
