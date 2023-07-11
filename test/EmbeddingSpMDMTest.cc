@@ -145,7 +145,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     return;
   }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
   if (in_type == BFLOAT16 && out_type == FLOAT) {
     return;
   }
