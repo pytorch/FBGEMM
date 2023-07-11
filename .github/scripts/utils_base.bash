@@ -83,7 +83,7 @@ test_python_import () {
   if conda run -n "${env_name}" python -c "import ${python_import}"; then
     echo "[CHECK] Python package ${python_import} found."
   else
-    echo "[CHECK] Python package ${python_import} not found!"
+    echo "[CHECK] Python package ${python_import} was not found or is broken!"
     return 1
   fi
 }
