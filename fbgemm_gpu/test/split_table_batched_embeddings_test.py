@@ -1785,12 +1785,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         fc2.backward(goc)
 
         if optimizer is not None:
-            # pyre-ignore[6]
             params = SplitEmbeddingOptimizerParams(weights_dev=cc.weights_dev)
             embedding_args = SplitEmbeddingArgs(
-                # pyre-ignore[6]
                 weights_placements=cc.weights_placements,
-                # pyre-ignore[6]
                 weights_offsets=cc.weights_offsets,
                 max_D=cc.max_D,
             )
@@ -1821,7 +1818,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 ref_grad.half() if weights_precision == SparseType.FP16 else ref_grad
             )
         else:
-            # pyre-ignore[16]
             indices = cc.weights_dev.grad._indices().flatten()
             # Select only the part in the table that is updated
             test_tensor = torch.index_select(cc.weights_dev.view(-1, D), 0, indices)
@@ -4620,13 +4616,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # cache status; we use the exact same logic, but still assigning ways in a associative cache can be
             # arbitrary. We compare sum along ways in each set, instead of expecting exact tensor match.
             cache_weights_ref = torch.reshape(
-                # pyre-fixme[6]: For 1st param expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
                 cc_ref.lxu_cache_weights,
                 [-1, associativity],
             )
-            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[Tensor,
-            #  Module]`.
             cache_weights = torch.reshape(cc.lxu_cache_weights, [-1, associativity])
             torch.testing.assert_close(
                 torch.sum(cache_weights_ref, 1),
@@ -4634,26 +4626,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 equal_nan=True,
             )
             torch.testing.assert_close(
-                # pyre-fixme[6]: For 1st param expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
                 torch.sum(cc.lxu_cache_state, 1),
-                # pyre-fixme[6]: For 1st param expected `Tensor` but got
-                #  `Union[Tensor, Module]`.
                 torch.sum(cc_ref.lxu_cache_state, 1),
                 equal_nan=True,
             )
             # lxu_state can be different as time_stamp values can be different.
             # we check the entries with max value.
-            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[Tensor,
-            #  Module]`.
             max_timestamp_ref = torch.max(cc_ref.lxu_state)
-            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[Tensor,
-            #  Module]`.
             max_timestamp_uvm_caching = torch.max(cc.lxu_state)
             x = cc_ref.lxu_state == max_timestamp_ref
             y = cc.lxu_state == max_timestamp_uvm_caching
-            # pyre-fixme[6]: For 1st param expected `Tensor` but got `Union[bool,
-            #  Tensor]`.
             torch.testing.assert_close(torch.sum(x, 1), torch.sum(y, 1))
 
             # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM.
