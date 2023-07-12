@@ -803,8 +803,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # The first one is cache_miss_forward_count which records the total number of forwards which has at least one cache miss
         # The second one is the unique_cache_miss_count which records to total number of unique (dedup) cache misses
 
-        # pyre-fixme[7]: Expected `Tensor` but got `typing.Union[Tensor,
-        # nn.Module]`.
         return self.cache_miss_counter
 
     @torch.jit.export
@@ -930,23 +928,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         common_args = invokers.lookup_args.CommonArgs(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
             dev_weights=self.weights_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
             host_weights=self.weights_host,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
             uvm_weights=self.weights_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
             lxu_cache_weights=self.lxu_cache_weights,
-            # pyre-fixme[6]: Expected `Tensor` for 6th param but got `Union[Tensor,
-            #  nn.Module]`.
             weights_placements=self.weights_placements,
-            # pyre-fixme[6]: Expected `Tensor` for 7th param but got `Union[Tensor,
-            #  nn.Module]`.
             weights_offsets=self.weights_offsets,
             D_offsets=self.D_offsets,
             total_D=self.total_D,
@@ -976,20 +962,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
 
         momentum1 = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
             dev=self.momentum1_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
             host=self.momentum1_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
             uvm=self.momentum1_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
             offsets=self.momentum1_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
             placements=self.momentum1_placements,
         )
 
@@ -1003,20 +979,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         momentum2 = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
             dev=self.momentum2_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
             host=self.momentum2_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
             uvm=self.momentum2_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
             offsets=self.momentum2_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
             placements=self.momentum2_placements,
         )
         # Ensure iter is always on CPU so the increment doesn't synchronize.
@@ -1075,37 +1041,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         prev_iter = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
             dev=self.prev_iter_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
             host=self.prev_iter_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
             uvm=self.prev_iter_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
             offsets=self.prev_iter_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
             placements=self.prev_iter_placements,
         )
         row_counter = invokers.lookup_args.Momentum(
-            # pyre-fixme[6]: Expected `Tensor` for 1st param but got `Union[Tensor,
-            #  nn.Module]`.
             dev=self.row_counter_dev,
-            # pyre-fixme[6]: Expected `Tensor` for 2nd param but got `Union[Tensor,
-            #  nn.Module]`.
             host=self.row_counter_host,
-            # pyre-fixme[6]: Expected `Tensor` for 3rd param but got `Union[Tensor,
-            #  nn.Module]`.
             uvm=self.row_counter_uvm,
-            # pyre-fixme[6]: Expected `Tensor` for 4th param but got `Union[Tensor,
-            #  nn.Module]`.
             offsets=self.row_counter_offsets,
-            # pyre-fixme[6]: Expected `Tensor` for 5th param but got `Union[Tensor,
-            #  nn.Module]`.
             placements=self.row_counter_placements,
         )
         if self._used_rowwise_adagrad_with_counter:
@@ -1170,9 +1116,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
 
@@ -1272,16 +1215,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         miss_count = torch.sum(unique_ids_count_list)
 
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-        #  nn.Module]` is not a function.
         self.cache_miss_counter[0] += (miss_count > 0).to(torch.int64)
 
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-        #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-        #  nn.Module]` is not a function.
         self.cache_miss_counter[1] += miss_count
 
     def _update_tablewise_cache_miss(
@@ -1293,9 +1228,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         CACHE_MISS = -1
         CACHE_HIT = -2
 
-        # pyre-ignore[6]:
-        # Incompatible parameter type [6]: Expected `typing.Sized` for 1st
-        # positional only parameter to call `len` but got `typing.Union[Tensor, nn.Module]`.
         num_tables = len(self.cache_hash_size_cumsum) - 1
         num_offsets_per_table = (len(offsets) - 1) // num_tables
         cache_missed_locations = torch.where(
@@ -1340,15 +1272,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         for t, (rows, dim, _, _) in enumerate(self.embedding_specs):
             if self.weights_precision == SparseType.INT8:
                 dim += self.int8_emb_row_dim_offset
-            # pyre-fixme[29]:
-            #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-            #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-            #  nn.Module]` is not a function.
             placement = self.weights_physical_placements[t]
-            # pyre-fixme[29]:
-            #  `Union[BoundMethod[typing.Callable(Tensor.__getitem__)[[Named(self,
-            #  Tensor), Named(item, typing.Any)], typing.Any], Tensor], Tensor,
-            #  nn.Module]` is not a function.
             offset = self.weights_physical_offsets[t]
             if placement == EmbeddingLocation.DEVICE.value:
                 weights = self.weights_dev
@@ -1356,7 +1280,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights = self.weights_host
             else:
                 weights = self.weights_uvm
-            # pyre-ignore[29]
             if weights.dim() == 2:
                 weights = weights.flatten()
             splits.append(
@@ -1456,20 +1379,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.optimizer not in (OptimType.EXACT_SGD,):
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_uvm,
-                    # pyre-fixme[6]: Expected `Tensor` for 4th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_physical_offsets,
-                    # pyre-fixme[6]: Expected `Tensor` for 5th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum1_physical_placements,
                     rowwise=self.optimizer
                     in [
@@ -1486,20 +1399,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_uvm,
-                    # pyre-fixme[6]: Expected `Tensor` for 4th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_physical_offsets,
-                    # pyre-fixme[6]: Expected `Tensor` for 5th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.momentum2_physical_placements,
                     rowwise=self.optimizer
                     in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
@@ -1508,40 +1411,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self._used_rowwise_adagrad_with_counter:
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.prev_iter_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.prev_iter_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.prev_iter_uvm,
-                    # pyre-fixme[6]: Expected `Tensor` for 4th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.prev_iter_physical_offsets,
-                    # pyre-fixme[6]: Expected `Tensor` for 5th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.prev_iter_physical_placements,
                     rowwise=True,
                 )
             )
             states.append(
                 get_optimizer_states(
-                    # pyre-fixme[6]: Expected `Tensor` for 1st param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.row_counter_dev,
-                    # pyre-fixme[6]: Expected `Tensor` for 2nd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.row_counter_host,
-                    # pyre-fixme[6]: Expected `Tensor` for 3rd param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.row_counter_uvm,
-                    # pyre-fixme[6]: Expected `Tensor` for 4th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.row_counter_physical_offsets,
-                    # pyre-fixme[6]: Expected `Tensor` for 5th param but got
-                    #  `Union[Tensor, nn.Module]`.
                     self.row_counter_physical_placements,
                     rowwise=True,
                 )
@@ -1582,9 +1465,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.export
     def flush(self) -> None:
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
         torch.ops.fbgemm.lxu_cache_flush(
@@ -1816,9 +1696,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.reset_uvm_cache_stats()
 
     def reset_cache_states(self) -> None:
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
         self.lxu_cache_state.fill_(-1)
