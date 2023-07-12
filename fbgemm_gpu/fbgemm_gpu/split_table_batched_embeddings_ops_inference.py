@@ -490,9 +490,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
 
@@ -669,9 +666,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
         CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
 
-        # pyre-ignore[6]:
-        # Incompatible parameter type [6]: Expected `typing.Sized` for 1st
-        # positional only parameter to call `len` but got `typing.Union[Tensor, nn.Module]`.
         num_tables = len(self.cache_hash_size_cumsum) - 1
         num_offsets_per_table = (len(offsets) - 1) // num_tables
         cache_missed_locations = torch.where(
@@ -1128,9 +1122,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.reset_uvm_cache_stats()
 
     def reset_cache_states(self) -> None:
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if not self.lxu_cache_weights.numel():
             return
         self.lxu_cache_state.fill_(-1)
@@ -1500,9 +1491,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         lxu_cache_locations = None
-        # pyre-fixme[29]:
-        #  `Union[BoundMethod[typing.Callable(Tensor.numel)[[Named(self, Tensor)],
-        #  int], Tensor], Tensor, nn.Module]` is not a function.
         if self.lxu_cache_weights.numel() > 0:
             linear_cache_indices = (
                 torch.ops.fbgemm.linearize_cache_indices_from_row_idx(
