@@ -177,14 +177,15 @@ grad_mean{{ vbe_desc }}_kernel(
 // Utility Macros
 ////////////////////////////////////////////////////////////////////////////////
 
-{%- if experimental_optimizer %}
+{%- if is_experimental_optimizer %}
+
 /*
   For the experimental optimizers, kMaxVecsPerThread and kThreadGroupSize are
-  fixed to 1024 and kWarpSize, respectively.
+  fixed to 8 (1024 elements) and kWarpSize, respectively.
 */
 #define DISPATCH_KERNEL_BODY(MAX_D, ...)                                       \
   [&] {                                                                        \
-    constexpr auto kMaxVecsPerThread = 1024;                                   \
+    constexpr auto kMaxVecsPerThread = {{ max_embedding_dim // items_per_warp }};                  \
     constexpr auto kThreadGroupSize = kWarpSize;                               \
     return __VA_ARGS__();                                                      \
   }()
@@ -237,6 +238,7 @@ grad_mean{{ vbe_desc }}_kernel(
   }()
 
 #endif
+
 {%- endif %}
 
 
