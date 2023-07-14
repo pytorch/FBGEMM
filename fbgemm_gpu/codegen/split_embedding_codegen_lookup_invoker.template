@@ -6,11 +6,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+{%- if is_experimental_optimizer %}
+import warnings
+{%- endif %}
 from .lookup_args import *
 
 
-{% if is_fbcode %}
-
+{%- if is_fbcode %}
 # Provide compatibility to downstream packages for eventual migration to the split training / inference packages
 try:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training")
@@ -22,44 +24,61 @@ except Exception:
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-torch.ops.load_library(
-    "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
-)
+torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_cpu")
 
-{% else %}
-#import os
-#torch.ops.load_library(os.path.join(os.path.join(os.path.dirname(os.path.dirname(__file__)), "fbgemm_gpu_py.so")))
-{% endif %}
+{%- else %}
+# import os
+# torch.ops.load_library(os.path.join(os.path.join(os.path.dirname(os.path.dirname(__file__)), "fbgemm_gpu_py.so")))
+{%- endif %}
+
+
+{%- if is_experimental_optimizer %}
+_{{ optimizer }}_first_invocation = True
+{%- endif %}
 
 
 def invoke(
     common_args: CommonArgs,
     optimizer_args: OptimizerArgs,
-    {% if "momentum1_dev" in args.split_function_arg_names %}
+    {%- if "momentum1_dev" in args.split_function_arg_names %}
     momentum1: Momentum,
-    {% endif %}
-    {% if "momentum2_dev" in args.split_function_arg_names %}
+    {%- endif %}
+    {%- if "momentum2_dev" in args.split_function_arg_names %}
     momentum2: Momentum,
-    {% endif %}
-    {% if "prev_iter_dev" in args.split_function_arg_names %}
+    {%- endif %}
+    {%- if "prev_iter_dev" in args.split_function_arg_names %}
     prev_iter: Momentum,
-    {% endif %}
-    {% if "row_counter_dev" in args.split_function_arg_names %}
+    {%- endif %}
+    {%- if "row_counter_dev" in args.split_function_arg_names %}
     row_counter: Momentum,
-    {% endif %}
-    {% if "iter" in args.split_function_arg_names %}
+    {%- endif %}
+    {%- if "iter" in args.split_function_arg_names %}
     iter: int,
-    {% endif %}
-    {% if "max_counter" in args.split_function_arg_names %}
+    {%- endif %}
+    {%- if "max_counter" in args.split_function_arg_names %}
     max_counter: float,
-    {% endif %}
-    {% if "total_unique_indices" in args.split_function_arg_names %}
+    {%- endif %}
+    {%- if "total_unique_indices" in args.split_function_arg_names %}
     total_unique_indices: int,
-    {% endif %}
+    {%- endif %}
 ) -> torch.Tensor:
-    {% if has_cpu_support %}
+    {%- if is_experimental_optimizer %}
+    global _{{ optimizer }}_first_invocation
+    if _{{ optimizer }}_first_invocation:
+        warnings.warn(
+            f"""\033[93m
+            [FBGEMM_GPU] NOTE: The training optimizer '{{ optimizer }}' is marked as
+            EXPERIMENTAL and thus not optimized, in order to reduce code compilation
+            times and build sizes!
+            \033[0m""",
+            RuntimeWarning,
+        )
+        _{{ optimizer }}_first_invocation = False
+    {%- endif %}
+
+    {%- if has_cpu_support %}
     if (common_args.host_weights.numel() > 0):
         return torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
             # common_args
@@ -80,97 +99,97 @@ def invoke(
             gradient_clipping = optimizer_args.gradient_clipping,
             max_gradient=optimizer_args.max_gradient,
             stochastic_rounding=optimizer_args.stochastic_rounding,
-            {% if "learning_rate" in args.split_function_arg_names %}
+            {%- if "learning_rate" in args.split_function_arg_names %}
             learning_rate=optimizer_args.learning_rate,
-            {% endif %}
-            {% if "eps" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "eps" in args.split_function_arg_names %}
             eps=optimizer_args.eps,
-            {% endif %}
-            {% if "beta1" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "beta1" in args.split_function_arg_names %}
             beta1=optimizer_args.beta1,
-            {% endif %}
-            {% if "beta2" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "beta2" in args.split_function_arg_names %}
             beta2=optimizer_args.beta2,
-            {% endif %}
-            {% if "weight_decay" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "weight_decay" in args.split_function_arg_names %}
             weight_decay=optimizer_args.weight_decay,
-            {% endif %}
-            {% if "weight_decay_mode" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "weight_decay_mode" in args.split_function_arg_names %}
             weight_decay_mode=optimizer_args.weight_decay_mode,
-            {% endif %}
-            {% if "eta" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "eta" in args.split_function_arg_names %}
             eta=optimizer_args.eta,
-            {% endif %}
-            {% if "momentum" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "momentum" in args.split_function_arg_names %}
             momentum=optimizer_args.momentum,
-            {% endif %}
-            {% if "counter_halflife" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "counter_halflife" in args.split_function_arg_names %}
             counter_halflife=optimizer_args.counter_halflife,
-            {% endif %}
-            {% if "adjustment_iter" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "adjustment_iter" in args.split_function_arg_names %}
             adjustment_iter=optimizer_args.adjustment_iter,
-            {% endif %}
-            {% if "adjustment_ub" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "adjustment_ub" in args.split_function_arg_names %}
             adjustment_ub=optimizer_args.adjustment_ub,
-            {% endif %}
-            {% if "learning_rate_mode" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "learning_rate_mode" in args.split_function_arg_names %}
             learning_rate_mode=optimizer_args.learning_rate_mode,
-            {% endif %}
-            {% if "grad_sum_decay" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "grad_sum_decay" in args.split_function_arg_names %}
             grad_sum_decay=optimizer_args.grad_sum_decay,
-            {% endif %}
-            {% if "tail_id_threshold" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "tail_id_threshold" in args.split_function_arg_names %}
             tail_id_threshold=optimizer_args.tail_id_threshold,
-            {% endif %}
-            {% if "is_tail_id_thresh_ratio" in args.split_function_arg_names %}
+            {%- endif %}
+            {%- if "is_tail_id_thresh_ratio" in args.split_function_arg_names %}
             is_tail_id_thresh_ratio=optimizer_args.is_tail_id_thresh_ratio,
-            {% endif %}
+            {%- endif %}
             # momentum1
-            {% if "momentum1_dev" in args.split_function_arg_names %}
+            {%- if "momentum1_dev" in args.split_function_arg_names %}
             momentum1_host=momentum1.host,
             momentum1_offsets=momentum1.offsets,
             momentum1_placements=momentum1.placements,
-            {% endif %}
+            {%- endif %}
             # momentum2
-            {% if "momentum2_dev" in args.split_function_arg_names %}
+            {%- if "momentum2_dev" in args.split_function_arg_names %}
             momentum2_host=momentum2.host,
             momentum2_offsets=momentum2.offsets,
             momentum2_placements=momentum2.placements,
-            {% endif %}
+            {%- endif %}
             # prev_iter
-            {% if "prev_iter_dev" in args.split_function_arg_names %}
+            {%- if "prev_iter_dev" in args.split_function_arg_names %}
             prev_iter_host=prev_iter.host,
             prev_iter_offsets=prev_iter.offsets,
             prev_iter_placements=prev_iter.placements,
-            {% endif %}
+            {%- endif %}
             # row_counter
-            {% if "row_counter_dev" in args.split_function_arg_names %}
+            {%- if "row_counter_dev" in args.split_function_arg_names %}
             row_counter_host=row_counter.host,
             row_counter_offsets=row_counter.offsets,
             row_counter_placements=row_counter.placements,
-            {% endif %}
+            {%- endif %}
             # iter
-            {% if "iter" in args.split_function_arg_names %}
+            {%- if "iter" in args.split_function_arg_names %}
             iter=iter,
-            {% endif %}
+            {%- endif %}
             # max counter
-            {% if "max_counter" in args.split_function_arg_names %}
+            {%- if "max_counter" in args.split_function_arg_names %}
             max_counter=max_counter,
-            {% endif %}
+            {%- endif %}
         )
-    {% if not has_gpu_support %}
+    {%- if not has_gpu_support %}
     else:
         assert False, "{{ optimizer }} has only CPU support. host_weights.numel() must be greater than 0."
-    {% endif %}
-    {% endif %}
+    {%- endif %}
+    {%- endif %}
 
-    {% if has_gpu_support %}
+    {%- if has_gpu_support %}
     vbe_metadata = common_args.vbe_metadata
     return torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function(
         # common_args
-        {% if not dense %}
+        {%- if not dense %}
         placeholder_autograd_tensor=common_args.placeholder_autograd_tensor,
-        {% endif %}
+        {%- endif %}
         dev_weights=common_args.dev_weights,
         uvm_weights=common_args.uvm_weights,
         lxu_cache_weights=common_args.lxu_cache_weights,
@@ -195,99 +214,99 @@ def invoke(
         max_B_feature_rank=vbe_metadata.max_B_feature_rank,
         vbe_output_size=vbe_metadata.output_size,
         # optimizer_args
-        {% if optimizer == "none" %}
+        {%- if optimizer == "none" %}
         total_hash_size = optimizer_args.total_hash_size,
-        {% else %}
+        {%- else %}
         gradient_clipping = optimizer_args.gradient_clipping,
         max_gradient=optimizer_args.max_gradient,
         stochastic_rounding=optimizer_args.stochastic_rounding,
-        {% endif %} # if optimizer == none
-        {% if "learning_rate" in args.split_function_arg_names %}
+        {%- endif %} # if optimizer == none
+        {%- if "learning_rate" in args.split_function_arg_names %}
         learning_rate=optimizer_args.learning_rate,
-        {% endif %}
-        {% if "eps" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "eps" in args.split_function_arg_names %}
         eps=optimizer_args.eps,
-        {% endif %}
-        {% if "beta1" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "beta1" in args.split_function_arg_names %}
         beta1=optimizer_args.beta1,
-        {% endif %}
-        {% if "beta2" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "beta2" in args.split_function_arg_names %}
         beta2=optimizer_args.beta2,
-        {% endif %}
-        {% if "weight_decay" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "weight_decay" in args.split_function_arg_names %}
         weight_decay=optimizer_args.weight_decay,
-        {% endif %}
-        {% if "weight_decay_mode" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "weight_decay_mode" in args.split_function_arg_names %}
         weight_decay_mode=optimizer_args.weight_decay_mode,
-        {% endif %}
-        {% if "eta" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "eta" in args.split_function_arg_names %}
         eta=optimizer_args.eta,
-        {% endif %}
-        {% if "momentum" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "momentum" in args.split_function_arg_names %}
         momentum=optimizer_args.momentum,
-        {% endif %}
-        {% if "counter_halflife" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "counter_halflife" in args.split_function_arg_names %}
         counter_halflife=optimizer_args.counter_halflife,
-        {% endif %}
-        {% if "adjustment_iter" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "adjustment_iter" in args.split_function_arg_names %}
         adjustment_iter=optimizer_args.adjustment_iter,
-        {% endif %}
-        {% if "adjustment_ub" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "adjustment_ub" in args.split_function_arg_names %}
         adjustment_ub=optimizer_args.adjustment_ub,
-        {% endif %}
-        {% if "learning_rate_mode" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "learning_rate_mode" in args.split_function_arg_names %}
         learning_rate_mode=optimizer_args.learning_rate_mode,
-        {% endif %}
-        {% if "grad_sum_decay" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "grad_sum_decay" in args.split_function_arg_names %}
         grad_sum_decay=optimizer_args.grad_sum_decay,
-        {% endif %}
-        {% if "tail_id_threshold" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "tail_id_threshold" in args.split_function_arg_names %}
         tail_id_threshold=optimizer_args.tail_id_threshold,
-        {% endif %}
-        {% if "is_tail_id_thresh_ratio" in args.split_function_arg_names %}
+        {%- endif %}
+        {%- if "is_tail_id_thresh_ratio" in args.split_function_arg_names %}
         is_tail_id_thresh_ratio=optimizer_args.is_tail_id_thresh_ratio,
-        {% endif %}
+        {%- endif %}
         # momentum1
-        {% if "momentum1_dev" in args.split_function_arg_names %}
+        {%- if "momentum1_dev" in args.split_function_arg_names %}
         momentum1_dev=momentum1.dev,
         momentum1_uvm=momentum1.uvm,
         momentum1_offsets=momentum1.offsets,
         momentum1_placements=momentum1.placements,
-        {% endif %}
+        {%- endif %}
         # momentum2
-        {% if "momentum2_dev" in args.split_function_arg_names %}
+        {%- if "momentum2_dev" in args.split_function_arg_names %}
         momentum2_dev=momentum2.dev,
         momentum2_uvm=momentum2.uvm,
         momentum2_offsets=momentum2.offsets,
         momentum2_placements=momentum2.placements,
-        {% endif %}
+        {%- endif %}
         # prev_iter
-        {% if "prev_iter_dev" in args.split_function_arg_names %}
+        {%- if "prev_iter_dev" in args.split_function_arg_names %}
         prev_iter_dev=prev_iter.dev,
         prev_iter_uvm=prev_iter.uvm,
         prev_iter_offsets=prev_iter.offsets,
         prev_iter_placements=prev_iter.placements,
-        {% endif %}
+        {%- endif %}
         # row_counter
-        {% if "row_counter_dev" in args.split_function_arg_names %}
+        {%- if "row_counter_dev" in args.split_function_arg_names %}
         row_counter_dev=row_counter.dev,
         row_counter_uvm=row_counter.uvm,
         row_counter_offsets=row_counter.offsets,
         row_counter_placements=row_counter.placements,
-        {% endif %}
+        {%- endif %}
         # iter
-        {% if "iter" in args.split_function_arg_names %}
+        {%- if "iter" in args.split_function_arg_names %}
         iter=iter,
-        {% endif %}
+        {%- endif %}
         # max counter
-        {% if "max_counter" in args.split_function_arg_names %}
+        {%- if "max_counter" in args.split_function_arg_names %}
         max_counter=max_counter,
-        {% endif %}
+        {%- endif %}
         # total_unique_indices
-        {% if "total_unique_indices" in args.split_function_arg_names %}
+        {%- if "total_unique_indices" in args.split_function_arg_names %}
         total_unique_indices = total_unique_indices,
-        {% endif %}
+        {%- endif %}
         output_dtype=common_args.output_dtype,
         is_experimental=common_args.is_experimental,
     )
-    {% endif %}
+    {%- endif %}
