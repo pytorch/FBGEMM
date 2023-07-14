@@ -971,6 +971,7 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
 
     return {
         "optimizer": "rowwise_weighted_adagrad",
+        "is_experimental_optimizer": True,
         "args": make_args(
             [
                 (TENSOR, "momentum1"),
@@ -1088,6 +1089,7 @@ def lamb() -> Dict[str, Any]:
 
     return {
         "optimizer": "lamb",
+        "is_experimental_optimizer": True,
         "args": make_args(
             [
                 (TENSOR, "momentum1"),
@@ -1232,6 +1234,7 @@ def adam() -> Dict[str, Any]:
 
     return {
         "optimizer": "adam",
+        "is_experimental_optimizer": True,
         "args": make_args(
             [
                 (TENSOR, "momentum1"),
@@ -1361,6 +1364,7 @@ def lars_sgd() -> Dict[str, Any]:
 
     return {
         "optimizer": "lars_sgd",
+        "is_experimental_optimizer": True,
         "args": make_args(
             [
                 (TENSOR, "momentum1"),
