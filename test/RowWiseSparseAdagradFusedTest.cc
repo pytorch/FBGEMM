@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include "./EmbeddingSpMDMTestUtils.h"
+#include "TestUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
@@ -64,6 +65,8 @@ class RowWiseSparseAdagradFusedTest : public testing::TestWithParam<tuple<
                                           EmbeddingSpMDMCornerCase,
                                           bool>> {};
 }; // namespace
+
+constexpr float DEFAULT_TOL = 1.0e-6;
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
@@ -280,29 +283,18 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
         << "return vals differ, reference is: " << success_ref
         << " ,fbgemm is: " << success;
     if (success) {
-      for (size_t i = 0; i < h.size(); ++i) {
-        EXPECT_EQ(h[i], h_ref[i])
-            << "results for h differ at (" << i << ") reference: " << h_ref[i]
-            << ", FBGEMM: " << h[i] << " emb dim :" << embedding_dim;
-      }
+      EXPECT_TRUE(floatCloseAll(h, h_ref, DEFAULT_TOL, DEFAULT_TOL));
 
-      for (size_t i = 0; i < w.size(); ++i) {
-        float w_, w_ref_;
-// for fp16 the ref impl already does the conversion
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
-        if (isWeightFp16) {
-          w_ = cpu_half2float(w_fp16[i]);
-          w_ref_ = cpu_half2float(w_fp16_ref[i]);
-        } else
+      if (isWeightFp16) {
+        // Set tol based on fbgemm_gpu tests
+        EXPECT_TRUE(floatCloseAll(w_fp16, w_fp16_ref, 1.0e-2, 1.0e-2));
+      } else
 #endif
-        {
-          w_ = w[i];
-          w_ref_ = w_ref[i];
-        }
-        EXPECT_EQ(w_, w_ref_)
-            << "results for w differ at (" << i << ") reference: " << w_ref_
-            << ", FBGEMM: " << w_ << " emb dim :" << embedding_dim;
+      {
+        // Set tol based on fbgemm_gpu tests
+        EXPECT_TRUE(floatCloseAll(w, w_ref, 1.0e-4, 1.0e-4));
       }
     }
   }

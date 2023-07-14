@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <gtest/gtest.h>
 #include <cmath>
 #include <vector>
 
@@ -31,5 +32,14 @@ int compare_validate_buffers(
  */
 template <typename T>
 bool check_all_zero_entries(const T* test, int m, int n);
+
+// atol: absolute tolerance. <=0 means do not consider atol.
+// rtol: relative tolerance. <=0 means do not consider rtol.
+template <typename a_T, typename b_T>
+::testing::AssertionResult floatCloseAll(
+    const std::vector<a_T>& a,
+    const std::vector<b_T>& b,
+    const float atol = std::numeric_limits<float>::epsilon(),
+    const float rtol = 0);
 
 } // namespace fbgemm
