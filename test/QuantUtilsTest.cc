@@ -13,8 +13,7 @@
 #include <sstream>
 #include <type_traits>
 
-#include <gtest/gtest.h>
-
+#include "TestUtils.h"
 #include "fbgemm/QuantUtils.h"
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
@@ -151,85 +150,6 @@ template <typename T>
     return ::testing::AssertionSuccess();
   else
     return ::testing::AssertionFailure() << " Quantized results do not match";
-}
-
-// atol: absolute tolerance. <=0 means do not consider atol.
-// rtol: relative tolerance. <=0 means do not consider rtol.
-::testing::AssertionResult floatCloseAll(
-    vector<float>& a,
-    vector<float>& b,
-    float atol = std::numeric_limits<float>::epsilon(),
-    float rtol = 0) {
-  std::stringstream ss;
-  bool match = true;
-  if (a.size() != b.size()) {
-    ss << " size mismatch ";
-    match = false;
-  }
-  if (match) {
-    for (size_t i = 0; i < a.size(); i++) {
-      const bool consider_absDiff = atol > 0;
-      const bool consider_relDiff = rtol > 0 &&
-          fabs(a[i]) > std::numeric_limits<float>::epsilon() &&
-          fabs(b[i]) > std::numeric_limits<float>::epsilon();
-
-      const float absDiff = fabs(a[i] - b[i]);
-      const float relDiff = absDiff / fabs(a[i]);
-
-      if (consider_absDiff && consider_relDiff) {
-        if (absDiff > atol && relDiff > rtol) {
-          ss << " mismatch at (" << i << ") " << endl;
-          ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
-          ss << "\t absolute diff: " << absDiff << " > " << atol << endl;
-          ss << "\t relative diff: " << relDiff << " > " << rtol << endl;
-          match = false;
-        }
-      } else if (consider_absDiff) {
-        if (absDiff > atol) {
-          ss << " mismatch at (" << i << ") " << endl;
-          ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
-          ss << "\t absolute diff: " << absDiff << " > " << atol << endl;
-          match = false;
-        }
-      } else if (consider_relDiff) {
-        if (relDiff > rtol) {
-          ss << " mismatch at (" << i << ") " << endl;
-          ss << "\t  ref: " << a[i] << " test: " << b[i] << endl;
-          ss << "\t relative diff: " << relDiff << " > " << rtol << endl;
-          match = false;
-        }
-      }
-    }
-  }
-  if (match)
-    return ::testing::AssertionSuccess();
-  else
-    return ::testing::AssertionFailure()
-        << " results do not match. " << ss.str();
-}
-
-::testing::AssertionResult floatCloseAll(
-    vector<float>& a,
-    vector<float16>& b,
-    float atol = std::numeric_limits<float>::epsilon(),
-    float rtol = 0) {
-  vector<float> b_float(b.size());
-  const auto transform = [](float16 input) { return cpu_half2float(input); };
-  std::transform(b.begin(), b.end(), b_float.begin(), transform);
-  return floatCloseAll(a, b_float, atol, rtol);
-}
-
-::testing::AssertionResult floatCloseAll(
-    vector<float16>& a,
-    vector<float16>& b,
-    float atol = std::numeric_limits<float>::epsilon(),
-    float rtol = 0) {
-  vector<float> a_float(a.size());
-  vector<float> b_float(b.size());
-  const auto transform = [](float16 input) { return cpu_half2float(input); };
-  std::transform(a.begin(), a.end(), a_float.begin(), transform);
-  std::transform(b.begin(), b.end(), b_float.begin(), transform);
-  return floatCloseAll(a_float, b_float, atol, rtol);
 }
 
 template <typename T>
