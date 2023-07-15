@@ -34,11 +34,6 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_updat
 {%- endif %}
 
 
-{%- if is_experimental_optimizer %}
-_{{ optimizer }}_first_invocation = True
-{%- endif %}
-
-
 def invoke(
     common_args: CommonArgs,
     optimizer_args: OptimizerArgs,
@@ -65,17 +60,14 @@ def invoke(
     {%- endif %}
 ) -> torch.Tensor:
     {%- if is_experimental_optimizer %}
-    global _{{ optimizer }}_first_invocation
-    if _{{ optimizer }}_first_invocation:
-        warnings.warn(
-            f"""\033[93m
-            [FBGEMM_GPU] NOTE: The training optimizer '{{ optimizer }}' is marked as
-            EXPERIMENTAL and thus not optimized, in order to reduce code compilation
-            times and build sizes!
-            \033[0m""",
-            RuntimeWarning,
-        )
-        _{{ optimizer }}_first_invocation = False
+    # By design, the warning only shows up once
+    warnings.warn(
+        f"""\033[93m
+        [FBGEMM_GPU] NOTE: The training optimizer '{{ optimizer }}' is marked as
+        EXPERIMENTAL and thus not optimized, in order to reduce code compilation
+        times and build sizes!
+        \033[0m"""
+    )
     {%- endif %}
 
     {%- if has_cpu_support %}
