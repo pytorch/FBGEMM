@@ -37,3 +37,8 @@ FBGEMM_OP_DISPATCH(CUDA, "jagged_2d_to_dense", fbgemm_gpu::jagged_2d_to_dense);
 FBGEMM_OP_DISPATCH(CUDA, "jagged_softmax", fbgemm_gpu::jagged_softmax);
 FBGEMM_OP_DISPATCH(CUDA, "jagged_jagged_bmm", fbgemm_gpu::jagged_jagged_bmm);
 FBGEMM_OP_DISPATCH(CUDA, "jagged_dense_bmm", fbgemm_gpu::jagged_dense_bmm);
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "jagged_index_select",
+    fbgemm_gpu::jagged_index_select_2d);

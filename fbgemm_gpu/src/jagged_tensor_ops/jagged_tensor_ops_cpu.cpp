@@ -1730,6 +1730,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "jagged_index_select_2d_forward",
       fbgemm_gpu::jagged_index_select_2d_forward_cpu);
+  DISPATCH_TO_CPU("jagged_index_select", fbgemm_gpu::jagged_index_select_2d);
   DISPATCH_TO_CPU(
       "jagged_index_add_2d_forward",
       fbgemm_gpu::jagged_index_add_2d_forward_cpu);
