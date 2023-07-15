@@ -183,7 +183,7 @@ grad_mean{{ vbe_desc }}_kernel(
   For the experimental optimizers, kMaxVecsPerThread and kThreadGroupSize are
   fixed to 8 (1024 elements) and kWarpSize, respectively.
 */
-#define DISPATCH_KERNEL_BODY(MAX_D, ...)                                       \
+#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                    \
   [&] {                                                                        \
     constexpr auto kMaxVecsPerThread = {{ max_embedding_dim // items_per_warp }};                  \
     constexpr auto kThreadGroupSize = kWarpSize;                               \
@@ -208,7 +208,7 @@ grad_mean{{ vbe_desc }}_kernel(
   is unable to use std::max in constexpr context.
 */
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-#define DISPATCH_KERNEL_BODY(MAX_D, ...)                                       \
+#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                    \
   [&] {                                                                        \
     {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
     {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
@@ -223,7 +223,7 @@ grad_mean{{ vbe_desc }}_kernel(
   }()
 
 #else
-#define DISPATCH_KERNEL_BODY(MAX_D, ...)                                       \
+#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                    \
   [&] {                                                                        \
     constexpr int kThreadGroupSize = kWarpSize;                                \
     {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
@@ -573,7 +573,7 @@ Tensor split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimi
             }
             {%- endif %}
 
-            DISPATCH_KERNEL_BODY(max_D, [&] {
+            DISPATCH_OPTIMAL_KERNEL(max_D, [&] {
                 // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB; H100: 144 KB), BT_block_size must be a power of two.
                 while (BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread >= used_shared_bytes) {
                     BT_block_size /= 2;
