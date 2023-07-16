@@ -1763,6 +1763,79 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
+    @unittest.skipIf(*running_on_github)
+    @given(
+        max_seq_length=st.integers(5, 10),
+        batch_size=st.integers(1, 128),
+        num_cols=st.integers(1, 128),
+        num_jagged_tensor_rows=st.integers(1, 128),
+        index_dtype=st.sampled_from([torch.int, torch.long]),
+        jagged_tensor_dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+                torch.int,
+                torch.long,
+            ]  # Disable torch.bfloat16 due to large error bound
+        ),
+        use_cpu=st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_jagged_index_select_2d_in_inference(
+        self,
+        max_seq_length: int,
+        batch_size: int,
+        num_cols: int,
+        num_jagged_tensor_rows: int,
+        index_dtype: torch.dtype,
+        jagged_tensor_dtype: torch.dtype,
+        use_cpu: bool,
+    ) -> None:
+        device = torch.device("cpu" if use_cpu else "cuda")
+        is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
+        lengths = torch.randint(
+            low=0,
+            high=max_seq_length,
+            size=(num_jagged_tensor_rows,),
+            dtype=index_dtype,
+            device=device,
+        )
+        indices, _ = torch.sort(
+            torch.randint(
+                low=0,
+                high=num_jagged_tensor_rows,
+                size=(batch_size,),
+                dtype=index_dtype,
+                device=device,
+            )
+        )
+        if is_float:
+            values = torch.rand(
+                int(lengths.sum().item()),
+                num_cols,
+                dtype=jagged_tensor_dtype,
+                device=device,
+            )
+        else:
+            values = torch.randint(
+                2**16,
+                (int(lengths.sum().item()), num_cols),
+                dtype=jagged_tensor_dtype,
+                device=device,
+            )
+        values_ref = values.detach().clone()
+
+        with torch.inference_mode():
+            output, _ = torch.ops.fbgemm.jagged_index_select(values, lengths, indices)
+            output_ref = self.jagged_index_select_2d_ref(
+                values_ref, lengths, indices, device
+            )
+            assert torch.equal(output, output_ref)
+
     @given(
         batch_size=st.integers(1, 128),
         max_length=st.integers(0, 128),
