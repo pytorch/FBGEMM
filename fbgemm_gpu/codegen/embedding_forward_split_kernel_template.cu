@@ -335,15 +335,76 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+// Explicit Template Instantiations
+////////////////////////////////////////////////////////////////////////////////
+
 /*
     Explicitly instantiate the kernel function template.  The instantiations are
     based on the types enumerated by DISPATCH_EMB_CACHE_TYPES macro used in
     embedding_forward_split_template.cu
 */
 
-{%- for output_type in ['uint8_t', 'at::Half', 'float'] %}
-{%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
-{%- for cache_type in ['float', 'at::Half'] %}
+{%- macro template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
+template __launch_bounds__(kForwardMaxThreads) __global__
+void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel
+<
+    {{ emb_type }},
+    {{ cache_type }},
+    {{ output_type }},
+    {%- if not dense %}
+    {{ use_cache }},
+    {%- endif %}
+    int64_t,
+    {%- if not nobag %}
+    {{- kMaxVecsPerThread }},
+    {%- endif %}
+    {{ kThreadGroupSize }}
+> (
+    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    const pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %}
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
+    FixedDivisor fd_B,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    {%- if not nobag %}
+    int64_t pooling_mode,
+    {%- endif %}
+    {%- if weighted %}
+    pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> indice_weights,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    {%- endif %}
+    pta::PackedTensorAccessor64<{{ output_type }}, 2, at::RestrictPtrTraits> output);
+{%- endmacro %}
+
+{%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
+    {%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
+    {%- for cache_type in ['float', 'at::Half'] %}
+    {%- for output_type in ['uint8_t', 'at::Half', 'float'] %}
+        {{ template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
+    {%- endfor %}
+    {%- endfor %}
+    {%- endfor %}
+{%- endmacro %}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
@@ -419,55 +480,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     (NULL,·NULL,·(kWarpSize·/·1))
 */ #}
 {%- for (use_cache, kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
-
-template __launch_bounds__(kForwardMaxThreads) __global__
-void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel
-<
-    {{ emb_type }},
-    {{ cache_type }},
-    {{ output_type }},
-    {%- if not dense %}
-    {{ use_cache }},
-    {%- endif %}
-    int64_t,
-    {%- if not nobag %}
-    {{- kMaxVecsPerThread }},
-    {%- endif %}
-    {{ kThreadGroupSize }}
-> (
-    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
-    {%- if not dense %}
-    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
-    const pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {%- if not nobag %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {%- else %}
-    int64_t D,
-    {%- endif %}
-    {%- if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
-    {%- else %}
-    FixedDivisor fd_B,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    {%- if not nobag %}
-    int64_t pooling_mode,
-    {%- endif %}
-    {%- if weighted %}
-    pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> indice_weights,
-    {%- endif %}
-    {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
-    {%- endif %}
-    pta::PackedTensorAccessor64<{{ output_type }}, 2, at::RestrictPtrTraits> output);
-
+    {{ bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
 {%- endfor %}
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -528,61 +541,9 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     (NULL,·NULL,·kWarpSize)
 */ #}
 {%- for (use_cache, kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
-
-template __launch_bounds__(kForwardMaxThreads) __global__
-void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel
-<
-    {{ emb_type }},
-    {{ cache_type }},
-    {{ output_type }},
-    {%- if not dense %}
-    {{ use_cache }},
-    {%- endif %}
-    int64_t,
-    {%- if not nobag %}
-    {{- kMaxVecsPerThread }},
-    {%- endif %}
-    {{ kThreadGroupSize }}
-> (
-    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
-    {%- if not dense %}
-    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
-    const pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {%- if not nobag %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {%- else %}
-    int64_t D,
-    {%- endif %}
-    {%- if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
-    {%- else %}
-    FixedDivisor fd_B,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
-    {%- if not nobag %}
-    int64_t pooling_mode,
-    {%- endif %}
-    {%- if weighted %}
-    pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> indice_weights,
-    {%- endif %}
-    {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
-    {%- endif %}
-    pta::PackedTensorAccessor64<{{ output_type }}, 2, at::RestrictPtrTraits> output);
-
+    {{ bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
 {%- endfor %}
 
 ////////////////////////////////////////////////////////////////////////////////
 #endif
 ////////////////////////////////////////////////////////////////////////////////
-
-{%- endfor %}
-{%- endfor %}
-{%- endfor %}

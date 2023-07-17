@@ -22,6 +22,10 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+////////////////////////////////////////////////////////////////////////////////
+// External Function Declarations
+////////////////////////////////////////////////////////////////////////////////
+
 {%- if not weighted %}
 template <
     typename emb_t,
@@ -83,9 +87,10 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 #endif
 {% endif %} // if not dense
 
+
 {%- for nobag in [True, False] %}
 {%- if not nobag or (not weighted and not vbe) %}
-{%- set has_experimental = (not dense and not nobag and not vbe) %}
+
 template <
     typename emb_t,
     typename cache_t,
@@ -134,6 +139,75 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
     {%- endif %}
     pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D]
     );
+
+{%- endif %}
+{%- endfor %}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Utility Macros
+////////////////////////////////////////////////////////////////////////////////
+
+/*
+  The macro definition for both cases are almost the same except for the
+  definition of kThreadGroupSize.  In the FBGEMM_USE_SUBWARP_SHUFFLE case, if
+  MAX_D is small, then we use fewer number of threads than kWarpSize.
+
+  NOTE: kMaxVecsPerThread is computed using the ternary operator because HIPCC
+  is unable to use std::max in constexpr context.
+*/
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D, ...)                            \
+  [&] {                                                                        \
+    {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+    {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+    if (MAX_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {              \
+      constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
+      constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);                           \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    {%- endif %}
+    {%- endfor %}
+    return;                                                                    \
+  }()
+
+#else
+#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D, ...)                            \
+  [&] {                                                                        \
+    constexpr int kThreadGroupSize = kWarpSize;                                \
+    {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+    {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
+    if (MAX_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {              \
+      constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    {%- endif %}
+    {%- endfor %}
+    return;                                                                    \
+  }()
+
+#endif
+
+
+#define DISPATCH_OPTIMAL_NOBAG_FORWARD_KERNEL(DD_, ...)                        \
+  [&] {                                                                        \
+    {%- for kEmbeddingSize in [4, 8, 16, 32] %}
+    if (DD_ <= {{ kEmbeddingSize }}) {                                         \
+      constexpr int kEmbeddingSize = {{ kEmbeddingSize }};                     \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    {%- endfor %}
+    return;                                                                    \
+  }()
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Kernel Definitions
+////////////////////////////////////////////////////////////////////////////////
+
+{%- for nobag in [True, False] %}
+{%- if not nobag or (not weighted and not vbe) %}
+{%- set has_experimental = (not dense and not nobag and not vbe) %}
 
 Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_cuda(
     Tensor dev_weights,
@@ -294,21 +368,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         {%- if not dense %}
         if (use_lxu_cache == {{ use_cache }}) {
         {%- endif %}
-            // kMaxElemPerThread is # of elements handled by thread if we use a full warp for a row
-            // We consider kMaxElemPerThread 1 and 2, and then a multiple of 4.
-            {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-            {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-            if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
-                // hipcc can't use max in constexpr
-                constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;
-                // If max_D is small, use fewer number of threads than kWarpSize.
 
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-                constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
-#else
-                constexpr int kThreadGroupSize = kWarpSize;
-#endif
-
+            DISPATCH_OPTIMAL_FORWARD_KERNEL(max_D, [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
                 const auto func_name = "{{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}_kernel";
 #endif
@@ -354,27 +415,28 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 output = output.reshape({-1});
                 {%- endif %}
                 return;
-            }
-            {%- endif %}
-            {%- endfor %}
+            });
+
         {%- if not dense %}
         } // if (use_lxu_cache == {{ use_cache }})
         {%- endif %}
         {%- endif %} // if (not dense) or (use_cache == "true" and not vbe)
         {%- endfor %} // for use_cache in ["false", "true"]
+
+
         {%- else %}
-        {%- for kEmbeddingSize in [4, 8, 16, 32] %}
-        if (D <= {{ kEmbeddingSize }}) {
+
+        DISPATCH_OPTIMAL_NOBAG_FORWARD_KERNEL(D, [&] {
         {%- if not dense %}
 #ifdef FBGEMM_GPU_MEMCHECK
         const auto func_name = "split_embedding_nobag_codegen_forward_unweighted_small_kernel";
 #endif
-        split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, {{ kEmbeddingSize // 4 }}><<<
+        split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4><<<
         {%- else %}
 #ifdef FBGEMM_GPU_MEMCHECK
         const auto func_name = "dense_embedding_nobag_codegen_forward_unweighted_small_kernel";
 #endif
-        dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, {{ kEmbeddingSize // 4 }}><<<
+        dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4><<<
         {%- endif %}
             div_round_up(total_B, kForwardMaxThreads / kWarpSize),
             dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
@@ -398,8 +460,9 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             );
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
-        }
-        {%- endfor %}
+        });
+
+
         {%- for use_cache in ["false", "true"] %}
         // The dense case does not have cache so we have to generate code for
         // only one case (value of use_cache/vbe does not matter)
