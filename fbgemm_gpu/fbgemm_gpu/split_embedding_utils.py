@@ -111,6 +111,7 @@ def generate_requests(  # noqa C901
     # and mu_L
     sigma_L: Optional[int] = None,
     emulate_pruning: bool = False,
+    use_cpu: bool = False,
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
     if requests_data_file is not None:
         indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
@@ -309,7 +310,9 @@ def generate_requests(  # noqa C901
                 )  # per sample weights will always be FP32
             )
             rs.append(
-                get_table_batched_offsets_from_dense(all_indices[it].view(T, B, L))
+                get_table_batched_offsets_from_dense(
+                    all_indices[it].view(T, B, L), use_cpu=use_cpu
+                )
                 + (weights_tensor,)
             )
     return rs
