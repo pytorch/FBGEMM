@@ -10,7 +10,6 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
-#include <ATen/cuda/PeerToPeerAccess.h>
 #include <ATen/native/TensorAdvancedIndexing.h>
 #include <c10/core/Device.h>
 #include <c10/core/TensorOptions.h>
@@ -535,7 +534,15 @@ void init_p2p_access() {
     for (const auto i : c10::irange(at::cuda::getNumGPUs())) {
       for (const auto j : c10::irange(at::cuda::getNumGPUs())) {
         if (i != j) {
-          AT_ASSERT(at::cuda::get_p2p_access(i, j));
+          at::cuda::CUDAGuard g(i);
+          const auto err =
+              C10_CUDA_ERROR_HANDLED(cudaDeviceEnablePeerAccess(j, 0));
+          if (err == cudaErrorPeerAccessAlreadyEnabled) {
+            // ignore and clear the error if access was already enabled
+            C10_CUDA_CLEAR_ERROR();
+          } else {
+            AT_CUDA_CHECK(err);
+          }
         }
       }
     }
