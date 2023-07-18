@@ -2305,6 +2305,7 @@ def pruned_array(  # noqa C901
         E,
         requests_data_file=requests_data_file,
         tables=tables,
+        use_cpu=True if device == "cpu" else False,
     )
     requests = [(a.int().to(device), b.int().to(device), c) for (a, b, c) in requests]
 
