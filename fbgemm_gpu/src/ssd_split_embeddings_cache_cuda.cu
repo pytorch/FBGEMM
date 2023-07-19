@@ -253,6 +253,8 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
   // Find uncached indices
   Tensor uvm_cache_stats =
       at::empty({0}, linear_indices.options().dtype(at::kInt));
+  Tensor lxu_cache_locking_counter =
+      at::empty({0, 0}, lxu_cache_state.options().dtype(at::kInt));
   auto cache_sets_and_unique_indices = lru_cache_find_uncached_cuda(
       unique_indices,
       unique_indices_length,
@@ -261,7 +263,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
       time_stamp,
       lru_state,
       false, // gather_cache_stats
-      uvm_cache_stats);
+      uvm_cache_stats,
+      false, // lock_cache_line
+      lxu_cache_locking_counter);
   auto sorted_cache_sets = cache_sets_and_unique_indices.first;
   auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
   TORCH_DSA_KERNEL_LAUNCH(

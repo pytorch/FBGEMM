@@ -5818,6 +5818,46 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
+        cache_sets=st.integers(min_value=10, max_value=300),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_lxu_cache_locking_counter_decrement(
+        self,
+        cache_sets: int,
+    ) -> None:
+        warp_size = DEFAULT_ASSOC
+        N = cache_sets * warp_size
+        lxu_cache_locking_counter = torch.randint(
+            low=1,
+            high=3,
+            size=[cache_sets, warp_size],
+            device="cuda",
+            dtype=torch.int32,
+        )
+        counter_ref = lxu_cache_locking_counter.tolist()
+        lxu_cache_locations_list = []
+        lxu_cache_locations_set = set()
+        for _ in range(3 * N):
+            location = random.randrange(-1, N)
+            lxu_cache_locations_list.append(location)
+            lxu_cache_locations_set.add(location)
+
+        for idx in lxu_cache_locations_set:
+            if idx >= 0:
+                q, r = idx // warp_size, idx % warp_size
+                counter_ref[q][r] -= 1
+
+        counter_ref = torch.tensor(counter_ref, device="cuda", dtype=torch.int32)
+        lxu_cache_locations = torch.tensor(
+            lxu_cache_locations_list, device="cuda", dtype=torch.int32
+        )
+        torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
+            lxu_cache_locking_counter, lxu_cache_locations
+        )
+        self.assertTrue(torch.equal(lxu_cache_locking_counter, counter_ref))
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=64),
         log_E=st.integers(min_value=2, max_value=3),

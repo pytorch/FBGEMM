@@ -569,6 +569,93 @@ DLL_PUBLIC Tensor emulate_cache_miss(
 }
 
 namespace {
+// count the number of times that a cache_slot appears in lxu_cache_locations
+// we actually only care about whether the number is 0 or > 0.
+__global__ __launch_bounds__(kMaxThreads) void lxu_cache_locations_count_kernel(
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        lxu_cache_locations,
+    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count,
+    FixedDivisor fd) {
+  const int32_t N = lxu_cache_locations.size(0);
+  CUDA_KERNEL_LOOP(n, N) {
+    if (lxu_cache_locations[n] >= 0) {
+      int32_t cache_set;
+      int32_t slot;
+      fd.DivMod(lxu_cache_locations[n], &cache_set, &slot);
+      atomicAdd(&count[cache_set][slot], 1);
+    }
+  }
+}
+
+// if a cache_slot is in lxu_cache_locations (count > 0),
+// decrement the counter of that cache_slot.
+__global__
+__launch_bounds__(kMaxThreads) void lxu_cache_locking_counter_decrement_kernel(
+    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+        lxu_cache_locking_counter,
+    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count) {
+  const int32_t C = lxu_cache_locking_counter.size(0);
+  for (int32_t i = blockIdx.x * blockDim.y + threadIdx.y; i < C;
+       i += gridDim.x * blockDim.y) {
+    const auto j = threadIdx.x;
+    if (count[i][j] > 0) {
+      atomicSub(&lxu_cache_locking_counter[i][j], 1);
+    }
+  }
+}
+} // namespace
+
+// for any cache_slot in lxu_cache_locations,
+// decrement the counter of that cache_slot.
+// duplicate cache_slot only decrement once.
+void lxu_cache_locking_counter_decrement_cuda(
+    at::Tensor lxu_cache_locking_counter,
+    at::Tensor lxu_cache_locations) {
+  TENSOR_ON_CUDA_GPU(lxu_cache_locking_counter);
+  TENSOR_ON_CUDA_GPU(lxu_cache_locations);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(lxu_cache_locations.get_device());
+
+  const auto N = lxu_cache_locations.numel();
+  if (N == 0) {
+    return;
+  }
+
+  auto count = at::zeros_like(lxu_cache_locking_counter);
+  const int32_t C = lxu_cache_locking_counter.size(0);
+  TORCH_CHECK(lxu_cache_locking_counter.size(1) == kWarpSize);
+  auto fd = FixedDivisor(kWarpSize);
+
+  const dim3 blocks(std::min(
+      div_round_up(N, kMaxThreads),
+      get_max_thread_blocks_for_cache_kernels_()));
+
+  lxu_cache_locations_count_kernel<<<
+      blocks,
+      kMaxThreads,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      lxu_cache_locations
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      count.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>(),
+      fd);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  lxu_cache_locking_counter_decrement_kernel<<<
+      std::min(
+          div_round_up(C, kMaxThreads / kWarpSize),
+          get_max_thread_blocks_for_cache_kernels_()),
+      dim3(kWarpSize, kMaxThreads / kWarpSize),
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      lxu_cache_locking_counter
+          .packed_accessor32<int32_t, 2, at::RestrictPtrTraits>(),
+      count.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+namespace {
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
@@ -582,7 +669,10 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     const bool gather_cache_stats,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        uvm_cache_stats) {
+        uvm_cache_stats,
+    const bool lock_cache_line,
+    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+        lxu_cache_locking_counter) {
   if (gather_cache_stats) {
     if (blockIdx.x == 0 && threadIdx.x == 0 && threadIdx.y == 0) {
       atomicAdd(
@@ -614,6 +704,9 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     if (found) {
       // mark it as recently accessed so we don't evict.
       lru_state[cache_set][slot] = time_stamp;
+      if (lock_cache_line) {
+        atomicAdd(&lxu_cache_locking_counter[cache_set][slot], 1);
+      }
     }
 
 #ifdef __HIP_PLATFORM_HCC__
@@ -706,13 +799,16 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
     int64_t time_stamp,
     Tensor lru_state,
     bool gather_cache_stats,
-    Tensor uvm_cache_stats) {
+    Tensor uvm_cache_stats,
+    bool lock_cache_line,
+    Tensor lxu_cache_locking_counter) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       unique_indices,
       unique_indices_length,
       lxu_cache_state,
       lru_state,
-      uvm_cache_stats);
+      uvm_cache_stats,
+      lxu_cache_locking_counter);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(unique_indices.get_device());
@@ -747,7 +843,10 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
             lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
             gather_cache_stats,
             uvm_cache_stats
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            lock_cache_line,
+            lxu_cache_locking_counter
+                .packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
         // Sort the cache sets and ids
         size_t temp_storage_bytes = 0;
@@ -859,7 +958,10 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     at::PhiloxCudaState stochastic_rounding_philox_args,
     const bool gather_cache_stats,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        uvm_cache_stats) {
+        uvm_cache_stats,
+    const bool lock_cache_line,
+    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+        lxu_cache_locking_counter) {
   const int32_t C = lxu_cache_state.size(0);
   int32_t n_conflict_misses = 0;
   for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
@@ -883,7 +985,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     while (n + SL < *N_unique && sorted_cache_sets[n + SL] == cache_set) {
       SL += 1;
     }
-    int32_t n_inserted = 0;
+    int32_t n_inserted = 0; // also used as index to insert
 
     // now, we need to insert the (unique!) values in indices[n:n + SL] into
     // our slots.
@@ -898,11 +1000,25 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
 
     for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
       const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      if (lock_cache_line) {
+        int32_t count = 0;
+        // ensure that threadIdx.x = 0 is the only thread reading
+        // lxu_cache_locking_counter
+        if (threadIdx.x == 0) {
+          // ensure that the load is atomic using atomicAdd with val = 0
+          count =
+              atomicAdd(&lxu_cache_locking_counter[cache_set][insert_slot], 0);
+        }
+        count = shfl_sync(count, 0);
+        if (count > 0) {
+          continue; // cache slot is in use
+        }
+      }
       const int64_t insert_current_lru_cost = shfl_sync(sorted_lru_cost, l);
       if (insert_current_lru_cost == time_stamp) {
         break;
       }
-      const int64_t insert_idx = cache_set_sorted_indices[n + l];
+      const int64_t insert_idx = cache_set_sorted_indices[n + n_inserted];
       const int32_t t_insert = cache_index_table_map[insert_idx];
       const int64_t idx_insert = insert_idx - cache_hash_size_cumsum[t_insert];
       const int64_t weights_offset_insert = weights_offsets[t_insert];
@@ -1001,6 +1117,9 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
       if (threadIdx.x == 0) {
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
         lru_state[cache_set][insert_slot] = time_stamp;
+        if (lock_cache_line) {
+          atomicAdd(&lxu_cache_locking_counter[cache_set][insert_slot], 1);
+        }
       }
       n_inserted++;
     }
@@ -1028,7 +1147,9 @@ void lru_cache_insert_cuda(
     Tensor lru_state,
     const bool stochastic_rounding,
     bool gather_cache_stats,
-    Tensor uvm_cache_stats) {
+    Tensor uvm_cache_stats,
+    bool lock_cache_line,
+    Tensor lxu_cache_locking_counter) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       weights,
       cache_hash_size_cumsum,
@@ -1041,7 +1162,8 @@ void lru_cache_insert_cuda(
       lxu_cache_state,
       lxu_cache_weights,
       lru_state,
-      uvm_cache_stats);
+      uvm_cache_stats,
+      lxu_cache_locking_counter);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(weights.get_device());
@@ -1091,7 +1213,10 @@ void lru_cache_insert_cuda(
                 rng_engine_inputs,
                 gather_cache_stats,
                 uvm_cache_stats
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                lock_cache_line,
+                lxu_cache_locking_counter
+                    .packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 }
@@ -1112,7 +1237,9 @@ DLL_PUBLIC void lru_cache_populate_cuda(
     Tensor lru_state,
     const bool stochastic_rounding,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats) {
+    c10::optional<Tensor> uvm_cache_stats,
+    bool lock_cache_line,
+    c10::optional<Tensor> lxu_cache_locking_counter) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       weights,
       cache_hash_size_cumsum,
@@ -1129,6 +1256,14 @@ DLL_PUBLIC void lru_cache_populate_cuda(
     TORCH_CHECK(uvm_cache_stats.has_value());
     uvm_cache_stats_ = uvm_cache_stats.value();
     TENSOR_ON_CUDA_GPU(uvm_cache_stats_);
+  }
+
+  Tensor lxu_cache_locking_counter_ =
+      at::empty({0, 0}, lxu_cache_state.options().dtype(at::kInt));
+  if (lock_cache_line) {
+    TORCH_CHECK(lxu_cache_locking_counter.has_value());
+    lxu_cache_locking_counter_ = lxu_cache_locking_counter.value();
+    TENSOR_ON_CUDA_GPU(lxu_cache_locking_counter_);
   }
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -1157,7 +1292,9 @@ DLL_PUBLIC void lru_cache_populate_cuda(
       time_stamp,
       lru_state,
       gather_cache_stats,
-      uvm_cache_stats_);
+      uvm_cache_stats_,
+      lock_cache_line,
+      lxu_cache_locking_counter_);
   auto sorted_cache_sets = cache_sets_and_unique_indices.first;
   auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
 
@@ -1177,7 +1314,9 @@ DLL_PUBLIC void lru_cache_populate_cuda(
       lru_state,
       stochastic_rounding,
       gather_cache_stats,
-      uvm_cache_stats_);
+      uvm_cache_stats_,
+      lock_cache_line,
+      lxu_cache_locking_counter_);
 }
 
 namespace {
@@ -1578,6 +1717,8 @@ DLL_PUBLIC void lru_cache_populate_byte_cuda(
           linear_cache_indices, total_cache_hash_size, false);
 
   // Find uncached indices
+  Tensor lxu_cache_locking_counter =
+      at::empty({0, 0}, lxu_cache_state.options().dtype(at::kInt));
   auto cache_sets_and_unique_indices = lru_cache_find_uncached_cuda(
       unique_indices,
       unique_indices_length,
@@ -1586,7 +1727,9 @@ DLL_PUBLIC void lru_cache_populate_byte_cuda(
       time_stamp,
       lru_state,
       gather_cache_stats,
-      uvm_cache_stats_);
+      uvm_cache_stats_,
+      false, // lock_cache_line
+      lxu_cache_locking_counter);
   auto sorted_cache_sets = cache_sets_and_unique_indices.first;
   auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
 
@@ -2617,6 +2760,57 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
       });
 
   return lxu_cache_locations;
+}
+
+namespace {
+
+__global__
+__launch_bounds__(kMaxThreads) void lxu_cache_locations_update_kernel(
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        lxu_cache_locations,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        lxu_cache_locations_new) {
+  const int32_t N = lxu_cache_locations.size(0);
+  CUDA_KERNEL_LOOP(n, N) {
+    if (lxu_cache_locations[n] == kCacheLocationMissing &&
+        lxu_cache_locations_new[n] >= 0) {
+      lxu_cache_locations[n] = lxu_cache_locations_new[n];
+    }
+  }
+}
+} // namespace
+
+DLL_PUBLIC void lxu_cache_locations_update_cuda(
+    Tensor lxu_cache_locations,
+    Tensor lxu_cache_locations_new) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      lxu_cache_locations, lxu_cache_locations_new);
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(lxu_cache_locations.get_device());
+
+  const auto N = lxu_cache_locations.numel();
+
+  if (N == 0) {
+    return;
+  }
+
+  const dim3 blocks(std::min(
+      div_round_up(N, kMaxThreads),
+      get_max_thread_blocks_for_cache_kernels_()));
+
+  lxu_cache_locations_update_kernel<<<
+      blocks,
+      kMaxThreads,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      lxu_cache_locations
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      lxu_cache_locations_new
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return;
 }
 
 DLL_PUBLIC Tensor direct_mapped_lxu_cache_lookup_cuda(
