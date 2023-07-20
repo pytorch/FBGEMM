@@ -95,6 +95,12 @@ class SparseOpsTest(unittest.TestCase):
         is_1D: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         T = lengths.size(0)
+        B = lengths.size(1)
+        if T == 0 or B == 0:
+            if is_1D:
+                lengths = lengths.view(-1)
+            return lengths, indices, weights
+
         if is_1D:
             permuted_lengths = torch.index_select(lengths.view(-1), 0, permute).view(-1)
             original_segment_lengths = lengths.view(-1)
@@ -141,8 +147,8 @@ class SparseOpsTest(unittest.TestCase):
         return permuted_lengths, permuted_indices, permuted_weights
 
     @given(
-        B=st.integers(min_value=1, max_value=20),
-        T=st.integers(min_value=1, max_value=20),
+        B=st.integers(min_value=0, max_value=20),
+        T=st.integers(min_value=0, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
         has_weight=st.booleans(),
@@ -163,7 +169,10 @@ class SparseOpsTest(unittest.TestCase):
         index_dtype = torch.int64 if long_index else torch.int32
         length_splits: Optional[List[torch.Tensor]] = None
         if is_1D:
-            batch_sizes = [random.randint(a=1, b=B) for i in range(W)]
+            if B == 0:
+                batch_sizes = [0] * W
+            else:
+                batch_sizes = [random.randint(a=1, b=B) for i in range(W)]
             length_splits = [
                 torch.randint(low=1, high=L, size=(T, batch_sizes[i])).type(index_dtype)
                 for i in range(W)
