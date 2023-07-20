@@ -32,7 +32,9 @@ std::pair<at::Tensor, at::Tensor> lru_cache_find_uncached_cuda(
     int64_t time_stamp,
     at::Tensor lru_state,
     bool gather_cache_stats,
-    at::Tensor uvm_cache_stats);
+    at::Tensor uvm_cache_stats,
+    bool lock_cache_line,
+    at::Tensor lxu_cache_locking_counter);
 
 ///@ingroup table-batched-embed-cuda
 /// Map index to cache_set. h_in: linear_indices; C: #cache_sets.
@@ -71,7 +73,9 @@ void lru_cache_populate_cuda(
     at::Tensor lru_state,
     bool stochastic_rounding,
     bool gather_cache_stats,
-    c10::optional<at::Tensor> uvm_cache_stats);
+    c10::optional<at::Tensor> uvm_cache_stats,
+    bool lock_cache_line,
+    c10::optional<at::Tensor> lxu_cache_locking_counter);
 
 ///@ingroup table-batched-embed-cuda
 /// LRU cache: fetch the rows corresponding to `linear_cache_indices` from
@@ -206,3 +210,17 @@ void reset_weight_momentum_cuda(
     at::Tensor cache_hash_size_cumsum,
     at::Tensor lxu_cache_state,
     int64_t total_cache_hash_size);
+
+///@ingroup table-batched-embed-cuda
+/// Decrement the LRU/LFU cache counter based on lxu_cache_locations.
+void lxu_cache_locking_counter_decrement_cuda(
+    at::Tensor lxu_cache_locking_counter,
+    at::Tensor lxu_cache_locations);
+
+///@ingroup table-batched-embed-cuda
+/// Inplace update lxu_cache_locations to the new one
+/// should only update if lxu_cache_locations[i] == -1
+/// and lxu_cache_locations_new[i] >= 0
+void lxu_cache_locations_update_cuda(
+    at::Tensor lxu_cache_locations,
+    at::Tensor lxu_cache_locations_new);
