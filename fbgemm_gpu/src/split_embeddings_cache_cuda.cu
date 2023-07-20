@@ -599,7 +599,7 @@ __launch_bounds__(kMaxThreads) void lxu_cache_locking_counter_decrement_kernel(
        i += gridDim.x * blockDim.y) {
     const auto j = threadIdx.x;
     if (count[i][j] > 0) {
-      atomicSub(&lxu_cache_locking_counter[i][j], 1);
+      lxu_cache_locking_counter[i][j] -= 1;
     }
   }
 }
@@ -705,7 +705,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
       // mark it as recently accessed so we don't evict.
       lru_state[cache_set][slot] = time_stamp;
       if (lock_cache_line) {
-        atomicAdd(&lxu_cache_locking_counter[cache_set][slot], 1);
+        lxu_cache_locking_counter[cache_set][slot] += 1;
       }
     }
 
@@ -1001,15 +1001,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
       const int32_t insert_slot = shfl_sync(sorted_slot, l);
       if (lock_cache_line) {
-        int32_t count = 0;
-        // ensure that threadIdx.x = 0 is the only thread reading
-        // lxu_cache_locking_counter
-        if (threadIdx.x == 0) {
-          // ensure that the load is atomic using atomicAdd with val = 0
-          count =
-              atomicAdd(&lxu_cache_locking_counter[cache_set][insert_slot], 0);
-        }
-        count = shfl_sync(count, 0);
+        auto count = lxu_cache_locking_counter[cache_set][insert_slot];
         if (count > 0) {
           continue; // cache slot is in use
         }
@@ -1118,7 +1110,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
         lru_state[cache_set][insert_slot] = time_stamp;
         if (lock_cache_line) {
-          atomicAdd(&lxu_cache_locking_counter[cache_set][insert_slot], 1);
+          lxu_cache_locking_counter[cache_set][insert_slot] += 1;
         }
       }
       n_inserted++;
