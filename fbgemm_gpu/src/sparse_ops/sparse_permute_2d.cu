@@ -88,6 +88,16 @@ permute_2D_sparse_data_cuda(
   const auto T = permute.numel();
   const auto B = lengths.size(1);
 
+  if (T == 0 || B == 0) {
+    // When T = 0 or B = 0, permutation will not be performed.  Return the
+    // input tensors.
+    return {
+        lengths,
+        indices,
+        weights,
+    };
+  }
+
   Tensor permuted_lengths;
   Tensor permuted_indices;
   Tensor permuted_weights;

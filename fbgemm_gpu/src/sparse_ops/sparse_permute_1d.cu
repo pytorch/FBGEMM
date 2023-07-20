@@ -82,6 +82,12 @@ permute_1D_sparse_data_cuda(
   const auto lengths_size = lengths.numel();
 
   const auto permuted_lengths_size = permute.numel();
+
+  if (permuted_lengths_size == 0 || lengths_size == 0) {
+    // Permutation will not be performed.  Return the input tensors
+    return {lengths.view({-1}), indices, weights};
+  }
+
   Tensor permuted_lengths;
   Tensor permuted_indices;
   Tensor permuted_weights;
