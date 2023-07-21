@@ -76,18 +76,13 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
             weights, cache_weights, D, nullptr);
-    if (!std::is_same<emb_t, float>::value && stochastic_rounding) {
-        StochasticRoundingRNGState state;
-        // Different for every *run* and every *thread*.
-        auto stochastic_rounding_seeds =
-            at::cuda::philox::unpack(stochastic_rounding_philox_args);
-        stochastic_rounding_init(
-            std::get<0>(stochastic_rounding_seeds) ^
-            std::get<1>(stochastic_rounding_seeds),
-            threadIdx.x + run_id * blockDim.x,
-            &state);
-        weight_row_template.set_stoc_state(&state);
-    }
+
+    weight_row_template.set_stochastic_rounding(
+      stochastic_rounding,
+      stochastic_rounding_philox_args,
+      threadIdx.x + run_id * blockDim.x
+    );
+
     float2 qparams_template;
     if (is_int8 && !cache_weights) {
         qparams_template = weight_row_template.load_qparams();

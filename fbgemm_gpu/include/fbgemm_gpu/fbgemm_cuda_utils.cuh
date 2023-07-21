@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 // clang-format off
 #ifdef __HIP_PLATFORM_HCC__
@@ -1275,6 +1276,40 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
   }
 }
 
+// Min a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize>
+DEVICE_INLINE T warp_reduce_min(T val) {
+#pragma unroll
+  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+    val = std::min(val, shfl_xor(val, mask));
+  }
+  return val;
+}
+
+// Max a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize>
+DEVICE_INLINE T warp_reduce_max(T val) {
+#pragma unroll
+  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+    val = std::max(val, shfl_xor(val, mask));
+  }
+  return val;
+}
+
+template <typename scalar_t>
+DEVICE_INLINE float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
+  float2 qparams;
+  local_min = warp_reduce_min<scalar_t>(local_min);
+  local_max = warp_reduce_max<scalar_t>(local_max);
+  if (threadIdx.x == 0) {
+    qparams.x = (local_max - local_min) / 255.0f;
+    qparams.y = local_min;
+  }
+  qparams.x = shfl_sync(qparams.x, 0);
+  qparams.y = shfl_sync(qparams.y, 0);
+  return qparams;
+}
+
 template <typename emb_t, typename cache_t, typename dst_t>
 // TODO: pass in dimension info and calculate qparams for rowwise integer
 // quantization
@@ -1293,13 +1328,8 @@ struct WeightRow {
   int dim_;
   StochasticRoundingRNGState* stoc_rounding_state_;
 
-  DEVICE_INLINE void set_stoc_state(
-      StochasticRoundingRNGState* stoc_rounding_state) {
-    stoc_rounding_state_ = stoc_rounding_state;
-  }
-
   // load from cache if resident; else load from embedding
-  DEVICE_INLINE Vec4T<dst_t> load(int32_t d, float2 qparams) {
+  DEVICE_INLINE Vec4T<dst_t> load(int32_t d, float2 qparams) const {
     if (cache_row_) {
       return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
     } else {
@@ -1326,8 +1356,85 @@ struct WeightRow {
     store_qparams_to_row(row_ + dim_, qparams);
   }
 
-  DEVICE_INLINE float2 load_qparams() {
+  DEVICE_INLINE float2 load_qparams() const {
     return load_qparams_from_row<emb_t>(row_ + dim_);
+  }
+
+  DEVICE_INLINE void warp_copy_to(
+      WeightRow<emb_t, cache_t, cache_t>& target,
+      const int32_t dim_length,
+      const int32_t num_lanes,
+      const int32_t lane_id) const {
+    float2 qparams;
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
+      // Load quantization params from embedding row
+      qparams = load_qparams();
+    }
+
+    // Copy over for each warp-sized slice of Vec4's
+    for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
+      const auto slice = load(d * 4, qparams);
+      target.store(slice, d * 4, qparams);
+    }
+  }
+
+  DEVICE_INLINE void warp_evict(
+      const int32_t dim_length,
+      const int32_t num_lanes,
+      const int32_t lane_id) {
+    float2 qparams;
+
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
+      auto local_min = std::numeric_limits<at::acc_type<cache_t, true>>::max();
+      auto local_max =
+          std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
+
+      // Compute the qparams from the cache row (not embedding row) weights
+      for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
+        Vec4T<cache_t> cache_slice = load(d * 4, qparams); // qparams not used
+        local_max = max(local_max, vec4_max(cache_slice));
+        local_min = min(local_min, vec4_min(cache_slice));
+      }
+
+      // Compute the max and min across the warps
+      qparams = warp_find_qparams(local_min, local_max);
+
+      if (lane_id == 0) {
+        // Store the qparams into the embedding row
+        store_qparams(qparams);
+      }
+    }
+
+    for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
+      // Dequantize-load a slice of the cache row
+      Vec4T<cache_t> cache_slice = load(d * 4, qparams);
+      // and evict the slice into the embedding row
+      evict(cache_slice, d * 4, qparams); // FP32 -> FP16/FP32
+    }
+  }
+
+  DEVICE_INLINE void set_stochastic_rounding(
+      const bool stochastic_rounding,
+      const at::PhiloxCudaState stochastic_rounding_philox_args,
+      const uint64_t salt_value) {
+    if constexpr (!std::is_same_v<emb_t, float>) {
+      if (stochastic_rounding) {
+        StochasticRoundingRNGState state;
+        auto stochastic_rounding_seeds =
+            at::cuda::philox::unpack(stochastic_rounding_philox_args);
+
+        stochastic_rounding_init(
+            std::get<0>(stochastic_rounding_seeds) ^
+                std::get<1>(stochastic_rounding_seeds),
+            // The salt value should be different for every *run* and every
+            // *thread*.
+            salt_value,
+            &state);
+
+        // Set the internal stoc_rounding_state_
+        stoc_rounding_state_ = &state;
+      }
+    }
   }
 };
 
@@ -1452,40 +1559,6 @@ DEVICE_INLINE scalar_t vec4_max(fbgemm_gpu::Vec4T<scalar_t> vec4) {
   max_val = max(vec4.acc.z, max_val);
   max_val = max(vec4.acc.w, max_val);
   return max_val;
-}
-
-// Min a register value across all warp threads
-template <typename T, int ReduceWidth = kWarpSize>
-DEVICE_INLINE T warp_reduce_min(T val) {
-#pragma unroll
-  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
-    val = std::min(val, shfl_xor(val, mask));
-  }
-  return val;
-}
-
-// Max a register value across all warp threads
-template <typename T, int ReduceWidth = kWarpSize>
-DEVICE_INLINE T warp_reduce_max(T val) {
-#pragma unroll
-  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
-    val = std::max(val, shfl_xor(val, mask));
-  }
-  return val;
-}
-
-template <typename scalar_t>
-__device__ float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
-  float2 qparams;
-  local_min = warp_reduce_min<scalar_t>(local_min);
-  local_max = warp_reduce_max<scalar_t>(local_max);
-  if (threadIdx.x == 0) {
-    qparams.x = (local_max - local_min) / 255.0f;
-    qparams.y = local_min;
-  }
-  qparams.x = shfl_sync(qparams.x, 0);
-  qparams.y = shfl_sync(qparams.y, 0);
-  return qparams;
 }
 
 struct __align__(32) float8 {
