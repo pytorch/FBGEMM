@@ -22,6 +22,85 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+{#-/*
+    This code chunk describes the weights load + accumulate step in the
+    forward kernel, containing 3 steps:
+
+    1. Set up the WeightRow
+    1. Load the quantization params
+    1. Load and accumulate the slices of values from the row
+
+    The main difference is in whether the slices are loaded from the embedding
+    table or cache.
+
+    NOTE: The decision was made to define this code chunk as a Jinja macro
+    instead of inline C++ function, since the compiler might not be able to
+    inline the code.
+
+    In-code variables that are defined outside:
+        emb_t, cache_t, cache_t
+        idx_j
+        D_emb
+        lxu_cache_weights
+        cache_idx_j
+        idx_weight_j
+        VEC_WIDTH
+*/#}
+{%- macro load_and_accumulate(from_cache) %}
+    {#-/* Set the weights row */#}
+    const auto weights_row = WeightRow<emb_t, cache_t, cache_t>(
+        const_cast<emb_t*>(&weights[idx_j * D_emb]),
+        {%- if from_cache %}
+        // Load from the cache
+        const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
+        {%- else %}
+        // Load from the embedding table
+        nullptr,
+        {%- endif %}
+        D,
+        nullptr);
+
+    {#-/* Set the quantization params */#}
+    {%- if from_cache %}
+    // Assume cache is FP16/FP32, which doesn't require quantization params
+    const auto qparams = make_float2(0.0f, 0.0f);
+    {%- else %}
+    // Load the quantization params from the embedding table row if emb_t == uint8_t
+    const auto qparams = weights_row.load_qparams();
+    {%- endif %}
+
+    {%- if not nobag %}
+    // Iterate over the row in the weights table, in 4-element strides
+    #pragma unroll kMaxVecsPerThread
+    for (int32_t i = 0;
+        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+        ++i) {
+        // Load the slice of the weights
+        const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+        const auto weights_slice = weights_row.load(d, qparams);
+
+        {%- if weighted %}
+        // Accumulate the weights * positional weight
+        accumulators[i].fma_(weights_slice, idx_weight_j);
+        {%- else %}
+        // Accumulate the weights
+        accumulators[i].add_(weights_slice);
+        {%- endif %}
+    }
+
+    {%- else %}
+    for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
+        const int32_t d = i + threadIdx.x * VEC_WIDTH;
+        if (d < D) {
+            // Since there is no pooling, simply copy the weights to output
+            const auto weights_slice = weights_row.load(d, qparams);
+            weights_slice.store(&output[output_j][d]);
+        }
+    }
+    {%- endif %}
+{%- endmacro %}
+
+
 template <
     typename emb_t,
     typename cache_t,
@@ -156,7 +235,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 
         {%- if not dense %}
         // Cooperatively load the cache's indices
-        int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+        [[maybe_unused]] int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {%- endif %}
 
         {%- if weighted %}
@@ -175,7 +254,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 
             {%- if not dense %}
             // Load cache's index from thread j in the group
-            int32_t cache_idx_j = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
+            [[maybe_unused]] int32_t cache_idx_j = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
             {%- endif %}
 
             {%- if weighted %}
@@ -183,95 +262,34 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
             at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
             {%- endif %}
 
-            {%- if not dense %}
-            // use_lxu_cache is a compile time condition
-            if (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                // Load the embedding table row from cache to the buffer
-                auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-                    const_cast<emb_t*>(&weights[idx_j * D_emb]),
-                    const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
-                    D,
-                    nullptr);
 
-                // Assume cache is fp16/fp32 which doesn't require qparams
-                float2 qparams_cache = make_float2(0.0f, 0.0f);
+            {#/**************************************************************/#}
+            {#-/*
+                This is the main switch that determines how we are to load and accumulate
+                weights, and is determined by Jinja-time, compile-time, and run-time
+                variables.
+            */#}
 
-                {%- if not nobag %}
-                #pragma unroll kMaxVecsPerThread
-                for (int32_t i = 0;
-                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-                    ++i) {
-                    // Load Vec4 from cache
-                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                    Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
+            {%- if dense %}     {#-/* If it's dense, cache is not supported, so load from the embedding table */#}
+                {{- load_and_accumulate(false) }}
 
-                    {%- if weighted %}
-                    // Accumulate the weight * positional weight
-                    accumulators[i].fma_(weight, idx_weight_j);
-                    {%- else %}
-                    // Accumulate the weight
-                    accumulators[i].add_(weight);
-                    {%- endif %}
+            {%- else %}         {#-/* Else, cache is supported, so now defer to compile-time selection */#}
+            if constexpr (use_lxu_cache) {
+                {#-/* If the row is available in the cache, fetch from the cache */#}
+                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                    {{ load_and_accumulate(true) }}
+
+                {#-/* Else fetch from the embedding table */#}
+                } else {
+                    {{ load_and_accumulate(false) }}
                 }
-                {%- else %}
-                for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
-                    int32_t d = i + threadIdx.x * VEC_WIDTH;
-                    if (d < D) {
-                        // Since there is no pooling, simply copy the weight to output
-                        Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
-                        weight.store(&output[output_j][d]);
-                    }
-                }
-                {%- endif %}
 
-            } else { // else row is not in cache
+            } else {
+                {#-/* If we're not using the LXU cache, fetch from the embedding table */#}
+                {{- load_and_accumulate(false) }}
+            }
             {%- endif %}
-                // Load the embedding table row from memory to the buffer
-                auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
-                    const_cast<emb_t*>(&weights[idx_j * D_emb]),
-                    nullptr,
-                    D,
-                    nullptr);
-
-                // Load the two quantization params (scale and bias) from the end of the embedding table row (2 floats)
-                [[maybe_unused]] float2 qparams_emb;
-                if (std::is_same<emb_t, uint8_t>::value) {
-                    qparams_emb = weight_row_emb.load_qparams();
-                }
-
-                {%- if not nobag %}
-                // Iterate over the row of elements in the weights table, in 4-element strides between adjacent threads
-                #pragma unroll kMaxVecsPerThread
-                for (int32_t i = 0;
-                    i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-                    ++i) {
-                    // Figure out the position in the embedding table row to load
-                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-
-                    // Fused load-and-dequantize from the buffer
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
-
-                    {%- if weighted %}
-                    // Accumulate the weight * positional weight
-                    accumulators[i].fma_(weight, idx_weight_j);
-                    {%- else %}
-                    // Accumulate the weight
-                    accumulators[i].add_(weight);
-                    {%- endif %}
-                }
-                {%- else %}
-                for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
-                    int32_t d = i + threadIdx.x * VEC_WIDTH;
-                    if (d < D) {
-                        // Since there is no pooling, simply copy the weight to output
-                        Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
-                        weight.store(&output[output_j][d]);
-                    }
-                }
-                {%- endif %}
-            {%- if not dense %}
-            } // else row is not in cache
-            {%- endif %}
+            {#/**************************************************************/#}
         }
     }
 
