@@ -199,15 +199,15 @@ struct Vec4T<float> {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(float* p) {
+  DEVICE_INLINE void store(float* p) const {
     *((float4*)p) = acc;
   }
 
-  DEVICE_INLINE void store(float4* p) {
+  DEVICE_INLINE void store(float4* p) const {
     *p = acc;
   }
 
-  DEVICE_INLINE void store(at::Half* p) {
+  DEVICE_INLINE void store(at::Half* p) const {
     float2 a;
     a.x = acc.x;
     a.y = acc.y;
@@ -222,21 +222,21 @@ struct Vec4T<float> {
     out.store(p);
   }
 
-  DEVICE_INLINE void store(at::BFloat16* p) {
+  DEVICE_INLINE void store(at::BFloat16* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
   }
 
-  DEVICE_INLINE void store(double* p) {
+  DEVICE_INLINE void store(double* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
   }
 
-  DEVICE_INLINE void store(uint8_t* p) {
+  DEVICE_INLINE void store(uint8_t* p) const {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -245,7 +245,7 @@ struct Vec4T<float> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(Vec4T<float> a, float b) {
+  DEVICE_INLINE void fma_(const Vec4T<float> a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
@@ -253,7 +253,7 @@ struct Vec4T<float> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(Vec4T<float> a) {
+  DEVICE_INLINE void add_(const Vec4T<float> a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -364,7 +364,7 @@ struct Vec4T<at::Half> {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(at::Half* p) {
+  DEVICE_INLINE void store(at::Half* p) const {
     float2 a;
     a.x = acc.x;
     a.y = acc.y;
@@ -379,25 +379,25 @@ struct Vec4T<at::Half> {
     out.store(p);
   }
 
-  DEVICE_INLINE void store(at::BFloat16* p) {
+  DEVICE_INLINE void store(at::BFloat16* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
   }
 
-  DEVICE_INLINE void store(float* p) {
+  DEVICE_INLINE void store(float* p) const {
     *((float4*)p) = acc;
   }
 
-  DEVICE_INLINE void store(double* p) {
+  DEVICE_INLINE void store(double* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
   }
 
-  DEVICE_INLINE void store(uint8_t* p) {
+  DEVICE_INLINE void store(uint8_t* p) const {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -429,14 +429,14 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(Vec4T<at::Half> a, float b) {
+  DEVICE_INLINE void fma_(const Vec4T<at::Half> a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
     acc.w = __fmaf_rn(a.acc.w, b, acc.w);
   }
 
-  DEVICE_INLINE void fma_(Vec4T<float> a, float b) {
+  DEVICE_INLINE void fma_(const Vec4T<float> a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
@@ -444,7 +444,7 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(Vec4T<float> a) {
+  DEVICE_INLINE void add_(const Vec4T<float> a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -452,7 +452,7 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(Vec4T<at::Half> a) {
+  DEVICE_INLINE void add_(const Vec4T<at::Half> a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -571,7 +571,7 @@ struct Vec4T<at::BFloat16> {
     CUDA_KERNEL_ASSERT(false);
   }
 
-  DEVICE_INLINE void store(at::Half* p) {
+  DEVICE_INLINE void store(at::Half* p) const {
     float2 a;
     a.x = acc.x;
     a.y = acc.y;
@@ -586,25 +586,25 @@ struct Vec4T<at::BFloat16> {
     out.store(p);
   }
 
-  DEVICE_INLINE void store(at::BFloat16* p) {
+  DEVICE_INLINE void store(at::BFloat16* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
   }
 
-  DEVICE_INLINE void store(float* p) {
+  DEVICE_INLINE void store(float* p) const {
     *((float4*)p) = acc;
   }
 
-  DEVICE_INLINE void store(double* p) {
+  DEVICE_INLINE void store(double* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
     p[3] = acc.w;
   }
 
-  DEVICE_INLINE void store(uint8_t* p) {
+  DEVICE_INLINE void store(uint8_t* p) const {
     CUDA_KERNEL_ASSERT(false);
   }
 
@@ -616,14 +616,14 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(Vec4T<at::Half> a, float b) {
+  DEVICE_INLINE void fma_(const Vec4T<at::Half> a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
     acc.w = __fmaf_rn(a.acc.w, b, acc.w);
   }
 
-  DEVICE_INLINE void fma_(Vec4T<float> a, float b) {
+  DEVICE_INLINE void fma_(const Vec4T<float> a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
@@ -631,7 +631,7 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(Vec4T<float> a) {
+  DEVICE_INLINE void add_(const Vec4T<float> a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -639,7 +639,7 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(Vec4T<at::Half> a) {
+  DEVICE_INLINE void add_(const Vec4T<at::Half> a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -758,11 +758,11 @@ struct Vec4T<double> {
     acc = *((const double4*)p);
   }
 
-  DEVICE_INLINE void store(double* p) {
+  DEVICE_INLINE void store(double* p) const {
     *((double4*)p) = acc;
   }
 
-  DEVICE_INLINE void store(float* p) {
+  DEVICE_INLINE void store(float* p) const {
     float4* f4 = (float4*)p;
     f4->x = acc.x;
     f4->y = acc.y;
@@ -770,7 +770,7 @@ struct Vec4T<double> {
     f4->w = acc.w;
   }
 
-  DEVICE_INLINE void store(at::Half* p) {
+  DEVICE_INLINE void store(at::Half* p) const {
     float2 a;
     a.x = acc.x;
     a.y = acc.y;
@@ -785,7 +785,7 @@ struct Vec4T<double> {
     out.store(p);
   }
 
-  DEVICE_INLINE void store(at::BFloat16* p) {
+  DEVICE_INLINE void store(at::BFloat16* p) const {
     p[0] = acc.x;
     p[1] = acc.y;
     p[2] = acc.z;
@@ -797,7 +797,7 @@ struct Vec4T<double> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(Vec4T<double> a, double b) {
+  DEVICE_INLINE void fma_(const Vec4T<double> a, const double b) {
     acc.x = __fma_rn(a.acc.x, b, acc.x);
     acc.y = __fma_rn(a.acc.y, b, acc.y);
     acc.z = __fma_rn(a.acc.z, b, acc.z);
@@ -805,7 +805,7 @@ struct Vec4T<double> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(Vec4T<double> a) {
+  DEVICE_INLINE void add_(const Vec4T<double> a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -1083,19 +1083,19 @@ stochastic_rounding_rand4(StochasticRoundingRNGState* state) {
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void stochastic_rounding_vector(
     dst_t* output,
-    Vec4T<src_t> value,
+    const Vec4T<src_t> value,
     StochasticRoundingRNGState& state,
-    float2 /* not used */) {
+    const float2 /* not used */) {
   value.store(output);
 }
 
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Half* output,
-    Vec4T<at::Half> value,
+    const Vec4T<at::Half> value,
     StochasticRoundingRNGState& state,
-    float2 /* not used */) {
-  uint4 random_bits = stochastic_rounding_rand4(&state);
+    const float2 /* not used */) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
   v.a = __halves2half2(
       stochastic_rounding_scalar(value.acc.x, random_bits.x),
@@ -1109,10 +1109,10 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Half* output,
-    Vec4T<float> value,
+    const Vec4T<float> value,
     StochasticRoundingRNGState& state,
-    float2 /* not used */) {
-  uint4 random_bits = stochastic_rounding_rand4(&state);
+    const float2 /* not used */) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
   Half4 v;
   v.a = __halves2half2(
       stochastic_rounding_scalar(value.acc.x, random_bits.x),
@@ -1126,11 +1126,11 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     uint8_t* output,
-    Vec4T<float> value,
+    const Vec4T<float> value,
     StochasticRoundingRNGState& state,
-    float2 qparams) {
-  uint4 random_bits = stochastic_rounding_rand4(&state);
-  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    const float2 qparams) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = stochastic_rounding_scalar_uint8(
       (value.acc.x - qparams.y) * inv_scale, random_bits.x);
   output[1] = stochastic_rounding_scalar_uint8(
@@ -1144,11 +1144,11 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     uint8_t* output,
-    Vec4T<at::Half> value,
+    const Vec4T<at::Half> value,
     StochasticRoundingRNGState& state,
-    float2 qparams) {
-  uint4 random_bits = stochastic_rounding_rand4(&state);
-  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    const float2 qparams) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = stochastic_rounding_scalar_uint8(
       (value.acc.x - qparams.y) * inv_scale, random_bits.x);
   output[1] = stochastic_rounding_scalar_uint8(
@@ -1163,15 +1163,17 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void nearest_rounding_vector(
     dst_t* output,
-    Vec4T<src_t> value,
-    float2 /* not used */) {
+    const Vec4T<src_t> value,
+    const float2 /* not used */) {
   value.store(output);
 }
 
 template <>
-DEVICE_INLINE void
-nearest_rounding_vector(uint8_t* output, Vec4T<float> value, float2 qparams) {
-  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+DEVICE_INLINE void nearest_rounding_vector(
+    uint8_t* output,
+    const Vec4T<float> value,
+    const float2 qparams) {
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
   output[1] = lrintf((value.acc.y - qparams.y) * inv_scale);
   output[2] = lrintf((value.acc.z - qparams.y) * inv_scale);
@@ -1181,9 +1183,9 @@ nearest_rounding_vector(uint8_t* output, Vec4T<float> value, float2 qparams) {
 template <>
 DEVICE_INLINE void nearest_rounding_vector(
     uint8_t* output,
-    Vec4T<at::Half> value,
-    float2 qparams) {
-  float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+    const Vec4T<at::Half> value,
+    const float2 qparams) {
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
   output[1] = lrintf((value.acc.y - qparams.y) * inv_scale);
   output[2] = lrintf((value.acc.z - qparams.y) * inv_scale);
@@ -1191,17 +1193,19 @@ DEVICE_INLINE void nearest_rounding_vector(
 }
 
 template <>
-DEVICE_INLINE void
-nearest_rounding_vector(uint8_t* output, Vec4T<double> value, float2 qparams) {
+DEVICE_INLINE void nearest_rounding_vector(
+    uint8_t* output,
+    const Vec4T<double> value,
+    const float2 qparams) {
   CUDA_KERNEL_ASSERT(false);
 }
 
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void quantize_store(
     dst_t* output,
-    Vec4T<src_t> value,
+    const Vec4T<src_t> value,
     StochasticRoundingRNGState* state,
-    float2 qparams) {
+    const float2 qparams) {
   if (!state) {
     nearest_rounding_vector<dst_t, src_t>(output, value, qparams);
   } else {
@@ -1210,12 +1214,16 @@ DEVICE_INLINE void quantize_store(
 }
 
 template <typename dst_t, typename src_t>
-DEVICE_INLINE Vec4T<dst_t> dequantize_load(src_t* value, float2 /* unused */) {
+DEVICE_INLINE Vec4T<dst_t> dequantize_load(
+    const src_t* value,
+    const float2 /* unused */) {
   return Vec4T<dst_t>(value);
 }
 
 template <>
-DEVICE_INLINE Vec4T<float> dequantize_load(uint8_t* value, float2 qparams) {
+DEVICE_INLINE Vec4T<float> dequantize_load(
+    const uint8_t* value,
+    const float2 qparams) {
   Vec4T<float> out;
   out.acc.x = value[0] * qparams.x + qparams.y;
   out.acc.y = value[1] * qparams.x + qparams.y;
@@ -1225,7 +1233,9 @@ DEVICE_INLINE Vec4T<float> dequantize_load(uint8_t* value, float2 qparams) {
 }
 
 template <>
-DEVICE_INLINE Vec4T<at::Half> dequantize_load(uint8_t* value, float2 qparams) {
+DEVICE_INLINE Vec4T<at::Half> dequantize_load(
+    const uint8_t* value,
+    const float2 qparams) {
   Vec4T<at::Half> out;
   out.acc.x = value[0] * qparams.x + qparams.y;
   out.acc.y = value[1] * qparams.x + qparams.y;
@@ -1329,7 +1339,7 @@ struct WeightRow {
   StochasticRoundingRNGState* stoc_rounding_state_;
 
   // load from cache if resident; else load from embedding
-  DEVICE_INLINE Vec4T<dst_t> load(int32_t d, float2 qparams) const {
+  DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {
     if (cache_row_) {
       return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
     } else {
@@ -1339,7 +1349,8 @@ struct WeightRow {
 
   // write back weight (high precision) to cache if resident; else write to
   // embedding assume dst_t is higher precision than cache_t and emb_t
-  DEVICE_INLINE void store(Vec4T<dst_t> v, int32_t d, float2 qparams) {
+  DEVICE_INLINE void
+  store(const Vec4T<dst_t> v, const int32_t d, const float2 qparams) {
     if (cache_row_) {
       quantize_store(cache_row_ + d, v, stoc_rounding_state_, qparams);
     } else {
@@ -1348,16 +1359,21 @@ struct WeightRow {
   }
 
   // evict cached row into embedding row (high prec -> low prec)
-  DEVICE_INLINE void evict(Vec4T<dst_t> v, int32_t d, float2 qparams) {
+  DEVICE_INLINE void
+  evict(const Vec4T<dst_t> v, const int32_t d, const float2 qparams) {
     quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
   }
 
-  DEVICE_INLINE void store_qparams(float2 qparams) {
+  DEVICE_INLINE void store_qparams(const float2 qparams) {
     store_qparams_to_row(row_ + dim_, qparams);
   }
 
   DEVICE_INLINE float2 load_qparams() const {
-    return load_qparams_from_row<emb_t>(row_ + dim_);
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
+      return load_qparams_from_row<emb_t>(row_ + dim_);
+    } else {
+      return make_float2(0.0f, 0.0f);
+    }
   }
 
   DEVICE_INLINE void warp_copy_to(
@@ -1365,11 +1381,8 @@ struct WeightRow {
       const int32_t dim_length,
       const int32_t num_lanes,
       const int32_t lane_id) const {
-    float2 qparams;
-    if constexpr (std::is_same_v<emb_t, uint8_t>) {
-      // Load quantization params from embedding row
-      qparams = load_qparams();
-    }
+    // Load quantization params from embedding row
+    const auto qparams = load_qparams();
 
     // Copy over for each warp-sized slice of Vec4's
     for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
@@ -1391,7 +1404,7 @@ struct WeightRow {
 
       // Compute the qparams from the cache row (not embedding row) weights
       for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
-        Vec4T<cache_t> cache_slice = load(d * 4, qparams); // qparams not used
+        const auto cache_slice = load(d * 4, qparams); // qparams not used
         local_max = max(local_max, vec4_max(cache_slice));
         local_min = min(local_min, vec4_min(cache_slice));
       }
@@ -1407,7 +1420,7 @@ struct WeightRow {
 
     for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
       // Dequantize-load a slice of the cache row
-      Vec4T<cache_t> cache_slice = load(d * 4, qparams);
+      const auto cache_slice = load(d * 4, qparams);
       // and evict the slice into the embedding row
       evict(cache_slice, d * 4, qparams); // FP32 -> FP16/FP32
     }
@@ -1420,7 +1433,7 @@ struct WeightRow {
     if constexpr (!std::is_same_v<emb_t, float>) {
       if (stochastic_rounding) {
         StochasticRoundingRNGState state;
-        auto stochastic_rounding_seeds =
+        const auto stochastic_rounding_seeds =
             at::cuda::philox::unpack(stochastic_rounding_philox_args);
 
         stochastic_rounding_init(
@@ -1544,7 +1557,7 @@ thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
 }
 
 template <typename scalar_t>
-DEVICE_INLINE scalar_t vec4_min(fbgemm_gpu::Vec4T<scalar_t> vec4) {
+DEVICE_INLINE scalar_t vec4_min(const fbgemm_gpu::Vec4T<scalar_t> vec4) {
   scalar_t min_val = vec4.acc.x;
   min_val = min(vec4.acc.y, min_val);
   min_val = min(vec4.acc.z, min_val);
@@ -1553,7 +1566,7 @@ DEVICE_INLINE scalar_t vec4_min(fbgemm_gpu::Vec4T<scalar_t> vec4) {
 }
 
 template <typename scalar_t>
-DEVICE_INLINE scalar_t vec4_max(fbgemm_gpu::Vec4T<scalar_t> vec4) {
+DEVICE_INLINE scalar_t vec4_max(const fbgemm_gpu::Vec4T<scalar_t> vec4) {
   scalar_t max_val = vec4.acc.x;
   max_val = max(vec4.acc.y, max_val);
   max_val = max(vec4.acc.z, max_val);
