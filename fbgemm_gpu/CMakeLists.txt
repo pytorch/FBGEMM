@@ -556,6 +556,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/input_combine_cpu.cpp
     src/layout_transform_ops_cpu.cpp
     src/quantize_ops/quantize_ops_cpu.cpp
+    src/quantize_ops/quantize_ops_meta.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     src/embedding_inplace_update_cpu.cpp)
