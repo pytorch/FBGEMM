@@ -346,7 +346,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         D = self.dims[0]
         for d in self.dims:
             if d != D:
-                mixed_D = False
+                mixed_D = True
+                break
         if mixed_D:
             assert (
                 self.pooling_mode != PoolingMode.NONE
