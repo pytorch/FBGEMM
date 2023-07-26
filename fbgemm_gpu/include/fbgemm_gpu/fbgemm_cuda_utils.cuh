@@ -245,7 +245,7 @@ struct Vec4T<float> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(const Vec4T<float> a, const float b) {
+  DEVICE_INLINE void fma_(const Vec4T<float>& a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
@@ -253,7 +253,7 @@ struct Vec4T<float> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(const Vec4T<float> a) {
+  DEVICE_INLINE void add_(const Vec4T<float>& a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -269,7 +269,7 @@ struct Vec4T<float> {
   }
 
   // this <- this element-wise mul a
-  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+  DEVICE_INLINE void element_wise_mul_(const Vec4T<float>& a) {
     acc.x *= a.acc.x;
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
@@ -429,14 +429,14 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(const Vec4T<at::Half> a, const float b) {
+  DEVICE_INLINE void fma_(const Vec4T<at::Half>& a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
     acc.w = __fmaf_rn(a.acc.w, b, acc.w);
   }
 
-  DEVICE_INLINE void fma_(const Vec4T<float> a, const float b) {
+  DEVICE_INLINE void fma_(const Vec4T<float>& a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
@@ -444,7 +444,7 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(const Vec4T<float> a) {
+  DEVICE_INLINE void add_(const Vec4T<float>& a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -452,7 +452,7 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(const Vec4T<at::Half> a) {
+  DEVICE_INLINE void add_(const Vec4T<at::Half>& a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -460,7 +460,7 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this element-wise mul a
-  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+  DEVICE_INLINE void element_wise_mul_(const Vec4T<float>& a) {
     acc.x *= a.acc.x;
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
@@ -468,7 +468,7 @@ struct Vec4T<at::Half> {
   }
 
   // this <- this element-wise mul a
-  DEVICE_INLINE void element_wise_mul_(Vec4T<at::Half> a) {
+  DEVICE_INLINE void element_wise_mul_(const Vec4T<at::Half>& a) {
     acc.x *= a.acc.x;
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
@@ -616,14 +616,14 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(const Vec4T<at::Half> a, const float b) {
+  DEVICE_INLINE void fma_(const Vec4T<at::Half>& a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
     acc.w = __fmaf_rn(a.acc.w, b, acc.w);
   }
 
-  DEVICE_INLINE void fma_(const Vec4T<float> a, const float b) {
+  DEVICE_INLINE void fma_(const Vec4T<float>& a, const float b) {
     acc.x = __fmaf_rn(a.acc.x, b, acc.x);
     acc.y = __fmaf_rn(a.acc.y, b, acc.y);
     acc.z = __fmaf_rn(a.acc.z, b, acc.z);
@@ -631,7 +631,7 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(const Vec4T<float> a) {
+  DEVICE_INLINE void add_(const Vec4T<float>& a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -639,7 +639,7 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(const Vec4T<at::Half> a) {
+  DEVICE_INLINE void add_(const Vec4T<at::Half>& a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -647,7 +647,7 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this element-wise mul a
-  DEVICE_INLINE void element_wise_mul_(Vec4T<float> a) {
+  DEVICE_INLINE void element_wise_mul_(const Vec4T<float>& a) {
     acc.x *= a.acc.x;
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
@@ -655,7 +655,7 @@ struct Vec4T<at::BFloat16> {
   }
 
   // this <- this element-wise mul a
-  DEVICE_INLINE void element_wise_mul_(Vec4T<at::Half> a) {
+  DEVICE_INLINE void element_wise_mul_(const Vec4T<at::Half>& a) {
     acc.x *= a.acc.x;
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
@@ -797,7 +797,7 @@ struct Vec4T<double> {
   }
 
   // this <- this + a * b
-  DEVICE_INLINE void fma_(const Vec4T<double> a, const double b) {
+  DEVICE_INLINE void fma_(const Vec4T<double>& a, const double b) {
     acc.x = __fma_rn(a.acc.x, b, acc.x);
     acc.y = __fma_rn(a.acc.y, b, acc.y);
     acc.z = __fma_rn(a.acc.z, b, acc.z);
@@ -805,7 +805,7 @@ struct Vec4T<double> {
   }
 
   // this <- this + a
-  DEVICE_INLINE void add_(const Vec4T<double> a) {
+  DEVICE_INLINE void add_(const Vec4T<double>& a) {
     acc.x += a.acc.x;
     acc.y += a.acc.y;
     acc.z += a.acc.z;
@@ -813,7 +813,7 @@ struct Vec4T<double> {
   }
 
   // this <- this element-wise mul a
-  DEVICE_INLINE void element_wise_mul_(Vec4T<double> a) {
+  DEVICE_INLINE void element_wise_mul_(const Vec4T<double>& a) {
     acc.x *= a.acc.x;
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
@@ -831,8 +831,8 @@ struct Vec4T<double> {
 
 template <typename scalar_t>
 DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
-    Vec4T<scalar_t> lhs,
-    Vec4T<scalar_t> rhs) {
+    const Vec4T<scalar_t>& lhs,
+    const Vec4T<scalar_t>& rhs) {
   Vec4T<scalar_t> s;
   s.acc.x = lhs.acc.x + rhs.acc.x;
   s.acc.y = lhs.acc.y + rhs.acc.y;
@@ -1083,7 +1083,7 @@ stochastic_rounding_rand4(StochasticRoundingRNGState* state) {
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void stochastic_rounding_vector(
     dst_t* output,
-    const Vec4T<src_t> value,
+    const Vec4T<src_t>& value,
     StochasticRoundingRNGState& state,
     const float2 /* not used */) {
   value.store(output);
@@ -1092,7 +1092,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Half* output,
-    const Vec4T<at::Half> value,
+    const Vec4T<at::Half>& value,
     StochasticRoundingRNGState& state,
     const float2 /* not used */) {
   const uint4 random_bits = stochastic_rounding_rand4(&state);
@@ -1109,7 +1109,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     at::Half* output,
-    const Vec4T<float> value,
+    const Vec4T<float>& value,
     StochasticRoundingRNGState& state,
     const float2 /* not used */) {
   const uint4 random_bits = stochastic_rounding_rand4(&state);
@@ -1126,7 +1126,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     uint8_t* output,
-    const Vec4T<float> value,
+    const Vec4T<float>& value,
     StochasticRoundingRNGState& state,
     const float2 qparams) {
   const uint4 random_bits = stochastic_rounding_rand4(&state);
@@ -1144,7 +1144,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <>
 DEVICE_INLINE void stochastic_rounding_vector(
     uint8_t* output,
-    const Vec4T<at::Half> value,
+    const Vec4T<at::Half>& value,
     StochasticRoundingRNGState& state,
     const float2 qparams) {
   const uint4 random_bits = stochastic_rounding_rand4(&state);
@@ -1163,7 +1163,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void nearest_rounding_vector(
     dst_t* output,
-    const Vec4T<src_t> value,
+    const Vec4T<src_t>& value,
     const float2 /* not used */) {
   value.store(output);
 }
@@ -1171,7 +1171,7 @@ DEVICE_INLINE void nearest_rounding_vector(
 template <>
 DEVICE_INLINE void nearest_rounding_vector(
     uint8_t* output,
-    const Vec4T<float> value,
+    const Vec4T<float>& value,
     const float2 qparams) {
   const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
@@ -1183,7 +1183,7 @@ DEVICE_INLINE void nearest_rounding_vector(
 template <>
 DEVICE_INLINE void nearest_rounding_vector(
     uint8_t* output,
-    const Vec4T<at::Half> value,
+    const Vec4T<at::Half>& value,
     const float2 qparams) {
   const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
@@ -1195,7 +1195,7 @@ DEVICE_INLINE void nearest_rounding_vector(
 template <>
 DEVICE_INLINE void nearest_rounding_vector(
     uint8_t* output,
-    const Vec4T<double> value,
+    const Vec4T<double>& value,
     const float2 qparams) {
   CUDA_KERNEL_ASSERT(false);
 }
@@ -1203,7 +1203,7 @@ DEVICE_INLINE void nearest_rounding_vector(
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void quantize_store(
     dst_t* output,
-    const Vec4T<src_t> value,
+    const Vec4T<src_t>& value,
     StochasticRoundingRNGState* state,
     const float2 qparams) {
   if (!state) {
@@ -1350,7 +1350,7 @@ struct WeightRow {
   // write back weight (high precision) to cache if resident; else write to
   // embedding assume dst_t is higher precision than cache_t and emb_t
   DEVICE_INLINE void
-  store(const Vec4T<dst_t> v, const int32_t d, const float2 qparams) {
+  store(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
     if (cache_row_) {
       quantize_store(cache_row_ + d, v, stoc_rounding_state_, qparams);
     } else {
@@ -1360,7 +1360,7 @@ struct WeightRow {
 
   // evict cached row into embedding row (high prec -> low prec)
   DEVICE_INLINE void
-  evict(const Vec4T<dst_t> v, const int32_t d, const float2 qparams) {
+  evict(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
     quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
   }
 
@@ -1557,7 +1557,7 @@ thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
 }
 
 template <typename scalar_t>
-DEVICE_INLINE scalar_t vec4_min(const fbgemm_gpu::Vec4T<scalar_t> vec4) {
+DEVICE_INLINE scalar_t vec4_min(const fbgemm_gpu::Vec4T<scalar_t>& vec4) {
   scalar_t min_val = vec4.acc.x;
   min_val = min(vec4.acc.y, min_val);
   min_val = min(vec4.acc.z, min_val);
@@ -1566,7 +1566,7 @@ DEVICE_INLINE scalar_t vec4_min(const fbgemm_gpu::Vec4T<scalar_t> vec4) {
 }
 
 template <typename scalar_t>
-DEVICE_INLINE scalar_t vec4_max(const fbgemm_gpu::Vec4T<scalar_t> vec4) {
+DEVICE_INLINE scalar_t vec4_max(const fbgemm_gpu::Vec4T<scalar_t>& vec4) {
   scalar_t max_val = vec4.acc.x;
   max_val = max(vec4.acc.y, max_val);
   max_val = max(vec4.acc.z, max_val);

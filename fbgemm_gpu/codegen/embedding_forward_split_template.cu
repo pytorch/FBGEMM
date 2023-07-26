@@ -15,8 +15,9 @@
 // See https://fburl.com/dw9ljh4h
 #}
 
+{%- set ddesc =  "dense" if dense else "split" %}
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
-{%- set vbe_desc = "_vbe" if vbe else "" %}
+{%- set vdesc = "_vbe" if vbe else "" %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
@@ -35,7 +36,7 @@ template <
     size_t kThreadGroupSize
     >
 __launch_bounds__(kForwardMaxThreads)
-__global__ void {{ "dense" if dense else "split" }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
+__global__ void {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -62,7 +63,7 @@ template <
     typename cache_t,
     typename output_t,
     typename index_t,
-    bool USE_LXU_CACHE
+    bool use_lxu_cache
     >
 __launch_bounds__(kForwardMaxThreads, 2048 / kForwardMaxThreads)
 __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
@@ -90,6 +91,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 
 {%- for nobag in [True, False] %}
 {%- if not nobag or (not weighted and not vbe) %}
+{%- set ndesc = "_nobag" if nobag else "" %}
 
 template <
     typename emb_t,
@@ -105,7 +107,7 @@ template <
     size_t kThreadGroupSize = kWarpSize
     >
 __launch_bounds__(kForwardMaxThreads)
-__global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel(
+__global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -151,17 +153,17 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
 /*
   The macro definition for both cases are almost the same except for the
   definition of kThreadGroupSize.  In the FBGEMM_USE_SUBWARP_SHUFFLE case, if
-  MAX_D is small, then we use fewer number of threads than kWarpSize.
+  MAX_D_ is small, then we use fewer number of threads than kWarpSize.
 
   NOTE: kMaxVecsPerThread is computed using the ternary operator because HIPCC
   is unable to use std::max in constexpr context.
 */
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D, ...)                            \
+#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D_, ...)                           \
   [&] {                                                                        \
     {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
     {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    if (MAX_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {              \
+    if (MAX_D_ <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {             \
       constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
       constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);                           \
       return __VA_ARGS__();                                                    \
@@ -172,12 +174,12 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
   }()
 
 #else
-#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D, ...)                            \
+#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D_, ...)                           \
   [&] {                                                                        \
     constexpr int kThreadGroupSize = kWarpSize;                                \
     {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
     {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    if (MAX_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {              \
+    if (MAX_D_ <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {             \
       constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
       return __VA_ARGS__();                                                    \
     }                                                                          \
@@ -201,15 +203,32 @@ __global__ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if noba
   }()
 
 
+#define DISPATCH_KERNEL_FOR_CACHE_CASE(CACHE_CASE_, ...)                       \
+  [&] {                                                                        \
+    {%- if dense %}
+      return __VA_ARGS__();                                                    \
+    {%- else %}
+    {%- for use_cache in ["false", "true"] %}
+    if (CACHE_CASE_ == {{ use_cache }}) {                                      \
+      constexpr auto _TUseCache = {{ use_cache }};                             \
+      return __VA_ARGS__();                                                    \
+    }                                                                          \
+    {%- endfor %}
+    return;                                                                    \
+    {%- endif %}
+  }()
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // Kernel Definitions
 ////////////////////////////////////////////////////////////////////////////////
 
 {%- for nobag in [True, False] %}
 {%- if not nobag or (not weighted and not vbe) %}
+{%- set ndesc = "_nobag" if nobag else "" %}
 {%- set has_experimental = (not dense and not nobag and not vbe) %}
 
-Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_cuda(
+Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
     Tensor dev_weights,
     {%- if not dense %}
     Tensor uvm_weights,
@@ -344,8 +363,11 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         dev_weights.scalar_type(),
         {%- endif %}
         output.scalar_type(),
-        "batched_embedding{{ "_nobag" if nobag else "" }}_forward_kernel_2", [&] {
-        {%- if not dense %}
+        "batched_embedding{{ ndesc }}_forward_kernel_2", [&] {
+
+        {%- if dense %}
+        [[maybe_unused]] bool use_lxu_cache = false;
+        {%- else %}
         // Check if LXU cache is used
         bool use_lxu_cache = lxu_cache_weights.numel() > 0;
         {%- endif %}
@@ -358,131 +380,100 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
         }
 
         if (!is_experimental) {
-        {%- endif %} // if has_experimental
+        {%- endif %} {#-/* if has_experimental */#}
 
-        {%- if not nobag %}
-        {%- for use_cache in ["false", "true"] %}
-        // The dense case does not have cache so we have to generate code for
-        // only one case (value of use_cache/vbe does not matter)
-        {%- if (not dense) or (use_cache == "true" and not vbe) %}
-        {%- if not dense %}
-        if (use_lxu_cache == {{ use_cache }}) {
-        {%- endif %}
-
-            DISPATCH_OPTIMAL_FORWARD_KERNEL(max_D, [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name = "{{ "dense" if dense else "split" }}_embedding_codegen_forward_{{ wdesc }}_kernel";
-#endif
-
-                {%- if not dense %}
-                split_embedding_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
-                {%- else %}
-                dense_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, kMaxVecsPerThread, kThreadGroupSize><<<
-                {%- endif %}
-                    div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
-                    dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
-                    0,
-                    at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
-                    {%- if not dense %}
-                    MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
-                    MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
-                    MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
-                    {%- endif %}
-                    MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                    {%- if vbe %}
-                    MAKE_PTA_WITH_NAME(func_name, vbe_metadata.output_offsets, int64_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, vbe_metadata.b_t_map, int32_t, 1, 32),
-                    info_B_num_bits,
-                    info_B_mask,
-                    {%- else %}
-                    FixedDivisor(B),
-                    {%- endif %}
-                    MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
-                    pooling_mode,
-                    {%- if weighted %}
-                    MAKE_PTA_ACC_WITH_NAME(func_name, indice_weights, cache_t, 1, 32),
-                    {%- endif %}
-                    {%- if not dense %}
-                    MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-                    {%- endif %} // if not dense
-                    MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
-                    );
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-                {%- if vbe %}
-                output = output.reshape({-1});
-                {%- endif %}
-                return;
-            });
-
-        {%- if not dense %}
-        } // if (use_lxu_cache == {{ use_cache }})
-        {%- endif %}
-        {%- endif %} // if (not dense) or (use_cache == "true" and not vbe)
-        {%- endfor %} // for use_cache in ["false", "true"]
-
-
-        {%- else %}
+        {#-/* Sequence TBE Case (nobag=True) ****************************************************/#}
+        {%- if nobag %}
 
         DISPATCH_OPTIMAL_NOBAG_FORWARD_KERNEL(D, [&] {
-        {%- if not dense %}
 #ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "split_embedding_nobag_codegen_forward_unweighted_small_kernel";
+          const auto func_name = "{{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel";
 #endif
-        split_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4><<<
-        {%- else %}
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "dense_embedding_nobag_codegen_forward_unweighted_small_kernel";
-#endif
-        dense_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4><<<
-        {%- endif %}
-            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
-            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
-            {%- if not dense %}
-            MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
-            MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
-            {%- endif %}
-            MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-            D,
-            FixedDivisor(B),
-            MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
-            {%- if not dense %}
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-            {%- endif %}
-            MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
+          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4>
+            <<<
+              div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+              dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+              0,
+              at::cuda::getCurrentCUDAStream()
+            >>>(
+              MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
+              {%- if not dense %}
+              MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+              MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
+              MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
+              {%- endif %}
+              MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+              D,
+              FixedDivisor(B),
+              MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+              {%- if not dense %}
+              MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+              {%- endif %}
+              MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
             );
+
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          return;
+        });
+
+        DISPATCH_KERNEL_FOR_CACHE_CASE(use_lxu_cache, [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+          const auto func_name = "{{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel";
+#endif
+
+          {%- if dense %}
+          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t>
+          {%- else %}
+          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, _TUseCache, int64_t>
+          {%- endif %}
+            <<<
+              div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+              dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+              0,
+              at::cuda::getCurrentCUDAStream()
+            >>>(
+              MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
+              {%- if not dense %}
+              MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+              MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
+              MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
+              {%- endif %}
+              MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+              D,
+              FixedDivisor(B),
+              MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+              {%- if not dense %}
+              MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+              {%- endif %}
+              MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
+            );
+
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         });
 
 
-        {%- for use_cache in ["false", "true"] %}
-        // The dense case does not have cache so we have to generate code for
-        // only one case (value of use_cache/vbe does not matter)
-        {%- if (not dense) or (use_cache == "true" and not vbe) %}
-        {%- if not dense %}
-        if (use_lxu_cache == {{ use_cache }}) {
-#ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "split_embedding_nobag_codegen_forward_unweighted_kernel";
-#endif
-            split_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, {{ use_cache }}, int64_t><<<
+        {#-/* Pooled TBE Case (nobag=False) *********************************/#}
         {%- else %}
+
+        DISPATCH_KERNEL_FOR_CACHE_CASE(use_lxu_cache, [&] {
+          DISPATCH_OPTIMAL_FORWARD_KERNEL(max_D, [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "dense_embedding_nobag_codegen_forward_unweighted_kernel";
+            const auto func_name = "{{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel";
 #endif
-            dense_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t><<<
-        {%- endif %}
-                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
-                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            {%- if dense %}
+            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, kMaxVecsPerThread, kThreadGroupSize>
+            {%- else %}
+            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel<emb_t, cache_t, output_t, _TUseCache, int64_t, kMaxVecsPerThread, kThreadGroupSize>
+            {%- endif %}
+              <<<
+                div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
+                dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
                 0,
-                at::cuda::getCurrentCUDAStream()>>>(
+                at::cuda::getCurrentCUDAStream()
+              >>>(
                 MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
                 {%- if not dense %}
                 MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
@@ -490,26 +481,42 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
                 MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
                 {%- endif %}
                 MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                D,
+                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+                {%- if vbe %}
+                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.output_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.b_t_map, int32_t, 1, 32),
+                info_B_num_bits,
+                info_B_mask,
+                {%- else %}
                 FixedDivisor(B),
+                {%- endif %}
                 MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
                 MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+                pooling_mode,
+                {%- if weighted %}
+                MAKE_PTA_ACC_WITH_NAME(func_name, indice_weights, cache_t, 1, 32),
+                {%- endif %}
                 {%- if not dense %}
                 MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-                {%- endif %}
+                {%- endif %} // if not dense
                 MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
-                );
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-                return;
-        {%- if not dense %}
-        } // if (use_lxu_cache == {{ use_cache }})
+              );
+
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            {%- if vbe %}
+            output = output.reshape({-1});
+            {%- endif %}
+            return;
+          });
+        });
+
+        {#-/* End NoBag Check ***********************************************/#}
         {%- endif %}
-        {%- endif %} // if (not dense) or (use_cache == "true" and not vbe)
-        {%- endfor %} // for use_cache in ["false", "true"]
-        {%- endif %}
+
         {%- if has_experimental %}
-        } // if (!is_experimental)
-        else {
+        // if (!is_experimental)
+        } else {
+
 #ifdef __HIP_PLATFORM_HCC__
             TORCH_CHECK(false, "is_experimental=True is not supported in ROCm");
 #else
@@ -517,35 +524,37 @@ Tensor {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else ""
             const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
             const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
 
-            const auto split_embedding_codegen_forward_{{ wdesc }}_v2_kernel_ =
-                (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, true>
-                               : split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, false>);
+            const auto kernel_func =
+              (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, true>
+                              : split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, false>);
 
-            split_embedding_codegen_forward_{{ wdesc }}_v2_kernel_
-              <<<div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
-              dim3(kWarpSize, num_warps_per_threadblock),
-              0,
-              at::cuda::getCurrentCUDAStream()>>>(
-                  dev_weights.data_ptr<emb_t>(),
-                  uvm_weights.data_ptr<emb_t>(),
-                  lxu_cache_weights.data_ptr<cache_t>(),
-                  weights_placements.data_ptr<int32_t>(),
-                  B,
-                  T,
-                  static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
-                  use_lxu_cache ? lxu_cache_weights.size(1) : 0,
-                  FixedDivisor(num_warps_per_table),
-                  indices.data_ptr<int64_t>(),
-                  {%- if weighted %}
-                  // TODO: update indice_weights type
-                  indice_weights.data_ptr<float>(),
-                  {%- endif %}
-                  offsets.data_ptr<int64_t>(),
-                  reinterpret_cast<uint32_t*>(D_offsets.data_ptr<int32_t>()),
-                  weights_offsets.data_ptr<int64_t>(),
-                  lxu_cache_locations.data_ptr<int32_t>(),
-                  output.data_ptr<output_t>()
-                  );
+            kernel_func
+              <<<
+                div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
+                dim3(kWarpSize, num_warps_per_threadblock),
+                0,
+                at::cuda::getCurrentCUDAStream()
+              >>>(
+                dev_weights.data_ptr<emb_t>(),
+                uvm_weights.data_ptr<emb_t>(),
+                lxu_cache_weights.data_ptr<cache_t>(),
+                weights_placements.data_ptr<int32_t>(),
+                B,
+                T,
+                static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+                use_lxu_cache ? lxu_cache_weights.size(1) : 0,
+                FixedDivisor(num_warps_per_table),
+                indices.data_ptr<int64_t>(),
+                {%- if weighted %}
+                // TODO: update indice_weights type
+                indice_weights.data_ptr<float>(),
+                {%- endif %}
+                offsets.data_ptr<int64_t>(),
+                reinterpret_cast<uint32_t*>(D_offsets.data_ptr<int32_t>()),
+                weights_offsets.data_ptr<int64_t>(),
+                lxu_cache_locations.data_ptr<int32_t>(),
+                output.data_ptr<output_t>()
+              );
             C10_CUDA_KERNEL_LAUNCH_CHECK();
 #endif
         }
