@@ -279,6 +279,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     record_cache_metrics: RecordCacheMetrics
     uvm_cache_stats: torch.Tensor
     local_uvm_cache_stats: torch.Tensor
+    linear_cache_indices_list: List[Tensor]
 
     def __init__(  # noqa C901
         self,
@@ -323,6 +324,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         uvm_non_rowwise_momentum: bool = False,  # place non-rowwise momentum on UVM
         use_experimental_tbe: bool = False,  # set to True to use TBE v2 (only support NVIDIA GPUs)
+        # set to True to enable prefetch pipeline, currently only supports LRU cache policy.
+        # If a separate stream is used for prefetch, the optional forward_stream arg of prefetch function
+        # should be set.
+        prefetch_pipeline: bool = False,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -330,6 +335,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
         self.output_dtype: int = output_dtype.as_int()
+        assert (
+            not prefetch_pipeline or cache_algorithm == CacheAlgorithm.LRU
+        ), "Only LRU cache policy supports prefetch_pipeline."
+        self.prefetch_pipeline: bool = prefetch_pipeline
+        self.lock_cache_line: bool = self.prefetch_pipeline
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -919,10 +929,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
-            self.prefetch(indices, offsets)
+            self._prefetch(indices, offsets)
 
         self.timesteps_prefetched.pop(0)
-        lxu_cache_locations = (
+        self.lxu_cache_locations = (
             self.lxu_cache_locations_empty
             if len(self.lxu_cache_locations_list) == 0
             else self.lxu_cache_locations_list.pop(0)
@@ -945,7 +955,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             pooling_mode=self.pooling_mode,
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
-            lxu_cache_locations=lxu_cache_locations,
+            lxu_cache_locations=self.lxu_cache_locations,
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
             is_experimental=self.is_experimental,
@@ -1114,7 +1124,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
             )
 
-    def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
+    def prefetch(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        forward_stream: Optional[torch.cuda.Stream] = None,
+    ) -> None:
+        if self.prefetch_stream is None and forward_stream is not None:
+            self.prefetch_stream = torch.cuda.current_stream()
+            assert (
+                self.prefetch_stream != forward_stream
+            ), "prefetch_stream and forward_stream should not be the same stream"
+
+        self._prefetch(indices, offsets)
+        if forward_stream is not None:
+            self._prefetch_tensors_record_stream(forward_stream)
+
+    def _prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
         if not self.lxu_cache_weights.numel():
@@ -1163,6 +1189,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.stochastic_rounding,
                 self.gather_uvm_cache_stats,
                 self.local_uvm_cache_stats,
+                self.lock_cache_line,
+                self.lxu_cache_locking_counter,
             )
         elif self.cache_algorithm == CacheAlgorithm.LFU:
             torch.ops.fbgemm.lfu_cache_populate(
@@ -1182,15 +1210,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             len(self.lxu_cache_locations_list) < self.max_prefetch_depth
         ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
-        self.lxu_cache_locations_list.append(
-            torch.ops.fbgemm.lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_cache_hash_size,
-                self.gather_uvm_cache_stats,
-                self.local_uvm_cache_stats,
-            )
+
+        lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices,
+            self.lxu_cache_state,
+            self.total_cache_hash_size,
+            self.gather_uvm_cache_stats,
+            self.local_uvm_cache_stats,
         )
+
+        self.lxu_cache_locations_list.append(lxu_cache_locations)
+        if self.prefetch_pipeline:
+            self.linear_cache_indices_list.append(linear_cache_indices)
+
         if self.gather_uvm_cache_stats:
             # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
             # We may wanna do this accumulation atomically, but as it's only for monitoring,
@@ -1199,6 +1231,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
             self.local_uvm_cache_stats.zero_()
+
+    def _prefetch_tensors_record_stream(
+        self, forward_stream: torch.cuda.Stream
+    ) -> None:
+        # Record the tensors created by prefetch stream and consumed by forward/backward
+        # to the forward stream. In PyTorch, each backward CUDA op runs on the same
+        # stream that was used for its corresponding forward op.
+
+        for t in self.lxu_cache_locations_list:
+            # pyre-fixme[6]: For 1st param expected `_C.Stream` but got `streams.Stream`
+            t.record_stream(forward_stream)
+        for t in self.linear_cache_indices_list:
+            # pyre-fixme[6]: For 1st param expected `_C.Stream` but got `streams.Stream`
+            t.record_stream(forward_stream)
 
     def _update_cache_miss_counter(
         self,
@@ -1521,6 +1567,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.lxu_cache_locations_empty = torch.empty(
             0, device=self.current_device, dtype=torch.int32
         ).fill_(-1)
+        self.lxu_cache_locations = self.lxu_cache_locations_empty
+        self.prefetch_stream: Optional[torch.cuda.Stream] = None
+        self.linear_cache_indices_list = []
 
         self._init_uvm_cache_stats()
 
@@ -1561,6 +1610,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.tensor([0, 0], dtype=torch.int64),
                 persistent=False,
             )
+            self._init_uvm_cache_counter(cache_sets, persistent=False)
             return
 
         assert cache_load_factor > 0
@@ -1648,11 +1698,122 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "cache_miss_counter",
             torch.tensor([0, 0], device=self.current_device, dtype=torch.int64),
         )
+        self._init_uvm_cache_counter(cache_sets, persistent=True)
+        if self.prefetch_pipeline:
+            # using the placeholder_autograd_tensor to make sure
+            # the hook is executed after the backward pass
+            # not using register_module_full_backward_hook
+            # due to https://github.com/pytorch/pytorch/issues/100528
+            self.placeholder_autograd_tensor.register_hook(
+                self._sync_stream_post_backward
+            )
+            self.register_full_backward_pre_hook(
+                self._update_cache_counter_and_locations
+            )
 
         if cache_algorithm not in (CacheAlgorithm.LFU, CacheAlgorithm.LRU):
             raise ValueError(
                 f"cache_algorithm must be {CacheAlgorithm.LRU} "
                 f"or {CacheAlgorithm.LFU}"
+            )
+
+    def _sync_stream_post_backward(
+        self,
+        grad: Tensor,
+    ) -> None:
+        """
+        backward hook function when prefetch_pipeline is enabled.
+
+        With the pipeline, prefetch(batch_{i+2}) may overlap with backward(batch_{i}).
+        There is race condition that backward(batch_i) writes to UVM memory and
+        at the same time prefetch(batch_{i+2}) loads UVM memory to cache. This stream sync forces
+        backward(batch_i) to finish before prefetch(batch_{i+2}).
+        """
+        if self.prefetch_stream is not None:
+            self.prefetch_stream.wait_stream(torch.cuda.current_stream())
+
+    def _update_cache_counter_and_locations(
+        self,
+        module: nn.Module,
+        grad_input: Union[Tuple[Tensor, ...], Tensor],
+    ) -> None:
+        """
+        Backward prehook function when prefetch_pipeline is enabled.
+
+        This function does 3 things:
+        1. backward stream waits for prefetch stream to finish.
+        Otherwise the prefetch(batch_{i+1}) might overlap with backward(batch_i).
+        If an idx is not in cache in batch_i, but it is being inserted in batch_{i+1},
+        there is race condition that backward(batch_i) writes to UVM memory and
+        at the same time prefetch(batch_{i+1}) loads UVM memory to cache.
+
+        2. decrement the lxu_cache_locking_counter to indicate the current batch is finished.
+        The lxu_cache_locking_counter is updated in both prefetch and TBE backward.
+        As there is no overlap between prefetch and backward, we can decrement either before or
+        after backward. It's better to decrement before lxu_cache_locations gets updated.
+
+        3. update lxu_cache_locations to address the cache inconsistency issue.
+        In the case that the same index is not inserted into cache in batch_i,
+        but it is inserted in batch_{i+1}, the cache can be invalid in
+        the sense that the cached weight for this index does not have the
+        backward update of batch_i.
+
+        Example of the issue is as follows:
+        idx is in batch_i, batch_{i+1}
+        prefetch(batch_i)
+          - failed to insert idx into cache, cache_locations_batch_i of idx is -1 (cache miss)
+        forward(batch_i)
+        prefetch(batch_{i+1})
+          - insert idx into cache, cache is loaded from host memory
+        backward(batch_i)
+          - cache_locations_batch_i of idx is -1, the host memory is updated
+        forward(batch_{i+1})
+          - OUTPUT IS WRONG. the weight for idx is fetched from cache, but the cache is outdated.
+
+        The fix to this cache inconsistency is to update the cache_locations_batch_i before backward of batch_i,
+        so that the cache gets updated correctly by the backward pass of TBE.
+        """
+
+        if self.prefetch_stream is not None:
+            # need to wait for the prefetch of next batch,
+            # so that cache states are valid
+            torch.cuda.current_stream().wait_stream(self.prefetch_stream)
+
+        torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
+            self.lxu_cache_locking_counter,
+            self.lxu_cache_locations,
+        )
+
+        linear_cache_indices = self.linear_cache_indices_list.pop(0)
+        lxu_cache_locations_new = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices,
+            self.lxu_cache_state,
+            self.total_cache_hash_size,
+            False,  # not collecting cache stats
+            self.local_uvm_cache_stats,
+        )
+        # self.lxu_cache_locations is updated inplace
+        torch.ops.fbgemm.lxu_cache_locations_update(
+            self.lxu_cache_locations,
+            lxu_cache_locations_new,
+        )
+
+    def _init_uvm_cache_counter(self, cache_sets: int, persistent: bool) -> None:
+        if self.prefetch_pipeline and persistent:
+            self.register_buffer(
+                "lxu_cache_locking_counter",
+                torch.zeros(
+                    cache_sets,
+                    DEFAULT_ASSOC,
+                    device=self.current_device,
+                    dtype=torch.int32,
+                ),
+            )
+        else:
+            self.register_buffer(
+                "lxu_cache_locking_counter",
+                torch.zeros([0, 0], dtype=torch.int32, device=self.current_device),
+                persistent=persistent,
             )
 
     def _init_uvm_cache_stats(self) -> None:
