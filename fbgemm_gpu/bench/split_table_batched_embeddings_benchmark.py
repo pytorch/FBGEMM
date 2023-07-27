@@ -1162,6 +1162,7 @@ def nbit_device(  # noqa C901
 @click.option("--report-aibench", is_flag=True)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--use-cpu", is_flag=True, default=False)
 def nbit_device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -1186,6 +1187,7 @@ def nbit_device_with_spec(  # noqa C901
     report_aibench: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    use_cpu: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1234,6 +1236,9 @@ def nbit_device_with_spec(  # noqa C901
         managed_option = EmbeddingLocation.DEVICE
     else:
         managed_option = EmbeddingLocation.MANAGED
+    # Override managed_option to HOST if using CPU
+    if use_cpu:
+        managed_option = EmbeddingLocation.HOST
 
     if pooling is None or pooling == "sum":
         pooling = "sum"
@@ -1248,6 +1253,7 @@ def nbit_device_with_spec(  # noqa C901
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", e, d, weights_precision, managed_option) for d, e in zip(Ds, Es)],
+        device="cpu" if use_cpu else None,
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
         index_remapping=index_remapping,
         pruning_hash_load_factor=pruning_hash_load_factor,
@@ -1256,7 +1262,11 @@ def nbit_device_with_spec(  # noqa C901
         pooling_mode=pooling_mode,
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
-    ).cuda()
+    )
+    if use_cpu:
+        emb = emb.cpu()
+    else:
+        emb = emb.cuda()
     emb.fill_random_weights()
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
@@ -1326,22 +1336,38 @@ def nbit_device_with_spec(  # noqa C901
             else:
                 weights = None
             requests.append((indices, offsets, weights))
-        requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+        if use_cpu:
+            requests = [
+                (a.cpu().int(), b.cpu().int(), c.cpu() if c else None)
+                for (a, b, c) in requests
+            ]
+        else:
+            requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
         del all_requests
         assert len(requests) == iters
 
         # forward
-        time_per_iter = benchmark_requests(
-            requests,
-            lambda indices, offsets, per_sample_weights: emb.forward(
-                indices.int(),
-                offsets.int(),
-                per_sample_weights,
-            ),
-            check_median=check_median,
-        )
+        if use_cpu:
+            time_per_iter = benchmark_cpu_requests(
+                requests,
+                lambda indices, offsets, per_sample_weights: emb.forward(
+                    indices.int(),
+                    offsets.int(),
+                    per_sample_weights,
+                ),
+            )
+        else:
+            time_per_iter = benchmark_requests(
+                requests,
+                lambda indices, offsets, per_sample_weights: emb.forward(
+                    indices.int(),
+                    offsets.int(),
+                    per_sample_weights,
+                ),
+                check_median=check_median,
+            )
 
-        # free up GPU memory
+        # free up memory
         del requests
 
         logging.info(
