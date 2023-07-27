@@ -5,7 +5,7 @@
 
 load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
-load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_inline_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_inline_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers", "get_fbgemm_tests")
+load("defs.bzl", "get_fbgemm_avx2_srcs", "get_fbgemm_inline_avx2_srcs", "get_fbgemm_avx512_srcs", "get_fbgemm_inline_avx512_srcs", "get_fbgemm_base_srcs", "get_fbgemm_generic_srcs", "get_fbgemm_public_headers")
 
 cc_library(
     name = "fbgemm_base",
@@ -158,15 +158,37 @@ cc_library(
     ],
 )
 
-[
-    cc_test(
-        name = paths.split_extension(paths.basename(filename))[0],
-        size = "medium",
-        srcs = [
-            filename,
-        ],
-        deps = [
-            ":test_utils",
-        ],
-    ) for filename in get_fbgemm_tests()
-]
+cc_test(
+    name = "test",
+    size = "medium",
+    srcs = [
+        "test/Bfloat16ConvertTest.cc",
+        "test/EmbeddingSpMDM8BitTest.cc",
+        "test/EmbeddingSpMDMNBitTest.cc",
+        "test/EmbeddingSpMDMTest.cc",
+        "test/FP16Test.cc",
+        "test/Float16ConvertTest.cc",
+        "test/GConvTest.cc",
+        "test/I64Test.cc",
+        "test/I8DepthwiseTest.cc",
+        "test/I8DirectconvTest.cc",
+        "test/I8SpmdmTest.cc",
+        "test/Im2ColFusedRequantizeTest.cc",
+        "test/PackedRequantizeAcc16Test.cc",
+        "test/PackedRequantizeTest.cc",
+        "test/QuantUtilsTest.cc",
+        "test/RadixSortTest.cc",
+        "test/RequantizeOnlyTest.cc",
+        "test/RowWiseSparseAdagradFusedTest.cc",
+        "test/SparseAdagradTest.cc",
+        "test/SparseDenseMMFP32Test.cc",
+        "test/SparseDenseMMInt8Test.cc",
+        "test/SparsePackUnpackTest.cc",
+        "test/TransposeTest.cc",
+        "test/TransposedRequantizeTest.cc",
+        "test/UniConvTest.cc",
+    ],
+    deps = [
+        ":test_utils",
+    ],
+)

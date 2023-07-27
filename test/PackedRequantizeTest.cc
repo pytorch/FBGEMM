@@ -28,6 +28,8 @@
 using namespace std;
 using namespace fbgemm;
 
+namespace {
+
 vector<matrix_op_t> transposeVals{
     matrix_op_t::NoTranspose,
     matrix_op_t::Transpose};
@@ -37,7 +39,6 @@ vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::GROUP,
     QuantizationGranularity::OUT_CHANNEL};
 
-namespace {
 class fbgemmu8s8acc32WithQuantGranularityTest
     : public testing::TestWithParam<
           tuple<matrix_op_t, matrix_op_t, bool, QuantizationGranularity>> {};

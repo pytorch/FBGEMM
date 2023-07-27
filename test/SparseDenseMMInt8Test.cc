@@ -18,6 +18,8 @@
 using namespace std;
 using namespace fbgemm;
 
+namespace {
+
 vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::OUT_CHANNEL};
@@ -26,6 +28,8 @@ vector<QuantizationGranularity> qGranularityVals{
 class SPMMInt8Test
     : public testing::TestWithParam<
           tuple<int, int, int, float, bool, QuantizationGranularity>> {};
+
+} // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
