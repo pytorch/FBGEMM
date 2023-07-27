@@ -29,62 +29,63 @@ using namespace fbgemm_gpu;
 
 {%- if not weighted %}
 template <
-    typename emb_t,
-    typename cache_t,
-    typename output_t,
-    typename index_t,
-    size_t kThreadGroupSize
-    >
+  typename emb_t,
+  typename cache_t,
+  typename output_t,
+  typename index_t,
+  size_t kThreadGroupSize
+>
 __launch_bounds__(kForwardMaxThreads)
 __global__ void {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
-    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    {%- if not dense %}
-    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    int64_t D,
-    FixedDivisor fd_B,
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
-    {%- endif %}
-    pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D],
-    );
+  const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+  {%- if not dense %}
+  const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  {%- endif %}
+  const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  int64_t D,
+  FixedDivisor fd_B,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+  {%- if not dense %}
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+  {%- endif %}
+  pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output
+);
 {%- endif %}
 
 {% if not dense %}
 #ifndef __HIP_PLATFORM_HCC__
 // Support only the split-pooled TBE case
 template <
-    typename emb_t,
-    typename cache_t,
-    typename output_t,
-    typename index_t,
-    bool use_lxu_cache
-    >
+  typename emb_t,
+  typename cache_t,
+  typename output_t,
+  typename index_t,
+  bool use_lxu_cache
+>
 __launch_bounds__(kForwardMaxThreads, 2048 / kForwardMaxThreads)
 __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
-    const emb_t* __restrict__ const dev_weights,
-    const emb_t* __restrict__ const uvm_weights,
-    const cache_t* __restrict__ const lxu_cache_weights,
-    const int32_t* __restrict__ const weights_placements,
-    const uint32_t B,
-    const uint32_t T,
-    const bool mean_pooling,
-    const uint32_t max_D_cache,
-    const FixedDivisor fd_num_warps_per_table,
-    const index_t* __restrict__ const indices,
-    {%- if weighted %}
-    const float* __restrict__ const index_weights,
-    {%- endif %}
-    const index_t* __restrict__ const  offsets,
-    const uint32_t* __restrict__ const D_offsets,
-    const int64_t* __restrict__ const weights_offsets,
-    const int32_t* __restrict__ const lxu_cache_locations,
-    output_t* __restrict__ const output);
+  const emb_t* __restrict__ const dev_weights,
+  const emb_t* __restrict__ const uvm_weights,
+  const cache_t* __restrict__ const lxu_cache_weights,
+  const int32_t* __restrict__ const weights_placements,
+  const uint32_t B,
+  const uint32_t T,
+  const bool mean_pooling,
+  const uint32_t max_D_cache,
+  const FixedDivisor fd_num_warps_per_table,
+  const index_t* __restrict__ const indices,
+  {%- if weighted %}
+  const float* __restrict__ const index_weights,
+  {%- endif %}
+  const index_t* __restrict__ const  offsets,
+  const uint32_t* __restrict__ const D_offsets,
+  const int64_t* __restrict__ const weights_offsets,
+  const int32_t* __restrict__ const lxu_cache_locations,
+  output_t* __restrict__ const output
+);
 #endif
 {% endif %} // if not dense
 
@@ -94,53 +95,54 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 {%- set ndesc = "_nobag" if nobag else "" %}
 
 template <
-    typename emb_t,
-    typename cache_t,
-    typename output_t,
-    {%- if not dense %}
-    bool use_lxu_cache,
-    {%- endif %}
-    typename index_t,
-    {%- if not nobag %}
-    size_t kMaxVecsPerThread,
-    {%- endif %}
-    size_t kThreadGroupSize = kWarpSize
-    >
-__launch_bounds__(kForwardMaxThreads)
-__global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
-    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    {%- if not dense %}
-    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {%- if not nobag %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {%- else %}
-    int64_t D,
-    {%- endif %}
-    {%- if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
-    {%- else %}
-    FixedDivisor fd_B,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    {%- if not nobag %}
-    int64_t pooling_mode,
-    {%- endif %}
-    {%- if weighted %}
-    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
-    {%- endif %}
-    {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
-    {%- endif %}
-    pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D]
-    );
+  typename emb_t,
+  typename cache_t,
+  typename output_t,
+  {%- if not dense %}
+  bool use_lxu_cache,
+  {%- endif %}
+  typename index_t,
+  {%- if not nobag %}
+  size_t kMaxVecsPerThread,
+  {%- endif %}
+  size_t kThreadGroupSize = kWarpSize
+>
+__launch_bounds__(kForwardMaxThreads) __global__
+void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
+  const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+  {%- if not dense %}
+  const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+  const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+  {%- endif %}
+  const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+  {%- if not nobag %}
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+  {%- else %}
+  int64_t D,
+  {%- endif %}
+  {%- if vbe %}
+  const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+  const int32_t info_B_num_bits,
+  const uint32_t info_B_mask,
+  {%- else %}
+  FixedDivisor fd_B,
+  {%- endif %}
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+  const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+  {%- if not nobag %}
+  int64_t pooling_mode,
+  {%- endif %}
+  {%- if weighted %}
+  pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
+  {%- endif %}
+  {%- if not dense %}
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+  const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> uvm_cache_stats,
+  {%- endif %}
+  pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output
+);
 
 {%- endif %}
 {%- endfor %}
@@ -210,7 +212,7 @@ __global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ v
     {%- else %}
     {%- for use_cache in ["false", "true"] %}
     if (CACHE_CASE_ == {{ use_cache }}) {                                      \
-      constexpr auto _TUseCache = {{ use_cache }};                             \
+      constexpr auto use_cache_t = {{ use_cache }};                            \
       return __VA_ARGS__();                                                    \
     }                                                                          \
     {%- endfor %}
@@ -296,11 +298,13 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
     int32_t total_L = indices.numel();
     int32_t T = weights_offsets.numel();
     {%- endif %}
+
     TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]
     const auto total_B = offsets.size(0) - 1;
     const int32_t B = (total_B) / T;
     TORCH_CHECK_GE(B, 0);
+
     {%- if not nobag %}
     TORCH_CHECK_GT(total_D, 0);
     TORCH_CHECK_EQ(total_D % 4, 0);
@@ -309,6 +313,7 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
     TORCH_CHECK_GT(D, 0);
     TORCH_CHECK_EQ(D % 4, 0);
     {%- endif %}
+
     {%- if vbe %}
     TORCH_CHECK(vbe_metadata.output_offsets.numel() == total_B);
     TORCH_CHECK(vbe_metadata.b_t_map.numel() == total_B);
@@ -354,6 +359,9 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
         {%- endif %}
         return output;
     }
+
+    // TODO: Turn this into a function argument
+    auto uvm_cache_stats = at::empty({0}, dev_weights.options().dtype(at::ScalarType::Int));
 
     DISPATCH_EMB_CACHE_OUTPUT_TYPES(
         dev_weights.scalar_type(),
@@ -421,11 +429,10 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
 #ifdef FBGEMM_GPU_MEMCHECK
           const auto func_name = "{{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel";
 #endif
-
           {%- if dense %}
           {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t>
           {%- else %}
-          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, _TUseCache, int64_t>
+          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, use_cache_t, int64_t>
           {%- endif %}
             <<<
               div_round_up(total_B, kForwardMaxThreads / kWarpSize),
@@ -446,14 +453,14 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
               MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
               {%- if not dense %}
               MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
               {%- endif %}
               MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
             );
 
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-            return;
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          return;
         });
-
 
         {#-/* Pooled TBE Case (nobag=False) *********************************/#}
         {%- else %}
@@ -464,9 +471,9 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
             const auto func_name = "{{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel";
 #endif
             {%- if dense %}
-            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}_kernel<emb_t, cache_t, output_t, int64_t, kMaxVecsPerThread, kThreadGroupSize>
+            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel<emb_t, cache_t, output_t, int64_t, kMaxVecsPerThread, kThreadGroupSize>
             {%- else %}
-            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel<emb_t, cache_t, output_t, _TUseCache, int64_t, kMaxVecsPerThread, kThreadGroupSize>
+            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel<emb_t, cache_t, output_t, use_cache_t, int64_t, kMaxVecsPerThread, kThreadGroupSize>
             {%- endif %}
               <<<
                 div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
@@ -498,6 +505,7 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
                 {%- endif %}
                 {%- if not dense %}
                 MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
                 {%- endif %} // if not dense
                 MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
               );
