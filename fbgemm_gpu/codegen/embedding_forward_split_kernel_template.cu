@@ -45,6 +45,9 @@ using namespace fbgemm_gpu;
         cache_idx_j
         idx_weight_j
         VEC_WIDTH
+        D
+        kThreadGroupSize
+        output_j
 */#}
 {%- macro load_and_accumulate(from_cache) %}
     {#-/* Set the weights row */#}
