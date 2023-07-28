@@ -35,6 +35,7 @@
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 constexpr size_t kCacheMaxThreads = 512;
@@ -71,15 +72,6 @@ cache_slot(const int64_t h_in, const int32_t C) {
 
   return h % (uint32_t)C;
 }
-
-enum uvm_cache_stats_index {
-  num_calls = 0,
-  num_requested_indices = 1,
-  num_unique_indices = 2,
-  num_unique_misses = 3,
-  num_conflict_unique_misses = 4,
-  num_conflict_misses = 5,
-};
 
 // Experiments showed that performance of lru/lxu_cache_find_uncached_kernel is
 // not sensitive to grid size as long as the number thread blocks per SM is not
@@ -155,7 +147,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
             threadIdx.x);
 
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
       qparams =
           thrust_find_qparams<cache_t>(&lxu_cache_weights[b][0], D_current);
       if (threadIdx.x == 0) {
@@ -206,7 +198,7 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
       "lxu_cache_flush_kernel_2",
       ([&] {
         at::PhiloxCudaState rng_engine_inputs;
-        if (stochastic_rounding && std::is_same<emb_t, at::Half>::value) {
+        if (stochastic_rounding && std::is_same_v<emb_t, at::Half>) {
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
@@ -1132,7 +1124,7 @@ void lru_cache_insert_cuda(
       "lru_cache_insert_kernel_2",
       ([&] {
         at::PhiloxCudaState rng_engine_inputs;
-        if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
+        if (stochastic_rounding && !std::is_same_v<emb_t, float>) {
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
@@ -2151,7 +2143,7 @@ void lfu_cache_insert_cuda(
       "lfu_cache_insert_kernel_2",
       ([&] {
         at::PhiloxCudaState rng_engine_inputs;
-        if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
+        if (stochastic_rounding && !std::is_same_v<emb_t, float>) {
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
