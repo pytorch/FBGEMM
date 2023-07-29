@@ -90,6 +90,25 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
 }
 
 template <typename Dtype, typename index_t = int32_t>
+__global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
+    const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        cat_ad_indices,
+    at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        reordered_cat_ad_indices,
+    const int num_ads_in_batch) {
+  const auto lane_id = threadIdx.x % kWarpSize;
+  const auto warp_id_ads_in_batch =
+      (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+  if (warp_id_ads_in_batch < num_ads_in_batch) {
+    for (auto i = lane_id; i < cat_ad_indices.size(0); i += kWarpSize) {
+      reordered_cat_ad_indices
+          [warp_id_ads_in_batch * cat_ad_indices.size(0) + i] =
+              cat_ad_indices[i];
+    }
+  }
+}
+
+template <typename Dtype, typename index_t = int32_t>
 __global__
 __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
     // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
@@ -176,6 +195,36 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
         at::empty({num_indices_after_broadcast}, cat_ad_indices.options());
   } else {
     reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
+  }
+
+  if (broadcast_indices && B == 1 && T == 1) {
+    // for B = 1 and T = 1 broadcast case
+    TORCH_CHECK(num_ads_in_batch == reordered_cat_ad_offsets.numel() - 1);
+    constexpr auto NUM_WARPS = 16;
+    const dim3 threads(NUM_WARPS * kWarpSize); //  16 x 32
+    const dim3 blocks(cuda_calc_xblock_count(
+        num_ads_in_batch, NUM_WARPS)); // one warp per sample
+    AT_DISPATCH_ALL_TYPES(
+        cat_ad_indices.scalar_type(), "narrow_broadcast_indices_kernel_1", [&] {
+          AT_DISPATCH_INDEX_TYPES(
+              cat_ad_offsets.scalar_type(),
+              "narrow_broadcast_indices_kernel_2",
+              [&] {
+                narrow_broadcast_indices_kernel<scalar_t, index_t>
+                    <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                        cat_ad_indices.packed_accessor32<
+                            scalar_t,
+                            1,
+                            at::RestrictPtrTraits>(),
+                        reordered_cat_ad_indices.packed_accessor32<
+                            scalar_t,
+                            1,
+                            at::RestrictPtrTraits>(),
+                        num_ads_in_batch);
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
+              });
+        });
+    return reordered_cat_ad_indices;
   }
 
   const dim3 threads(32, 32);
