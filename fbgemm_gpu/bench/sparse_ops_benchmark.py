@@ -352,5 +352,108 @@ def asynchronous_complete_cumsum_2d_bench(
     logging.info(f"fbgemm_gpu time: {time:.5f} sec")
 
 
+@cli.command()
+@click.option("--batch-size", default=8192)
+@click.option("--table-size", default=20)
+@click.option("--length", default=50)
+@click.option("--num-ads", default=100)
+@click.option("--dtype", type=click.Choice(["float", "long"]), default="long")
+@click.option("--itype", type=click.Choice(["int", "long"]), default="int")
+@click.option("--broadcast-indices", type=bool, default=True)
+def reorder_batched_ad_indices_bench(
+    batch_size: int,
+    table_size: int,
+    length: int,
+    num_ads: int,
+    dtype: str,
+    itype: str,
+    broadcast_indices: bool,
+) -> None:
+    assert dtype == "float" or dtype == "long", "Only int and long are supported"
+    data_type = torch.int64 if dtype == "long" else torch.float
+    data_size = 8 if dtype == "long" else 4
+
+    assert itype == "int" or itype == "long", "Only int and long are supported"
+    index_type = torch.int64 if itype == "long" else torch.int32
+
+    if broadcast_indices:
+        cat_ad_indices = (
+            torch.randint(
+                low=0,
+                high=100,
+                size=(batch_size * table_size * length,),
+            )
+            .int()
+            .cuda()
+            .to(data_type)
+        )
+        cat_ad_lengths = (
+            torch.cat(
+                [
+                    torch.tensor([length for _ in range(table_size)])
+                    for _ in range(batch_size)
+                ],
+                0,
+            )
+            .int()
+            .cuda()
+        )
+    else:
+        cat_ad_indices = (
+            torch.randint(
+                low=0,
+                high=100,
+                size=(batch_size * table_size * num_ads * length,),
+            )
+            .int()
+            .cuda()
+            .to(data_type)
+        )
+        cat_ad_lengths = (
+            torch.cat(
+                [
+                    torch.tensor([length for _ in range(table_size * num_ads)])
+                    for _ in range(batch_size)
+                ],
+                0,
+            )
+            .int()
+            .cuda()
+        )
+
+    batch_offsets = (
+        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int().cuda()
+    )
+    num_ads_in_batch = batch_size * num_ads
+    reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
+        cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
+    )
+
+    cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths).to(
+        index_type
+    )
+    reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+        reordered_cat_ad_lengths
+    ).to(index_type)
+    time, _ = benchmark_torch_function(
+        torch.ops.fbgemm.reorder_batched_ad_indices,
+        (
+            cat_ad_offsets,
+            cat_ad_indices,
+            reordered_cat_ad_offsets,
+            batch_offsets,
+            num_ads_in_batch,
+            broadcast_indices,
+            batch_size * table_size * num_ads * length,
+        ),
+        num_warmups=100,
+        iters=1000,
+    )
+    num_bytes = batch_size * table_size * (num_ads + 1) * length * data_size
+    logging.info(
+        f"fbgemm_gpu time: {time * 1000:.5f} ms ({num_bytes / time / 1e9:.5f} GB/s)"
+    )
+
+
 if __name__ == "__main__":
     cli()
