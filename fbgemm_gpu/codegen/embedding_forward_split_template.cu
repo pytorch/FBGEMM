@@ -255,6 +255,7 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
     {%- endif %}
     {%- if not dense %}
     Tensor lxu_cache_locations,
+    Tensor uvm_cache_stats,
     {%- endif %}
     int64_t output_dtype,
     {%- if vbe %}
@@ -359,9 +360,6 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
         {%- endif %}
         return output;
     }
-
-    // TODO: Turn this into a function argument
-    auto uvm_cache_stats = at::empty({0}, dev_weights.options().dtype(at::ScalarType::Int));
 
     DISPATCH_EMB_CACHE_OUTPUT_TYPES(
         dev_weights.scalar_type(),

@@ -37,6 +37,7 @@ Tensor split_embedding_codegen_forward_unweighted{{ vdesc }}_cuda(
     Tensor offsets,
     int64_t pooling_mode,
     Tensor lxu_cache_locations,
+    Tensor uvm_cache_stats,
     int64_t output_dtype,
     {% if vbe %}
     const VBEMetadata& vbe_metadata,
@@ -59,6 +60,7 @@ Tensor split_embedding_codegen_forward_weighted{{ vdesc }}_cuda(
     int64_t pooling_mode,
     Tensor indice_weights,
     Tensor lxu_cache_locations,
+    Tensor uvm_cache_stats,
     int64_t output_dtype,
     {% if vbe %}
     const VBEMetadata& vbe_metadata,
@@ -155,6 +157,7 @@ Tensor split_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor indices,
     Tensor offsets,
     Tensor lxu_cache_locations,
+    Tensor uvm_cache_stats,
     int64_t output_dtype,
     bool is_experimental);
 
@@ -183,9 +186,14 @@ Tensor split_embedding_nobag_backward_codegen_{{ optimizer }}_unweighted_exact_c
 
 {% for nobag in [True, False] %}
 {% if not nobag or not vbe %} // nobag does not support vbe
-class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunction_{{ optimizer }}_Op :
+
+{% set class_vdesc = "VBE" if vbe else "" %}
+{% set class_ndesc = "NoBag" if nobag else "" %}
+
+
+class Split{{ class_ndesc }}{{ class_vdesc }}LookupFunction_{{ optimizer }}_Op :
     public torch::autograd::Function<
-        Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunction_{{ optimizer }}_Op
+        Split{{ class_ndesc }}{{ class_vdesc }}LookupFunction_{{ optimizer }}_Op
     > {
  public:
   static torch::autograd::variable_list forward(
@@ -214,6 +222,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     c10::optional<Tensor> feature_requires_grad,
     {% endif %}
     Tensor lxu_cache_locations,
+    c10::optional<Tensor> uvm_cache_stats,
     {% if optimizer != "none" %}
     bool gradient_clipping,
     double max_gradient,
@@ -247,6 +256,10 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     int32_t info_B_num_bits;
     uint32_t info_B_mask;
     std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(max_B_, T);
+
+    // NOTE: The `local_uvm_cache_stats` variable held by the nn.Module has dtype int32_t
+    const auto uvm_cache_stats_ = uvm_cache_stats
+      .value_or(at::empty({0}, dev_weights.options().dtype(at::kInt)));
 
     {% if vbe %}
     populate_vbe_metadata_foreach_sample_inplace(
@@ -333,6 +346,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
             offsets,
             pooling_mode,
             lxu_cache_locations,
+            uvm_cache_stats_,
             output_dtype,
             {% if vbe %}
             vbe_metadata,
@@ -358,6 +372,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
             pooling_mode,
             *indice_weights,
             lxu_cache_locations,
+            uvm_cache_stats_,
             output_dtype,
             {% if vbe %}
             vbe_metadata,
@@ -380,6 +395,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         indices,
         offsets,
         lxu_cache_locations,
+        uvm_cache_stats_,
         output_dtype,
         /*is_experimental=*/false
       )
@@ -556,6 +572,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         grad_indice_weights, // indice_weights
         Variable(), // feature_requires_grad
         Variable(), // lxu_cache_locations
+        Variable(), // uvm_cache_stats
         {% if optimizer != "none" %}
         Variable(), // gradient_clipping
         Variable(), // max_gradient
@@ -612,6 +629,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         Variable(), // indices
         Variable(), // offsets
         Variable(), // lxu_cache_locations
+        Variable(), // uvm_cache_stats
         {% if optimizer != "none" %}
         Variable(), // gradient_clipping
         Variable(), // max_gradient
@@ -668,11 +686,12 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const int64_t max_B = -1,
     const int64_t max_B_feature_rank = -1,
     const int64_t vbe_output_size = -1,
-    const bool is_experimental = false
+    const bool is_experimental = false,
+    c10::optional<Tensor> uvm_cache_stats = c10::optional<Tensor>()
 ) {
   {% if has_gpu_support %}
   {% for vbe in ([True, False] if has_vbe_support else [False]) %}
-  {% set vbe_class_desc = "VBE" if vbe else "" %}
+  {% set class_vdesc = "VBE" if vbe else "" %}
 
   {% if has_vbe_support %}
   {% if vbe %}
@@ -696,6 +715,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           indices,
           offsets,
           lxu_cache_locations,
+          uvm_cache_stats,
           {% if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
@@ -704,7 +724,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           is_experimental,
           {{ args.split_function_arg_names | join(", ") }})[0];
     } else {
-      return Split{{ vbe_class_desc }}LookupFunction_{{ optimizer }}_Op::apply(
+      return Split{{ class_vdesc }}LookupFunction_{{ optimizer }}_Op::apply(
           placeholder_autograd_tensor,
           output_dtype,
           dev_weights,
@@ -723,6 +743,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           indice_weights,
           feature_requires_grad,
           lxu_cache_locations,
+          uvm_cache_stats,
           {% if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
@@ -781,7 +802,9 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
           "int max_B=-1, "
           "int max_B_feature_rank=-1, "
           "int vbe_output_size=-1, "
-          "bool is_experimental=False) -> Tensor");
+          "bool is_experimental=False, "
+          "Tensor? uvm_cache_stats=None"
+          ") -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
 
@@ -816,7 +839,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "int max_B=-1, "
           "int max_B_feature_rank=-1, "
           "int vbe_output_size=-1, "
-          "bool is_experimental=False) -> Tensor");
+          "bool is_experimental=False, "
+          "Tensor? uvm_cache_stats=None"
+          ") -> Tensor");
     DISPATCH_TO_CUDA("split_embedding_codegen_lookup_{{ optimizer }}_function", split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
   // clang-format on
