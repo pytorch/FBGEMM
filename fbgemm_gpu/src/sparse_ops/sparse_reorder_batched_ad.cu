@@ -91,19 +91,26 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
 
 template <typename Dtype, typename index_t = int32_t>
 __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        cat_ad_offsets,
     const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         cat_ad_indices,
     at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_indices,
-    const int num_ads_in_batch) {
+    const int num_ads_in_batch,
+    const int reordered_cat_ad_batches) {
   const auto lane_id = threadIdx.x % kWarpSize;
-  const auto warp_id_ads_in_batch =
-      (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
-  if (warp_id_ads_in_batch < num_ads_in_batch) {
-    for (auto i = lane_id; i < cat_ad_indices.size(0); i += kWarpSize) {
+  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+  const auto table_idx = warp_id / num_ads_in_batch;
+  const auto ads_idx = warp_id % num_ads_in_batch;
+  const auto start_offset = cat_ad_offsets[table_idx];
+  const auto end_offset = cat_ad_offsets[table_idx + 1];
+  const auto num_ads = end_offset - start_offset;
+  if (warp_id < reordered_cat_ad_batches) {
+    for (auto i = lane_id; i < num_ads; i += kWarpSize) {
       reordered_cat_ad_indices
-          [warp_id_ads_in_batch * cat_ad_indices.size(0) + i] =
-              cat_ad_indices[i];
+          [start_offset * num_ads_in_batch + ads_idx * num_ads + i] =
+              cat_ad_indices[start_offset + i];
     }
   }
 }
@@ -197,13 +204,14 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
   }
 
-  if (broadcast_indices && B == 1 && T == 1) {
-    // for B = 1 and T = 1 broadcast case
-    TORCH_CHECK(num_ads_in_batch == reordered_cat_ad_offsets.numel() - 1);
+  if (broadcast_indices && B == 1 && T <= 320) {
+    // for B = 1 broadcast case
+    TORCH_CHECK(num_ads_in_batch * T == reordered_cat_ad_offsets.numel() - 1);
     constexpr auto NUM_WARPS = 16;
     const dim3 threads(NUM_WARPS * kWarpSize); //  16 x 32
     const dim3 blocks(cuda_calc_xblock_count(
-        num_ads_in_batch, NUM_WARPS)); // one warp per sample
+        reordered_cat_ad_offsets.numel() - 1,
+        NUM_WARPS)); // one warp per sample
     AT_DISPATCH_ALL_TYPES(
         cat_ad_indices.scalar_type(), "narrow_broadcast_indices_kernel_1", [&] {
           AT_DISPATCH_INDEX_TYPES(
@@ -212,6 +220,10 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
               [&] {
                 narrow_broadcast_indices_kernel<scalar_t, index_t>
                     <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                        cat_ad_offsets.packed_accessor32<
+                            index_t,
+                            1,
+                            at::RestrictPtrTraits>(),
                         cat_ad_indices.packed_accessor32<
                             scalar_t,
                             1,
@@ -220,7 +232,8 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
                             scalar_t,
                             1,
                             at::RestrictPtrTraits>(),
-                        num_ads_in_batch);
+                        num_ads_in_batch,
+                        reordered_cat_ad_offsets.numel() - 1);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
