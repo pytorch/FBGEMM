@@ -23,8 +23,8 @@ using namespace fbgemm_gpu;
 /// @defgroup embedding-cuda Embedding CUDA Operators
 
 {% for vbe in ([True, False] if has_vbe_support else [False]) %}
-{% set vbe_desc = "_vbe" if vbe else "" %}
-Tensor split_embedding_codegen_forward_unweighted{{ vbe_desc }}_cuda(
+{% set vdesc = "_vbe" if vbe else "" %}
+Tensor split_embedding_codegen_forward_unweighted{{ vdesc }}_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
@@ -45,7 +45,7 @@ Tensor split_embedding_codegen_forward_unweighted{{ vbe_desc }}_cuda(
     {% endif %}
     bool is_experimental);
 
-Tensor split_embedding_codegen_forward_weighted{{ vbe_desc }}_cuda(
+Tensor split_embedding_codegen_forward_weighted{{ vdesc }}_cuda(
     Tensor dev_weights,
     Tensor uvm_weights,
     Tensor lxu_cache_weights,
@@ -67,7 +67,7 @@ Tensor split_embedding_codegen_forward_weighted{{ vbe_desc }}_cuda(
     {% endif %}
     bool is_experimental);
 
-Tensor split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
+Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     Tensor grad_output,
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -89,7 +89,7 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
     {% endif %}
 );
 
-Tensor split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vbe_desc }}_cuda(
+Tensor split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vdesc }}_cuda(
     Tensor grad_output,
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -116,7 +116,7 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_unweighted_exact{{ vbe_d
     {% endif %}
     {{ args.split_function_args | join(", ") }});
 
-Tensor split_embedding_backward_codegen_{{ optimizer }}_weighted_exact{{ vbe_desc }}_cuda(
+Tensor split_embedding_backward_codegen_{{ optimizer }}_weighted_exact{{ vdesc }}_cuda(
     Tensor grad_output,
     Tensor dev_weights,
     Tensor uvm_weights,
@@ -320,7 +320,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     {% if not nobag %}
     if (!indice_weights) {
         return {
-          split_embedding_codegen_forward_unweighted{{ vbe_desc }}_cuda(
+          split_embedding_codegen_forward_unweighted{{ vdesc }}_cuda(
             dev_weights,
             uvm_weights,
             lxu_cache_weights,
@@ -344,7 +344,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         };
     } else {
         return {
-          split_embedding_codegen_forward_weighted{{ vbe_desc }}_cuda(
+          split_embedding_codegen_forward_weighted{{ vdesc }}_cuda(
             dev_weights,
             uvm_weights,
             lxu_cache_weights,
@@ -478,12 +478,12 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     {% if not nobag %}
     {% if optimizer == "none" %}
     // Flatten (dev_weights is used in
-    // split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda)
+    // split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda)
     dev_weights = dev_weights.flatten();
     {% endif %}
     const auto grad_indice_weights = !indice_weights.defined() ?
       Variable() :
-      split_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
+      split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         grad_output,
         dev_weights,
         uvm_weights,
@@ -506,7 +506,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         );
     const auto grad_dev_weights = !indice_weights.defined() ?
       {% for weighted in [False, True] %}
-      split_embedding_backward_codegen_{{ optimizer }}_{{ "weighted" if weighted else "unweighted" }}_exact{{ vbe_desc }}_cuda(
+      split_embedding_backward_codegen_{{ optimizer }}_{{ "weighted" if weighted else "unweighted" }}_exact{{ vdesc }}_cuda(
           grad_output,
           dev_weights,
           uvm_weights,
