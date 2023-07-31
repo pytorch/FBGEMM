@@ -13,12 +13,15 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/core/op_registration/op_registration.h>
+#include <torch/script.h>
 
 #include "codegen/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/cpu_utils.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -396,4 +399,14 @@ for (const auto d : c10::irange(D)) {
   return grad;
   {% endif %}
 }
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  {% if not dense %}
+  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, bool stochastic_rounding, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int")}}, int output_dtype = 0) -> ()");
+  {% else %}
+  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int")}}) -> Tensor");
+  {% endif %}
+  DISPATCH_TO_CPU("split_embedding_backward_codegen_{{ optimizer }}_cpu", split_embedding_backward_codegen_{{ optimizer }}_cpu);
+}
+
 // clang-format on
