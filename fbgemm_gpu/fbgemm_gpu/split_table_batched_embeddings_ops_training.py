@@ -956,6 +956,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=self.lxu_cache_locations,
+            # Pass the local_uvm_cache_stats bc only that information is
+            # relevant for the current iteration
+            uvm_cache_stats=self.local_uvm_cache_stats
+            if self.gather_uvm_cache_stats
+            else None,
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
             is_experimental=self.is_experimental,
@@ -1146,6 +1151,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.lxu_cache_weights.numel():
             return
 
+        # Clear the local_uvm_cache_stats before the prefetch instead of after
+        # the prefetch step, since it will be used in the CommonArgs in the
+        # forward step
+        if self.gather_uvm_cache_stats:
+            self.local_uvm_cache_stats.zero_()
+
         (indices, offsets) = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
@@ -1230,7 +1241,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
-            self.local_uvm_cache_stats.zero_()
 
     def _prefetch_tensors_record_stream(
         self, forward_stream: torch.cuda.Stream
