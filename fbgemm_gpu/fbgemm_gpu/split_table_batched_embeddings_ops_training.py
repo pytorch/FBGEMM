@@ -956,6 +956,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=self.lxu_cache_locations,
+            # Pass the local_uvm_cache_stats bc only that information is
+            # relevant for the current iteration
+            uvm_cache_stats=self.local_uvm_cache_stats
+            if self.gather_uvm_cache_stats
+            else None,
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
             is_experimental=self.is_experimental,
@@ -1099,17 +1104,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uvm_cache_stats.zero_()
         self.local_uvm_cache_stats.zero_()
 
-    def get_uvm_cache_stats(self) -> Tensor:
+    def get_uvm_cache_stats(self, use_local_cache: bool = False) -> Tensor:
         assert (
             self.gather_uvm_cache_stats
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        return self.uvm_cache_stats
+        return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
-    def print_uvm_cache_stats(self) -> None:
+    def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
         assert (
             self.gather_uvm_cache_stats
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        uvm_cache_stats = self.uvm_cache_stats.tolist()
+        uvm_cache_stats = (
+            self.local_uvm_cache_stats.tolist()
+            if use_local_cache
+            else self.uvm_cache_stats.tolist()
+        )
         logging.info(
             f"N_called: {uvm_cache_stats[0]}\n"
             f"N_requested_indices: {uvm_cache_stats[1]}\n"
@@ -1145,6 +1154,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.timesteps_prefetched.append(self.timestep)
         if not self.lxu_cache_weights.numel():
             return
+
+        # Clear the local_uvm_cache_stats before the prefetch instead of after
+        # the prefetch step, since it will be used in the CommonArgs in the
+        # forward step
+        if self.gather_uvm_cache_stats:
+            self.local_uvm_cache_stats.zero_()
 
         (indices, offsets) = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
@@ -1230,7 +1245,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
-            self.local_uvm_cache_stats.zero_()
 
     def _prefetch_tensors_record_stream(
         self, forward_stream: torch.cuda.Stream
