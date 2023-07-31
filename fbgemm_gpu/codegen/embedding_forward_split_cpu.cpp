@@ -12,6 +12,7 @@
 #include "fbgemm/Utils.h"
 #include "fbgemm_gpu/cpu_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
 #include "folly/container/F14Map.h"
@@ -19,7 +20,10 @@
 #include <omp.h>
 #endif
 
+#include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
+#include <ATen/core/op_registration/op_registration.h>
+#include <torch/script.h>
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -608,3 +612,23 @@ template void csr2csc<double>(
     int64_t num_embeddings);
 
 } // namespace internal
+
+namespace {
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "split_embedding_codegen_grad_indice_weights_cpu(Tensor grad_output, Tensor weights, Tensor weights_offsets, Tensor D_offsets, Tensor indices, Tensor offsets, Tensor feature_requires_grad) -> Tensor");
+  DISPATCH_TO_CPU(
+      "split_embedding_codegen_grad_indice_weights_cpu",
+      split_embedding_codegen_grad_indice_weights_cpu);
+}
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "split_embedding_codegen_forward_cpu(Tensor weights, Tensor weights_offsets, Tensor D_offsets, int total_D, Tensor hash_size_cumsum, Tensor indices, Tensor offsets, int pooling_mode, Tensor indice_weights, int output_dtype) -> Tensor");
+  DISPATCH_TO_CPU(
+      "split_embedding_codegen_forward_cpu",
+      split_embedding_codegen_forward_cpu);
+}
+
+} // namespace
