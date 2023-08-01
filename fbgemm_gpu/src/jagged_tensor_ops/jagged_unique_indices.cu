@@ -74,6 +74,8 @@ __global__ __launch_bounds__(kMaxThreads) void delinearize_unique_index_kernel(
 template <typename index_t, auto max_value, auto min_value>
 __global__ __launch_bounds__(kMaxThreads) void unique_indices_length_kernel(
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        hash_size_offsets,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         reverse_index,
     const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> lengths) {
@@ -87,8 +89,9 @@ __global__ __launch_bounds__(kMaxThreads) void unique_indices_length_kernel(
   const int32_t num_blocks = gridDim.x;
   const int32_t batch_size = (offsets.size(0) - 1) / num_blocks;
 
-  const auto offset_begin = bid * batch_size;
-  const auto offset_end = (bid + 1) * batch_size;
+  const auto offset_begin = hash_size_offsets[bid] * batch_size;
+  const auto offset_end = hash_size_offsets[bid + 1] * batch_size;
+  const auto num_lengths = (offset_end - offset_begin);
 
   const auto reverse_index_begin = offsets[offset_begin];
   const auto reverse_index_end = offsets[offset_end];
@@ -117,16 +120,17 @@ __global__ __launch_bounds__(kMaxThreads) void unique_indices_length_kernel(
   t_max = block_results[0];
   t_min = block_results[1];
   const index_t total_length = (t_max - t_min) + 1;
-  const index_t div_length = total_length / batch_size;
-  const index_t r_length = total_length % batch_size;
-  for (int32_t i = tid; i < batch_size; i += kMaxThreads) {
+  const index_t div_length = total_length / num_lengths;
+  const index_t r_length = total_length % num_lengths;
+  for (int32_t i = tid; i < num_lengths; i += kMaxThreads) {
     index_t seg_length = (i < r_length) ? (div_length + 1) : div_length;
     lengths[offset_begin + i] = seg_length;
   }
 }
 
-std::tuple<Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
+std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
     const Tensor& hash_size_cumsum,
+    const Tensor& hash_size_offsets,
     const Tensor& offsets,
     const Tensor& indices) {
   const auto total_B = offsets.size(0) - 1;
@@ -177,7 +181,7 @@ std::tuple<Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 
-  Tensor lengths = at::zeros({total_B}, offsets.options());
+  Tensor output_lengths = at::zeros({total_B}, offsets.options());
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "unique_indices_length", ([&] {
         const auto unique_indices_length_kernel_ = unique_indices_length_kernel<
@@ -189,15 +193,86 @@ std::tuple<Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
+            hash_size_offsets
+                .packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             reverse_index.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
             offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            lengths.packed_accessor32<index_t, 1, RestrictPtrTraits>());
+            output_lengths.packed_accessor32<index_t, 1, RestrictPtrTraits>());
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 
   Tensor output_offsets;
-  output_offsets = asynchronous_complete_cumsum_gpu(lengths);
-  return {output_offsets, unique_indices, reverse_index};
+  output_offsets = asynchronous_complete_cumsum_gpu(output_lengths);
+  return {output_lengths, output_offsets, unique_indices, reverse_index};
+}
+
+// Compute hash size for each key using the max value of indices per key.
+template <typename index_t, auto min_value>
+__global__ __launch_bounds__(kMaxThreads) void compute_hash_size_kernel(
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    const int64_t batch_size,
+    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> hash_size) {
+  typedef cub::BlockReduce<index_t, kMaxThreads> BlockReduce;
+  __shared__ typename BlockReduce::TempStorage temp_storage_max;
+
+  const int32_t tid = threadIdx.x;
+  const int32_t bid = blockIdx.x;
+
+  const auto offset_begin = bid * batch_size;
+  const auto offset_end = (bid + 1) * batch_size;
+  const auto index_begin = offsets[offset_begin];
+  const auto index_end = offsets[offset_end];
+
+  if (index_begin == index_end) {
+    return;
+  }
+
+  index_t t_max = min_value;
+  for (index_t i = (index_begin + tid); i < index_end; i += kMaxThreads) {
+    const index_t value = indices[i];
+    t_max = (value > t_max) ? value : t_max;
+  }
+
+  index_t block_max = BlockReduce(temp_storage_max).Reduce(t_max, cub::Max());
+  if (tid == 0) {
+    hash_size[bid] = block_max + 1;
+  }
+}
+
+std::tuple<Tensor, Tensor> jagged_hash_size_cumsum_cuda(
+    const Tensor& offsets,
+    const Tensor& indices,
+    const int64_t batch_size) {
+  const auto T = (offsets.size(0) - 1) / batch_size;
+  Tensor hash_size = at::zeros({T}, offsets.options());
+
+  using at::RestrictPtrTraits;
+
+  AT_DISPATCH_INDEX_TYPES(
+      indices.scalar_type(), "compute_hash_size", ([&] {
+        const auto compute_hash_size_kernel_ = compute_hash_size_kernel<
+            index_t,
+            std::numeric_limits<index_t>::min()>;
+        compute_hash_size_kernel_<<<
+            T,
+            kMaxThreads,
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+            batch_size,
+            hash_size.packed_accessor32<index_t, 1, RestrictPtrTraits>());
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }));
+
+  Tensor hash_size_cumsum;
+  hash_size_cumsum = asynchronous_complete_cumsum_gpu(hash_size);
+
+  Tensor hash_size_lengths = at::ones_like(hash_size);
+  Tensor hash_size_offsets;
+  hash_size_offsets = asynchronous_complete_cumsum_gpu(hash_size_lengths);
+  return {hash_size_cumsum, hash_size_offsets};
 }
 } // namespace fbgemm_gpu
 
@@ -205,3 +280,8 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "jagged_unique_indices",
     fbgemm_gpu::jagged_unique_indices_cuda);
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "jagged_hash_size_cumsum",
+    fbgemm_gpu::jagged_hash_size_cumsum_cuda);
