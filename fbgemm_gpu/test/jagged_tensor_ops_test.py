@@ -67,6 +67,20 @@ def var_list_to_coo(lengths: torch.Tensor, values: torch.Tensor, N: int, D: int)
     )
 
 
+def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
+    hash_size_offsets_list = [0]
+    count = 0
+    for f in range(1, len(hash_size_cum_sum_list)):
+        count = count + 1
+        if hash_size_cum_sum_list[f] == hash_size_cum_sum_list[f - 1]:
+            curr_offsets = hash_size_offsets_list[-1]
+            hash_size_offsets_list.append(curr_offsets)
+        else:
+            hash_size_offsets_list.append(count)
+    hash_size_offsets_list[-1] = count
+    return hash_size_offsets_list
+
+
 def symint_vector_unsupported() -> Tuple[bool, str]:
     major, minor = torch.__version__.split(".")[0:2]
     return (
@@ -2448,10 +2462,117 @@ class JaggedTensorOpsTest(unittest.TestCase):
         lengths_list = []
         indices_list = []
         linearized_indices_list = []
+        hash_size_offsets_list = [0]
         for _ in range(F):
             # We generate a small hash size to increase index duplication
             hash_size = random.randint(3, 5)
             hash_size_list.append(hash_size)
+            hash_size_offset = hash_size_offsets_list[-1] + 1
+            hash_size_offsets_list.append(hash_size_offset)
+            for _ in range(B):
+                length = random.randint(0, max_length)
+                lengths_list.append(length)
+                if length > 0:
+                    indices = np.random.randint(0, hash_size, size=length)
+                    linearized_indices = indices + sum(hash_size_list[:-1])
+                    indices_list.extend(indices)
+                    linearized_indices_list.extend(linearized_indices)
+
+        device = torch.device("cuda")
+        dtype = torch.int64
+        hash_size = torch.as_tensor(hash_size_list, dtype=dtype, device=device)
+        hash_size_offsets = torch.as_tensor(
+            hash_size_offsets_list, dtype=dtype, device=device
+        )
+        lengths = torch.as_tensor(lengths_list, dtype=dtype, device=device)
+        indices = torch.as_tensor(indices_list, dtype=dtype, device=device)
+        linearized_indices = torch.as_tensor(
+            linearized_indices_list, dtype=dtype, device=device
+        )
+
+        hash_size_cum_sum = torch.zeros(F + 1, dtype=dtype, device=device)
+        hash_size_cum_sum[1:] = torch.cumsum(hash_size, dim=0)
+        offsets = torch.zeros(F * B + 1, dtype=dtype, device=device)
+        offsets[1:] = torch.cumsum(lengths, dim=0)
+
+        (
+            output_lengths,
+            output_offsets,
+            unique_indices,
+            reverse_index,
+        ) = torch.ops.fbgemm.jagged_unique_indices(
+            hash_size_cum_sum, hash_size_offsets, offsets, indices
+        )
+
+        # Check hash size cumsum to offsets function
+        output_hash_size_offsets_list = hash_size_cumsum_to_offsets(
+            hash_size_cum_sum.tolist()
+        )
+        self.assertEqual(output_hash_size_offsets_list, hash_size_offsets_list)
+
+        # Compute hash size cumsum and offsets based on KJT offsets and indices
+        (
+            inferred_hash_size_cum_sum,
+            inferred_hash_size_offsets,
+        ) = torch.ops.fbgemm.jagged_hash_size_cumsum(offsets, indices, B)
+        (
+            output_lengths_inf,
+            output_offsets_inf,
+            unique_indices_inf,
+            reverse_index_inf,
+        ) = torch.ops.fbgemm.jagged_unique_indices(
+            inferred_hash_size_cum_sum, inferred_hash_size_offsets, offsets, indices
+        )
+
+        self.assertTrue(torch.equal(output_lengths, output_lengths_inf))
+        self.assertTrue(torch.equal(output_offsets, output_offsets_inf))
+        self.assertTrue(torch.equal(unique_indices, unique_indices_inf))
+        self.assertTrue(torch.equal(reverse_index, reverse_index_inf))
+
+        unique_linearized_indices = torch.unique(linearized_indices, sorted=True)
+        self.assertTrue(unique_linearized_indices.numel() == unique_indices.numel())
+
+        unique_indices_list = unique_indices.tolist()
+        reverse_index_list = reverse_index.tolist()
+        for i in range(len(reverse_index_list)):
+            pos = reverse_index_list[i]
+            self.assertTrue(unique_indices_list[pos] == indices_list[i])
+
+        input_offsets_list = offsets.tolist()
+        output_offsets_list = output_offsets.tolist()
+        for i in range(F):
+            input_start = input_offsets_list[i * B]
+            input_end = input_offsets_list[(i + 1) * B]
+            output_start = output_offsets_list[i * B]
+            output_end = output_offsets_list[(i + 1) * B]
+            for each_offset in range(input_start, input_end):
+                pos = reverse_index_list[each_offset]
+                self.assertTrue((output_start <= pos) and (pos < output_end))
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        B=st.integers(min_value=100, max_value=200),
+        F=st.integers(min_value=50, max_value=100),
+        max_length=st.integers(min_value=5, max_value=10),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    def test_jagged_unique_indices_multi_keys(
+        self,
+        B: int,  # Batch size
+        F: int,  # The number of features
+        max_length: int,  # The maximum value of pooling factor
+    ) -> None:
+        hash_size_list = []
+        lengths_list = []
+        indices_list = []
+        linearized_indices_list = []
+        MAX_HASH_SIZE = 10
+        for _ in range(F):
+            # We generate a small hash size to increase index duplication
+            hash_size = random.randint(3, 6)
+            self.assertTrue(hash_size <= MAX_HASH_SIZE)
+            masked_hash_size = MAX_HASH_SIZE if random.randint(1, 3) == 3 else 0
+            hash_size_list.append(masked_hash_size)
             for _ in range(B):
                 length = random.randint(0, max_length)
                 lengths_list.append(length)
@@ -2475,11 +2596,22 @@ class JaggedTensorOpsTest(unittest.TestCase):
         offsets = torch.zeros(F * B + 1, dtype=dtype, device=device)
         offsets[1:] = torch.cumsum(lengths, dim=0)
 
+        # Compute hash size offsets based on hash size cumsum to dedup
+        # indices from multiple keys
+        hash_size_cum_sum_list = hash_size_cum_sum.tolist()
+        hash_size_offsets_list = hash_size_cumsum_to_offsets(hash_size_cum_sum_list)
+        hash_size_offsets = torch.as_tensor(
+            hash_size_offsets_list, dtype=dtype, device=device
+        )
+
         (
-            output_offsets,
+            _,  # output lengths
+            _,  # output offsets
             unique_indices,
             reverse_index,
-        ) = torch.ops.fbgemm.jagged_unique_indices(hash_size_cum_sum, offsets, indices)
+        ) = torch.ops.fbgemm.jagged_unique_indices(
+            hash_size_cum_sum, hash_size_offsets, offsets, indices
+        )
 
         unique_linearized_indices = torch.unique(linearized_indices, sorted=True)
         self.assertTrue(unique_linearized_indices.numel() == unique_indices.numel())
@@ -2489,18 +2621,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         for i in range(len(reverse_index_list)):
             pos = reverse_index_list[i]
             self.assertTrue(unique_indices_list[pos] == indices_list[i])
-
-        input_offsets_list = offsets.tolist()
-        output_offsets_list = output_offsets.tolist()
-        for i in range(F):
-            input_start = input_offsets_list[i * B]
-            input_end = input_offsets_list[(i + 1) * B]
-            output_start = output_offsets_list[i * B]
-            output_end = output_offsets_list[(i + 1) * B]
-            for each_offset in range(input_start, input_end):
-                pos = reverse_index_list[each_offset]
-                self.assertTrue((output_start <= pos) and (pos < output_end))
-        return
 
 
 if __name__ == "__main__":
