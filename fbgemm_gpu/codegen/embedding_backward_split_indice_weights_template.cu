@@ -43,7 +43,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> feature_requires_grad, // [T],
     pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> grad_indice_weights,
     {%- if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask
@@ -100,7 +100,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- endif %}
 
     {%- if vbe %}
-    const grad_t* grad_output_ = &grad_output[0][grad_offsets[b_t]];
+    const grad_t* grad_output_ = &grad_output[0][row_grad_offsets[b_t]];
     {%- else %}
     const grad_t* grad_output_ = &grad_output[b][D_start];
     {%- endif %}
@@ -229,7 +229,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
         lxu_cache_locations,
         {%- endif %}
         {%- if vbe %}
-        vbe_metadata.output_offsets,
+        vbe_metadata.row_output_offsets,
         vbe_metadata.b_t_map,
         {%- endif %}
         grad_output
@@ -300,7 +300,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 MAKE_PTA_WITH_NAME(func_name, feature_requires_grad, int32_t, 1, 32),
                 MAKE_PTA_ACC_WITH_NAME(func_name, grad_indice_weights, grad_t, 1, 32),
                 {%- if vbe %}
-                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.output_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.row_output_offsets, int64_t, 1, 32),
                 MAKE_PTA_WITH_NAME(func_name, vbe_metadata.b_t_map, int32_t, 1, 32),
                 info_B_num_bits,
                 info_B_mask

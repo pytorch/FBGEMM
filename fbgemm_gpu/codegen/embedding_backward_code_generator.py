@@ -41,7 +41,11 @@ def generate_backward_embedding_cuda(
                     write(
                         filename,
                         template.render(
-                            weighted=weighted, nobag=nobag, vbe=vbe, **kwargs
+                            weighted=weighted,
+                            nobag=nobag,
+                            vbe=vbe,
+                            is_index_select=False,
+                            **kwargs,
                         ),
                     )
                     print(f"[Backward Split] [{optimizer}]: {filename}")
@@ -214,7 +218,11 @@ def generate_forward_embedding_cuda(
                         write(
                             filename,
                             template.render(
-                                dense=dense, weighted=weighted, nobag=nobag, vbe=vbe
+                                dense=dense,
+                                weighted=weighted,
+                                nobag=nobag,
+                                vbe=vbe,
+                                is_index_select=False,
                             ),
                         )
                         print(f"[Forward Split]: {filename}")
@@ -255,8 +263,55 @@ def forward_split() -> None:
     for dense in [True, False]:
         wdesc = f"{ 'dense' if dense else 'split' }"
         filename = f"gen_embedding_forward_{wdesc}_unweighted_nobag_kernel_small.cu"
-        write(filename, template.render(dense=dense))
+        write(filename, template.render(dense=dense, is_index_select=False))
         print(f"[Forward Split]: {filename}")
+
+
+# TODO: Separate this function into another codegen script
+def index_select() -> None:
+    kwargs = make_args([(FLOAT, "unused")])
+    kwargs["args"] = kwargs["cuda"]
+    for templ_file, gen_file in [
+        (
+            "embedding_forward_split_template.cu",
+            "gen_batch_index_select_dim0_forward_codegen_cuda.cu",
+        ),
+        (
+            "embedding_forward_split_kernel_template.cu",
+            "gen_batch_index_select_dim0_forward_kernel.cu",
+        ),
+        (
+            "embedding_forward_split_kernel_nobag_small_template.cu",
+            "gen_batch_index_select_dim0_forward_kernel_small.cu",
+        ),
+        (
+            "embedding_backward_split_template.cu",
+            "gen_batch_index_select_dim0_backward_codegen_cuda.cu",
+        ),
+        (
+            "embedding_backward_split_kernel_cta_template.cu",
+            "gen_batch_index_select_dim0_backward_kernel_cta.cu",
+        ),
+        (
+            "embedding_backward_split_kernel_warp_template.cu",
+            "gen_batch_index_select_dim0_backward_kernel_warp.cu",
+        ),
+    ]:
+        template = env.get_template(templ_file)
+        write(
+            gen_file,
+            template.render(
+                weighted=False,
+                dense=True,
+                vbe=False,
+                nobag=True,
+                is_index_select=True,
+                **kwargs,
+            ),
+        )
+
+    template = env.get_template("embedding_backward_split_grad_template.cu")
+    write("gen_embedding_backward_split_grad.cu", template.render())
 
 
 def forward_quantized() -> None:
@@ -463,6 +518,8 @@ def emb_codegen(
     generate(**(approx_sgd()))
     generate(**(none_optimizer()))
 
+    # Generate index_select ops using TBE backend
+    index_select()
     gen__init__py()
 
 

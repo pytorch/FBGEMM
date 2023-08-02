@@ -4,14 +4,18 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import contextlib
 import functools
 import logging
 import random
+from typing import List
 
 import click
 import fbgemm_gpu
 import numpy as np
 import torch
+
+from torch.profiler import profile
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -26,6 +30,7 @@ else:
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
 
 
 @click.group()
@@ -452,6 +457,115 @@ def reorder_batched_ad_indices_bench(
     num_bytes = batch_size * table_size * (num_ads + 1) * length * data_size
     logging.info(
         f"fbgemm_gpu time: {time * 1000:.5f} ms ({num_bytes / time / 1e9:.5f} GB/s)"
+    )
+
+
+@cli.command()
+@click.option("--num-inputs", default=1024)
+@click.option("--rows", default=100)
+@click.option("--columns", default=128)
+@click.option("--num-indices", default=2048)
+@click.option("--timeline", is_flag=True, default=False)
+def index_select_bench(
+    num_inputs: int, rows: int, columns: int, num_indices: int, timeline: bool
+) -> None:
+    input_rows = [rows] * num_inputs
+    input_columns = [columns] * num_inputs
+    input_num_indices = [num_indices] * num_inputs
+    inputs = [
+        torch.rand(rows, cols, dtype=torch.float, device="cuda")
+        for rows, cols in zip(input_rows, input_columns)
+    ]
+    for i in range(len(inputs)):
+        inputs[i].requires_grad = True
+    indices = [
+        torch.randint(low=0, high=rows, size=(num,), dtype=torch.long, device="cuda")
+        for num, rows in zip(input_num_indices, input_rows)
+    ]
+
+    concat_inputs = torch.concat([input.flatten().clone().detach() for input in inputs])
+    concat_inputs.requires_grad = True
+    concat_indices = torch.concat(indices)
+
+    gis_inputs = [input.clone().detach() for input in inputs]
+    for i in range(len(gis_inputs)):
+        gis_inputs[i].requires_grad = True
+
+    def index_select_fwd_ref(
+        inputs: List[torch.Tensor], indices: List[torch.Tensor]
+    ) -> List[torch.Tensor]:
+        outputs = []
+        for input, index in zip(inputs, indices):
+            outputs.append(torch.index_select(input, 0, index))
+        return outputs
+
+    def index_select_bwd_ref(
+        outputs: List[torch.Tensor], grads: List[torch.Tensor]
+    ) -> None:
+        for output, grad in zip(outputs, grads):
+            output.backward(grad, retain_graph=True)
+
+    bench_kwargs = {"num_warmups": 10, "iters": 10 if timeline else 100}
+    profile_ctx = profile if timeline else contextlib.nullcontext
+
+    with profile_ctx() as prof:
+        time_pyt, out_pyt = benchmark_torch_function(
+            index_select_fwd_ref,
+            (inputs, indices),
+            **bench_kwargs,
+        )
+
+        time_bis, out_bis = benchmark_torch_function(
+            torch.ops.fbgemm.batch_index_select_dim0,
+            (
+                concat_inputs,
+                concat_indices,
+                input_num_indices,
+                input_rows,
+                input_columns,
+            ),
+            **bench_kwargs,
+        )
+
+        time_gis, out_gis = benchmark_torch_function(
+            torch.ops.fbgemm.group_index_select_dim0,
+            (gis_inputs, indices),
+            **bench_kwargs,
+        )
+
+    if timeline:
+        prof.export_chrome_trace("index_select_fwd_trace.json")
+
+    grads = [torch.rand_like(out) for out in out_pyt]
+    concat_grads = torch.concat([grad.flatten() for grad in grads])
+    concat_out_gis = torch.concat([out.flatten() for out in out_gis])
+
+    with profile_ctx() as prof:
+        time_bwd_pyt, _ = benchmark_torch_function(
+            index_select_bwd_ref,
+            (out_pyt, grads),
+            **bench_kwargs,
+        )
+
+        time_bwd_bis, _ = benchmark_torch_function(
+            functools.partial(out_bis.backward, retain_graph=True),
+            (concat_grads,),
+            **bench_kwargs,
+        )
+
+        time_bwd_gis, _ = benchmark_torch_function(
+            functools.partial(concat_out_gis.backward, retain_graph=True),
+            (concat_grads,),
+            **bench_kwargs,
+        )
+
+    if timeline:
+        prof.export_chrome_trace("index_select_bwd_trace.json")
+
+    logging.info(
+        f"torch.index_select forward {time_pyt * 1e6:.2f} us, backward {time_bwd_pyt * 1e6:.2f} us\n"
+        f"torch.ops.fbgemm.batch_index_select forward {time_bis * 1e6:.2f} us, backward {time_bwd_bis * 1e6:.2f} us\n"
+        f"torch.ops.fbgemm.group_index_select_dim0 forward {time_gis * 1e6:.2f} us, backward {time_bwd_gis * 1e6:.2f} us"
     )
 
 

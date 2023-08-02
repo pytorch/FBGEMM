@@ -285,7 +285,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
         lxu_cache_locations,
         {% if vbe %}
         vbe_metadata.B_offsets,
-        vbe_metadata.output_offsets,
+        vbe_metadata.row_output_offsets,
         vbe_metadata.b_t_map,
         {% endif %}
         {{ args.split_saved_tensors | join(", ") }}
@@ -410,7 +410,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     auto lxu_cache_locations = *savedItr++;
     {% if vbe %}
     auto B_offsets = *savedItr++;
-    auto vbe_output_offsets = *savedItr++;
+    auto vbe_row_output_offsets = *savedItr++;
     auto vbe_b_t_map = *savedItr++;
     {% endif %}
 
@@ -470,7 +470,7 @@ class Split{{ "NoBag" if nobag else "" }}{{ "VBE" if vbe else "" }}LookupFunctio
     {% if vbe %}
     struct VBEMetadata vbe_metadata = {
       .B_offsets = B_offsets,
-      .output_offsets = vbe_output_offsets,
+      .row_output_offsets = vbe_row_output_offsets,
       .b_t_map = vbe_b_t_map,
     };
     {% endif %}
