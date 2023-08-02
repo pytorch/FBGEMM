@@ -22,7 +22,6 @@
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
-
 ////////////////////////////////////////////////////////////////////////////////
 // External Function Declarations
 ////////////////////////////////////////////////////////////////////////////////
@@ -35,8 +34,12 @@ template <
     typename index_t,
     size_t kThreadGroupSize
     >
-__launch_bounds__(kForwardMaxThreads)
-__global__ void {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
+__launch_bounds__(kForwardMaxThreads) __global__ void
+{%- if is_index_select %}
+batch_index_select_dim0_codegen_forward_small_kernel(
+{%- else %}
+{{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
+{%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -44,14 +47,26 @@ __global__ void {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_ker
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
     int64_t D,
+    {%- endif %}
     FixedDivisor fd_B,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
     {%- endif %}
-    pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D],
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %}
+    pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
 {%- endif %}
 
@@ -90,9 +105,9 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 
 
 {%- for nobag in [True, False] %}
-{%- if not nobag or (not weighted and not vbe) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
-
+{%- if (not nobag or (not weighted and not vbe)) and (nobag or (not is_index_select)) %}
+{%- set has_experimental = (not dense and not nobag and not vbe and not is_index_select) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -106,8 +121,12 @@ template <
     {%- endif %}
     size_t kThreadGroupSize = kWarpSize
     >
-__launch_bounds__(kForwardMaxThreads)
-__global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
+__launch_bounds__(kForwardMaxThreads) __global__ void
+{%- if is_index_select %}
+batch_index_select_dim0_codegen_forward_kernel(
+{%- else %}
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
+{%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -115,13 +134,13 @@ __global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ v
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {%- if not nobag %}
+    {%- if not nobag or is_index_select %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
     int64_t D,
     {%- endif %}
     {%- if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
@@ -129,7 +148,9 @@ __global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ v
     FixedDivisor fd_B,
     {%- endif %}
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
     {%- if not nobag %}
     int64_t pooling_mode,
     {%- endif %}
@@ -139,7 +160,13 @@ __global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ v
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
     {%- endif %}
-    pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D]
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %} // if dense
+    pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
 
 {%- endif %}
@@ -224,11 +251,16 @@ __global__ void {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ v
 ////////////////////////////////////////////////////////////////////////////////
 
 {%- for nobag in [True, False] %}
-{%- if not nobag or (not weighted and not vbe) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
-{%- set has_experimental = (not dense and not nobag and not vbe) %}
+{%- if (not nobag or (not weighted and not vbe)) and (nobag or (not is_index_select)) %}
+{%- set has_experimental = (not dense and not nobag and not vbe and not is_index_select) %}
 
-Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
+Tensor
+{%- if is_index_select %}
+batch_index_select_dim0_codegen_forward_cuda(
+{%- else %}
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
+{%- endif %}
     Tensor dev_weights,
     {%- if not dense %}
     Tensor uvm_weights,
@@ -236,15 +268,21 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
     Tensor weights_placements,
     {%- endif %}
     Tensor weights_offsets,
-    {%- if not nobag %}
+    {%- if not nobag or is_index_select %}
     Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_D,
     {%- else %}
     int64_t D,
     {%- endif %}
+    {%- if not nobag %}
+    int64_t total_D,
+    {%- endif %}
+    {%- if not nobag or is_index_select %}
+    int64_t max_D,
+    {% endif %}
     Tensor indices,
+    {%- if not is_index_select %}
     Tensor offsets,
+    {%- endif %}
     {%- if not nobag %}
     int64_t pooling_mode,
     {%- endif %}
@@ -255,12 +293,21 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
     Tensor lxu_cache_locations,
     {%- endif %}
     int64_t output_dtype,
+    {%- if is_index_select %}
+    const Tensor& output_offsets,
+    const Tensor& total_L_offsets,
+    const int64_t output_size,
+    const int32_t fixed_L_per_warp,
+    const int32_t num_warps_per_feature,
+    const bool permute_output_dim_0_1
+    {%- else %}
     {%- if vbe %}
     const VBEMetadata& vbe_metadata,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
     bool is_experimental
+    {%- endif %}
 ) {
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
         {%- if not dense %}
@@ -269,11 +316,13 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
         weights_placements,
         {%- endif %}
         weights_offsets,
-        {%- if not nobag %}
+        {%- if not nobag or is_index_select %}
         D_offsets,
         {%- endif %}
         indices,
+        {%- if not is_index_select %}
         offsets,
+        {%- endif %}
         {%- if weighted %}
         indice_weights,
         {%- endif %}
@@ -281,11 +330,23 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
         lxu_cache_locations,
         {%- endif %}
         {%- if vbe %}
-        vbe_metadata.output_offsets,
+        vbe_metadata.row_output_offsets,
         vbe_metadata.b_t_map,
+        {%- endif %}
+        {%- if is_index_select %}
+        total_L_offsets,
         {%- endif %}
         dev_weights
     );
+
+    {%- if is_index_select %}
+    if (!permute_output_dim_0_1) {
+        TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+            output_offsets,
+            dev_weights
+        );
+    }
+    {%- endif %}
 
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(dev_weights.get_device());
@@ -298,19 +359,26 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
     {%- endif %}
     TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]
+    {%- if is_index_select %}
+    const auto total_B = num_warps_per_feature * T;
+    const int32_t B = num_warps_per_feature;
+    {%- else %}
     const auto total_B = offsets.size(0) - 1;
-    const int32_t B = (total_B) / T;
+    const int32_t B = total_B / T;
+    {%- endif %}
     TORCH_CHECK_GE(B, 0);
+    {%- if not nobag or is_index_select %}
     {%- if not nobag %}
     TORCH_CHECK_GT(total_D, 0);
     TORCH_CHECK_EQ(total_D % 4, 0);
+    {%- endif %}
     TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
-    {%- else %}
+    {%- elif not is_index_select %}
     TORCH_CHECK_GT(D, 0);
     TORCH_CHECK_EQ(D % 4, 0);
     {%- endif %}
     {%- if vbe %}
-    TORCH_CHECK(vbe_metadata.output_offsets.numel() == total_B);
+    TORCH_CHECK(vbe_metadata.row_output_offsets.numel() == total_B);
     TORCH_CHECK(vbe_metadata.b_t_map.numel() == total_B);
     TORCH_CHECK(vbe_metadata.output_size >= 0);
     {%- endif %}
@@ -318,13 +386,31 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
     Tensor output;
     {%- if nobag %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
+    {%- if is_index_select %}
+    TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
+                o_dtype == SparseType::BF16);
+
+    TORCH_CHECK(fixed_L_per_warp > 0);
+    TORCH_CHECK(num_warps_per_feature > 0);
+    if (!permute_output_dim_0_1) {
+        TORCH_CHECK(output_size >= 0);
+        TORCH_CHECK(output_offsets.numel() > 0);
+    }
+
+    // If permute_output_dim_0_1 is true, output shape is (batch_size * total_D)
+    // Else, output shape is (output_size)
+    output = at::empty({output_size}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    {%- else %}
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
+
     int64_t adjusted_D = D;
     if (o_dtype == SparseType::INT8) {
         adjusted_D += T * kINT8QparamsBytes;
     }
+
     output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    {%- endif %}
     {%- else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
@@ -385,11 +471,16 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
         {#-/* Sequence TBE Case (nobag=True) ****************************************************/#}
         {%- if nobag %}
 
-        DISPATCH_OPTIMAL_NOBAG_FORWARD_KERNEL(D, [&] {
+        DISPATCH_OPTIMAL_NOBAG_FORWARD_KERNEL({{ "D" if not is_index_select else "max_D" }}, [&] {
+          {%- set nobag_small_kernel =
+              "batch_index_select_dim0_codegen_forward_small_kernel"
+              if is_index_select else
+              "{}_embedding_nobag_codegen_forward_unweighted_small_kernel".format(ddesc)
+          %}
 #ifdef FBGEMM_GPU_MEMCHECK
-          const auto func_name = "{{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel";
+          const auto func_name = "{{ nobag_small_kernel }}";
 #endif
-          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4>
+          {{ nobag_small_kernel }}<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4>
             <<<
               div_round_up(total_B, kForwardMaxThreads / kWarpSize),
               dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
@@ -403,14 +494,26 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
               MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
               {%- endif %}
               MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+              {%- if is_index_select %}
+              MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+              {%- else %}
               D,
+              {%- endif %}
               FixedDivisor(B),
               MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+              {%- if not is_index_select %}
               MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+              {%- endif %}
               {%- if not dense %}
               MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
               {%- endif %}
-              MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
+              {%- if is_index_select %}
+              MAKE_PTA_WITH_NAME(func_name, output_offsets, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, total_L_offsets, int64_t, 1, 32),
+              fixed_L_per_warp,
+              permute_output_dim_0_1,
+              {%- endif %}
+              MAKE_PTA_WITH_NAME(func_name, output, output_t, {{ "1" if is_index_select else "2" }}, 64)
             );
 
           C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -418,15 +521,21 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
         });
 
         DISPATCH_KERNEL_FOR_CACHE_CASE(use_lxu_cache, [&] {
+          {%- set nobag_kernel =
+              "batch_index_select_dim0_codegen_forward_kernel"
+              if is_index_select else
+              "{}_embedding_nobag_codegen_forward_unweighted_kernel".format(ddesc)
+          %}
 #ifdef FBGEMM_GPU_MEMCHECK
-          const auto func_name = "{{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel";
+          const auto func_name = "{{ nobag_kernel }}";
 #endif
 
-          {%- if dense %}
-          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, int64_t>
-          {%- else %}
-          {{ ddesc }}_embedding_nobag_codegen_forward_unweighted_kernel<emb_t, cache_t, output_t, _TUseCache, int64_t>
-          {%- endif %}
+          {{ nobag_kernel }}
+            {%- if dense or is_index_select %}
+            <emb_t, cache_t, output_t, int64_t>
+            {%- else %}
+            <emb_t, cache_t, output_t, _TUseCache, int64_t>
+            {%- endif %}
             <<<
               div_round_up(total_B, kForwardMaxThreads / kWarpSize),
               dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
@@ -440,14 +549,26 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
               MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
               {%- endif %}
               MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+              {%- if is_index_select %}
+              MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+              {%- else %}
               D,
+              {%- endif %}
               FixedDivisor(B),
               MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+              {%- if not is_index_select %}
               MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+              {%- endif %}
               {%- if not dense %}
               MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
               {%- endif %}
-              MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
+              {%- if is_index_select %}
+              MAKE_PTA_WITH_NAME(func_name, output_offsets, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, total_L_offsets, int64_t, 1, 32),
+              fixed_L_per_warp,
+              permute_output_dim_0_1,
+              {%- endif %}
+              MAKE_PTA_WITH_NAME(func_name, output, output_t, {{ "1" if is_index_select else "2" }}, 64)
             );
 
             C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -483,7 +604,7 @@ Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_c
                 MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
                 MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
                 {%- if vbe %}
-                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.output_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.row_output_offsets, int64_t, 1, 32),
                 MAKE_PTA_WITH_NAME(func_name, vbe_metadata.b_t_map, int32_t, 1, 32),
                 info_B_num_bits,
                 info_B_mask,

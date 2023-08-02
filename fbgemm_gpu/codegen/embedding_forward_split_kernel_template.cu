@@ -97,7 +97,13 @@ using namespace fbgemm_gpu;
         if (d < D) {
             // Since there is no pooling, simply copy the weights to output
             const auto weights_slice = weights_row.load(d, qparams);
+            {%- if is_index_select %}
+            // output is 1D (because the stride can be irregular)
+            weights_slice.store(&output[output_offset + output_j * output_stride + d]);
+            {%- else %}
+            // output is 2D
             weights_slice.store(&output[output_j][d]);
+            {%- endif %}
         }
     }
     {%- endif %}
@@ -116,8 +122,12 @@ template <
     size_t kMaxVecsPerThread,
     {%- endif %}
     size_t kThreadGroupSize >
-__launch_bounds__(kForwardMaxThreads) __global__
-void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel(
+__launch_bounds__(kForwardMaxThreads) __global__ void
+{%- if is_index_select %}
+batch_index_select_dim0_codegen_forward_kernel(
+{%- else %}
+{{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel(
+{%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
@@ -125,13 +135,13 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {%- if not nobag %}
+    {%- if not nobag or is_index_select %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
     int64_t D,
-    {%- endif %}
+    {%- endif %} // if nobag
     {%- if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
@@ -139,7 +149,9 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     FixedDivisor fd_B,
     {%- endif %}
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
     {%- if not nobag %}
     int64_t pooling_mode,
     {%- endif %}
@@ -149,7 +161,14 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
     {%- endif %}
-    pta::PackedTensorAccessor64<output_t, 2, at::RestrictPtrTraits> output // [B][total_D]
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %}
+    // If 2D, shape is [B][total_D]
+    pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     ) {
 
 // shfl_sync_mask is implicitly used by SHFL_SYNC
@@ -166,9 +185,11 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 
     // Determine the linearized warp ID, and exit early if needed
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    {%- if not is_index_select %}
     if (b_t >= offsets.size(0) - 1) {
         return;
     }
+    {%- endif %}
 
     // Determine the Table and Training Example IDs
     int32_t t;  // Table ID
@@ -181,10 +202,48 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     fd_B.DivMod(b_t, &t, &b);
     {%- endif %}
 
+    // Get total number of tables
+    int32_t T = weights_offsets.size(0);
+
+    {%- if is_index_select %}
+    index_t indices_start;
+    int32_t L;
+    int32_t L_start;
+    if (t >= T) {
+        return;
+    }
+    const auto total_L_start = total_L_offsets[t];
+    const auto total_L = total_L_offsets[t + 1] - total_L_start;
+    L_start = b * fixed_L_per_warp;
+    if (L_start >= total_L) {
+        return;
+    }
+    indices_start = total_L_start + L_start;
+    L = (total_L - L_start >= fixed_L_per_warp) ? fixed_L_per_warp : (total_L - L_start);
+    {%- else %}
+    // Determine the number of indices (pooling factor) to look up within the bag
+    index_t indices_start = offsets[b_t];
+    int32_t L = offsets[b_t + 1] - indices_start;
+    {%- endif %}
+
+    // Get the offsets of the embedding dimensions of the tables and determine D
+    {%- if not nobag or is_index_select %}
+    const auto D_start = D_offsets[t];
+    const auto D_end = D_offsets[t + 1];
+    const auto D = D_end - D_start;
+    {%- endif %}
+
+    {%- if is_index_select %}
+    // Check D in the kernel to avoid iterating through the list on host
+    CUDA_KERNEL_ASSERT(D % 4 == 0 && "The column size must be multiple of 4");
+    const auto output_offset = permute_output_dim_0_1 ? D_start : output_offsets[t];
+    const auto output_stride = permute_output_dim_0_1 ? D_offsets[T] : D;
+    {%- endif %}
+
     // From the Table ID, fetch its weight tensor offset, locate that position
     // in the input weights tensor, and set the weights table pointer
-    const emb_t* __restrict__ weights;
     int64_t weights_offset = weights_offsets[t];
+    const emb_t* __restrict__ weights;
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
@@ -194,21 +253,6 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     }
     {%- else %}
     weights = &dev_weights[weights_offset];
-    {%- endif %}
-
-    // Get total number of tables
-    int32_t T = weights_offsets.size(0);
-
-    // Determine the number of indices (pooling factor) to look up within the bag
-    index_t indices_start = offsets[b_t];
-    index_t indices_end = offsets[b_t + 1];
-    int32_t L = indices_end - indices_start;
-
-    // Get the offsets of the embedding dimensions of the tables and determine D
-    {%- if not nobag %}
-    int32_t D_start = D_offsets[t];
-    int32_t D_end = D_offsets[t + 1];
-    int32_t D = D_end - D_start;
     {%- endif %}
 
     // D is computed in the bag case or provided as function arg in the nobag case
@@ -251,7 +295,9 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
             // Load index from thread j in the group
             int64_t idx_j = SHFL_SYNC(idx, j);
 
-            {%- if nobag %}
+            {%- if is_index_select %}
+            int64_t output_j = L_start + l_start + j;
+            {%- elif nobag %}
             int64_t output_j = indices_start + l_start + j;
             {%- endif %}
 
@@ -300,7 +346,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     // If weight type is FP32/16
     if constexpr (!std::is_same_v<output_t, uint8_t>) {
         {%- if vbe %}
-        output_t* output_ = &output[0][output_offsets[b_t]];
+        output_t* output_ = &output[0][row_output_offsets[b_t]];
         {%- else %}
         output_t* output_ = &output[b][D_start];
         {%- endif %}
@@ -367,8 +413,12 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
 */
 
 {%- macro template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
-template __launch_bounds__(kForwardMaxThreads) __global__
-void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel
+template __launch_bounds__(kForwardMaxThreads) __global__ void
+{%- if is_index_select %}
+batch_index_select_dim0_codegen_forward_kernel
+{%- else %}
+{{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}{{ vbe_desc }}_kernel
+{%- endif %}
 <
     {{ emb_type }},
     {{ cache_type }},
@@ -389,7 +439,7 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {%- if not nobag %}
+    {%- if not nobag or is_index_select %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     {%- else %}
     int64_t D,
@@ -403,7 +453,9 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     FixedDivisor fd_B,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
     {%- if not nobag %}
     int64_t pooling_mode,
     {%- endif %}
@@ -413,7 +465,13 @@ void {{ "dense" if dense else "split" }}_embedding{{ "_nobag" if nobag else "" }
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
     {%- endif %}
-    pta::PackedTensorAccessor64<{{ output_type }}, 2, at::RestrictPtrTraits> output);
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %}
+    pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
 {%- endmacro %}
 
 {%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}

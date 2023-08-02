@@ -22,8 +22,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "bool nobag=False, "
       "Tensor? vbe_b_t_map=None, "
       "int info_B_num_bits=26, "
-      "int info_B_mask=0x2FFFFFF,"
-      "int total_unique_indices=-1) "
+      "int info_B_mask=0x2FFFFFF, "
+      "int total_unique_indices=-1, "
+      "bool is_index_select=False, "
+      "Tensor? total_L_offsets=None, "
+      "int fixed_L_per_warp=0, "
+      "int num_warps_per_feature=0) "
       "-> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
   m.def("get_infos_metadata(Tensor unused, int B, int T) -> (int, int)");
   DISPATCH_TO_CUDA("transpose_embedding_input", transpose_embedding_input);

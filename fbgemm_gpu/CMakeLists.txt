@@ -217,9 +217,16 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_split_unweighted_codegen_cuda.cu"
     "gen_embedding_backward_dense_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
-    "gen_embedding_backward_split_grad.cu"
     "gen_embedding_forward_split_weighted_vbe_codegen_cuda.cu"
-    "gen_embedding_forward_split_unweighted_vbe_codegen_cuda.cu")
+    "gen_embedding_forward_split_unweighted_vbe_codegen_cuda.cu"
+    "gen_batch_index_select_dim0_forward_codegen_cuda.cu"
+    "gen_batch_index_select_dim0_forward_kernel.cu"
+    "gen_batch_index_select_dim0_forward_kernel_small.cu"
+    "gen_batch_index_select_dim0_backward_codegen_cuda.cu"
+    "gen_batch_index_select_dim0_backward_kernel_cta.cu"
+    "gen_batch_index_select_dim0_backward_kernel_warp.cu"
+    "gen_embedding_backward_split_grad.cu"
+)
 
 if(NOT USE_ROCM)
   list(APPEND gen_gpu_kernel_source_files
@@ -559,7 +566,8 @@ set(fbgemm_gpu_sources_static_cpu
     src/quantize_ops/quantize_ops_meta.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
-    src/embedding_inplace_update_cpu.cpp)
+    src/embedding_inplace_update_cpu.cpp
+    codegen/batch_index_select_dim0_cpu_host.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
@@ -576,7 +584,8 @@ if(NOT FBGEMM_CPU_ONLY)
     src/split_table_batched_embeddings.cpp
     src/metric_ops_host.cpp
     src/embedding_inplace_update_gpu.cpp
-    src/input_combine_gpu.cpp)
+    src/input_combine_gpu.cpp
+    codegen/batch_index_select_dim0_host.cpp)
 
   if(NVML_LIB_PATH)
     message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")

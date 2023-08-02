@@ -43,7 +43,12 @@ transpose_embedding_input(
     const c10::optional<at::Tensor>& vbe_b_t_map = c10::optional<at::Tensor>(),
     const int64_t info_B_num_bits = 26,
     const int64_t info_B_mask = 0x2FFFFFF,
-    const int64_t total_unique_indices = -1);
+    const int64_t total_unique_indices = -1,
+    const bool is_index_select = false,
+    const c10::optional<at::Tensor>& total_L_offsets =
+        c10::optional<at::Tensor>(),
+    const int64_t fixed_L_per_warp = 0,
+    const int64_t num_warps_per_feature = 0);
 
 std::tuple<int64_t, int64_t>
 get_infos_metadata(at::Tensor unused, int64_t B, int64_t T);

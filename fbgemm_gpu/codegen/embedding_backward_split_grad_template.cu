@@ -68,7 +68,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask
@@ -102,7 +102,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
   int32_t L = indices_end - indices_start;
 
   {% if vbe %}
-  const auto grad_offset = grad_offsets[b_t];
+  const auto grad_offset = row_grad_offsets[b_t];
   const auto grad_outer_offset = 0;
   {% else %}
   const auto grad_offset = D_start;
@@ -141,7 +141,7 @@ void grad_mean{{ vbe_desc }}_kernel
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask
