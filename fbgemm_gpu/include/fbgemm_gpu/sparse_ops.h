@@ -42,6 +42,9 @@ at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
 at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cuda
+at::Tensor asynchronous_complete_cumsum_meta(const at::Tensor& t_in);
+
+///@ingroup sparse-data-cuda
 at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size);
 
 ///@ingroup sparse-data-cpu

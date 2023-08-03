@@ -37,4 +37,7 @@ Tensor pack_segments_forward_meta(
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("pack_segments", TORCH_FN(fbgemm_gpu::pack_segments_forward_meta));
+  m.impl(
+      "asynchronous_complete_cumsum",
+      TORCH_FN(fbgemm_gpu::asynchronous_complete_cumsum_meta));
 }
