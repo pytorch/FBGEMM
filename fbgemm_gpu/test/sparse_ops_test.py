@@ -595,6 +595,15 @@ class SparseOpsTest(unittest.TestCase):
             zc.cpu(),
         )
 
+        # meta tests
+        mx = torch.randint(low=0, high=100, size=(n,)).type(index_dtype).to("meta")
+        # mze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(mx)
+        # mzi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(mx)
+        mzc = torch.ops.fbgemm.asynchronous_complete_cumsum(mx)
+        # self.assertEqual(ze.size(), mze.size())
+        # self.assertEqual(zi.size(), mzi.size())
+        self.assertEqual(zc.size(), mzc.size())
+
         if gpu_available:
             x = x.cuda()
             ze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(x)
