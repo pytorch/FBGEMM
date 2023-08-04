@@ -87,10 +87,7 @@ enum uvm_cache_stats_index {
 constexpr int MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS = 16;
 
 int get_max_thread_blocks_for_cache_kernels_() {
-  cudaDeviceProp* deviceProp =
-      at::cuda::getDeviceProperties(c10::cuda::current_device());
-  return deviceProp->multiProcessorCount *
-      MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS;
+  return get_device_sm_cnt_() * MAX_THREAD_BLOCKS_PER_SM_FOR_CACHE_KERNELS;
 }
 
 } // namespace
@@ -1139,8 +1136,17 @@ void lru_cache_insert_cuda(
                                   ->philox_cuda_state(4);
         }
 
+        // During concurrent prefetch, cache lines are locked and we use less
+        // SMs for some of the prefetch kernels (e.g. insert)
+        // since it is not SM bound. It leaves SMs for main stream to overlap
+        constexpr int ALL_TO_PREFETCH_SM_RATIO = 8;
+
+        auto grid_size = lock_cache_line
+            ? div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO)
+            : div_round_up(N, kMaxThreads / kWarpSize);
+
         lru_cache_insert_kernel<emb_t, cache_t>
-            <<<div_round_up(N, kMaxThreads / kWarpSize),
+            <<<grid_size,
                dim3(kWarpSize, kMaxThreads / kWarpSize),
                0,
                at::cuda::getCurrentCUDAStream()>>>(

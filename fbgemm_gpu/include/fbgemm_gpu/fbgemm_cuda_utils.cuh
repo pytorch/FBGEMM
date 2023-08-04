@@ -45,6 +45,13 @@ using fint32 = union fint32 {
   uint32_t I;
   float F;
 };
+
+int get_device_sm_cnt_() {
+  cudaDeviceProp* deviceProp =
+      at::cuda::getDeviceProperties(c10::cuda::current_device());
+  return deviceProp->multiProcessorCount;
+}
+
 } // namespace
 
 namespace fbgemm_gpu {
