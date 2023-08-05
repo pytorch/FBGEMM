@@ -221,7 +221,9 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
             quantization_config=quantization_config,
         )
         split_emb_infer_converter.convert_model(sparse_arch)
-        assert type(sparse_arch.emb_module) == IntNBitTableBatchedEmbeddingBagsCodegen
+        assert isinstance(
+            sparse_arch.emb_module, IntNBitTableBatchedEmbeddingBagsCodegen
+        )
         assert sparse_arch.emb_module.use_cpu == use_cpu
         quantized_emb_out = sparse_arch(indices.int(), offsets.int())  # B, T, D
 
@@ -303,8 +305,8 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                 use_array_for_index_remapping=use_array_for_index_remapping,
             )
             split_emb_infer_converter.convert_model(sparse_arch)
-            assert (
-                type(sparse_arch.emb_module) == IntNBitTableBatchedEmbeddingBagsCodegen
+            assert isinstance(
+                sparse_arch.emb_module, IntNBitTableBatchedEmbeddingBagsCodegen
             )
             assert sparse_arch.emb_module.use_cpu == use_cpu
             pruned_emb_out = sparse_arch(
@@ -359,7 +361,9 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         )
         split_emb_infer_converter.convert_model(sparse_arch)
         embedding_weights_after = sparse_arch.emb_module.split_embedding_weights()
-        assert type(sparse_arch.emb_module) == IntNBitTableBatchedEmbeddingBagsCodegen
+        assert isinstance(
+            sparse_arch.emb_module, IntNBitTableBatchedEmbeddingBagsCodegen
+        )
         assert sparse_arch.emb_module.use_cpu == use_cpu
 
         # Collect #rows after pruning.
