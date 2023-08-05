@@ -1774,13 +1774,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
         )
         if optimizer is None:
-            assert type(gos) == list
+            assert type(gos) is list
             if do_pooling:
                 goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
             else:
                 goc = torch.cat(gos, dim=0)
         else:
-            assert type(gos) == Tensor
+            assert type(gos) is Tensor
             goc = gos.clone()
         fc2.backward(goc)
 
