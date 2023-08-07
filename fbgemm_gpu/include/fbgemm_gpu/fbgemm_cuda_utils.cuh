@@ -805,10 +805,15 @@ struct Vec4T<double> {
 
   // this <- this + a * b
   DEVICE_INLINE void fma_(const Vec4T<double>& a, const double b) {
+#ifndef __HIP_PLATFORM_HCC__
     acc.x = __fma_rn(a.acc.x, b, acc.x);
     acc.y = __fma_rn(a.acc.y, b, acc.y);
     acc.z = __fma_rn(a.acc.z, b, acc.z);
     acc.w = __fma_rn(a.acc.w, b, acc.w);
+#else
+    // AMD doesn't support __fma_rn on double precision
+    CUDA_KERNEL_ASSERT(false);
+#endif
   }
 
   // this <- this + a
@@ -3168,17 +3173,27 @@ struct Vec4AccT {
   }
 
   DEVICE_INLINE void fma_(const float* vals, const float weight) {
+#ifndef __HIP_PLATFORM_HCC__
     acc[0] = __fmaf_rn(vals[0], weight, acc[0]);
     acc[1] = __fmaf_rn(vals[1], weight, acc[1]);
     acc[2] = __fmaf_rn(vals[2], weight, acc[2]);
     acc[3] = __fmaf_rn(vals[3], weight, acc[3]);
+#else
+    // AMD doesn't support __fmul_rn
+    CUDA_KERNEL_ASSERT(false);
+#endif
   }
 
   DEVICE_INLINE void fma_(const half* vals, const float weight) {
+#ifndef __HIP_PLATFORM_HCC__
     acc[0] = __fmaf_rn(vals[0], weight, acc[0]);
     acc[1] = __fmaf_rn(vals[1], weight, acc[1]);
     acc[2] = __fmaf_rn(vals[2], weight, acc[2]);
     acc[3] = __fmaf_rn(vals[3], weight, acc[3]);
+#else
+    // AMD doesn't support __fmaf_rn
+    CUDA_KERNEL_ASSERT(false);
+#endif
   }
 
   DEVICE_INLINE void store_(const float4* src, float4* dst) {
@@ -3258,7 +3273,7 @@ struct Vec4StepT<STEP, float> : Vec4AccT {
   }
 
   DEVICE_INLINE void sum() {
-#pragma loop unroll
+#pragma unroll
     for (uint32_t j = 0; j < STEP; ++j) {
       const float* vals = reinterpret_cast<const float*>(&loaded_vals[j]);
       this->add_(vals);
@@ -3269,7 +3284,7 @@ struct Vec4StepT<STEP, float> : Vec4AccT {
       const float* const weights,
       const uint32_t idx_shift,
       const uint32_t idx_scale) {
-#pragma loop unroll
+#pragma unroll
     for (uint32_t j = 0; j < STEP; ++j) {
       const float weight = weights[j * idx_scale + idx_shift];
       const float* vals = reinterpret_cast<const float*>(&loaded_vals[j]);
@@ -3304,20 +3319,30 @@ struct Vec4StepT<STEP, float> : Vec4AccT {
   index_weighted_store(uint32_t idx, float4* ptr, const float weight) {
     const float* vals = reinterpret_cast<const float*>(&loaded_vals[idx]);
     float* ptr_f = reinterpret_cast<float*>(ptr);
+#ifndef __HIP_PLATFORM_HCC__
     ptr_f[0] = __fmul_rn(vals[0], weight);
     ptr_f[1] = __fmul_rn(vals[1], weight);
     ptr_f[2] = __fmul_rn(vals[2], weight);
     ptr_f[3] = __fmul_rn(vals[3], weight);
+#else
+    // AMD doesn't support __fmul_rn
+    CUDA_KERNEL_ASSERT(false);
+#endif
   }
 
   DEVICE_INLINE void
   index_weighted_store(uint32_t idx, float2* ptr, const float weight) {
     const float* vals = reinterpret_cast<const float*>(&loaded_vals[idx]);
     float vals_f[4];
+#ifndef __HIP_PLATFORM_HCC__
     vals_f[0] = __fmul_rn(vals[0], weight);
     vals_f[1] = __fmul_rn(vals[1], weight);
     vals_f[2] = __fmul_rn(vals[2], weight);
     vals_f[3] = __fmul_rn(vals[3], weight);
+#else
+    // AMD doesn't support __fmul_rn
+    CUDA_KERNEL_ASSERT(false);
+#endif
     this->store_(reinterpret_cast<float4*>(vals_f), ptr);
   }
 
@@ -3337,7 +3362,7 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
 
   DEVICE_INLINE void sum() {
 #if defined(OPTIMIZE_INNER_LOOP)
-#pragma loop unroll
+#pragma unroll
     for (uint32_t j = 0; j < STEP; j += 2) {
       // If we add an fp16 register to and fp32 accumulator, the following
       // happens in assembly:
@@ -3362,7 +3387,7 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
       this->add_(vals);
     }
 #else
-#pragma loop unroll
+#pragma unroll
     for (uint32_t j = 0; j < STEP; ++j) {
       const half2* vals_h = reinterpret_cast<const half2*>(&loaded_vals[j]);
       this->add_(vals_h);
@@ -3374,7 +3399,7 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
       const float* const weights,
       const uint32_t idx_shift,
       const uint32_t idx_scale) {
-#pragma loop unroll
+#pragma unroll
     for (uint32_t j = 0; j < STEP; ++j) {
       const float weight = weights[j * idx_scale + idx_shift];
       const half* vals = reinterpret_cast<const half*>(&loaded_vals[j]);
@@ -3413,20 +3438,30 @@ struct Vec4StepT<STEP, at::Half> : Vec4AccT {
   index_weighted_store(uint32_t idx, float4* ptr, const float weight) {
     const half* vals = reinterpret_cast<const half*>(&loaded_vals[idx]);
     float* ptr_f = reinterpret_cast<float*>(ptr);
+#ifndef __HIP_PLATFORM_HCC__
     ptr_f[0] = __fmul_rn(vals[0], weight);
     ptr_f[1] = __fmul_rn(vals[1], weight);
     ptr_f[2] = __fmul_rn(vals[2], weight);
     ptr_f[3] = __fmul_rn(vals[3], weight);
+#else
+    // AMD doesn't support __fmul_rn
+    CUDA_KERNEL_ASSERT(false);
+#endif
   }
 
   DEVICE_INLINE void
   index_weighted_store(uint32_t idx, float2* ptr, const float weight) {
     const float* vals = reinterpret_cast<const float*>(&loaded_vals[idx]);
     float vals_f[4];
+#ifndef __HIP_PLATFORM_HCC__
     vals_f[0] = __fmul_rn(vals[0], weight);
     vals_f[1] = __fmul_rn(vals[1], weight);
     vals_f[2] = __fmul_rn(vals[2], weight);
     vals_f[3] = __fmul_rn(vals[3], weight);
+#else
+    // AMD doesn't support __fmul_rn
+    CUDA_KERNEL_ASSERT(false);
+#endif
     this->store_(reinterpret_cast<float4*>(vals_f), ptr);
   }
 
