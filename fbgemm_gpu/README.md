@@ -1,8 +1,8 @@
 # FBGEMM_GPU
 
 [![FBGEMM_GPU CI](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_ci.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_ci.yml)
-[![FBGEMM_GPU-CPU Nightly Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cpu_nightly.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cpu_nightly.yml)
-[![FBGEMM_GPU-CUDA Nightly Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cuda_nightly.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cuda_nightly.yml)
+[![FBGEMM_GPU-CPU Nightly Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cpu_nightly.yml/badge.svg?event=schedule)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cpu_nightly.yml)
+[![FBGEMM_GPU-CUDA Nightly Build](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cuda_nightly.yml/badge.svg?event=schedule)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_gpu_cuda_nightly.yml)
 
 FBGEMM_GPU (FBGEMM GPU Kernels Library) is a collection of high-performance PyTorch
 GPU operator libraries for training and inference.  The library provides efficient
