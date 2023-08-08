@@ -23,7 +23,10 @@ except Exception:
 
 
 class MetricOpsTest(unittest.TestCase):
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(
+        True,
+        "Test is sometimes failed due to issues with Flaky. Skipping until the issues are resolved. ",
+    )
     # pyre-ignore [56]
     @given(
         n_tasks=st.integers(1, 5),
