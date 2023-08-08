@@ -178,7 +178,7 @@ void NO_SANITIZE("address") FusedQuantizeDequantizeAvx2(
   // that is exactly representable in float
   constexpr int32_t int32_float_max_val =
       std::numeric_limits<int32_t>::max() - 127;
-  int i = 0;
+  int64_t i = 0;
   uint32_t rand;
   __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
   __m256 scale_v = _mm256_set1_ps(qparams.scale);
@@ -408,7 +408,7 @@ void RequantizeFixedPointAvx2(
   __m256i permute_mask_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
 
-  int i = 0;
+  int64_t i = 0;
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256i a_v = _mm256_loadu_si256((const __m256i*)(src + i));
 
@@ -511,7 +511,7 @@ void requantizeOutputProcessingAvx2(
       _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
 
   constexpr int VLEN = 8;
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+  for (int64_t i = block.row_start; i < block.row_start + block.row_size; ++i) {
     // Scale row_offset with Bq_zero_point
     int32_t row_offset = 0;
     if (B_SYMMETRIC) {
@@ -528,7 +528,7 @@ void requantizeOutputProcessingAvx2(
     }
     __m256i row_offset_v = _mm256_set1_epi32(row_offset);
 
-    int j = block.col_start;
+    int64_t j = block.col_start;
     for (; j < block.col_start + (block.col_size / (VLEN * 4) * (VLEN * 4));
          j += (VLEN * 4)) {
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
@@ -889,7 +889,7 @@ void requantizeOutputProcessingAvx2(
           _mm256_castsi256_si128(x_clamped_v));
     } // j loop vectorized
 
-    int remainder = block.col_start + block.col_size - j;
+    const int64_t remainder = block.col_start + block.col_size - j;
     if (remainder > 0) {
       __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
           internal::avx2_ps_or_epi32_masks[remainder]));
@@ -986,7 +986,7 @@ void requantizeOutputProcessingAvx2(
       alignas(64) uint8_t x_clamped_buffer[32];
       _mm256_store_si256(
           reinterpret_cast<__m256i*>(x_clamped_buffer), x_clamped_v);
-      for (int k = 0; k < remainder; ++k) {
+      for (int64_t k = 0; k < remainder; ++k) {
         out[i * ld_out + j + k] = x_clamped_buffer[k];
       }
     } // j loop remainder
@@ -1032,7 +1032,7 @@ void requantizeForFloatAvx2(
   __m256i A_zero_point_v = _mm256_set1_epi32(r.A_zero_point);
 
   constexpr int VLEN = 8;
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
+  for (int64_t i = block.row_start; i < block.row_start + block.row_size; ++i) {
     // Scale row_offset with Bq_zero_point
     int32_t row_offset = 0;
     if (B_SYMMETRIC) {
@@ -1049,7 +1049,7 @@ void requantizeForFloatAvx2(
     }
     __m256i row_offset_v = _mm256_set1_epi32(row_offset);
 
-    int j = block.col_start;
+    int64_t j = block.col_start;
     for (; j < block.col_start + (block.col_size / VLEN * VLEN); j += VLEN) {
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
           inp + (i - block.row_start) * ld_in + (j - block.col_start)));
@@ -1092,7 +1092,7 @@ void requantizeForFloatAvx2(
       _mm256_storeu_ps(out + i * ld_out + j, x_scaled_v);
     } // j loop vectorized
 
-    int remainder = block.col_start + block.col_size - j;
+    const int64_t remainder = block.col_start + block.col_size - j;
     if (remainder > 0) {
       __m256i mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
           internal::avx2_ps_or_epi32_masks[remainder]));
@@ -1196,8 +1196,8 @@ void requantizeOutputProcessingGConvAvx2(
       _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
 
   constexpr int VLEN = 8;
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    int j = block.col_start;
+  for (int64_t i = block.row_start; i < block.row_start + block.row_size; ++i) {
+    int64_t j = block.col_start;
     for (; j < block.col_start + (block.col_size / VLEN * VLEN); j += VLEN) {
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
           inp + (i - block.row_start) * ld_in + (j - block.col_start)));
@@ -1417,7 +1417,7 @@ void requantizeOutputProcessingGConvAvx2(
           _mm256_castsi256_si128(x_clamped_v));
     } // j loop vectorized
 
-    const int remainder = block.col_start + block.col_size - j;
+    const int64_t remainder = block.col_start + block.col_size - j;
     (void)remainder; // Suppress unused variable warning
     assert(remainder == 0);
   } // i loop
@@ -1577,7 +1577,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       "Only float and float16 types are allowed.");
   constexpr int VLEN = 8;
   constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
-  int output_columns =
+  const int64_t output_columns =
       (input_columns + NUM_ELEM_PER_BYTE - 1) / NUM_ELEM_PER_BYTE +
       2 * sizeof(std::uint16_t);
 
@@ -1783,7 +1783,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
   __m256i permute_mask2_v =
       _mm256_set_epi32(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00);
 
-  int output_columns = input_columns + 2 * sizeof(float);
+  const int64_t output_columns = input_columns + 2 * sizeof(float);
   float* input_row_float_for_fp16;
   if (std::is_same<InputType, float16>()) {
     input_row_float_for_fp16 = static_cast<float*>(
@@ -1908,7 +1908,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
       "Only float and float16 types are allowed.");
   constexpr int VLEN = 8;
   constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
-  int output_columns =
+  const int64_t output_columns =
       (input_columns - 2 * sizeof(uint16_t)) * NUM_ELEM_PER_BYTE;
 
   // Compute a remainder for vector load

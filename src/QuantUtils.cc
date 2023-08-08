@@ -313,34 +313,32 @@ FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE(uint8_t)
 #undef FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE
 #undef FBGEMM_SPECIALIZED_FUSED_QUANTIZE_DEQUANTIZE_AVX2
 
-#define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(T)                \
-  template <>                                                     \
-  FBGEMM_API void QuantizeGroupwise<T, layout_t::KCX>(            \
-      const float* src,                                           \
-      int N,                                                      \
-      int C,                                                      \
-      int X,                                                      \
-      int G,                                                      \
-      const float* scales,                                        \
-      const std::int32_t* zero_points,                            \
-      T* dst) {                                                   \
-    assert(C % G == 0);                                           \
-    int C_per_G = C / G;                                          \
-    for (int i = 0; i < N; ++i) {                                 \
-      for (int g = 0; g < G; ++g) {                               \
-        float scale = scales[g];                                  \
-        int32_t zero_point = zero_points[g];                      \
-        for (int c = 0; c < C / G; ++c) {                         \
-          for (int x = 0; x < X; ++x) {                           \
-            dst[(i * C + g * C_per_G + c) * X + x] = Quantize<T>( \
-                src[(i * C + g * C_per_G + c) * X + x],           \
-                zero_point,                                       \
-                scale,                                            \
-                8 * sizeof(T));                                   \
-          }                                                       \
-        }                                                         \
-      }                                                           \
-    }                                                             \
+#define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(T)                       \
+  template <>                                                            \
+  FBGEMM_API void QuantizeGroupwise<T, layout_t::KCX>(                   \
+      const float* src,                                                  \
+      int N,                                                             \
+      int C,                                                             \
+      int X,                                                             \
+      int G,                                                             \
+      const float* scales,                                               \
+      const std::int32_t* zero_points,                                   \
+      T* dst) {                                                          \
+    assert(C % G == 0);                                                  \
+    int C_per_G = C / G;                                                 \
+    for (int64_t i = 0; i < N; ++i) {                                    \
+      for (int64_t g = 0; g < G; ++g) {                                  \
+        float scale = scales[g];                                         \
+        int32_t zero_point = zero_points[g];                             \
+        for (int64_t c = 0; c < C / G; ++c) {                            \
+          for (int64_t x = 0; x < X; ++x) {                              \
+            const int64_t idx = (i * C + g * C_per_G + c) * X + x;       \
+            dst[idx] =                                                   \
+                Quantize<T>(src[idx], zero_point, scale, 8 * sizeof(T)); \
+          }                                                              \
+        }                                                                \
+      }                                                                  \
+    }                                                                    \
   }
 
 FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKCX(int8_t)
@@ -364,26 +362,25 @@ FBGEMM_API void QuantizeGroupwise<uint8_t, layout_t::KCX>(
   bool takeFastPath =
       cpuinfo_initialize() && fbgemmHasAvx2Support() && cpuinfo_has_x86_fma3();
 
-  for (int i = 0; i < K; ++i) {
-    for (int g = 0; g < G; ++g) {
+  for (int64_t i = 0; i < K; ++i) {
+    for (int64_t g = 0; g < G; ++g) {
       qparams.scale = scales[g];
       qparams.zero_point = zero_points[g];
       if (takeFastPath) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+        const int64_t offset = (i * C + g * C_per_G) * X;
         QuantizeAvx2(
-            src + (i * C + g * C_per_G) * X,
-            dst + (i * C + g * C_per_G) * X,
-            C_per_G * X,
+            src + offset,
+            dst + offset,
+            static_cast<int64_t>(C_per_G) * X,
             qparams);
 #endif
       } else {
-        for (int c = 0; c < C / G; ++c) {
-          for (int x = 0; x < X; ++x) {
-            dst[(i * C + g * C_per_G + c) * X + x] = Quantize<uint8_t>(
-                src[(i * C + g * C_per_G + c) * X + x],
-                qparams.zero_point,
-                qparams.scale,
-                qparams.precision);
+        for (int64_t c = 0; c < C / G; ++c) {
+          for (int64_t x = 0; x < X; ++x) {
+            const int64_t idx = (i * C + g * C_per_G + c) * X + x;
+            dst[idx] = Quantize<uint8_t>(
+                src[idx], qparams.zero_point, qparams.scale, qparams.precision);
           }
         }
       }
@@ -391,34 +388,32 @@ FBGEMM_API void QuantizeGroupwise<uint8_t, layout_t::KCX>(
   }
 }
 
-#define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(T)                \
-  template <>                                                     \
-  FBGEMM_API void QuantizeGroupwise<T, layout_t::KXC>(            \
-      const float* src,                                           \
-      int K,                                                      \
-      int C,                                                      \
-      int X,                                                      \
-      int G,                                                      \
-      const float* scales,                                        \
-      const std::int32_t* zero_points,                            \
-      T* dst) {                                                   \
-    assert(C % G == 0);                                           \
-    int C_per_G = C / G;                                          \
-    for (int i = 0; i < K; ++i) {                                 \
-      for (int x = 0; x < X; ++x) {                               \
-        for (int g = 0; g < G; ++g) {                             \
-          float scale = scales[g];                                \
-          int32_t zero_point = zero_points[g];                    \
-          for (int c = 0; c < C / G; ++c) {                       \
-            dst[(i * X + x) * C + g * C_per_G + c] = Quantize<T>( \
-                src[(i * X + x) * C + g * C_per_G + c],           \
-                zero_point,                                       \
-                scale,                                            \
-                8 * sizeof(T));                                   \
-          }                                                       \
-        }                                                         \
-      }                                                           \
-    }                                                             \
+#define FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(T)                       \
+  template <>                                                            \
+  FBGEMM_API void QuantizeGroupwise<T, layout_t::KXC>(                   \
+      const float* src,                                                  \
+      int K,                                                             \
+      int C,                                                             \
+      int X,                                                             \
+      int G,                                                             \
+      const float* scales,                                               \
+      const std::int32_t* zero_points,                                   \
+      T* dst) {                                                          \
+    assert(C % G == 0);                                                  \
+    int C_per_G = C / G;                                                 \
+    for (int64_t i = 0; i < K; ++i) {                                    \
+      for (int64_t x = 0; x < X; ++x) {                                  \
+        for (int64_t g = 0; g < G; ++g) {                                \
+          float scale = scales[g];                                       \
+          int32_t zero_point = zero_points[g];                           \
+          for (int64_t c = 0; c < C / G; ++c) {                          \
+            const int64_t idx = (i * X + x) * C + g * C_per_G + c;       \
+            dst[idx] =                                                   \
+                Quantize<T>(src[idx], zero_point, scale, 8 * sizeof(T)); \
+          }                                                              \
+        }                                                                \
+      }                                                                  \
+    }                                                                    \
   }
 FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(int8_t)
 FBGEMM_SPECIALIZED_QUANTIZEGROUPWISEKXC(uint8_t)
@@ -559,8 +554,9 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
       std::is_same<InputType, float>() || std::is_same<InputType, float16>(),
       "Only float and float16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
-  int output_columns =
-      (input_columns + num_elem_per_byte - 1) / num_elem_per_byte +
+  const int output_columns =
+      (static_cast<int64_t>(input_columns) + num_elem_per_byte - 1) /
+          num_elem_per_byte +
       2 * sizeof(float16);
   std::vector<float> input_row_float(input_columns);
   for (size_t row = 0; row < input_rows; ++row) {
@@ -568,7 +564,8 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     std::uint8_t* output_row = output + row * output_columns;
     float16* output_row_scale_bias = reinterpret_cast<float16*>(
         output_row +
-        (input_columns + num_elem_per_byte - 1) / num_elem_per_byte);
+        (static_cast<int64_t>(input_columns) + num_elem_per_byte - 1) /
+            num_elem_per_byte);
 
     // NOTE: this can be optimized, however we don't care much about performance
     // for reference implementation.
@@ -676,7 +673,8 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
     return;
   }
 
-  int output_columns = input_columns + 2 * sizeof(float);
+  const int64_t output_columns =
+      static_cast<int64_t>(input_columns) + 2 * sizeof(float);
   std::vector<float> input_row_float(input_columns);
   for (size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
@@ -701,7 +699,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
     output_row_scale_bias[0] = range / 255.0f;
     output_row_scale_bias[1] = minimum_element;
     const auto inverse_scale = 255.0f / (range + kEpsilon);
-    for (int col = 0; col < input_columns; ++col) {
+    for (int64_t col = 0; col < input_columns; ++col) {
       output_row[col] =
           std::lrintf((input_row_float[col] - minimum_element) * inverse_scale);
     }
@@ -736,8 +734,9 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
       std::is_same<OutputType, float>() || std::is_same<OutputType, float16>(),
       "Only float and float16 types are allowed.");
   int num_elem_per_byte = 8 / bit_rate;
-  int output_columns =
-      (input_columns - 2 * sizeof(float16)) * num_elem_per_byte;
+  const int64_t output_columns =
+      static_cast<int64_t>(input_columns - 2 * sizeof(float16)) *
+      num_elem_per_byte;
 
   for (size_t row = 0; row < input_rows; ++row) {
     const std::uint8_t* input_row = input + row * input_columns;
@@ -748,7 +747,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     float bias = cpu_half2float(input_row_scale_bias[1]);
     OutputType* output_row = output + row * output_columns;
 
-    for (int col = 0; col < output_columns; ++col) {
+    for (int64_t col = 0; col < output_columns; ++col) {
       std::uint8_t quantized = input_row[col / num_elem_per_byte];
       quantized >>= (col % num_elem_per_byte) * bit_rate;
       quantized &= (1 << bit_rate) - 1;
