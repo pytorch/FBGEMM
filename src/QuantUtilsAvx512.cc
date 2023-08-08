@@ -111,8 +111,8 @@ void requantizeOutputProcessingGConvAvx512(
   constexpr int VLEN = 16;
   const __mmask16 mask = 0x00ff;
 
-  for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-    int j = block.col_start;
+  for (int64_t i = block.row_start; i < block.row_start + block.row_size; ++i) {
+    int64_t j = block.col_start;
     // changed the iteration termination criteria for C_per_g = 8
     // for avx512 currently all 4 cases supported will only run one iteration of
     // inner loop
@@ -382,7 +382,7 @@ void requantizeOutputProcessingGConvAvx512(
     } // j loop vectorized
 
 #ifndef NDEBUG
-    int remainder = block.col_start + block.col_size - j;
+    const int64_t remainder = block.col_start + block.col_size - j;
     assert(remainder == 0 || C_PER_G == 8);
 #endif
   } // i loop
