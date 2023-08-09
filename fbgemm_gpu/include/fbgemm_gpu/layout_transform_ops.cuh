@@ -90,7 +90,9 @@ __global__ void permute_pooled_embs_kernel(
   }
   // Apply the offsets on B dimension.
   go += b * dim_sum;
-  sgo += b * dim_sum;
+  // Last index in inv_offset_dim_list will contain output size. Use
+  // offset_dim_list in the case of backward()
+  sgo += b * max(inv_offset_dim_list[T], offset_dim_list[T]);
   const int64_t sgo_offset = inv_offset_dim_list[t];
   // Need to check alignment before using vector code path.
   if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(&sgo[sgo_offset]) &&
