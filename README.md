@@ -77,7 +77,7 @@ nop)` fused with inner GEMM macro kernel.
 
 ### Dependencies
 
-FBGEMM requires gcc 5+ and a CPU with support for AVX2 instruction set or
+FBGEMM requires gcc 8+ and a CPU with support for AVX2 instruction set or
 higher. It has been tested on Mac OS X and Linux.
 
 #### asmjit
