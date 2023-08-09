@@ -844,6 +844,7 @@ def nbit_cpu(  # noqa C901
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
+        use_cpu=True,
     )
     requests = [
         (a.cpu().int(), b.cpu().int(), c.cpu() if c else None) for (a, b, c) in requests
@@ -1319,6 +1320,7 @@ def nbit_device_with_spec(  # noqa C901
                 # need many more samples for zipf if bag_size is very small.
                 zipf_oversample_ratio=3 if bag_size > 5 else 10,
                 weighted=weighted,
+                use_cpu=use_cpu,
             )
             for it, (indices, offsets, weights) in enumerate(requests):
                 all_requests["indices"][it].append(indices)
