@@ -491,11 +491,18 @@ def index_select_bench(
     for i in range(len(gis_inputs)):
         gis_inputs[i].requires_grad = True
 
+    # Add optimizer to perform zero grad in order to reset gradients
+    # before the accumulation phase
+    optim_index: torch.optim.Optimizer = torch.optim.SGD(inputs, lr=0.1)
+    optim_batch: torch.optim.Optimizer = torch.optim.SGD([concat_inputs], lr=0.1)
+    optim_group: torch.optim.Optimizer = torch.optim.SGD(gis_inputs, lr=0.1)
+
     def index_select_fwd_ref(
         inputs: List[torch.Tensor], indices: List[torch.Tensor]
     ) -> List[torch.Tensor]:
         outputs = []
         for input, index in zip(inputs, indices):
+            optim_index.zero_grad()
             outputs.append(torch.index_select(input, 0, index))
         return outputs
 
@@ -503,7 +510,34 @@ def index_select_bench(
         outputs: List[torch.Tensor], grads: List[torch.Tensor]
     ) -> None:
         for output, grad in zip(outputs, grads):
+            optim_index.zero_grad()
             output.backward(grad, retain_graph=True)
+
+    def batch_index_select_fwd(
+        concat_inputs: List[torch.Tensor],
+        concat_indices: List[int],
+        input_num_indices: List[int],
+        input_rows: List[int],
+        input_columns: List[int],
+    ) -> torch.autograd.Variable:
+        optim_batch.zero_grad()
+        return torch.ops.fbgemm.batch_index_select_dim0(
+            concat_inputs, concat_indices, input_num_indices, input_rows, input_columns
+        )
+
+    def group_index_select_fwd(
+        gis_inputs: List[torch.Tensor], indices: List[int]
+    ) -> torch.autograd.Variable:
+        optim_group.zero_grad()
+        return torch.ops.fbgemm.group_index_select_dim0(gis_inputs, indices)
+
+    def batch_group_index_select_bwd(
+        output: torch.autograd.Variable,
+        grads: List[torch.Tensor],
+        optim: torch.optim.Optimizer,
+    ) -> torch.autograd.Variable:
+        optim.zero_grad()
+        return output.backward(grads, retain_graph=True)
 
     bench_kwargs = {"num_warmups": 10, "iters": 10 if timeline else 100}
     profile_ctx = profile if timeline else contextlib.nullcontext
@@ -516,7 +550,7 @@ def index_select_bench(
         )
 
         time_bis, out_bis = benchmark_torch_function(
-            torch.ops.fbgemm.batch_index_select_dim0,
+            batch_index_select_fwd,
             (
                 concat_inputs,
                 concat_indices,
@@ -528,7 +562,7 @@ def index_select_bench(
         )
 
         time_gis, out_gis = benchmark_torch_function(
-            torch.ops.fbgemm.group_index_select_dim0,
+            group_index_select_fwd,
             (gis_inputs, indices),
             **bench_kwargs,
         )
@@ -548,14 +582,22 @@ def index_select_bench(
         )
 
         time_bwd_bis, _ = benchmark_torch_function(
-            functools.partial(out_bis.backward, retain_graph=True),
-            (concat_grads,),
+            batch_group_index_select_bwd,
+            (
+                out_bis,
+                concat_grads,
+                optim_batch,
+            ),
             **bench_kwargs,
         )
 
         time_bwd_gis, _ = benchmark_torch_function(
-            functools.partial(concat_out_gis.backward, retain_graph=True),
-            (concat_grads,),
+            batch_group_index_select_bwd,
+            (
+                concat_out_gis,
+                concat_grads,
+                optim_group,
+            ),
             **bench_kwargs,
         )
 
