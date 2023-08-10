@@ -15,11 +15,8 @@ try:
     # pyre-ignore[21]
     from fbgemm_gpu import open_source  # noqa: F401
 
-    # pyre-ignore[21]
-    from test_utils import gpu_unavailable
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:metric_ops")
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
 class MetricOpsTest(unittest.TestCase):
