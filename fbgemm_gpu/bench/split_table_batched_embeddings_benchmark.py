@@ -674,14 +674,12 @@ def cache(  # noqa C901
         requests,
         lambda indices, offsets, per_sample_weights: emb_nc(
             indices.long(), offsets.long(), per_sample_weights
-        ),
+        ).backward(grad_output),
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        bwd_only=True,
-        grad=grad_output,
     )
     logging.info(
-        f"Backward (UVM), B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {2 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"ForwardBackward (UVM), B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
+        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
