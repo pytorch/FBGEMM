@@ -521,6 +521,8 @@ if(NOT USE_ROCM AND CXX_AVX512_FOUND)
     ${fbgemm_sources}
     ${fbgemm_sources_avx2}
     ${fbgemm_sources_avx512})
+else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNO_AVX512=1")
 endif()
 
 set(fbgemm_sources_include_directories

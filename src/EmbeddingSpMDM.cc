@@ -1591,6 +1591,7 @@ void compressed_indices_remap(
   }
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+#ifndef NO_AVX512
   const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
 #ifndef __HIP_PLATFORM_HCC__
@@ -1604,6 +1605,7 @@ void compressed_indices_remap(
           out_indices,
           out_offsets,
           out_weights);
+      return;
     } else {
       internal::compressed_indices_remap_avx512<IndexType, true>(
           offsets_len,
@@ -1614,22 +1616,23 @@ void compressed_indices_remap(
           out_indices,
           out_offsets,
           out_weights);
+      return;
     }
 #endif // __HIP_PLATFORM_HCC__
-  } else {
-#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-    compressed_indices_remap_ref<IndexType>(
-        offsets_len,
-        indices,
-        compressed_indices_mapping,
-        offsets,
-        weights,
-        out_indices,
-        out_offsets,
-        out_weights);
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   }
-#endif
+#endif // NO_AVX512
+#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+
+  // Non-vectorized fallback implementation
+  compressed_indices_remap_ref<IndexType>(
+      offsets_len,
+      indices,
+      compressed_indices_mapping,
+      offsets,
+      weights,
+      out_indices,
+      out_offsets,
+      out_weights);
 }
 
 #define INSTANTIATE_REMAP_BASE(INDEX_TYPE)           \
