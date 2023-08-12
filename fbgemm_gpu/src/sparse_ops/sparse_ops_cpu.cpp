@@ -1152,21 +1152,30 @@ void reorder_batched_ad_lengths_(
   const auto* batch_offsets_data = batch_offsets.data_ptr<index_t>();
   const auto* cat_ad_lengths_data = cat_ad_lengths.data_ptr<scalar_t>();
   auto* output_data = output.data_ptr<scalar_t>();
-  for (const auto b : c10::irange(nB)) {
-    const auto num_ads_b = batch_offsets_data[b + 1] - batch_offsets_data[b];
-    for (const auto t : c10::irange(nT)) {
-      const int32_t input_segment_start = broadcast_lengths
-          ? nT * b + t
-          : nT * batch_offsets_data[b] + t * num_ads_b;
-      const int32_t output_segment_start =
-          t * num_ads_in_batch + batch_offsets_data[b];
-      for (const auto i : c10::irange(num_ads_b)) {
-        output_data[output_segment_start + i] = broadcast_lengths
-            ? cat_ad_lengths_data[input_segment_start]
-            : cat_ad_lengths_data[input_segment_start + i];
-      }
-    }
-  }
+  at::parallel_for(
+      0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
+        auto b_begin = tb_begin / nT;
+        auto b_end = (tb_end + nT - 1) / nT;
+        for (const auto b : c10::irange(b_begin, b_end)) {
+          const auto num_ads_b =
+              batch_offsets_data[b + 1] - batch_offsets_data[b];
+          int64_t t_begin = (b == b_begin) ? tb_begin % nT : 0;
+          int64_t t_end =
+              (b == b_end - 1 && tb_end % nT != 0) ? tb_end % nT : nT;
+          for (const auto t : c10::irange(t_begin, t_end)) {
+            const int32_t input_segment_start = broadcast_lengths
+                ? nT * b + t
+                : nT * batch_offsets_data[b] + t * num_ads_b;
+            const int32_t output_segment_start =
+                t * num_ads_in_batch + batch_offsets_data[b];
+            for (const auto i : c10::irange(num_ads_b)) {
+              output_data[output_segment_start + i] = broadcast_lengths
+                  ? cat_ad_lengths_data[input_segment_start]
+                  : cat_ad_lengths_data[input_segment_start + i];
+            }
+          }
+        }
+      });
 }
 
 Tensor reorder_batched_ad_lengths_cpu(
@@ -1221,40 +1230,50 @@ void reorder_batched_ad_indices_cpu_(
       reordered_cat_ad_offsets.data_ptr<index_t>();
   const auto* cat_ad_indices_data = cat_ad_indices.data_ptr<scalar_t>();
   auto* output_data = output.data_ptr<scalar_t>();
-  for (const auto b : c10::irange(nB)) {
-    const auto num_ads_b = batch_offsets_data[b + 1] - batch_offsets_data[b];
-    for (const auto t : c10::irange(nT)) {
-      const auto output_segment_offset_start =
-          t * num_ads_in_batch + batch_offsets_data[b];
-      const auto output_segment_start =
-          reordered_cat_ad_offsets_data[output_segment_offset_start];
-      const int32_t input_segment_offset_start = broadcast_indices
-          ? nT * b + t
-          : nT * batch_offsets_data[b] + t * num_ads_b;
-      const int32_t input_segment_offset_end = broadcast_indices
-          ? input_segment_offset_start + 1
-          : input_segment_offset_start + num_ads_b;
-      const auto input_segment_start =
-          cat_ad_offsets_data[input_segment_offset_start];
-      const auto input_segment_end =
-          cat_ad_offsets_data[input_segment_offset_end];
-      const auto num_elements = input_segment_end - input_segment_start;
+  at::parallel_for(
+      0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
+        auto b_begin = tb_begin / nT;
+        auto b_end = (tb_end + nT - 1) / nT;
 
-      if (broadcast_indices) {
-        for (auto j : c10::irange(num_ads_b)) {
-          for (auto i : c10::irange(num_elements)) {
-            output_data[output_segment_start + j * num_elements + i] =
-                cat_ad_indices_data[input_segment_start + i];
+        for (const auto b : c10::irange(b_begin, b_end)) {
+          const auto num_ads_b =
+              batch_offsets_data[b + 1] - batch_offsets_data[b];
+          int64_t t_begin = (b == b_begin) ? tb_begin % nT : 0;
+          int64_t t_end =
+              (b == b_end - 1 && tb_end % nT != 0) ? tb_end % nT : nT;
+          for (const auto t : c10::irange(t_begin, t_end)) {
+            const auto output_segment_offset_start =
+                t * num_ads_in_batch + batch_offsets_data[b];
+            const auto output_segment_start =
+                reordered_cat_ad_offsets_data[output_segment_offset_start];
+            const int32_t input_segment_offset_start = broadcast_indices
+                ? nT * b + t
+                : nT * batch_offsets_data[b] + t * num_ads_b;
+            const int32_t input_segment_offset_end = broadcast_indices
+                ? input_segment_offset_start + 1
+                : input_segment_offset_start + num_ads_b;
+            const auto input_segment_start =
+                cat_ad_offsets_data[input_segment_offset_start];
+            const auto input_segment_end =
+                cat_ad_offsets_data[input_segment_offset_end];
+            const auto num_elements = input_segment_end - input_segment_start;
+
+            if (broadcast_indices) {
+              for (auto j : c10::irange(num_ads_b)) {
+                for (auto i : c10::irange(num_elements)) {
+                  output_data[output_segment_start + j * num_elements + i] =
+                      cat_ad_indices_data[input_segment_start + i];
+                }
+              }
+            } else {
+              for (auto i : c10::irange(num_elements)) {
+                output_data[output_segment_start + i] =
+                    cat_ad_indices_data[input_segment_start + i];
+              }
+            }
           }
         }
-      } else {
-        for (auto i : c10::irange(num_elements)) {
-          output_data[output_segment_start + i] =
-              cat_ad_indices_data[input_segment_start + i];
-        }
-      }
-    }
-  }
+      });
 }
 
 Tensor reorder_batched_ad_indices_cpu(

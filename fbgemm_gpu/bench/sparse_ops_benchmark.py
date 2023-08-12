@@ -365,6 +365,7 @@ def asynchronous_complete_cumsum_2d_bench(
 @click.option("--dtype", type=click.Choice(["float", "long"]), default="long")
 @click.option("--itype", type=click.Choice(["int", "long"]), default="int")
 @click.option("--broadcast-indices", type=bool, default=True)
+@click.option("--device", type=str, default="cpu")
 def reorder_batched_ad_indices_bench(
     batch_size: int,
     table_size: int,
@@ -373,7 +374,9 @@ def reorder_batched_ad_indices_bench(
     dtype: str,
     itype: str,
     broadcast_indices: bool,
+    device: str,
 ) -> None:
+
     assert dtype == "float" or dtype == "long", "Only int and long are supported"
     data_type = torch.int64 if dtype == "long" else torch.float
     data_size = 8 if dtype == "long" else 4
@@ -389,7 +392,7 @@ def reorder_batched_ad_indices_bench(
                 size=(batch_size * table_size * length,),
             )
             .int()
-            .cuda()
+            .to(device)
             .to(data_type)
         )
         cat_ad_lengths = (
@@ -401,7 +404,7 @@ def reorder_batched_ad_indices_bench(
                 0,
             )
             .int()
-            .cuda()
+            .to(device)
         )
     else:
         cat_ad_indices = (
@@ -411,7 +414,7 @@ def reorder_batched_ad_indices_bench(
                 size=(batch_size * table_size * num_ads * length,),
             )
             .int()
-            .cuda()
+            .to(device)
             .to(data_type)
         )
         cat_ad_lengths = (
@@ -423,23 +426,27 @@ def reorder_batched_ad_indices_bench(
                 0,
             )
             .int()
-            .cuda()
+            .to(device)
         )
 
     batch_offsets = (
         torch.tensor([num_ads * b for b in range(batch_size + 1)]).int().cuda()
-    )
+    ).to(device)
     num_ads_in_batch = batch_size * num_ads
     reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
         cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
-    )
+    ).to(device)
 
-    cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths).to(
-        index_type
+    cat_ad_offsets = (
+        torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
+        .to(index_type)
+        .to(device)
     )
-    reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
-        reordered_cat_ad_lengths
-    ).to(index_type)
+    reordered_cat_ad_offsets = (
+        torch.ops.fbgemm.asynchronous_complete_cumsum(reordered_cat_ad_lengths)
+        .to(index_type)
+        .to(device)
+    )
     time, _ = benchmark_torch_function(
         torch.ops.fbgemm.reorder_batched_ad_indices,
         (
@@ -455,6 +462,67 @@ def reorder_batched_ad_indices_bench(
         iters=1000,
     )
     num_bytes = batch_size * table_size * (num_ads + 1) * length * data_size
+    logging.info(
+        f"fbgemm_gpu time: {time * 1000:.5f} ms ({num_bytes / time / 1e9:.5f} GB/s)"
+    )
+
+
+@cli.command()
+@click.option("--batch-size", default=8192)
+@click.option("--table-size", default=20)
+@click.option("--length", default=50)
+@click.option("--num-ads", default=100)
+@click.option("--broadcast-indices", type=bool, default=True)
+@click.option("--device", type=str, default="cpu")
+def reorder_batched_ad_lengths_bench(
+    batch_size: int,
+    table_size: int,
+    length: int,
+    num_ads: int,
+    broadcast_indices: bool,
+    device: str,
+) -> None:
+    if broadcast_indices:
+        cat_ad_lengths = (
+            torch.cat(
+                [
+                    torch.tensor([length for _ in range(table_size)])
+                    for _ in range(batch_size)
+                ],
+                0,
+            )
+            .int()
+            .to(device)
+        )
+    else:
+        cat_ad_lengths = (
+            torch.cat(
+                [
+                    torch.tensor([length for _ in range(table_size * num_ads)])
+                    for _ in range(batch_size)
+                ],
+                0,
+            )
+            .int()
+            .to(device)
+        )
+
+    batch_offsets = (
+        torch.tensor([num_ads * b for b in range(batch_size + 1)]).int().cuda()
+    ).to(device)
+    num_ads_in_batch = batch_size * num_ads
+    time, _ = benchmark_torch_function(
+        torch.ops.fbgemm.reorder_batched_ad_lengths,
+        (
+            cat_ad_lengths,
+            batch_offsets,
+            num_ads_in_batch,
+            broadcast_indices,
+        ),
+        num_warmups=100,
+        iters=1000,
+    )
+    num_bytes = batch_size * table_size * (num_ads + 1) * length * 4
     logging.info(
         f"fbgemm_gpu time: {time * 1000:.5f} ms ({num_bytes / time / 1e9:.5f} GB/s)"
     )
