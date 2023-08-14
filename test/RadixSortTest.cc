@@ -12,7 +12,7 @@
 
 #include "fbgemm/Utils.h"
 
-TEST(cpu_kernel_test, radix_sort_parallel_test) {
+TEST(cpuKernelTest, radix_sort_parallel_test) {
   std::array<int, 8> keys = {1, 2, 4, 5, 4, 3, 2, 9};
   std::array<int, 8> values = {0, 0, 0, 0, 1, 1, 1, 1};
 
@@ -35,7 +35,7 @@ TEST(cpu_kernel_test, radix_sort_parallel_test) {
   EXPECT_EQ(values_tmp, expect_values_tmp);
 }
 
-TEST(cpu_kernel_test, radix_sort_parallel_test_neg_vals) {
+TEST(cpuKernelTest, radix_sort_parallel_test_neg_vals) {
   std::array<int64_t, 8> keys = {-4, -3, 0, 1, -2, -1, 3, 2};
   std::array<int64_t, 8> values = {0, 0, 0, 0, 1, 1, 1, 1};
 
