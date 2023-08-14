@@ -1098,8 +1098,8 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
 
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = num_dims == 1
-      ? at::zeros({t_in.numel() + 1}, t_in.options())
-      : at::zeros({t_in.size(0), t_in.size(1) + 1}, t_in.options());
+      ? at::empty({t_in.numel() + 1}, t_in.options())
+      : at::empty({t_in.size(0), t_in.size(1) + 1}, t_in.options());
 
   AT_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
@@ -1191,7 +1191,7 @@ Tensor reorder_batched_ad_lengths_cpu(
             {cat_ad_lengths.numel() / (batch_offsets.numel() - 1) *
              num_ads_in_batch},
             cat_ad_lengths.options())
-      : at::empty_like(cat_ad_lengths);
+      : at::empty_like(cat_ad_lengths, cat_ad_lengths.options());
   AT_DISPATCH_INDEX_TYPES(
       batch_offsets.scalar_type(),
       "reorder_batched_ad_lengths_cpu_kernel1",
@@ -1295,7 +1295,8 @@ Tensor reorder_batched_ad_indices_cpu(
     reordered_cat_ad_indices =
         at::empty({num_indices_after_broadcast}, cat_ad_indices.options());
   } else {
-    reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
+    reordered_cat_ad_indices =
+        at::empty_like(cat_ad_indices, cat_ad_indices.options());
   }
   AT_DISPATCH_INDEX_TYPES(
       cat_ad_offsets.scalar_type(),
