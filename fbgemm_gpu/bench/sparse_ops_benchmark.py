@@ -376,7 +376,6 @@ def reorder_batched_ad_indices_bench(
     broadcast_indices: bool,
     device: str,
 ) -> None:
-
     assert dtype == "float" or dtype == "long", "Only int and long are supported"
     data_type = torch.int64 if dtype == "long" else torch.float
     data_size = 8 if dtype == "long" else 4
