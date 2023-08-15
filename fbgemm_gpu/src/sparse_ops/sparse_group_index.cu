@@ -77,9 +77,10 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
         reinterpret_cast<scalar_t*>(input_ptrs[member_id]) + col_offset;
     scalar_t* output =
         reinterpret_cast<scalar_t*>(output_ptrs[member_id]) + col_offset;
+
     index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
     const index_t idx = indices[row];
-    CUDA_KERNEL_ASSERT(idx < max_indices)
+    CUDA_KERNEL_ASSERT(idx < max_indices);
 #pragma unroll
     for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
       // Compile time conditional

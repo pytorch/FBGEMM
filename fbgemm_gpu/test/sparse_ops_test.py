@@ -1849,6 +1849,7 @@ class SparseOpsTest(unittest.TestCase):
         use_cpu=st.booleans() if gpu_available else st.just(True),
         num_groups=st.integers(1, 32),
         use_var_cols=st.booleans(),
+        check_non_contiguous=st.booleans(),
     )
     @settings(max_examples=20, deadline=None)
     def test_group_index_select_dim0(
@@ -1860,6 +1861,7 @@ class SparseOpsTest(unittest.TestCase):
         use_cpu: bool,
         num_groups: int,
         use_var_cols: bool,
+        check_non_contiguous: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
 
@@ -1903,8 +1905,31 @@ class SparseOpsTest(unittest.TestCase):
         for out, grad in zip(output_ref_group, grad_group):
             out.backward(grad)
 
-        cat_output = torch.concat([output.flatten() for output in output_group])
-        cat_grad = torch.concat([grad.flatten() for grad in grad_group])
+        cat_output = torch.concat(
+            [
+                (
+                    # Transpose is likely going to make the tensor
+                    # noncontiguous
+                    output.transpose(1, 0).flatten()
+                    if check_non_contiguous
+                    else output.flatten()
+                )
+                for output in output_group
+            ]
+        )
+
+        cat_grad = torch.concat(
+            [
+                (
+                    # Transpose is likely going to make the tensor
+                    # noncontiguous
+                    grad.transpose(1, 0).flatten()
+                    if check_non_contiguous
+                    else grad.flatten()
+                )
+                for grad in grad_group
+            ]
+        )
         cat_output.backward(cat_grad)
 
         def compare_tensor_groups(
