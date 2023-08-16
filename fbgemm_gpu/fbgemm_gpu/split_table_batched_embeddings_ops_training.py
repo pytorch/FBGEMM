@@ -836,6 +836,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if batch_size_per_feature_per_rank is not None:
             assert (
                 self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+                or self.optimizer == OptimType.EXACT_SGD
             ), "Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD only"
             assert (
                 self.pooling_mode != PoolingMode.NONE.value

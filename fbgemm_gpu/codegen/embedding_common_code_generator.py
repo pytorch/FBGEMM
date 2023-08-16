@@ -1010,7 +1010,7 @@ def sgd() -> Dict[str, Any]:
         "split_weight_update_cpu": split_weight_update_cpu,
         "has_cpu_support": True,
         "has_gpu_support": True,
-        "has_vbe_support": False,
+        "has_vbe_support": True,
     }
 
 
