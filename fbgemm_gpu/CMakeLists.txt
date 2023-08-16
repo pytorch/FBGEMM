@@ -202,7 +202,9 @@ set(CPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS})
 set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 
 # Optimizers with the VBE support
-set(VBE_OPTIMIZERS rowwise_adagrad)
+set(VBE_OPTIMIZERS
+    rowwise_adagrad
+    sgd)
 
 # Individual optimizers (not fused with SplitTBE backward)
 set(DEFUSED_OPTIMIZERS rowwise_adagrad)
