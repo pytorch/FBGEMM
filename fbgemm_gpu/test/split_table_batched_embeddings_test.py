@@ -2106,6 +2106,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         weighted=st.booleans(),
         mixed=st.booleans(),
+        mixed_B=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         long_segments=st.booleans(),
@@ -2138,6 +2139,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision: SparseType,
         weighted: bool,
         mixed: bool,
+        mixed_B: bool,
         use_cache: bool,
         cache_algorithm: CacheAlgorithm,
         long_segments: bool,
@@ -2153,7 +2155,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision,
             weighted,
             mixed,
-            False,  # mixed_B
+            mixed_B if not use_cpu else False,
             use_cache,
             cache_algorithm,
             long_segments,
@@ -2171,6 +2173,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         L=st.integers(min_value=1, max_value=4),
         weighted=st.booleans(),
         mixed=st.booleans(),
+        mixed_B=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
     )
@@ -2188,6 +2191,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         L: int,
         weighted: bool,
         mixed: bool,
+        mixed_B: bool,
         use_cache: bool,
         cache_algorithm: CacheAlgorithm,
     ) -> None:
@@ -2200,7 +2204,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             SparseType.FP32,  # weights_precision
             weighted,
             mixed,
-            False,  # mixed_B
+            mixed_B,
             use_cache,
             cache_algorithm,
             True,  # long_segments
