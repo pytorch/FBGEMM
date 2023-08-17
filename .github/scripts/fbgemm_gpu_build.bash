@@ -300,7 +300,7 @@ build_fbgemm_gpu_package () {
 
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
-  print_exec conda run -n "${env_name}" \
+  print_exec VERBOSE=1 conda run -n "${env_name}" \
     python setup.py bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
