@@ -315,6 +315,8 @@ build_fbgemm_gpu_package () {
 
   echo "[BUILD] Enumerating the wheel SHAs ..."
   print_exec sha1sum dist/*.whl
+  print_exec sha256sum dist/*.whl
+  print_exec md5sum dist/*.whl
 
   echo "[BUILD] FBGEMM-GPU build wheel completed"
 }
@@ -420,6 +422,8 @@ install_fbgemm_gpu_package () {
 
   echo "[INSTALL] Printing out FBGEMM-GPU wheel SHA: ${package_name}"
   print_exec sha1sum "${package_name}"
+  print_exec sha256sum "${package_name}"
+  print_exec md5sum "${package_name}"
 
   echo "[INSTALL] Installing FBGEMM-GPU wheel: ${package_name} ..."
   (exec_with_retries conda run -n "${env_name}" python -m pip install "${package_name}") || return 1
