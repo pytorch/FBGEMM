@@ -13,6 +13,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
+#include <torch/script.h>
 #include <stdexcept> // for logic_error
 
 using Tensor = at::Tensor;
@@ -284,6 +285,9 @@ class GroupIndexSelectDim0GPUOp
         {static_cast<long>(args_ptrs_offsets[NUM_ARGS] * sizeof(int64_t))},
         at::TensorOptions().dtype(at::kByte).pinned_memory(true));
 
+    // Ensure that args_tensor is contiguous
+    TORCH_CHECK(args_tensor.is_contiguous());
+
     // Initialize raw pointers to point to Tensor args_tensor
     int64_t* input_ptrs = nullptr;
     int64_t* output_ptrs = nullptr;
@@ -320,10 +324,18 @@ class GroupIndexSelectDim0GPUOp
     std::vector<int64_t> input_shape_group;
     input_shape_group.reserve(group_size * input_dim);
 
+    // We need to store contiguous inputs and indices outside the for-loop to
+    // guarantee that the contiguous tensors will outlive the kernel
+    // computation
+    std::vector<c10::MaybeOwned<at::Tensor>> input_contigs;
+    std::vector<c10::MaybeOwned<at::Tensor>> index_contigs;
+    input_contigs.reserve(group_size);
+    index_contigs.reserve(group_size);
+
     // For each group, copy input to output
     for (const auto i : c10::irange(group_size)) {
-      auto& input = input_group[i];
-      auto& indices = indices_group[i];
+      const auto& input = input_group[i];
+      const auto& indices = indices_group[i];
 
       // Verify that all input tensors have the same number of dimensions
       TORCH_CHECK(
@@ -342,7 +354,7 @@ class GroupIndexSelectDim0GPUOp
       TORCH_CHECK(
           num_input_rows == input.size(0),
           "The number of rows in the input must be the same for the entire group");
-      Tensor input_reshaped_ = input.reshape({num_input_rows, -1});
+      const auto input_reshaped_ = input.reshape({num_input_rows, -1});
 
       // Number of columns can be different
       auto num_cols_ = input_reshaped_.size(1);
@@ -360,12 +372,19 @@ class GroupIndexSelectDim0GPUOp
       // Create output pointers
       input_shape[0] = num_output_rows_;
       Tensor output = at::empty(input_shape, input.options());
+      // Ensure that the allocated output is contiguous
+      TORCH_CHECK(output.is_contiguous())
       output_group.push_back(output);
 
+      // Store input and indices contigs to keep them alive during the kernel
+      // computation
+      input_contigs.push_back(input.expect_contiguous());
+      index_contigs.push_back(indices.expect_contiguous());
+
       // Store args
-      input_ptrs[i] = reinterpret_cast<int64_t>(input.data_ptr());
+      input_ptrs[i] = reinterpret_cast<int64_t>(input_contigs[i]->data_ptr());
       output_ptrs[i] = reinterpret_cast<int64_t>(output.data_ptr());
-      indices_ptrs[i] = reinterpret_cast<int64_t>(indices.data_ptr());
+      indices_ptrs[i] = reinterpret_cast<int64_t>(index_contigs[i]->data_ptr());
       warp_offsets_group[i] = warp_offset;
       num_cols_group[i] = num_cols_;
 
@@ -481,19 +500,27 @@ class GroupIndexSelectDim0GPUOp
     Tensor args_tensor = at::empty(
         {group_size * 2},
         at::TensorOptions().dtype(at::kLong).pinned_memory(true));
+    // Ensure that args_tensor is contiguous
+    TORCH_CHECK(args_tensor.is_contiguous());
     int64_t* grad_output_ptrs = args_tensor.data_ptr<int64_t>();
     int64_t* grad_input_ptrs = args_tensor.data_ptr<int64_t>() + group_size;
 
     int64_t group_grad_input_numel = 0;
     std::vector<int64_t> grad_input_numels;
-
-    // Reserve memory for grad input group
     grad_input_numels.reserve(group_size);
 
+    // We need to store contiguous gradients outside the for-loop to guarantee
+    // that the contiguous tensors will outlive the kernel computation
+    std::vector<c10::MaybeOwned<at::Tensor>> grad_output_contigs;
+    grad_output_contigs.reserve(group_size);
+
     for (const auto i : c10::irange(group_size)) {
-      Tensor& grad = grad_output_group[i];
+      const auto& grad = grad_output_group[i];
       TENSOR_ON_CUDA_GPU(grad);
       TENSORS_ON_SAME_DEVICE(grad, first_indices);
+
+      // Store grad contigs to keep them alive during the kernel computation
+      grad_output_contigs.push_back(grad.expect_contiguous());
 
       // Compute the total number of elements for all grad_inputs
       int64_t grad_input_numel = output_shape_group[i * output_dim];
@@ -504,12 +531,14 @@ class GroupIndexSelectDim0GPUOp
       group_grad_input_numel += grad_input_numel;
 
       // Put all grad output/input pointers in an array
-      grad_output_ptrs[i] = reinterpret_cast<int64_t>(grad.data_ptr());
+      grad_output_ptrs[i] =
+          reinterpret_cast<int64_t>(grad_output_contigs[i]->data_ptr());
     }
 
     // Allocate a big tensor to avoid calling many small elementwise kernels
     const auto group_grad_input =
         at::zeros({group_grad_input_numel}, fwd_input.options());
+    TORCH_CHECK(group_grad_input.is_contiguous());
 
     // Split to output_group
     auto output_group = group_grad_input.split(grad_input_numels, 0);
@@ -522,6 +551,7 @@ class GroupIndexSelectDim0GPUOp
           output_shape_group.begin() + i * output_dim,
           output_shape_group.begin() + (i + 1) * output_dim);
       output_group[i] = output_group[i].reshape(grad_input_shape);
+      TORCH_CHECK(output_group[i].is_contiguous());
       grad_input_ptrs[i] =
           reinterpret_cast<int64_t>(output_group[i].data_ptr());
 
