@@ -912,6 +912,8 @@ Tensor jagged_1d_to_truncated_values_cpu(
   return truncated_values;
 }
 
+} // namespace
+
 std::tuple<Tensor, Tensor> masked_select_jagged_1d(
     const Tensor& values,
     const Tensor& lengths,
@@ -965,8 +967,6 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
 
   return {masked_values, masked_lengths};
 }
-
-} // namespace
 
 Tensor
 jagged_2d_to_dense_forward_cpu(Tensor values, Tensor offsets, int64_t max_L) {
