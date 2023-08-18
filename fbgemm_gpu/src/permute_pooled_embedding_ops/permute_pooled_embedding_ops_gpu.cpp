@@ -55,15 +55,8 @@ using torch::autograd::AutogradContext;
 using torch::autograd::Variable;
 using torch::autograd::variable_list;
 
-template <torch::autograd::Variable (*permute_pooled_embs_op)(
-    const Tensor&, // [B_local][Sum_T_global(D)]
-    const Tensor&,
-    const Tensor&,
-    const Tensor&,
-    const Tensor&)>
 class PermutePooledEmbsFunction
-    : public torch::autograd::Function<
-          PermutePooledEmbsFunction<permute_pooled_embs_op>> {
+    : public torch::autograd::Function<PermutePooledEmbsFunction> {
  public:
   static Variable forward(
       AutogradContext* ctx,
@@ -82,7 +75,11 @@ class PermutePooledEmbsFunction
     TORCH_CHECK(
         permute_list.scalar_type() == at::ScalarType::Long,
         "permute_list needs to have long/int64 type");
-    return permute_pooled_embs_op(
+    static auto permute_pooled_embs_op =
+        torch::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::permute_pooled_embs", "")
+            .typed<decltype(permute_pooled_embs_cpu)>();
+    return permute_pooled_embs_op.call(
         pooled_embs,
         offset_dim_list,
         permute_list,
@@ -99,7 +96,11 @@ class PermutePooledEmbsFunction
     const auto& inv_permute_list =
         ctx->saved_data["inv_permute_list"].toTensor();
     variable_list grad_inputs(5);
-    grad_inputs[0] = permute_pooled_embs_op(
+    static auto permute_pooled_embs_op =
+        torch::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::permute_pooled_embs", "")
+            .typed<decltype(permute_pooled_embs_cpu)>();
+    grad_inputs[0] = permute_pooled_embs_op.call(
         grad_output[0],
         inv_offset_dim_list,
         inv_permute_list,
@@ -116,7 +117,7 @@ Tensor permute_pooled_embs_auto_grad_gpu(
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list) {
-  return PermutePooledEmbsFunction<permute_pooled_embs_gpu>::apply(
+  return PermutePooledEmbsFunction::apply(
       pooled_embs,
       offset_dim_list,
       permute_list,
@@ -131,12 +132,36 @@ Tensor permute_pooled_embs_auto_grad_cpu(
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list) {
-  return PermutePooledEmbsFunction<permute_pooled_embs_cpu>::apply(
+  return PermutePooledEmbsFunction::apply(
       pooled_embs,
       offset_dim_list,
       permute_list,
       inv_offset_dim_list,
       inv_permute_list);
+}
+
+///@ingroup permute-pooled-embs-cpu
+Tensor permute_pooled_embs_auto_grad(
+    const Tensor& pooled_embs,
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
+  return PermutePooledEmbsFunction::apply(
+      pooled_embs,
+      offset_dim_list,
+      permute_list,
+      inv_offset_dim_list,
+      inv_permute_list);
+}
+
+Tensor permute_pooled_embs_meta(
+    const Tensor& pooled_embs,
+    const Tensor& /* offset_dim_list */,
+    const Tensor& /* permute_list */,
+    const Tensor& /* inv_offset_dim_list */,
+    const Tensor& /* inv_permute_list */) {
+  return torch::empty_like(pooled_embs);
 }
 
 Tensor permute_pooled_embs_auto_grad_meta(
@@ -153,8 +178,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_pooled_embs(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
   DISPATCH_TO_CUDA("permute_pooled_embs", fbgemm_gpu::permute_pooled_embs_gpu);
+  DISPATCH_TO_CPU("permute_pooled_embs", fbgemm_gpu::permute_pooled_embs_cpu);
+  DISPATCH_TO_META("permute_pooled_embs", fbgemm_gpu::permute_pooled_embs_meta);
   m.def(
       "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
+  DISPATCH_TO_AUTOGRAD(
+      "permute_pooled_embs_auto_grad",
+      fbgemm_gpu::permute_pooled_embs_auto_grad);
   DISPATCH_TO_CPU(
       "permute_pooled_embs_auto_grad",
       fbgemm_gpu::permute_pooled_embs_auto_grad_cpu);
