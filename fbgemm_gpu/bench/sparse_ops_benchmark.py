@@ -678,5 +678,193 @@ def index_select_bench(
     )
 
 
+@cli.command()
+@click.option("--batch-size", default=8192)
+@click.option("--table-size", default=20)
+@click.option("--length", default=50)
+@click.option("--num-ads", default=100)
+@click.option("--dtype", type=click.Choice(["float", "long"]), default="long")
+@click.option("--itype", type=click.Choice(["int", "long"]), default="int")
+@click.option("--broadcast-indices", type=bool, default=True)
+def cat_reorder_batched_ad_indices_bench(
+    batch_size: int,
+    table_size: int,
+    length: int,
+    num_ads: int,
+    dtype: str,
+    itype: str,
+    broadcast_indices: bool,
+) -> None:
+    assert dtype == "float" or dtype == "long", "Only int and long are supported"
+    data_type = torch.int64 if dtype == "long" else torch.float
+    data_size = 8 if dtype == "long" else 4
+
+    assert itype == "int" or itype == "long", "Only int and long are supported"
+
+    if broadcast_indices:
+        ad_indices = [
+            (
+                torch.randint(
+                    low=0,
+                    high=100,
+                    size=(table_size * length,),
+                )
+                .int()
+                .to(data_type)
+            )
+            for _ in range(batch_size)
+        ]
+        ad_lengths = [
+            torch.tensor([length for _ in range(table_size)]).int()
+            for _ in range(batch_size)
+        ]
+    else:
+        ad_indices = [
+            (
+                torch.randint(
+                    low=0,
+                    high=100,
+                    size=(table_size * num_ads * length,),
+                )
+                .int()
+                .to(data_type)
+            )
+            for _ in range(batch_size)
+        ]
+        ad_lengths = [
+            torch.tensor([length for _ in range(table_size * num_ads)]).int()
+            for _ in range(batch_size)
+        ]
+
+    batch_offsets = torch.tensor([num_ads * b for b in range(batch_size + 1)]).int()
+    num_ads_in_batch = batch_size * num_ads
+
+    # pyre-ignore
+    def pass_1(ad_indices, ad_lengths, batch_offsets, num_ads_in_batch):
+        cat_ad_lengths = torch.cat(ad_lengths, 0).to("cuda", non_blocking=True)
+        cat_ad_indices = torch.cat(ad_indices, 0).to("cuda", non_blocking=True)
+        batch_offsets = batch_offsets.to("cuda", non_blocking=True)
+        reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
+        )
+        cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
+        reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            reordered_cat_ad_lengths
+        )
+        reordered_cat_ad_indices = torch.ops.fbgemm.reorder_batched_ad_indices(
+            cat_ad_offsets,
+            cat_ad_indices,
+            reordered_cat_ad_offsets,
+            batch_offsets,
+            num_ads_in_batch,
+            broadcast_indices,
+            batch_size * table_size * num_ads * length,
+        )
+
+        return reordered_cat_ad_indices, reordered_cat_ad_lengths
+
+    # process length on device and process indice on device
+    # pyre-ignore
+    def pass_2(ad_indices, ad_lengths, batch_offsets, num_ads_in_batch):
+        cat_ad_lengths = torch.cat(ad_lengths, 0)
+
+        reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
+        )
+        cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
+        reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            reordered_cat_ad_lengths
+        )
+        cat_ad_indices = torch.cat(ad_indices, 0)
+
+        reordered_cat_ad_indices = torch.ops.fbgemm.reorder_batched_ad_indices(
+            cat_ad_offsets.to("cuda", non_blocking=True),
+            cat_ad_indices.to("cuda", non_blocking=True),
+            reordered_cat_ad_offsets.to("cuda", non_blocking=True),
+            batch_offsets.to("cuda", non_blocking=True),
+            num_ads_in_batch,
+            broadcast_indices,
+            batch_size * table_size * num_ads * length,
+        )
+
+        return reordered_cat_ad_indices, reordered_cat_ad_lengths.to(
+            "cuda", non_blocking=True
+        )
+
+    # minimize GPU workload + unfused cat + reorder
+    # pyre-ignore
+    def pass_3(ad_indices, ad_lengths, batch_offsets, num_ads_in_batch):
+        cat_ad_lengths = torch.cat(ad_lengths, 0)
+        reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
+        )
+
+        cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
+        reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            reordered_cat_ad_lengths
+        )
+        cat_ad_indices = torch.cat(ad_indices, 0)
+
+        reordered_cat_ad_indices = torch.ops.fbgemm.reorder_batched_ad_indices(
+            cat_ad_offsets,
+            cat_ad_indices,
+            reordered_cat_ad_offsets,
+            batch_offsets,
+            num_ads_in_batch,
+            broadcast_indices,
+            batch_size * table_size * num_ads * length,
+        )
+
+        return reordered_cat_ad_indices.to(
+            "cuda", non_blocking=True
+        ), reordered_cat_ad_lengths.to("cuda", non_blocking=True)
+
+    # minimize GPU workload + fuse cat + reorder
+    # pyre-ignore
+    def pass_4(ad_indices, ad_lengths, batch_offsets, num_ads_in_batch):
+        cat_ad_lengths = torch.cat(ad_lengths, 0)
+        reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
+        )
+
+        cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(cat_ad_lengths)
+        reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            reordered_cat_ad_lengths
+        )
+
+        reordered_cat_ad_indices = torch.ops.fbgemm.cat_reorder_batched_ad_indices(
+            cat_ad_offsets,
+            ad_indices,
+            reordered_cat_ad_offsets,
+            batch_offsets,
+            num_ads_in_batch,
+            broadcast_indices,
+            batch_size * table_size * num_ads * length,
+        )
+
+        return reordered_cat_ad_indices.to(
+            "cuda", non_blocking=True
+        ), reordered_cat_ad_lengths.to("cuda", non_blocking=True)
+
+    num_bytes = batch_size * table_size * (num_ads + 1) * length * data_size
+
+    # pyre-ignore
+    def ben(fn, name, ad_indices, ad_lengths, batch_offsets, num_ads_in_batch):
+        time, _ = benchmark_torch_function(
+            fn,
+            (ad_indices, ad_lengths, batch_offsets, num_ads_in_batch),
+            num_warmups=50,
+            iters=500,
+        )
+        logging.info(
+            f"{name} fbgemm_gpu time: {time * 1000:.5f} ms ({num_bytes / time / 1e9:.5f} GB/s)"
+        )
+
+    ben(pass_1, "pass_1", ad_indices, ad_lengths, batch_offsets, num_ads_in_batch)
+    ben(pass_2, "pass_2", ad_indices, ad_lengths, batch_offsets, num_ads_in_batch)
+    ben(pass_3, "pass_3", ad_indices, ad_lengths, batch_offsets, num_ads_in_batch)
+    ben(pass_4, "pass_4", ad_indices, ad_lengths, batch_offsets, num_ads_in_batch)
+
+
 if __name__ == "__main__":
     cli()

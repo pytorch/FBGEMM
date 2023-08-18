@@ -352,7 +352,16 @@ at::Tensor reorder_batched_ad_indices_cpu(
     const int64_t num_ads_in_batch,
     const bool broadcast_indices = false,
     const int64_t num_indices_after_broadcast = -1);
-
+///@ingroup sparse-data-cpu
+at::Tensor cat_reorder_batched_ad_indices_cpu(
+    const at::Tensor& cat_ad_offsets,
+    const std::vector<at::Tensor>& cat_ad_indices,
+    const at::Tensor& reordered_cat_ad_offsets,
+    const at::Tensor& batch_offsets,
+    const int64_t num_ads_in_batch,
+    const bool broadcast_indices,
+    const int64_t num_indices_after_broadcast,
+    const bool pinned_memory = false);
 at::Tensor recat_embedding_grad_output_cuda(
     at::Tensor grad_output, // [B_local][T_global][D]
     const std::vector<int64_t>& num_features_per_rank);
