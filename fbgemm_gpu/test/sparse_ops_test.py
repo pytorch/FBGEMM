@@ -1104,6 +1104,93 @@ class SparseOpsTest(unittest.TestCase):
         Itype=st.sampled_from([torch.int32, torch.int64]),
         broadcast_indices=st.booleans(),
     )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_cat_reorder_batched_ad_indices_cpu(
+        self,
+        B: int,
+        T: int,
+        L: int,
+        A: int,
+        Dtype: torch.dtype,
+        Itype: torch.dtype,
+        broadcast_indices: bool,
+    ) -> None:
+        if broadcast_indices:
+            ad_indices = [
+                (
+                    torch.randint(
+                        low=0,
+                        high=100,
+                        size=(T * L,),
+                    )
+                    .int()
+                    .to(Dtype)
+                )
+                for _ in range(B)
+            ]
+            cat_ad_lengths = torch.cat(
+                [torch.tensor([L for _ in range(T)]) for _ in range(B)],
+                0,
+            ).int()
+            cat_ad_lengths_broadcasted = cat_ad_lengths.tile([A])
+            cat_ad_indices = torch.cat(ad_indices, 0)
+        else:
+            ad_indices = [
+                (
+                    torch.randint(
+                        low=0,
+                        high=100,
+                        size=(T * A * L,),
+                    )
+                    .int()
+                    .to(Dtype)
+                )
+                for _ in range(B)
+            ]
+            cat_ad_lengths = torch.cat(
+                [torch.tensor([L for _ in range(T * A)]) for _ in range(B)],
+                0,
+            ).int()
+            cat_ad_lengths_broadcasted = cat_ad_lengths
+            cat_ad_indices = torch.cat(ad_indices, 0)
+        batch_offsets = torch.tensor([A * b for b in range(B + 1)]).int()
+        num_ads_in_batch = B * A
+        reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
+        )
+        torch.testing.assert_close(cat_ad_lengths_broadcasted, reordered_cat_ad_lengths)
+
+        cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            cat_ad_lengths
+        ).to(Itype)
+        reordered_cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            reordered_cat_ad_lengths
+        ).to(Itype)
+        reordered_cat_ad_indices = torch.ops.fbgemm.cat_reorder_batched_ad_indices(
+            cat_ad_offsets,
+            ad_indices,
+            reordered_cat_ad_offsets,
+            batch_offsets,
+            num_ads_in_batch,
+            broadcast_indices,
+            B * T * A * L,
+        )
+        torch.testing.assert_close(
+            reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
+            cat_ad_indices.view(B, T, 1, L).tile([1, 1, A, 1])
+            if broadcast_indices
+            else cat_ad_indices.view(B, T, A, L),
+        )
+
+    @given(
+        B=st.integers(min_value=1, max_value=20),
+        T=st.integers(min_value=1, max_value=20),
+        L=st.integers(min_value=2, max_value=20),
+        A=st.integers(min_value=1, max_value=20),
+        Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
+        Itype=st.sampled_from([torch.int32, torch.int64]),
+        broadcast_indices=st.booleans(),
+    )
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_reorder_batched_ad_indices_cpu(
         self,
