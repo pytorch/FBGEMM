@@ -1608,9 +1608,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "dense_to_jagged_forward(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> Tensor");
   m.def(
-      "jagged_2d_to_dense(Tensor values, Tensor offsets, int max_sequence_length) -> Tensor");
+      "jagged_2d_to_dense(Tensor values, Tensor offsets, SymInt max_sequence_length) -> Tensor");
   m.def(
-      "jagged_1d_to_dense(Tensor values, Tensor offsets, int max_sequence_length, int padding_value) -> Tensor");
+      "jagged_1d_to_dense(Tensor values, Tensor offsets, SymInt max_sequence_length, int padding_value) -> Tensor");
   m.def(
       "stacked_jagged_2d_to_dense_forward(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value = 0) -> (Tensor[], Tensor[])");
   m.def(
@@ -1620,7 +1620,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value = 0) -> Tensor[]");
   m.def(
-      "jagged_to_padded_dense(Tensor values, Tensor[] offsets, int[] max_lengths, float padding_value = 0) -> Tensor");
+      "jagged_to_padded_dense(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor");
   m.def(
       "jagged_to_padded_dense_forward(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor");
   m.def(
