@@ -405,7 +405,7 @@ std::vector<at::Tensor> stacked_jagged_2d_to_dense_cpu(
 at::Tensor jagged_to_padded_dense(
     const at::Tensor& values,
     const std::vector<at::Tensor>& offsets,
-    const std::vector<std::int64_t>& max_lengths,
+    const c10::SymIntArrayRef max_lengths,
     const double padding_value);
 
 at::Tensor jagged_dense_elementwise_add(
@@ -416,13 +416,13 @@ at::Tensor jagged_dense_elementwise_add(
 at::Tensor jagged_1d_to_dense(
     at::Tensor values,
     at::Tensor offsets,
-    int64_t max_L,
+    c10::SymInt max_L,
     int64_t padding_value);
 
 at::Tensor jagged_2d_to_dense(
     at::Tensor values,
     at::Tensor offsets,
-    int64_t max_sequence_length);
+    c10::SymInt max_sequence_length);
 
 std::tuple<at::Tensor, std::vector<at::Tensor>>
 jagged_dense_dense_elementwise_add_jagged_output(

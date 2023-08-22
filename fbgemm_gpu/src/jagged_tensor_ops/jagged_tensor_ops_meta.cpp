@@ -57,7 +57,7 @@ Tensor jagged_to_padded_dense_backward_meta(
   return grad_values;
 }
 
-at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
+Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
     const at::Tensor& x_values,
     const std::vector<at::Tensor>& x_offsets,
     const at::Tensor& y_0,
@@ -66,22 +66,21 @@ at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward_meta(
   return at::empty_like(x_values);
 }
 
-Tensor jagged_dense_elementwise_add_forward_meta(
-    const Tensor& x_values,
-    const std::vector<Tensor>& x_offsets,
-    const Tensor& y) {
-  return at::empty_like(x_values);
+std::tuple<Tensor, std::vector<Tensor>>
+jagged_dense_dense_elementwise_add_jagged_output_meta(
+    const at::Tensor& x_values,
+    const std::vector<at::Tensor>& x_offsets,
+    const at::Tensor& y_0,
+    const at::Tensor& /* unused y_1 */) {
+  TORCH_CHECK_EQ(y_0.sym_sizes(), y_0.sym_sizes());
+  return {at::empty_like(x_values), x_offsets};
 }
 
-std::tuple<Tensor, Tensor> jagged_dense_elementwise_add_backward_meta(
-    const Tensor& grad_output,
+Tensor jagged_dense_elementwise_add_meta(
+    const Tensor& /* unused x_values */,
     const std::vector<Tensor>& x_offsets,
-    const Tensor& y,
-    const Tensor& x_values) {
-  Tensor x_values_grad = at::empty_like(grad_output);
-  Tensor y_grad = at::empty_like(y);
-
-  return {x_values_grad, y_grad};
+    const Tensor& y) {
+  return at::empty_like(y);
 }
 
 Tensor dense_to_jagged_forward_meta(
@@ -96,6 +95,13 @@ Tensor dense_to_jagged_forward_meta(
 
   TORCH_CHECK(values.is_meta());
   return values;
+}
+
+std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul_meta(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& /* unused y */) {
+  return {at::empty_like(x_values), x_offsets};
 }
 
 Tensor jagged_dense_elementwise_mul_forward_meta(
@@ -116,12 +122,12 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward_meta(
   return {x_values_grad, y_grad};
 }
 
-Tensor jagged_dense_elementwise_add_jagged_output_meta(
+std::tuple<Tensor, std::vector<Tensor>>
+jagged_dense_elementwise_add_jagged_output_meta(
     const at::Tensor& x_values,
     const std::vector<at::Tensor>& x_offsets,
-    const at::Tensor& y_0,
-    const at::Tensor& y_1) {
-  return at::empty_like(x_values);
+    const at::Tensor& /* unused y */) {
+  return {at::empty_like(x_values), x_offsets};
 }
 
 Tensor batched_dense_vec_jagged_2d_mul_forward_meta(
@@ -205,11 +211,14 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
           fbgemm_gpu::
               jagged_dense_dense_elementwise_add_jagged_output_forward_meta));
   m.impl(
-      "jagged_dense_elementwise_add_forward",
-      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_forward_meta));
+      "jagged_dense_elementwise_add_jagged_output",
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_meta));
   m.impl(
-      "jagged_dense_elementwise_add_backward",
-      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_backward_meta));
+      "jagged_dense_elementwise_add",
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_meta));
+  m.impl(
+      "jagged_dense_elementwise_mul",
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul_meta));
   m.impl(
       "jagged_dense_elementwise_mul_forward",
       TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul_forward_meta));
@@ -237,4 +246,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "jagged_jagged_bmm",
       TORCH_FN(fbgemm_gpu::jagged_jagged_bmm_forward_meta));
+  m.impl("jagged_1d_to_dense", TORCH_FN(fbgemm_gpu::jagged_1d_to_dense));
 }

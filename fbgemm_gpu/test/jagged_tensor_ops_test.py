@@ -47,6 +47,11 @@ def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
     )
 
 
+# This is a new API that may not exist in older pytorch
+def has_dynamo_mark_dynamic() -> bool:
+    return torch.version.__version__.split(".") >= ["2", "1"]
+
+
 # Converts lengths + values format to COO format
 # [B], [N, D] -> [B, N', D].
 # pyre-ignore Missing return annotation [3]
@@ -840,7 +845,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             inner_dense_size,
             dtype,
             torch.device(device_type),
-            mark_dynamic=True,
+            mark_dynamic=has_dynamo_mark_dynamic(),
         )
         values_2d = values_2d.clone().detach().requires_grad_(True)
 
@@ -857,8 +862,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         total_L = values_2d.size(0)
         dense = dense.clone().detach().to(device_type)
 
-        torch._dynamo.mark_dynamic(dense, 0)
-        torch._dynamo.mark_dynamic(dense, -1)
+        if has_dynamo_mark_dynamic():
+            torch._dynamo.mark_dynamic(dense, 0)
+            torch._dynamo.mark_dynamic(dense, -1)
 
         @torch.compile(fullgraph=True, dynamic=True)
         def dense_to_jagged(
@@ -1143,15 +1149,17 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
 
     @given(
-        num_jagged_dim=st.integers(1, 4),
-        outer_dense_size=st.integers(0, 4),
-        inner_dense_size=st.integers(0, 4),
+        num_jagged_dim=st.integers(1, 5),
+        outer_dense_size=st.integers(2, 5),
+        inner_dense_size=st.integers(2, 5),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
         dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
-        device_type=st.just("meta"),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_jagged_elementwise_binary_meta_backend(
+    def test_jagged_elementwise_binary_dynamic_shape(
         self,
         num_jagged_dim: int,
         outer_dense_size: int,
@@ -1160,10 +1168,15 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
-        device = torch.device("cpu")
+        device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
-            num_jagged_dim, outer_dense_size, inner_dense_size, dtype, device
+            num_jagged_dim,
+            outer_dense_size,
+            inner_dense_size,
+            dtype,
+            device,
+            mark_dynamic=has_dynamo_mark_dynamic(),
         )
         y = torch.rand(
             outer_dense_size * np.prod(max_lengths) * inner_dense_size,
@@ -1172,13 +1185,31 @@ class JaggedTensorOpsTest(unittest.TestCase):
         ).reshape((outer_dense_size,) + tuple(max_lengths) + (inner_dense_size,))
 
         x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
-        if operation == "add":
-            output_ref = x_padded + y
-            x_values.to(device_type)
-            y.to(device_type)
-            output = torch.ops.fbgemm.jagged_dense_elementwise_add(
+
+        @torch.compile(fullgraph=True, dynamic=True)
+        def jagged_dense_elementwise_add(
+            x_values: torch.Tensor, x_offsets: torch.Tensor, y: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.ops.fbgemm.jagged_dense_elementwise_add(x_values, x_offsets, y)
+
+        @torch.compile(fullgraph=True, dynamic=True)
+        def jagged_dense_elementwise_add_jagged_output(
+            x_values: torch.Tensor, x_offsets: torch.Tensor, y: torch.Tensor
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            return torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
                 x_values, x_offsets, y
             )
+
+        @torch.compile(fullgraph=True, dynamic=True)
+        def jagged_dense_elementwise_mul(
+            x_values: torch.Tensor, x_offsets: torch.Tensor, y: torch.Tensor
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            return torch.ops.fbgemm.jagged_dense_elementwise_mul(x_values, x_offsets, y)
+
+        if operation == "add":
+            output_ref = x_padded + y
+            output = jagged_dense_elementwise_add(x_values, x_offsets, y)
+
         elif operation == "add_jagged_output":
             # create a jagged tensor and then densify
             y = self._to_padded_dense(
@@ -1194,24 +1225,17 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 max_lengths,
             )
             output_ref = x_padded + y
-            x_values.to(device_type)
-            y.to(device_type)
             (
                 output,
                 output_offsets,
-            ) = torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
-                x_values, x_offsets, y
-            )
-            output.to("cpu")
+            ) = jagged_dense_elementwise_add_jagged_output(x_values, x_offsets, y)
             output = self._to_padded_dense(output, output_offsets, max_lengths)
+
         elif operation == "mul":
             output_ref = x_padded * y
-            x_values.to(device_type)
-            y.to(device_type)
-            output, output_offsets = torch.ops.fbgemm.jagged_dense_elementwise_mul(
+            output, output_offsets = jagged_dense_elementwise_mul(
                 x_values, x_offsets, y
             )
-            output.to("cpu")
             output = self._to_padded_dense(output, output_offsets, max_lengths)
         else:
             raise AssertionError(f"Unknown operation {operation}")
@@ -1416,7 +1440,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             inner_dense_size,
             dtype,
             torch.device(device_type),
-            mark_dynamic=True,
+            mark_dynamic=has_dynamo_mark_dynamic(),
         )
 
         x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
@@ -1649,10 +1673,11 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dense.to(device_type)
         values.to(device_type)
 
-        torch._dynamo.mark_dynamic(dense, 0)
-        torch._dynamo.mark_dynamic(values, 0)
-        torch._dynamo.mark_dynamic(values, 1)
-        torch._dynamo.mark_dynamic(offsets, 0)
+        if has_dynamo_mark_dynamic():
+            torch._dynamo.mark_dynamic(dense, 0)
+            torch._dynamo.mark_dynamic(values, 0)
+            torch._dynamo.mark_dynamic(values, 1)
+            torch._dynamo.mark_dynamic(offsets, 0)
 
         output = torch.compile(
             torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
@@ -2309,9 +2334,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
         y = torch.rand((B, M, N), requires_grad=True, dtype=dtype, device=device)
 
-        torch._dynamo.mark_dynamic(x_values, 0)
-        torch._dynamo.mark_dynamic(x_values, 1)
-        torch._dynamo.mark_dynamic(lengths, 0)  # offsets = lengths + 1
+        if has_dynamo_mark_dynamic():
+            torch._dynamo.mark_dynamic(x_values, 0)
+            torch._dynamo.mark_dynamic(x_values, 1)
+            torch._dynamo.mark_dynamic(lengths, 0)  # offsets = lengths + 1
 
         output, _ = torch.compile(
             torch.ops.fbgemm.jagged_dense_bmm, fullgraph=True, dynamic=True

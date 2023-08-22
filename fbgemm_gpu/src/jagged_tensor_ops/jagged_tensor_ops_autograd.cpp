@@ -34,7 +34,7 @@ class JaggedToPaddedDenseOp
       torch::autograd::AutogradContext* ctx,
       const Tensor& values,
       const std::vector<Tensor>& offsets,
-      const std::vector<int64_t>& max_lengths,
+      const c10::SymIntArrayRef max_lengths,
       const double padding_value) {
     ctx->save_for_backward(offsets);
     ctx->saved_data["total_L"] = values.sym_size(0);
@@ -47,8 +47,7 @@ class JaggedToPaddedDenseOp
                 const std::vector<Tensor>& offsets,
                 const at::ArrayRef<at::SymInt>& max_lengths,
                 const double padding_value)>();
-    Tensor padded_values = op.call(
-        values, offsets, c10::fromIntArrayRefSlow(max_lengths), padding_value);
+    Tensor padded_values = op.call(values, offsets, max_lengths, padding_value);
 
     return {padded_values};
   }
@@ -698,7 +697,7 @@ class JaggedSliceOp : public torch::autograd::Function<JaggedSliceOp> {
 Tensor jagged_to_padded_dense(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const std::vector<int64_t>& max_lengths,
+    c10::SymIntArrayRef max_lengths,
     const double padding_value) {
   return JaggedToPaddedDenseOp::apply(
       values, offsets, max_lengths, padding_value)[0];
@@ -711,10 +710,10 @@ Tensor jagged_dense_elementwise_add(
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
   // Construct max_lengths from y
-  std::vector<int64_t> max_lengths;
+  std::vector<c10::SymInt> max_lengths;
   max_lengths.reserve(x_offsets.size());
   for (int d = 1; d < y.dim() - 1; d++) {
-    max_lengths.push_back(y.size(d));
+    max_lengths.push_back(y.sym_size(d));
   }
   TORCH_CHECK(max_lengths.size() == x_offsets.size());
 
@@ -789,7 +788,7 @@ jagged_dense_elementwise_add_jagged_output(
 Tensor jagged_1d_to_dense(
     Tensor values,
     Tensor offsets,
-    int64_t max_L,
+    c10::SymInt max_L,
     int64_t padding_value) {
   TORCH_CHECK(values.dim() == 1);
   TORCH_CHECK(offsets.dim() == 1);
@@ -799,8 +798,10 @@ Tensor jagged_1d_to_dense(
 }
 
 ///@ingroup jagged-tensor-ops-cpu
-Tensor
-jagged_2d_to_dense(Tensor values, Tensor offsets, int64_t max_sequence_length) {
+Tensor jagged_2d_to_dense(
+    Tensor values,
+    Tensor offsets,
+    c10::SymInt max_sequence_length) {
   return jagged_to_padded_dense(
       values,
       {offsets},
