@@ -18,6 +18,21 @@ at::Tensor permute_pooled_embs_cpu(
     const at::Tensor& inv_offset_dim_list,
     const at::Tensor& inv_permute_list);
 
+at::Tensor permute_duplicate_pooled_embs_gpu(
+    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const at::Tensor& offset_dim_list,
+    const at::Tensor& permute_list,
+    const at::Tensor& inv_offset_dim_list,
+    const at::Tensor& inv_permute_list);
+
+at::Tensor permute_pooled_embs_gpu_impl(
+    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const at::Tensor& offset_dim_list,
+    const at::Tensor& permute_list,
+    const at::Tensor& inv_offset_dim_list,
+    const at::Tensor& inv_permute_list,
+    const bool& allow_duplicates);
+
 at::Tensor permute_pooled_embs_gpu(
     const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const at::Tensor& offset_dim_list,
