@@ -17,6 +17,27 @@ namespace fbgemm_gpu {
 
 namespace {
 
+// TODO: Move these helper functions to header
+__device__ inline float bf16_to_fp32(const void* input) {
+#ifdef __HIP_PLATFORM_HCC__
+  return float(*reinterpret_cast<const hip_bfloat16*>(input));
+#else
+  return __bfloat162float(*reinterpret_cast<const __nv_bfloat16*>(input));
+#endif
+}
+
+#ifdef __HIP_PLATFORM_HCC__
+__device__ inline at::BFloat16 fp32_to_bf16(const float* input) {
+  hip_bfloat16 result(*input);
+  return *reinterpret_cast<at::BFloat16*>(&(result.data));
+}
+#else
+__device__ inline at::BFloat16 fp32_to_bf16(const float* input) {
+  const __nv_bfloat16 result = __float2bfloat16(*input);
+  return *reinterpret_cast<const at::BFloat16*>(&result);
+}
+#endif
+
 // FP32/FP16 -> FP8 rowwise kernel
 template <typename input_t>
 __global__ inline void _float_to_FP8rowwise_cuda_kernel(
@@ -48,8 +69,10 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
         max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
     output_row_scale_bias[0] = scale;
     for (int64_t col = 0; col < ncols; ++col) {
-      output_row[col] =
-          float_to_hfp8(input_row[col] * scale, ebit, bias, max_pos);
+      const auto input_ = std::is_same<input_t, at::BFloat16>::value
+          ? bf16_to_fp32(&input_row[col])
+          : static_cast<float>(input_row[col]);
+      output_row[col] = float_to_hfp8(input_ * scale, ebit, bias, max_pos);
     }
   }
 }
@@ -87,7 +110,10 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
     for (int64_t col = threadIdx.x; col < ncols; col += lane_width) {
       // Get thread-local minmax. These are the smallest min and max ever seen
       // by this thread.
-      maximum_element = fmaxf(maximum_element, fabs(input_row[col]));
+      const auto input_ = std::is_same<input_t, at::BFloat16>::value
+          ? bf16_to_fp32(&input_row[col])
+          : static_cast<float>(input_row[col]);
+      maximum_element = fmaxf(maximum_element, fabs(input_));
     }
   }
 
@@ -149,8 +175,10 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
       // TODO: lift range_list into shared memory. However, when nrows is large,
       // it might exceed the size of shared memory.
       // output_addr[0] = lrintf((input[input_idx] - bias) * inverse_scale);
-      output_addr[0] =
-          float_to_hfp8(input[input_idx] * scale, ebit, bias, max_pos);
+      const auto input_ = std::is_same<input_t, at::BFloat16>::value
+          ? bf16_to_fp32(&input[input_idx])
+          : static_cast<float>(input[input_idx]);
+      output_addr[0] = float_to_hfp8(input_ * scale, ebit, bias, max_pos);
     }
   }
 }
@@ -176,8 +204,15 @@ __global__ inline void _FP8rowwise_to_float_cuda_kernel(
           reinterpret_cast<const float*>(input_row + output_columns);
       output_t* output_row = output + row * output_columns;
 
-      output_row[col] =
+      const float output_ =
           hfp8_to_float(input_row[col], ebit, bias) / input_row_scale_bias[0];
+
+      if (std::is_same<output_t, at::BFloat16>::value) {
+        *reinterpret_cast<at::BFloat16*>(&output_row[col]) =
+            fp32_to_bf16(&output_);
+      } else {
+        output_row[col] = output_;
+      }
     }
   }
 }
@@ -221,8 +256,12 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   // think unsigned as we use 0, 255
 
   if (nrows <= 20) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-        input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::ScalarType::Half,
+        at::ScalarType::BFloat16,
+        input.scalar_type(),
+        "_float_to_FP8rowwise_cuda_kernel",
+        [&] {
           _float_to_FP8rowwise_cuda_kernel<scalar_t>
               <<<num_blocks,
                  threads_per_block,
@@ -261,8 +300,12 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 
-      AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-          input.scalar_type(), "_get_FP8_qparam_cuda_kernel", [&] {
+      AT_DISPATCH_FLOATING_TYPES_AND2(
+          at::ScalarType::Half,
+          at::ScalarType::BFloat16,
+          input.scalar_type(),
+          "_get_FP8_qparam_cuda_kernel",
+          [&] {
             _get_FP8_qparam_cuda_kernel<scalar_t>
                 <<<num_blocks_warp,
                    dim3(blockDim_x, rows_per_block),
@@ -285,8 +328,12 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
       const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
       dim3 gridDim(gridDim_x, gridDim_y);
 
-      AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-          input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
+      AT_DISPATCH_FLOATING_TYPES_AND2(
+          at::ScalarType::Half,
+          at::ScalarType::BFloat16,
+          input.scalar_type(),
+          "_compute_FP8_quantize_cuda_kernel",
+          [&] {
             _compute_FP8_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
                     input.data_ptr<scalar_t>(),
@@ -356,8 +403,12 @@ Tensor _FP8rowwise_to_float_gpu_t(const Tensor& input, bool forward) {
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-      output.scalar_type(), "FP8rowwise_to_float_cuda_kernel", [&] {
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      output.scalar_type(),
+      "FP8rowwise_to_float_cuda_kernel",
+      [&] {
         _FP8rowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
                 input.data_ptr<std::uint8_t>(),
