@@ -48,6 +48,31 @@ def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
 
 
 # Converts lengths + values format to COO format
+# [B], [N] -> [B, N'].
+# pyre-ignore Missing return annotation [3]
+def var_list_to_coo_1d(
+    lengths: torch.Tensor,
+    values: torch.Tensor,
+    N: int,
+):
+    rows = lengths_to_segment_ids(lengths)
+    num_rows = lengths.size()[0]
+    # This does D&H sync
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+    output_size = lengths.sum()
+    # This does D&H sync
+    cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
+    indices = torch.stack([rows, cols])
+    dims = [num_rows, N]
+    # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
+    return torch.sparse_coo_tensor(
+        indices=indices,
+        values=values,
+        size=dims,
+    )
+
+
+# Converts lengths + values format to COO format
 # [B], [N, D] -> [B, N', D].
 # pyre-ignore Missing return annotation [3]
 def var_list_to_coo(lengths: torch.Tensor, values: torch.Tensor, N: int, D: int):
@@ -279,6 +304,61 @@ class JaggedTensorOpsTest(unittest.TestCase):
             output_values.backward(ref_output_values)
             torch.testing.assert_close(expected_grad, values.grad)
 
+    @unittest.skipIf(*symint_vector_unsupported())
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    @given(
+        B=st.integers(min_value=2, max_value=128),
+        D=st.integers(min_value=2, max_value=128),
+        max_sequence_length=st.integers(min_value=1, max_value=200),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
+    )
+    def test_jagged_2d_to_dense_dynamic_shape(
+        self,
+        B: int,
+        D: int,
+        max_sequence_length: int,
+        dtype: torch.dtype,
+        device_type: str,
+    ) -> None:
+        D = D * 4
+        lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
+        total_lengths = lengths_.sum()
+        lengths = torch.from_numpy(lengths_)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+        ref_values = torch.rand(total_lengths, D)
+        ref_output_values = var_list_to_coo(
+            lengths,
+            ref_values,
+            max_sequence_length,
+            D,
+        ).to_dense()
+        ref_output_values = ref_output_values.to(dtype)
+
+        ref_values = ref_values.to(device_type)
+        values = ref_values.clone().to(dtype).detach().requires_grad_(True)
+        offsets = offsets.to(device_type)
+        ref_output_values = ref_output_values.to(device_type)
+        output_values = torch.compile(
+            torch.ops.fbgemm.jagged_2d_to_dense, dynamic=True, fullgraph=True
+        )(
+            values=values,
+            offsets=offsets,
+            max_sequence_length=max_sequence_length,
+        )
+        torch.testing.assert_close(ref_output_values, output_values)
+
+        output_values.backward(ref_output_values)
+        ref_values = ref_values.to(dtype)
+        torch.testing.assert_close(ref_values, values.grad)
+
     @unittest.skipIf(*gpu_unavailable)
     @settings(
         verbosity=Verbosity.verbose,
@@ -359,41 +439,17 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 lengths.long(),
             )
 
-        # Converts lengths + values format to COO format
-        # [B], [N] -> [B, N'].
-        # pyre-ignore Missing return annotation [3]
-        def var_list_to_coo(
-            lengths: torch.Tensor,
-            values: torch.Tensor,
-            N: int,
-        ):
-            rows = lengths_to_segment_ids(lengths)
-            num_rows = lengths.size()[0]
-            # This does D&H sync
-            offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-            output_size = lengths.sum()
-            # This does D&H sync
-            cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
-            indices = torch.stack([rows, cols])
-            dims = [num_rows, N]
-            # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
-            return torch.sparse_coo_tensor(
-                indices=indices,
-                values=values,
-                size=dims,
-            )
-
         lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
         total_lengths = lengths_.sum()
         lengths = torch.from_numpy(lengths_)
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
 
         ref_values = torch.randint(low=0, high=1000000000, size=(total_lengths,))
-        ref_values_mask = var_list_to_coo(
+        ref_values_mask = var_list_to_coo_1d(
             lengths, torch.ones_like(ref_values), max_sequence_length
         ).to_dense()
         ref_output_values = (
-            var_list_to_coo(
+            var_list_to_coo_1d(
                 lengths,
                 ref_values,
                 max_sequence_length,
@@ -457,6 +513,59 @@ class JaggedTensorOpsTest(unittest.TestCase):
             )
             torch.testing.assert_close(ref_output, output)
 
+    @unittest.skipIf(*symint_vector_unsupported())
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
+    @given(
+        B=st.integers(min_value=1, max_value=128),
+        max_sequence_length=st.integers(min_value=1, max_value=500),
+        padding_value=st.integers(min_value=-100000, max_value=100000),
+        device_type=st.sampled_from(["cpu", "cuda"])
+        if gpu_available
+        else st.just("cpu"),
+    )
+    def test_jagged_1d_to_dense_dynamic_shape(
+        self, B: int, max_sequence_length: int, padding_value: int, device_type: str
+    ) -> None:
+        def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
+            return torch.repeat_interleave(
+                torch._dim_arange(lengths, 0).long(),
+                lengths.long(),
+            )
+
+        lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
+        total_lengths = lengths_.sum()
+        lengths = torch.from_numpy(lengths_)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+        ref_values = torch.randint(low=0, high=1000000000, size=(total_lengths,))
+        ref_values_mask = var_list_to_coo_1d(
+            lengths, torch.ones_like(ref_values), max_sequence_length
+        ).to_dense()
+        ref_output_values = (
+            var_list_to_coo_1d(
+                lengths,
+                ref_values,
+                max_sequence_length,
+            ).to_dense()
+            + (1 - ref_values_mask) * torch.ones_like(ref_values_mask) * padding_value
+        )
+
+        ref_values = ref_values.to(device_type)
+        values = ref_values.clone().detach().requires_grad_(False)
+        offsets = offsets.to(device_type)
+        ref_output_values = ref_output_values.to(device_type)
+        output_values = torch.compile(torch.ops.fbgemm.jagged_1d_to_dense, dynamic=True, fullgraph=True)(
+            values=values,
+            offsets=offsets,
+            max_sequence_length=max_sequence_length,
+            padding_value=padding_value,
+        )
+        torch.testing.assert_close(ref_output_values, output_values)
+
     @unittest.skipIf(*gpu_unavailable)
     @settings(
         verbosity=Verbosity.verbose,
@@ -486,30 +595,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 lengths.long(),
             )
 
-        # Converts lengths + values format to COO format
-        # [B], [N] -> [B, N'].
-        # pyre-ignore Missing return annotation [3]
-        def var_list_to_coo(
-            lengths: torch.Tensor,
-            values: torch.Tensor,
-            N: int,
-        ):
-            rows = lengths_to_segment_ids(lengths)
-            num_rows = lengths.size()[0]
-            # This does D&H sync
-            offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-            output_size = lengths.sum()
-            # This does D&H sync
-            cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
-            indices = torch.stack([rows, cols])
-            dims = [num_rows, N]
-            # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
-            return torch.sparse_coo_tensor(
-                indices=indices,
-                values=values,
-                size=dims,
-            )
-
         lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B * T)
         total_lengths = lengths_.sum()
         lengths = torch.from_numpy(lengths_).to(device)
@@ -537,8 +622,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(
             ref_output_values, torch.cat(output_values_per_table)
         )
-
-        # TODO: reuse code with var_list_to_coo and to_dense
 
     def _to_padded_dense(
         self,
