@@ -5,3 +5,4 @@ ninja
 numpy
 scikit-build
 setuptools_git_versioning
+tabulate

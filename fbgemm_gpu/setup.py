@@ -17,7 +17,9 @@ from typing import List, Optional
 
 import setuptools_git_versioning as gitversion
 import torch
+from setuptools.command.install import install as PipInstall
 from skbuild import setup
+from tabulate import tabulate
 
 
 def generate_package_version(package_name: str):
@@ -46,16 +48,6 @@ def generate_package_version(package_name: str):
 
     print(f"[SETUP.PY] Setting the package version: {version}")
     return version
-
-
-def get_cxx11_abi():
-    try:
-        import torch
-
-        value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
-    except ImportError:
-        value = 0
-    return "-DGLIBCXX_USE_CXX11_ABI=" + str(value)
 
 
 def parse_args(argv: List[str]) -> argparse.Namespace:
@@ -145,59 +137,125 @@ def find_cuda(major: int, minor: int) -> Optional[str]:
     return None
 
 
-def main(argv: List[str]) -> None:
-    # Handle command line args before passing to main setup() method.
-    args, unknown = parse_args(argv)
-    print("args: ", args)
-    if len(unknown) != 0 and (len(unknown) != 1 or unknown[0] != "clean"):
-        print("unknown: ", unknown)
+def set_cuda_environment_variables() -> None:
+    cub_include_path = os.getenv("CUB_DIR", None)
+    if cub_include_path is None:
+        print(
+            "CUDA CUB directory environment variable not set.  Using default CUB location."
+        )
+        if torch.version.cuda is not None:
+            cuda_version = torch.version.cuda.split(".")
+            cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
+        else:
+            cuda_home = False
 
-    if not args.cpu_only:
-        cub_include_path = os.getenv("CUB_DIR", None)
-        if cub_include_path is None:
-            print(
-                "CUDA CUB directory environment variable not set.  Using default CUB location."
-            )
-            if torch.version.cuda is not None:
-                cuda_version = torch.version.cuda.split(".")
-                cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
-            else:
-                cuda_home = False
+        if cuda_home:
+            print(f"Using CUDA = {cuda_home}")
+            os.environ["CUDA_BIN_PATH"] = cuda_home
+            os.environ["CUDACXX"] = f"{cuda_home}/bin/nvcc"
 
-            if cuda_home:
-                print(f"Using CUDA = {cuda_home}")
-                os.environ["CUDA_BIN_PATH"] = cuda_home
-                os.environ["CUDACXX"] = f"{cuda_home}/bin/nvcc"
 
-    # Get the long description from the relevant file
-    cur_dir = os.path.dirname(os.path.realpath(__file__))
+def cmake_environment_variables(args) -> None:
+    def _get_cxx11_abi():
+        try:
+            import torch
 
-    with open(os.path.join(cur_dir, "README.md"), encoding="utf-8") as f:
-        long_description = f.read()
+            value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
+        except ImportError:
+            value = 0
+        return "-DGLIBCXX_USE_CXX11_ABI=" + str(value)
 
     torch_root = os.path.dirname(torch.__file__)
-
     os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
 
-    cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}"]
-    cmake_args.append(get_cxx11_abi())
+    cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}", _get_cxx11_abi()]
     if args.cpu_only:
         cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
     if args.nvml_lib_path:
         cmake_args.append(f"-DNVML_LIB_PATH={args.nvml_lib_path}")
+    return cmake_args
 
-    package_version = generate_package_version(args.package_name)
+
+class FbgemmGpuInstaller(PipInstall):
+    """FBGEMM_GPU PIP Installer"""
+
+    @classmethod
+    def description(cls) -> str:
+        # Get the long description from the relevant file
+        current_dir = os.path.dirname(os.path.realpath(__file__))
+        with open(os.path.join(current_dir, "README.md"), encoding="utf-8") as f:
+            return f.read()
+
+    def print_versions(self) -> None:
+        pytorch_version = (
+            subprocess.run(
+                ["python", "-c", "import torch; print(torch.__version__)"],
+                stdout=subprocess.PIPE,
+            )
+            .stdout.decode("utf-8")
+            .strip()
+        )
+
+        cuda_version_declared = (
+            subprocess.run(
+                ["python", "-c", "import torch; print(torch.version.cuda)"],
+                stdout=subprocess.PIPE,
+            )
+            .stdout.decode("utf-8")
+            .strip()
+        )
+
+        table = [
+            ["", "Version"],
+            ["PyTorch", pytorch_version],
+        ]
+
+        if cuda_version_declared != "None":
+            cuda_version = cuda_version_declared.split(".")
+            cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
+
+            actual_cuda_version = (
+                subprocess.run(
+                    [f"{cuda_home}/bin/nvcc", "--version"],
+                    stdout=subprocess.PIPE,
+                )
+                .stdout.decode("utf-8")
+                .strip()
+            )
+
+            table.extend(
+                [
+                    ["CUDA (Declared by PyTorch)", cuda_version_declared],
+                    ["CUDA (Actual)", actual_cuda_version],
+                ]
+            )
+
+        print(tabulate(table, headers="firstrow", tablefmt="fancy_grid"))
+
+    def run(self):
+        PipInstall.run(self)
+        self.print_versions()
+
+
+def main(argv: List[str]) -> None:
+    # Handle command line args before passing to main setup() method.
+    args, unknown = parse_args(argv)
+    print("Parsed Arguments: ", args)
+    if len(unknown) != 0 and (len(unknown) != 1 or unknown[0] != "clean"):
+        print("Unknown Arguments: ", unknown)
+
+    if not args.cpu_only:
+        set_cuda_environment_variables()
 
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
 
     setup(
-        # Metadata
         name=args.package_name,
-        version=package_version,
+        version=generate_package_version(args.package_name),
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
-        long_description=long_description,
+        long_description=FbgemmGpuInstaller.description(),
         long_description_content_type="text/markdown",
         url="https://github.com/pytorch/fbgemm",
         license="BSD-3",
@@ -209,7 +267,10 @@ def main(argv: List[str]) -> None:
             "CUDA",
         ],
         packages=["fbgemm_gpu"],
-        cmake_args=cmake_args,
+        cmake_args=cmake_environment_variables(args),
+        cmdclass={
+            "install": FbgemmGpuInstaller,
+        },
         # PyPI package information.
         classifiers=[
             "Development Status :: 4 - Beta",
