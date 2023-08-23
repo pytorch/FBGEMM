@@ -697,7 +697,7 @@ class JaggedSliceOp : public torch::autograd::Function<JaggedSliceOp> {
 Tensor jagged_to_padded_dense(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    c10::SymIntArrayRef max_lengths,
+    const c10::SymIntArrayRef max_lengths,
     const double padding_value) {
   return JaggedToPaddedDenseOp::apply(
       values, offsets, max_lengths, padding_value)[0];
