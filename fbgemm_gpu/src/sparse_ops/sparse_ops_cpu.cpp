@@ -2668,7 +2668,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, int num_ads_in_batch, bool broadcast_indices=False, int num_indices_after_broadcast=-1) -> Tensor");
   m.def(
       "cat_reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor[] cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, int num_ads_in_batch, bool broadcast_indices, int total_num_indices, bool pinned_memory=False) -> Tensor");
-  m.def("offsets_range(Tensor offsets, int range_size) -> Tensor");
+  m.def("offsets_range(Tensor offsets, SymInt range_size) -> Tensor");
   m.def(
       "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
   m.def(

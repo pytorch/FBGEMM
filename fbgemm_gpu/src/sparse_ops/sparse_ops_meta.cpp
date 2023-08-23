@@ -31,6 +31,10 @@ Tensor pack_segments_forward_meta(
   return at::empty(padded_values_shape, t_in.options());
 }
 
+Tensor offsets_range_meta_symint(const Tensor& offsets, at::SymInt range_size) {
+  return at::empty_symint(range_size, offsets.options());
+}
+
 } // namespace
 
 } // namespace fbgemm_gpu
@@ -40,4 +44,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "asynchronous_complete_cumsum",
       TORCH_FN(fbgemm_gpu::asynchronous_complete_cumsum_meta));
+  m.impl("offsets_range", TORCH_FN(fbgemm_gpu::offsets_range_meta_symint));
 }
