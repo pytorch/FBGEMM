@@ -2568,8 +2568,11 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
   const auto slot = threadIdx.x;
   for (int i = 0; i < blockDim.x; ++i) {
     int32_t n = n0 + i;
-    const int64_t idx = linear_cache_indices[n0 + i];
-    if (n >= N || idx == invalid_index) {
+    if (n >= N) {
+      continue;
+    }
+    const int64_t idx = linear_cache_indices[n];
+    if (idx == invalid_index) {
       continue;
     }
     const int32_t cache_set = cache_slot(idx, C);
