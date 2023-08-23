@@ -558,7 +558,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         values = ref_values.clone().detach().requires_grad_(False)
         offsets = offsets.to(device_type)
         ref_output_values = ref_output_values.to(device_type)
-        output_values = torch.compile(torch.ops.fbgemm.jagged_1d_to_dense, dynamic=True, fullgraph=True)(
+        output_values = torch.compile(
+            torch.ops.fbgemm.jagged_1d_to_dense, dynamic=True, fullgraph=True
+        )(
             values=values,
             offsets=offsets,
             max_sequence_length=max_sequence_length,
@@ -944,12 +946,19 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(dense, -1)
 
         @torch.compile(fullgraph=True, dynamic=True)
-        def dense_to_jagged(
+        def dense_to_jagged_withL(
             dense: torch.Tensor, offsets: torch.Tensor, total_L: List[int]
         ) -> Tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.dense_to_jagged(dense, offsets, total_L)
 
-        jagged_values, jagged_offsets = dense_to_jagged(dense, offsets, total_L)
+        @torch.compile(fullgraph=False, dynamic=True)
+        def dense_to_jagged_noL(
+            dense: torch.Tensor, offsets: torch.Tensor
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            return torch.ops.fbgemm.dense_to_jagged(dense, offsets)
+
+        jagged_values, jagged_offsets = dense_to_jagged_noL(dense, offsets)
+        jagged_values, jagged_offsets = dense_to_jagged_withL(dense, offsets, total_L)
 
         jagged_values.to(device_type)
         # jagged -> dense

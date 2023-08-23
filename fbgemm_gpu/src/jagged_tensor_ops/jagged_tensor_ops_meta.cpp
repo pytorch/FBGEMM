@@ -98,7 +98,8 @@ Tensor dense_to_jagged_forward_meta(
     const c10::optional<at::SymInt>& total_L) {
   auto dense_values = dense;
   at::SymInt D = dense_values.sym_size(-1);
-  TORCH_CHECK(total_L.has_value(), "total_L is required for meta backend");
+  TORCH_CHECK_NOT_IMPLEMENTED(
+      total_L.has_value(), "total_L is required for meta backend");
   auto& total_L_computed = total_L.value();
   auto values = at::zeros_symint({total_L_computed, D}, dense_values.options());
 
