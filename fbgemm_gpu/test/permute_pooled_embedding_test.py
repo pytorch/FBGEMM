@@ -7,7 +7,8 @@
 import inspect
 import sys
 import unittest
-from typing import Tuple
+from itertools import accumulate
+from typing import List, Tuple
 
 import fbgemm_gpu
 import torch
@@ -173,6 +174,40 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
 
         assert output_meta.shape == output_cpu.shape
         assert input.shape == output_meta.shape
+
+    @unittest.skipIf(*typed_gpu_unavailable)
+    def test_duplicate_permutations(self) -> None:
+        embs_dims = [2, 3, 1, 4]
+        permute = [3, 0, 2, 0, 1, 3]
+        expected_result = [6, 7, 8, 9, 0, 1, 5, 0, 1, 2, 3, 4, 6, 7, 8, 9]
+        input = torch.Tensor([range(10)]).to(device="cuda")
+
+        _permute = torch.tensor(permute, device=self.device, dtype=torch.int64)
+        _offset_dim_list = torch.tensor(
+            [0] + list(accumulate(embs_dims)), device=self.device, dtype=torch.int64
+        )
+        inv_permute: List[int] = [0] * len(permute)
+        for i, p in enumerate(permute):
+            inv_permute[p] = i
+        _inv_permute = torch.tensor(inv_permute, device=self.device, dtype=torch.int64)
+        inv_embs_dims = [embs_dims[i] for i in permute]
+        _inv_offset_dim_list = torch.tensor(
+            [0] + list(accumulate(inv_embs_dims)),
+            device=self.device,
+            dtype=torch.int64,
+        )
+
+        result = torch.ops.fbgemm.permute_duplicate_pooled_embs_auto_grad(
+            input,
+            _offset_dim_list.to(device=input.device),
+            _permute.to(device=input.device),
+            _inv_offset_dim_list.to(device=input.device),
+            _inv_permute.to(device=input.device),
+        )
+        self.assertEqual(
+            result.view(16).tolist(),
+            expected_result,
+        )
 
 
 if __name__ == "__main__":
