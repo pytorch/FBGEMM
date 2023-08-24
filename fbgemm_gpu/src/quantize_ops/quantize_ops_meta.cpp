@@ -10,6 +10,8 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 
+#include "c10/core/ScalarType.h"
+#include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -20,7 +22,8 @@ namespace fbgemm_gpu {
 ///@ingroup quantize-data-meta
 Tensor FP8rowwise_to_float_meta(
     const Tensor& input,
-    [[maybe_unused]] bool forward) {
+    [[maybe_unused]] bool forward,
+    const int64_t output_dtype) {
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
   const auto input_sizes = input.sizes();
@@ -31,7 +34,17 @@ Tensor FP8rowwise_to_float_meta(
 
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
-  return at::empty(output_dims, input.options().dtype(at::kFloat));
+  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
+  switch (output_sparse_dtype) {
+    case SparseType::FP32:
+      return at::empty(output_dims, input.options().dtype(at::kFloat));
+    case SparseType::FP16:
+      return at::empty(output_dims, input.options().dtype(at::kHalf));
+    case SparseType::BF16:
+      return at::empty(output_dims, input.options().dtype(at::kBFloat16));
+    default:
+      TORCH_CHECK(false);
+  }
 }
 
 } // namespace fbgemm_gpu
