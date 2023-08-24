@@ -253,12 +253,8 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   // think unsigned as we use 0, 255
 
   if (nrows <= 20) {
-    AT_DISPATCH_FLOATING_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        input.scalar_type(),
-        "_float_to_FP8rowwise_cuda_kernel",
-        [&] {
+    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+        input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
           _float_to_FP8rowwise_cuda_kernel<scalar_t>
               <<<num_blocks,
                  threads_per_block,
@@ -297,12 +293,8 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 
-      AT_DISPATCH_FLOATING_TYPES_AND2(
-          at::ScalarType::Half,
-          at::ScalarType::BFloat16,
-          input.scalar_type(),
-          "_get_FP8_qparam_cuda_kernel",
-          [&] {
+      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+          input.scalar_type(), "_get_FP8_qparam_cuda_kernel", [&] {
             _get_FP8_qparam_cuda_kernel<scalar_t>
                 <<<num_blocks_warp,
                    dim3(blockDim_x, rows_per_block),
@@ -325,12 +317,8 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
       const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
       dim3 gridDim(gridDim_x, gridDim_y);
 
-      AT_DISPATCH_FLOATING_TYPES_AND2(
-          at::ScalarType::Half,
-          at::ScalarType::BFloat16,
-          input.scalar_type(),
-          "_compute_FP8_quantize_cuda_kernel",
-          [&] {
+      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+          input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
             _compute_FP8_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
                     input.data_ptr<scalar_t>(),
@@ -415,12 +403,8 @@ Tensor _FP8rowwise_to_float_gpu_t(const Tensor& input, bool forward) {
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      output.scalar_type(),
-      "FP8rowwise_to_float_cuda_kernel",
-      [&] {
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+      output.scalar_type(), "FP8rowwise_to_float_cuda_kernel", [&] {
         _FP8rowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
                 input.data_ptr<std::uint8_t>(),
