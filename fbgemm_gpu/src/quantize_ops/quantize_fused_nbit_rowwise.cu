@@ -149,7 +149,7 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
   const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
   // think unsigned as we use 0, 255
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(), "_float_to_fusednbitrowwise_cuda_kernel", [&] {
         _float_to_fusednbitrowwise_cuda_kernel<scalar_t>
             <<<num_blocks,
@@ -185,7 +185,7 @@ DLL_PUBLIC Tensor _float_or_half_to_fusednbitrowwise_gpu(
     const Tensor& input,
     const int64_t bit_rate) {
   Tensor output;
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(),
       "float_or_half_to_fusednbitrowwise_cuda_kernel",
       [&] {
@@ -239,7 +239,7 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {
         _fusednbitrowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(

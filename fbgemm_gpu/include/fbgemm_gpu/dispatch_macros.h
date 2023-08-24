@@ -185,3 +185,19 @@
             #NAME, " not implemented for grad_t '", toString(_grad_t), "'");   \
     }                                                                          \
   }()
+
+#define FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(...)       \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16_CASE(...) \
+  FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__)        \
+  AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__)
+
+#define FBGEMM_DISPATCH_FLOAT_AND_HALF(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                   \
+      TYPE, NAME, FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__))
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                            \
+      TYPE, NAME, FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16_CASE(__VA_ARGS__))

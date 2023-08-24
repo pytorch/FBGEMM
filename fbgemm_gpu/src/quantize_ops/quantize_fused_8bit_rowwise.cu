@@ -254,7 +254,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   // think unsigned as we use 0, 255
 
   if (nrows <= 20) {
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+    FBGEMM_DISPATCH_FLOAT_AND_HALF(
         input.scalar_type(), "_float_to_fused8bitrowwise_cuda_kernel", [&] {
           _float_to_fused8bitrowwise_cuda_kernel<scalar_t>
               <<<num_blocks,
@@ -292,7 +292,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 
-      AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      FBGEMM_DISPATCH_FLOAT_AND_HALF(
           input.scalar_type(), "_get_8bit_qparam_cuda_kernel", [&] {
             _get_8bit_qparam_cuda_kernel<scalar_t>
                 <<<num_blocks_warp,
@@ -315,7 +315,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
       dim3 gridDim(gridDim_x, gridDim_y);
 
-      AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      FBGEMM_DISPATCH_FLOAT_AND_HALF(
           input.scalar_type(), "_compute_8bit_quantize_cuda_kernel", [&] {
             _compute_8bit_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -344,7 +344,7 @@ DLL_PUBLIC Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
 ///@ingroup quantize-data-cuda
 DLL_PUBLIC Tensor _float_or_half_to_fused8bitrowwise_gpu(const Tensor& input) {
   Tensor output;
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(),
       "float_or_half_to_fused8bitrowwise_cuda_kernel",
       [&] { output = _float_to_fused8bitrowwise_gpu_t<scalar_t>(input); });
@@ -398,7 +398,7 @@ Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {
         _fused8bitrowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -482,7 +482,7 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
   const dim3 blockDim(kWarpSize, threads_per_block / kWarpSize);
   const dim3 gridDim(
       cuda_calc_xblock_count(num_tables * batch_size, blockDim.y));
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       output.scalar_type(),
       "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel",
       [&] {
