@@ -351,10 +351,7 @@ class GroupIndexSelectDim0GPUOp
       TORCH_CHECK(
           num_output_rows == num_output_rows_,
           "The number of indices to be selected must be the same for the entire group");
-      TORCH_CHECK(
-          num_input_rows == input.size(0),
-          "The number of rows in the input must be the same for the entire group");
-      const auto input_reshaped_ = input.reshape({num_input_rows, -1});
+      const auto input_reshaped_ = input.reshape({input.size(0), -1});
 
       // Number of columns can be different
       auto num_cols_ = input_reshaped_.size(1);
@@ -434,7 +431,6 @@ class GroupIndexSelectDim0GPUOp
         first_input.scalar_type(),
         first_indices.scalar_type(),
         first_input.device().index(),
-        num_input_rows,
         num_output_rows,
         /*total_num_warps=*/warp_offset,
         group_size,
@@ -471,7 +467,6 @@ class GroupIndexSelectDim0GPUOp
 
     // We checked in forward that all output rows are the same for all member
     // in the group
-    const int num_output_rows = output_shape_group[0];
     const int num_input_rows = grad_output_group[0].size(0);
 
     const auto saved = ctx->get_saved_variables();
@@ -516,8 +511,7 @@ class GroupIndexSelectDim0GPUOp
 
     for (const auto i : c10::irange(group_size)) {
       const auto& grad = grad_output_group[i];
-      TENSOR_ON_CUDA_GPU(grad);
-      TENSORS_ON_SAME_DEVICE(grad, first_indices);
+      TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(grad, first_indices);
 
       // Store grad contigs to keep them alive during the kernel computation
       grad_output_contigs.push_back(grad.expect_contiguous());
@@ -574,7 +568,6 @@ class GroupIndexSelectDim0GPUOp
         fwd_input.scalar_type(),
         first_indices.scalar_type(),
         fwd_input.device().index(),
-        num_output_rows,
         num_input_rows,
         total_num_warps,
         group_size,
