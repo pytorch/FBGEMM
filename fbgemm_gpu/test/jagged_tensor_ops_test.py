@@ -946,12 +946,19 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(dense, -1)
 
         @torch.compile(fullgraph=True, dynamic=True)
-        def dense_to_jagged(
+        def dense_to_jagged_withL(
             dense: torch.Tensor, offsets: torch.Tensor, total_L: List[int]
         ) -> Tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.dense_to_jagged(dense, offsets, total_L)
 
-        jagged_values, jagged_offsets = dense_to_jagged(dense, offsets, total_L)
+        @torch.compile(fullgraph=False, dynamic=True)
+        def dense_to_jagged_noL(
+            dense: torch.Tensor, offsets: torch.Tensor
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            return torch.ops.fbgemm.dense_to_jagged(dense, offsets)
+
+        jagged_values, jagged_offsets = dense_to_jagged_noL(dense, offsets)
+        jagged_values, jagged_offsets = dense_to_jagged_withL(dense, offsets, total_L)
 
         jagged_values.to(device_type)
         # jagged -> dense
