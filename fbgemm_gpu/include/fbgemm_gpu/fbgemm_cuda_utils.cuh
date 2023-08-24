@@ -1687,6 +1687,15 @@ DEVICE_INLINE half16 to_half16(float_16 v) {
   return t;
 }
 
+// Override __bfloat162float to accept at::BFloat16
+static DEVICE_INLINE float __bfloat162float(const at::BFloat16 input) {
+#ifdef __HIP_PLATFORM_HCC__
+  return float(*reinterpret_cast<const __nv_bfloat16*>(&input));
+#else
+  return __bfloat162float(*reinterpret_cast<const __nv_bfloat16*>(&input));
+#endif
+}
+
 #ifdef __HIP_PLATFORM_HCC__
 // the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
 // https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
