@@ -220,7 +220,8 @@ at::Tensor _float_or_half_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input);
 at::Tensor _FP8rowwise_to_float_gpu(
     const at::Tensor& input,
-    const bool forward = true);
+    const bool forward = true,
+    const int64_t output_dtype = 0);
 at::Tensor _paddedFP8rowwise_to_float_gpu(
     const at::Tensor& input,
     const bool forward = true,
@@ -239,7 +240,8 @@ at::Tensor float_or_half_to_fused8bitrowwise_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_cpu(const at::Tensor& input);
 at::Tensor FP8rowwise_to_float_cpu(
     const at::Tensor& input,
-    const bool forward = true);
+    const bool forward = true,
+    const int64_t output_dtype = 0);
 at::Tensor fused8bitrowwise_to_half_cpu(const at::Tensor& input);
 at::Tensor fused8bitrowwise_to_float_or_half_cpu(
     const at::Tensor& input,

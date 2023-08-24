@@ -214,7 +214,6 @@ Tensor fused8bitrowwise_to_float_or_half_cpu(
     const Tensor& input,
     const int64_t output_dtype) {
   Tensor output;
-
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
@@ -241,7 +240,10 @@ Tensor float_to_FP8rowwise_cpu(const Tensor& input, bool forward) {
 }
 
 ///@ingroup quantize-data-cpu
-Tensor FP8rowwise_to_float_cpu(const Tensor& input, bool forward) {
+Tensor FP8rowwise_to_float_cpu(
+    const Tensor& input,
+    bool forward,
+    const int64_t output_dtype) {
   TORCH_CHECK(false, "fp8 is not supported by CPU");
   return input;
 }
@@ -413,7 +415,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("HalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("FloatOrHalfToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def("Fused8BitRowwiseQuantizedToFloat(Tensor input) -> Tensor");
-  m.def("FP8RowwiseQuantizedToFloat(Tensor input, bool forward) -> Tensor");
+  m.def(
+      "FP8RowwiseQuantizedToFloat(Tensor input, bool forward, int output_dtype=0) -> Tensor");
   m.def("Fused8BitRowwiseQuantizedToHalf(Tensor input) -> Tensor");
   m.def(
       "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int output_dtype=0) -> Tensor");

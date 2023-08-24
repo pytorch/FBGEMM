@@ -95,12 +95,10 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
   // participate, even if they aren't assigned to a row, since we can't assume
   // the existence of the `*_sync` warp primitives with support for masking.
   for (int offset = lane_width >> 1; offset > 0; offset >>= 1) {
-    minimum_element = fminf(
-        minimum_element,
-        quantize_ops_shfl_xor(minimum_element, offset, lane_width));
-    maximum_element = fmaxf(
-        maximum_element,
-        quantize_ops_shfl_xor(maximum_element, offset, lane_width));
+    minimum_element =
+        fminf(minimum_element, shfl_xor(minimum_element, offset, lane_width));
+    maximum_element =
+        fmaxf(maximum_element, shfl_xor(maximum_element, offset, lane_width));
   }
 
   // only the leading thread in the warp is needed to return the final result in
