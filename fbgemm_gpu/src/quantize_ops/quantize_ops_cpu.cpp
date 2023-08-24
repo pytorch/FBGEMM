@@ -12,6 +12,7 @@
 #include <fbgemm_gpu/sparse_ops_utils.h>
 #include <torch/library.h>
 #include "fbgemm/QuantUtils.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/quantize_ops_utils.h"
 
@@ -189,7 +190,7 @@ Tensor float_or_half_to_fused8bitrowwise_cpu(const Tensor& input) {
   auto output = at::empty(
       {0},
       input.options().dtype(at::kByte)); // at::kBytes for uint8_t
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(), "float_or_half_to_fused8bitrowwise_cpu", [&] {
         if (std::is_same<scalar_t, float>::value) {
           _float_to_fused8bitrowwise_cpu_out(output, input);
@@ -301,7 +302,7 @@ Tensor float_or_half_to_fusednbitrowwise_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
   Tensor output;
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(), "float_or_half_to_fusednbitrowwise_cpu", [&] {
         if (std::is_same<scalar_t, float>::value) {
           output = _float_to_fusednbitrowwise_cpu<float>(input, bit_rate);
