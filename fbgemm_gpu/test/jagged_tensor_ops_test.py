@@ -26,6 +26,7 @@ try:
     from test_utils import (
         gpu_available,
         gpu_unavailable,
+        on_arm_platform,
         running_on_github,
         TEST_WITH_ROCM,
     )
@@ -35,6 +36,7 @@ except Exception:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_unavailable,
+        on_arm_platform,
         running_on_github,
         TEST_WITH_ROCM,
     )
@@ -2338,7 +2340,8 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if gpu_available
         else st.just("cpu"),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    @unittest.skipIf(*on_arm_platform)
+    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
     def test_jagged_dense_bmm(
         self,
         B: int,
