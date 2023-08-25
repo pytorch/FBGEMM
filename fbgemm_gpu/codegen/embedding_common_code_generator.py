@@ -123,6 +123,10 @@ def double_arg(name: str, default: float = 0.0) -> str:
     return f"double {name} = {default}"
 
 
+def double_arg_no_default(name: str) -> str:
+    return f"double {name}"
+
+
 def float_arg(name: str, default: float = 0.0) -> str:
     return f"float {name} = {default}"
 
@@ -189,6 +193,7 @@ class Args:
     split_cpu_kernel_args: List[str]
     split_cpu_kernel_arg_constructors: List[str]
     split_function_args: List[str]
+    split_function_args_no_defaults: List[str]
     split_saved_tensors: List[str]
     split_tensors: List[str]
     saved_data: List[Tuple[str, str]]
@@ -246,13 +251,19 @@ def make_args(
             FLOAT: lambda x: x,
         }[ty](name)
 
-    def make_function_arg(ty: int, name: str, default: Union[int, float]) -> str:
+    def make_function_arg(
+        ty: int, name: str, default: Optional[Union[int, float]]
+    ) -> str:
         return {
             TENSOR: tensor_arg,
             INT_TENSOR: tensor_arg,
             LONG_TENSOR: tensor_arg,
-            INT: lambda x: int64_arg(x, default=int(default)),
-            FLOAT: lambda x: double_arg(x, default=default),
+            INT: (lambda x: int64_arg(x, default=int(default)))
+            if default is not None
+            else int64_arg_no_default,
+            FLOAT: (lambda x: double_arg(x, default=default))
+            if default is not None
+            else double_arg_no_default,
         }[ty](name)
 
     def make_function_schema_arg(ty: int, name: str, default: Union[int, float]) -> str:
@@ -292,6 +303,10 @@ def make_args(
             ],
             split_function_args=[
                 make_function_arg(ty, name, default)
+                for (ty, name, default) in split_arg_spec
+            ],
+            split_function_args_no_defaults=[
+                make_function_arg(ty, name, None)
                 for (ty, name, default) in split_arg_spec
             ],
             split_tensors=[

@@ -7,13 +7,20 @@
  */
 
 // clang-format off
+
+{%- set ddesc =  "dense" if dense else "split" %}
+
+////////////////////////////////////////////////////////////////////////////////
+// Required for op registrations
+#include "codegen/embedding_op_registration.h"
+////////////////////////////////////////////////////////////////////////////////
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 {%- for vbe in [True, False] %}
-{%- set vbe_desc = "_vbe" if vbe else "" %}
+{%- set vdesc = "_vbe" if vbe else "" %}
 {%- if not dense or not vbe %}
 
 // TODO: optimization to use multiple warps per row.
@@ -24,7 +31,7 @@ template <
   size_t kMaxVecsPerThread
 >
 __global__ __launch_bounds__(kForwardMaxThreads) void
-{{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights{{ vbe_desc }}_kernel(
+{{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel(
     // [\sum_t E_t x D_t]
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
@@ -189,29 +196,30 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     }
 }
 
-Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights{{ vbe_desc }}_cuda(
-    Tensor grad_output,
-    Tensor dev_weights,
+Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
     {%- if not dense %}
-    Tensor uvm_weights,
-    Tensor lxu_cache_weights,
-    Tensor weights_placements,
+    const Tensor& uvm_weights,
+    const Tensor& lxu_cache_weights,
+    const Tensor& weights_placements,
     {%- endif %}
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t max_D,
-    Tensor indices,
-    Tensor offsets,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& indices,
+    const Tensor& offsets,
     {%- if not dense %}
-    Tensor lxu_cache_locations,
+    const Tensor& lxu_cache_locations,
     {%- endif %}
     {%- if vbe %}
-    Tensor feature_requires_grad,
-    const VBEMetadata& vbe_metadata,
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask
+    const Tensor& feature_requires_grad,
+    const Tensor& vbe_row_output_offsets,
+    const Tensor& vbe_b_t_map,
+    const int64_t info_B_num_bits, // int32_t
+    const int64_t info_B_mask_int64 // uint32_t
     {%- else %}
-    Tensor feature_requires_grad
+    const Tensor& feature_requires_grad
     {%- endif %}
 ) {
    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
@@ -229,8 +237,8 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
         lxu_cache_locations,
         {%- endif %}
         {%- if vbe %}
-        vbe_metadata.row_output_offsets,
-        vbe_metadata.b_t_map,
+        vbe_row_output_offsets,
+        vbe_b_t_map,
         {%- endif %}
         grad_output
     );
@@ -251,7 +259,12 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
     if (total_B == 0) {
       return grad_indice_weights;
     }
-    feature_requires_grad = feature_requires_grad.defined() ? feature_requires_grad : at::empty({0}, indices.options().dtype(at::kInt));
+    const auto feature_requires_grad_ = feature_requires_grad.defined() ? feature_requires_grad : at::empty({0}, indices.options().dtype(at::kInt));
+
+    {%- if vbe %}
+    // Cast info_B_mask from int64_t to uint32_t
+    const uint32_t info_B_mask = info_B_mask_int64;
+    {%- endif %}
 
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
@@ -264,17 +277,19 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
         "split_embedding_codegen_grad_indice_weights_kernel",
         [&] {
             {%- if vbe %}
-            grad_output = grad_output.reshape({1, -1});
+            const auto& grad_output_reshaped = grad_output.reshape({1, -1});
+            {%- else %}
+            const auto& grad_output_reshaped = grad_output;
             {%- endif %}
 
             {%- for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
             if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
 
 #ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "{{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights{{ vbe_desc }}_kernel";
+            const auto func_name = "{{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel";
 #endif
 
-            {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights{{ vbe_desc }}_kernel<
+            {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel<
                 emb_t,
                 grad_t,
                 cache_t,
@@ -283,7 +298,7 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                 0,
                 at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, grad_output, grad_t, 2, 64),
+                MAKE_PTA_WITH_NAME(func_name, grad_output_reshaped, grad_t, 2, 64),
                 MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
                 {%- if not dense %}
                 MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
@@ -297,11 +312,11 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
                 {%- if not dense %}
                 MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
                 {%- endif %}
-                MAKE_PTA_WITH_NAME(func_name, feature_requires_grad, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, feature_requires_grad_, int32_t, 1, 32),
                 MAKE_PTA_ACC_WITH_NAME(func_name, grad_indice_weights, grad_t, 1, 32),
                 {%- if vbe %}
-                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.row_output_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.b_t_map, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, vbe_row_output_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, vbe_b_t_map, int32_t, 1, 32),
                 info_B_num_bits,
                 info_B_mask
                 {%- else %}
@@ -317,6 +332,47 @@ Tensor {{ "dense" if dense else "split" }}_embedding_codegen_grad_indice_weights
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return grad_indice_weights;
 }
-{%- endif %}
-{%- endfor %}
+
+////////////////////////////////////////////////////////////////////////////////
+// Op registrations
+////////////////////////////////////////////////////////////////////////////////
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+    {%- set embedding_codegen_grad_indice_weights_op =
+        "{}_embedding_codegen_grad_indice_weights{}_cuda".format(
+            ddesc, vdesc
+        )
+    %}
+    m.def("{{ embedding_codegen_grad_indice_weights_op }}("
+          "    Tensor grad_output, "
+          "    Tensor dev_weights, "
+          {%- if not dense %}
+          "    Tensor uvm_weights, "
+          "    Tensor lxu_cache_weights, "
+          "    Tensor weights_placements, "
+          {%- endif %}
+          "    Tensor weights_offsets, "
+          "    Tensor D_offsets, "
+          "    int max_D, "
+          "    Tensor indices, "
+          "    Tensor offsets, "
+          {%- if not dense %}
+          "    Tensor lxu_cache_locations, "
+          {%- endif %}
+          {%- if vbe %}
+          "    Tensor feature_requires_grad, "
+          "    Tensor vbe_row_output_offsets, "
+          "    Tensor vbe_b_t_map, "
+          "    int info_B_num_bits, "
+          "    int info_B_mask_int64"
+          {%- else %}
+          "    Tensor feature_requires_grad"
+          {%- endif %}
+          ") -> Tensor");
+    DISPATCH_TO_CUDA(
+        "{{ embedding_codegen_grad_indice_weights_op }}",
+        {{ embedding_codegen_grad_indice_weights_op }}
+    );
+}
+{%- endif %} {#-/* if not dense or not vbe */#}
+{%- endfor %} {#-/* for vbe */#}
     // clang-format on

@@ -19,12 +19,12 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 Tensor batch_index_select_dim0_codegen_forward_cuda(
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t max_D,
-    Tensor indices,
-    int64_t output_dtype,
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& indices,
+    const int64_t output_dtype,
     const Tensor& output_offsets,
     const Tensor& total_L_offsets,
     const int64_t output_size,
@@ -33,15 +33,15 @@ Tensor batch_index_select_dim0_codegen_forward_cuda(
     const bool permute_output_dim_0_1);
 
 Tensor batch_index_select_dim0_codegen_backward_cuda(
-    Tensor grad_output,
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t max_D,
-    Tensor hash_size_cumsum,
-    int64_t total_hash_size_bits,
-    Tensor indices,
-    int64_t max_segment_length_per_warp,
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& hash_size_cumsum,
+    const int64_t total_hash_size_bits,
+    const Tensor& indices,
+    const int64_t max_segment_length_per_warp,
     const Tensor& grad_offsets,
     const Tensor& total_L_offsets,
     const int32_t fixed_L_per_warp,
