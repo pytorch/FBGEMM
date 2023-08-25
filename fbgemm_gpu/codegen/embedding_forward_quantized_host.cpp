@@ -292,6 +292,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_float16_D,
         max_float32_D};
     int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
+    // TODO: extend to support Long indices/offests types T161999845
     return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
         dev_weights,
         uvm_weights,
@@ -304,8 +305,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_int8_D,
         max_float16_D,
         max_float32_D,
-        indices,
-        offsets,
+        indices.to(at::kInt),
+        offsets.to(at::kInt),
         row_alignment ? *row_alignment : 16,
         output_dtype,
         lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
