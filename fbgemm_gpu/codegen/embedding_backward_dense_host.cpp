@@ -18,70 +18,70 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 Tensor dense_embedding_codegen_forward_unweighted_cuda(
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_D,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
-    int64_t output_dtype,
-    bool is_experimental);
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t total_D,
+    const int64_t max_D,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t pooling_mode,
+    const int64_t output_dtype,
+    const bool is_experimental);
 
 Tensor dense_embedding_codegen_forward_weighted_cuda(
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_D,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
-    Tensor indice_weights,
-    int64_t output_dtype,
-    bool is_experimental);
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t total_D,
+    const int64_t max_D,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t pooling_mode,
+    const Tensor& indice_weights,
+    const int64_t output_dtype,
+    const bool is_experimental);
 
 Tensor dense_embedding_codegen_grad_indice_weights_cuda(
-    Tensor grad_output,
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t max_D,
-    Tensor indices,
-    Tensor offsets,
-    Tensor feature_requires_grad);
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const Tensor& feature_requires_grad);
 
 Tensor split_embedding_backward_codegen_dense_unweighted_exact_cuda(
-    Tensor grad_output,
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t max_D,
-    Tensor hash_size_cumsum,
-    int64_t total_hash_size_bits,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
-    int64_t BT_block_size,
-    int64_t max_segment_length_per_warp,
-    double unused);
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& hash_size_cumsum,
+    const int64_t total_hash_size_bits,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t pooling_mode,
+    const int64_t BT_block_size,
+    const int64_t max_segment_length_per_warp,
+    const double unused);
 
 Tensor split_embedding_backward_codegen_dense_weighted_exact_cuda(
-    Tensor grad_output,
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t max_D,
-    Tensor hash_size_cumsum,
-    int64_t total_hash_size_bits,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
-    Tensor indice_weights,
-    int64_t BT_block_size,
-    int64_t max_segment_length_per_warp,
-    double unused);
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& hash_size_cumsum,
+    const int64_t total_hash_size_bits,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t pooling_mode,
+    const Tensor& indice_weights,
+    const int64_t BT_block_size,
+    const int64_t max_segment_length_per_warp,
+    const double unused);
 
 class SplitLookupFunction_Dense_Op
     : public torch::autograd::Function<SplitLookupFunction_Dense_Op> {
@@ -265,26 +265,26 @@ class SplitLookupFunction_Dense_Op
 
 /******** nobag ops ********/
 Tensor dense_embedding_nobag_codegen_forward_unweighted_cuda(
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    int64_t D,
-    Tensor indices,
-    Tensor offsets,
-    int64_t output_dtype,
-    bool is_experimental);
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const int64_t D,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t output_dtype,
+    const bool is_experimental);
 
 Tensor split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
-    Tensor grad_output,
-    Tensor dev_weights,
-    Tensor weights_offsets,
-    int64_t D,
-    Tensor hash_size_cumsum,
-    int64_t total_hash_size_bits,
-    Tensor indices,
-    Tensor offsets,
-    int64_t BT_block_size,
-    int64_t max_segment_length_per_warp,
-    double unused);
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
+    const Tensor& weights_offsets,
+    const int64_t D,
+    const Tensor& hash_size_cumsum,
+    const int64_t total_hash_size_bits,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t BT_block_size,
+    const int64_t max_segment_length_per_warp,
+    const double unused);
 
 class SplitNoBagLookupFunction_Dense_Op
     : public torch::autograd::Function<SplitNoBagLookupFunction_Dense_Op> {

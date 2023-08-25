@@ -79,10 +79,14 @@ DECL_RADIX_SORT_PAIRS_FN(int64_t, int32_t);
 
 #undef DECL_RADIX_SORT_PAIRS_FN
 
-void populate_vbe_metadata_foreach_sample_inplace(
-    fbgemm_gpu::VBEMetadata& vbe_metadata,
+std::tuple<at::Tensor /*row_output_offsets*/, at::Tensor /*b_t_map*/>
+generate_vbe_metadata(
+    const at::Tensor& B_offsets,
+    const at::Tensor& B_offsets_rank_per_feature,
+    const at::Tensor& output_offsets_feature_rank,
     const at::Tensor& D_offsets,
-    const int32_t D,
+    const int64_t D,
     const bool nobag,
-    const int32_t info_B_num_bits,
+    const int64_t max_B_feature_rank,
+    const int64_t info_B_num_bits,
     const int64_t total_B);
