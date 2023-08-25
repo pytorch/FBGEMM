@@ -1930,24 +1930,30 @@ class SparseOpsTest(unittest.TestCase):
 
     @given(
         num_indices=st.integers(1, 32),
-        num_input_rows=st.integers(1, 32),
+        max_num_input_rows=st.integers(1, 32),
         shape=st.lists(st.integers(1, 32), min_size=1, max_size=2),
         dtype=st.sampled_from([torch.float, torch.half, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         num_groups=st.integers(1, 32),
         use_var_cols=st.booleans(),
+        use_var_num_input_rows=st.booleans(),
         check_non_contiguous=st.booleans(),
     )
-    @settings(max_examples=20, deadline=None)
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=20,
+        deadline=None,
+    )
     def test_group_index_select_dim0(
         self,
         num_indices: int,
-        num_input_rows: int,
+        max_num_input_rows: int,
         shape: List[int],
         dtype: torch.dtype,
         use_cpu: bool,
         num_groups: int,
         use_var_cols: bool,
+        use_var_num_input_rows: bool,
         check_non_contiguous: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
@@ -1957,6 +1963,14 @@ class SparseOpsTest(unittest.TestCase):
         indices_group: List[torch.Tensor] = []
         grad_group: List[torch.Tensor] = []
         for _ in range(num_groups):
+            if use_var_num_input_rows:
+                num_input_rows = (
+                    random.randint(1, max_num_input_rows)
+                    if max_num_input_rows > 1
+                    else 1
+                )
+            else:
+                num_input_rows = max_num_input_rows
             indices = torch.randint(num_input_rows, (num_indices,), device=device)
             assert indices.max() < num_input_rows
 

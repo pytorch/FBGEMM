@@ -40,7 +40,6 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
     const int64_t* indices_ptrs,
     const int64_t* warp_offsets_group,
     const int32_t* num_cols_group,
-    const int64_t max_indices,
     const int64_t num_work_rows, // number of rows to work on per member
     const int64_t group_size) {
   const auto total_num_warps = warp_offsets_group[group_size];
@@ -80,7 +79,6 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
 
     index_t* indices = reinterpret_cast<index_t*>(indices_ptrs[member_id]);
     const index_t idx = indices[row];
-    CUDA_KERNEL_ASSERT(idx < max_indices);
 #pragma unroll
     for (int i = 0; i < UNROLL_FACTOR && col_offset + i < num_cols; i++) {
       // Compile time conditional
@@ -103,7 +101,6 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
     const c10::ScalarType& input_scalar_type,
     const c10::ScalarType& indices_scalar_type,
     const c10::DeviceIndex& device,
-    const int max_indices,
     const int num_work_rows,
     const int64_t total_num_warps,
     const int group_size,
@@ -140,7 +137,6 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
           indices_ptrs,                                                  \
           warp_offsets_group,                                            \
           num_cols_group,                                                \
-          max_indices,                                                   \
           num_work_rows,                                                 \
           group_size)
 

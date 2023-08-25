@@ -767,7 +767,6 @@ void group_index_select_or_add_cuda(
     const c10::ScalarType& input_scalar_type,
     const c10::ScalarType& indices_scalar_type,
     const c10::DeviceIndex& device,
-    const int max_indices,
     const int num_work_rows,
     const int64_t total_num_warps,
     const int group_size,
