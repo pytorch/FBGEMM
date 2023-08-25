@@ -18,6 +18,13 @@
 {%- set ddesc =  "dense" if dense else "split" %}
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
+
+{%- if not is_index_select %}
+////////////////////////////////////////////////////////////////////////////////
+// Required for op registrations
+#include "codegen/embedding_op_registration.h"
+////////////////////////////////////////////////////////////////////////////////
+{%- endif %}
 #include "codegen/embedding_forward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
@@ -261,38 +268,38 @@ batch_index_select_dim0_codegen_forward_cuda(
 {%- else %}
 {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
 {%- endif %}
-    Tensor dev_weights,
+    const Tensor& dev_weights,
     {%- if not dense %}
-    Tensor uvm_weights,
-    Tensor lxu_cache_weights,
-    Tensor weights_placements,
+    const Tensor& uvm_weights,
+    const Tensor& lxu_cache_weights,
+    const Tensor& weights_placements,
     {%- endif %}
-    Tensor weights_offsets,
+    const Tensor& weights_offsets,
     {%- if not nobag or is_index_select %}
-    Tensor D_offsets,
+    const Tensor& D_offsets,
     {%- else %}
-    int64_t D,
+    const int64_t D,
     {%- endif %}
     {%- if not nobag %}
-    int64_t total_D,
+    const int64_t total_D,
     {%- endif %}
     {%- if not nobag or is_index_select %}
-    int64_t max_D,
+    const int64_t max_D,
     {% endif %}
-    Tensor indices,
+    const Tensor& indices,
     {%- if not is_index_select %}
-    Tensor offsets,
+    const Tensor& offsets,
     {%- endif %}
     {%- if not nobag %}
-    int64_t pooling_mode,
+    const int64_t pooling_mode,
     {%- endif %}
     {%- if weighted %}
-    Tensor indice_weights,
+    const Tensor& indice_weights,
     {%- endif %}
     {%- if not dense %}
-    Tensor lxu_cache_locations,
+    const Tensor& lxu_cache_locations,
     {%- endif %}
-    int64_t output_dtype,
+    const int64_t output_dtype,
     {%- if is_index_select %}
     const Tensor& output_offsets,
     const Tensor& total_L_offsets,
@@ -302,11 +309,13 @@ batch_index_select_dim0_codegen_forward_cuda(
     const bool permute_output_dim_0_1
     {%- else %}
     {%- if vbe %}
-    const VBEMetadata& vbe_metadata,
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
+    const Tensor& vbe_row_output_offsets,
+    const Tensor& vbe_b_t_map,
+    const int64_t vbe_output_size,
+    const int64_t info_B_num_bits, // int32_t
+    const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
-    bool is_experimental
+    const bool is_experimental
     {%- endif %}
 ) {
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
@@ -330,8 +339,8 @@ batch_index_select_dim0_codegen_forward_cuda(
         lxu_cache_locations,
         {%- endif %}
         {%- if vbe %}
-        vbe_metadata.row_output_offsets,
-        vbe_metadata.b_t_map,
+        vbe_row_output_offsets,
+        vbe_b_t_map,
         {%- endif %}
         {%- if is_index_select %}
         total_L_offsets,
@@ -378,9 +387,12 @@ batch_index_select_dim0_codegen_forward_cuda(
     TORCH_CHECK_EQ(D % 4, 0);
     {%- endif %}
     {%- if vbe %}
-    TORCH_CHECK(vbe_metadata.row_output_offsets.numel() == total_B);
-    TORCH_CHECK(vbe_metadata.b_t_map.numel() == total_B);
-    TORCH_CHECK(vbe_metadata.output_size >= 0);
+    TORCH_CHECK_EQ(vbe_row_output_offsets.numel(), total_B);
+    TENSORS_HAVE_SAME_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
+    TORCH_CHECK_GE(vbe_output_size, 0);
+
+    // Cast info_B_mask from int64_t to uint32_t
+    const uint32_t info_B_mask = info_B_mask_int64;
     {%- endif %}
 
     Tensor output;
@@ -390,11 +402,11 @@ batch_index_select_dim0_codegen_forward_cuda(
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16);
 
-    TORCH_CHECK(fixed_L_per_warp > 0);
-    TORCH_CHECK(num_warps_per_feature > 0);
+    TORCH_CHECK_GT(fixed_L_per_warp, 0);
+    TORCH_CHECK_GT(num_warps_per_feature, 0);
     if (!permute_output_dim_0_1) {
-        TORCH_CHECK(output_size >= 0);
-        TORCH_CHECK(output_offsets.numel() > 0);
+        TORCH_CHECK_GE(output_size, 0);
+        TORCH_CHECK_GT(output_offsets.numel(), 0);
     }
 
     // If permute_output_dim_0_1 is true, output shape is (batch_size * total_D)
@@ -423,7 +435,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     {%- if vbe %}
     // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
     output = at::empty(
-        {1, vbe_metadata.output_size},
+        {1, vbe_output_size},
         dev_weights.options().dtype(getScalarType(o_dtype))
     );
     {%- else %}
@@ -459,13 +471,10 @@ batch_index_select_dim0_codegen_forward_cuda(
         {%- endif %}
 
         {%- if has_experimental %}
-        if (is_experimental) {
-          if (std::is_same<emb_t, uint8_t>() || std::is_same<output_t, uint8_t>()) {
-            is_experimental = false;
-          }
-        }
-
-        if (!is_experimental) {
+        const bool is_experimental_ = (
+            is_experimental && !(std::is_same<emb_t, uint8_t>() || std::is_same<output_t, uint8_t>())
+        );
+        if (!is_experimental_) {
         {%- endif %} {#-/* if has_experimental */#}
 
         {#-/* Sequence TBE Case (nobag=True) ****************************************************/#}
@@ -604,8 +613,8 @@ batch_index_select_dim0_codegen_forward_cuda(
                 MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
                 MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
                 {%- if vbe %}
-                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.row_output_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, vbe_metadata.b_t_map, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, vbe_row_output_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, vbe_b_t_map, int32_t, 1, 32),
                 info_B_num_bits,
                 info_B_mask,
                 {%- else %}
@@ -684,6 +693,59 @@ batch_index_select_dim0_codegen_forward_cuda(
 
   return output;
 }
-{%- endif %}
-{%- endfor %}
+
+////////////////////////////////////////////////////////////////////////////////
+// Op registrations
+////////////////////////////////////////////////////////////////////////////////
+{%- if not is_index_select %}
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+    {%- set embedding_codegen_forward_op =
+        "{}_embedding{}_codegen_forward_{}{}_cuda".format(
+            ddesc, ndesc, wdesc, vdesc
+        )
+    %}
+    m.def("{{ embedding_codegen_forward_op }}("
+          "    Tensor dev_weights, "
+          {%- if not dense %}
+          "    Tensor uvm_weights, "
+          "    Tensor lxu_cache_weights, "
+          "    Tensor weights_placements, "
+          {%- endif %}
+          "    Tensor weights_offsets, "
+          {%- if nobag %}
+          "    int D, "
+          {%- else %}
+          "    Tensor D_offsets, "
+          "    int total_D, "
+          "    int max_D, "
+          {%- endif %}
+          "    Tensor indices, "
+          "    Tensor offsets, "
+          {%- if not nobag %}
+          "    int pooling_mode, "
+          {%- endif %}
+          {%- if weighted %}
+          "    Tensor indice_weights, "
+          {%- endif %}
+          {%- if not dense %}
+          "    Tensor lxu_cache_locations, "
+          {%- endif %}
+          "    int output_dtype, "
+          {%- if vbe %}
+          "    Tensor vbe_row_output_offsets, "
+          "    Tensor vbe_b_t_map, "
+          "    int vbe_output_size, "
+          "    int info_B_num_bits, "
+          "    int info_B_mask_int64, "
+          {%- endif %}
+          "    bool is_experimental"
+          ") -> Tensor");
+    DISPATCH_TO_CUDA(
+        "{{ embedding_codegen_forward_op }}",
+        {{ embedding_codegen_forward_op }}
+    );
+}
+{%- endif %} {#-/* if not is_index_select */#}
+{%- endif %} {#/* if (not nobag or (not weighted and not vbe)) and (nobag or (not is_index_select)) */#}
+{%- endfor %} {#-/* for nobag */#}
     // clang-format on
