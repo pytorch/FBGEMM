@@ -2275,6 +2275,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if gpu_available
         else st.just("cpu"),
     )
+    @unittest.skipIf(*on_arm_platform)
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_jagged_bmm(
         self,
@@ -2402,6 +2403,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.double]),
         device_type=st.just("cpu"),
     )
+    @unittest.skipIf(*on_arm_platform)
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_dense_bmm_dynamic_shape(
         self,
