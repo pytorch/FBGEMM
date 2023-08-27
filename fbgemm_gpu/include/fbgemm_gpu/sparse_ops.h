@@ -426,6 +426,11 @@ at::Tensor jagged_2d_to_dense(
     at::Tensor offsets,
     c10::SymInt max_sequence_length);
 
+at::Tensor jagged_2d_to_dense_meta(
+    at::Tensor values,
+    at::Tensor offsets,
+    c10::SymInt max_sequence_length);
+
 std::tuple<at::Tensor, std::vector<at::Tensor>>
 jagged_dense_dense_elementwise_add_jagged_output(
     const at::Tensor& x_values,
