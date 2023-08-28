@@ -772,6 +772,9 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
         torch::dispatch(
           c10::DispatchKey::Autograd,
           TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
+    DISPATCH_TO_CUDA(
+        "split_embedding_codegen_lookup_{{ optimizer }}_function",
+        split_embedding_codegen_lookup_{{ optimizer }}_function);
 }
 {%- endfor %} {#-/* for lib_name */#}
     // clang-format on
