@@ -49,7 +49,7 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
-        cuda-version: [ "11.7.1", "11.8.0" ]
+        cuda-version: [ "11.8.0", "12.1.1" ]
 
     steps:
     - name: Setup Build Container
@@ -82,7 +82,7 @@ jobs:
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cuda ${{ matrix.cuda-version }}
 
     - name: Install cuDNN
       run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
@@ -117,9 +117,9 @@ jobs:
           { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
-        cuda-version: [ "11.7.1", "11.8.0" ]
+        cuda-version: [ "11.8.0", "12.1.1" ]
         # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "11.7.1" ]
+        cuda-version-publish: [ "11.8.0" ]
     needs: build_artifact
 
     steps:
@@ -152,7 +152,7 @@ jobs:
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_conda $BUILD_ENV test
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cuda ${{ matrix.cuda-version }}
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
