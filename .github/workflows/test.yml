@@ -1,0 +1,24 @@
+name: Test
+
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: linux.2xlarge
+    steps:
+      - name: Setup SSH (Click me for login details)
+        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        if: ${{ !contains(matrix.runner, 'gcp.a100') }}
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+          instructions: |
+            All testing is done inside the container, to start an interactive session run:
+              docker exec -it $(docker container ps --format '{{.ID}}') bash
+      - name: sleep
+        run: sleep 120
