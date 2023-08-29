@@ -8,6 +8,11 @@
 
 #include "common.cuh"
 
+#ifdef __HIP_PLATFORM_HCC__
+#define rocblas_set_stream hipblasSetStream
+#define rocblas_status_success HIPBLAS_STATUS_SUCCESS
+#endif
+
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
