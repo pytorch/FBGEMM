@@ -64,9 +64,9 @@ class TensorAccessorBase {
         strides_(strides),
         ptr_name_(ptr_name),
         func_name_(func_name) {
-    numel_ = 0;
+    numel_ = 1;
     for (size_t d = 0; d < N; d++) {
-      numel_ += sizes[d];
+      numel_ += (sizes[d] - 1) * strides[d];
     }
   }
   C10_HOST at::IntArrayRef sizes() const {
@@ -217,9 +217,9 @@ class GenericPackedTensorAccessorBase {
     std::copy(sizes, sizes + N, std::begin(sizes_));
     std::copy(strides, strides + N, std::begin(strides_));
     // Compute numel_
-    numel_ = 0;
+    numel_ = 1;
     for (size_t d = 0; d < N; d++) {
-      numel_ += sizes[d];
+      numel_ += (sizes[d] - 1) * strides[d];
     }
     copy_str(ptr_name_, ptr_name, PTR_NAME_MAX_LEN);
     copy_str(func_name_, func_name, FUNC_NAME_MAX_LEN);
@@ -242,9 +242,9 @@ class GenericPackedTensorAccessorBase {
       this->strides_[i] = strides[i];
     }
     // Compute numel_
-    numel_ = 0;
+    numel_ = 1;
     for (size_t d = 0; d < N; d++) {
-      numel_ += sizes[d];
+      numel_ += (sizes[d] - 1) * strides[d];
     }
     copy_str(ptr_name_, ptr_name, PTR_NAME_MAX_LEN);
     copy_str(func_name_, func_name, FUNC_NAME_MAX_LEN);
