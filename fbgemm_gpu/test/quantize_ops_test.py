@@ -32,7 +32,7 @@ try:
         fused_rowwise_nbit_quantize_reference,
         gpu_available,
         gpu_unavailable,
-        skipIfRocm,
+        symint_vector_unsupported,
     )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
@@ -45,6 +45,7 @@ except Exception:
         fused_rowwise_nbit_quantize_reference,
         gpu_available,
         gpu_unavailable,
+        symint_vector_unsupported,
     )
 
 no_long_tests: bool = False
@@ -995,6 +996,8 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
                 torch.bfloat16,
             ],
         ),
+        # if before PT 2.1, we don't support symint_vector, so turn it off
+        test_compile=st.booleans() if symint_vector_unsupported() else st.just(False),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
     def test_quantize_and_dequantize_op_fp8_rowwise(
@@ -1006,6 +1009,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
         forward: bool,
         given_last_dim: bool,
         dtype: torch.dtype,
+        test_compile: bool,
     ) -> None:
         n = n * 4  # need (n % 4 == 0)
         input_data = (
@@ -1018,7 +1022,21 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
         quantized_data_gpu = torch.ops.fbgemm.FloatToFP8RowwiseQuantized(
             input_data_gpu, forward=forward
         )
-        dequantized_data_gpu = torch.ops.fbgemm.FP8RowwiseQuantizedToFloat(
+        quantize_func = (
+            torch.compile(
+                torch.ops.fbgemm.FP8RowwiseQuantizedToFloat,
+                dynamic=True,
+                fullgraph=True,
+            )
+            if test_compile
+            else torch.ops.fbgemm.FP8RowwiseQuantizedToFloat
+        )
+
+        if test_compile:
+            torch._dynamo.mark_dynamic(quantized_data_gpu, 0)
+            torch._dynamo.mark_dynamic(quantized_data_gpu, 1)
+
+        dequantized_data_gpu = quantize_func(
             quantized_data_gpu,
             forward=forward,
             output_dtype=SparseType.FP32.as_int()

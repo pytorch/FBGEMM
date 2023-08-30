@@ -222,3 +222,14 @@ def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") ->
         return wrapper
 
     return skipIfRocmDecorator
+
+
+def symint_vector_unsupported() -> Tuple[bool, str]:
+    major, minor = torch.__version__.split(".")[0:2]
+    return (
+        int(major) < 2 or (int(major) == 2 and int(minor) < 1),
+        """
+        dynamic shape support for this op needs to be on PyTorch 2.1 or
+        newer with https://github.com/pytorch/pytorch/pull/101056
+        """,
+    )
