@@ -127,7 +127,10 @@ install_pytorch_pip () {
   elif [ "$pytorch_variant_type" == "rocm" ]; then
     # Extract the ROCM version or default to 5.3
     local rocm_version="${pytorch_variant_version:-5.3}"
-    local pytorch_variant="rocm${rocm_version}"
+    # shellcheck disable=SC2206
+    local rocm_version_arr=(${rocm_version//./ })
+    # Convert, i.e. rocm 5.5.1 => rocm5.5
+    local pytorch_variant="rocm${rocm_version_arr[0]}.${rocm_version_arr[1]}"
   else
     local pytorch_variant_type="cpu"
     local pytorch_variant="cpu"
