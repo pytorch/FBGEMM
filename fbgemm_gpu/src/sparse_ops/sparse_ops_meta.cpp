@@ -35,6 +35,17 @@ Tensor offsets_range_meta_symint(const Tensor& offsets, at::SymInt range_size) {
   return at::empty_symint(range_size, offsets.options());
 }
 
+Tensor batched_unary_embeddings_forward_meta(
+    const Tensor& weight,
+    const Tensor& table_offsets,
+    const Tensor& offsets,
+    const Tensor& /* indices */) {
+  at::SymInt N = weight.sym_sizes()[0];
+  at::SymInt T = table_offsets.sym_numel() - 1;
+  at::SymInt B = (offsets.sym_numel() - 1) / T;
+  return at::empty_symint({N, B, T}, weight.options());
+}
+
 } // namespace
 
 } // namespace fbgemm_gpu
@@ -45,4 +56,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
       "asynchronous_complete_cumsum",
       TORCH_FN(fbgemm_gpu::asynchronous_complete_cumsum_meta));
   m.impl("offsets_range", TORCH_FN(fbgemm_gpu::offsets_range_meta_symint));
+  m.impl(
+      "batched_unary_embeddings",
+      TORCH_FN(fbgemm_gpu::batched_unary_embeddings_forward_meta));
 }

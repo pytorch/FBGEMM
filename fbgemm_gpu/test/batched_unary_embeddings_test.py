@@ -98,7 +98,11 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         offsets.append(offset)
         return (lengths, offsets, indices)
 
-    def _test_main(self, gpu_infer: bool) -> None:
+    def _test_main(
+        self,
+        gpu_infer: bool,
+        torch_compile: bool = False,
+    ) -> None:
         if gpu_infer:
             device = torch.device("cuda:0")
             torch.cuda.set_device(device)
@@ -137,6 +141,8 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         for i, param in enumerate(unary_emb.split_embedding_weights()):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
+        if torch_compile:
+            unary_emb = torch.compile(unary_emb, dynamic=True, fullgraph=True)
         output = unary_emb(offsets_tensor, indices_tensor)
         torch.testing.assert_close(
             output_ref,
@@ -157,6 +163,8 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         for i, param in enumerate(unary_emb.split_embedding_weights()):
             param.detach().copy_(ref_emb.emb_modules[i].weight)
         output_ref = ref_emb(offsets, indices)
+        if torch_compile:
+            unary_emb = torch.compile(unary_emb, dynamic=True, fullgraph=True)
         output = unary_emb(offsets_tensor.long(), indices_tensor.long())
         torch.testing.assert_close(
             output_ref,
@@ -168,6 +176,10 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         # No implementation for CPU backprop yet
         if not gpu_infer:
             return
+        # FIXME: the following doesn't work
+        # with torch.compile-d unary_emb
+        if torch_compile:
+            return
 
         d_output = (
             torch.randn([num_tasks, batch_size, len(hash_sizes)]).to(device) * 0.1
@@ -178,7 +190,7 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         for emb in ref_emb.emb_modules:
             d_weight_ref.append(emb.weight.grad)
         d_weight_ref = torch.cat(d_weight_ref).view(num_tasks, sum(hash_sizes), -1)
-        d_weight = unary_emb.weight.grad
+        d_weight = unary_emb.weight.grad  # pyre-ignore[16]
         torch.testing.assert_close(
             d_weight_ref,
             d_weight,
@@ -203,6 +215,13 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     def test_gpu(self) -> None:
         self._test_main(gpu_infer=True)
+
+    # the test below fails with CUDA error in the OSS CI
+    # likely to the CUDA IMA issues in the test_gpu above
+    # commenting out for now
+    # @unittest.skipIf(*gpu_unavailable)
+    # def test_gpu_torch_compile(self) -> None:
+    #     self._test_main(gpu_infer=True, torch_compile=True)
 
     def test_cpu(self) -> None:
         self._test_main(gpu_infer=False)
