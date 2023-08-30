@@ -28,6 +28,7 @@ try:
         gpu_unavailable,
         on_arm_platform,
         running_on_github,
+        symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
 except Exception:
@@ -38,6 +39,7 @@ except Exception:
         gpu_unavailable,
         on_arm_platform,
         running_on_github,
+        symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
 
@@ -106,17 +108,6 @@ def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
             hash_size_offsets_list.append(count)
     hash_size_offsets_list[-1] = count
     return hash_size_offsets_list
-
-
-def symint_vector_unsupported() -> Tuple[bool, str]:
-    major, minor = torch.__version__.split(".")[0:2]
-    return (
-        int(major) < 2 or (int(major) == 2 and int(minor) < 1),
-        """
-        dynamic shape support for this op needs to be on PyTorch 2.1 or
-        newer with https://github.com/pytorch/pytorch/pull/101056
-        """,
-    )
 
 
 class JaggedTensorOpsTest(unittest.TestCase):

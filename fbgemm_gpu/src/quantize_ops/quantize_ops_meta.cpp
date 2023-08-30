@@ -26,24 +26,26 @@ Tensor FP8rowwise_to_float_meta(
     const int64_t output_dtype) {
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
-  const auto input_sizes = input.sizes();
-  const auto last_dim = input_sizes.size() - 1;
-  const int ncols = input_sizes[last_dim];
-  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  const int output_columns = ncols_aligned - 2 * sizeof(float);
+  const at::SymIntArrayRef input_sizes = input.sym_sizes();
 
-  auto output_dims = input_sizes.vec();
+  const auto last_dim = input_sizes.size() - 1;
+  const at::SymInt ncols = input_sizes[last_dim];
+  const at::SymInt ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const at::SymInt output_columns = ncols_aligned - 2 * sizeof(float);
+
+  c10::SymDimVector output_dims(input_sizes.begin(), input_sizes.end());
   output_dims[last_dim] = output_columns;
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
-      return at::empty(output_dims, input.options().dtype(at::kFloat));
+      return at::empty_symint(output_dims, input.options().dtype(at::kFloat));
     case SparseType::FP16:
-      return at::empty(output_dims, input.options().dtype(at::kHalf));
+      return at::empty_symint(output_dims, input.options().dtype(at::kHalf));
     case SparseType::BF16:
-      return at::empty(output_dims, input.options().dtype(at::kBFloat16));
+      return at::empty_symint(
+          output_dims, input.options().dtype(at::kBFloat16));
     default:
-      TORCH_CHECK(false);
+      TORCH_CHECK(false, "Unsupported output dtype ");
   }
 }
 
