@@ -21,6 +21,10 @@
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
+#ifdef __HIP_PLATFORM_HCC__
+#include <rocm_version.h>
+#endif
+
 inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(t_in.get_device());
@@ -442,6 +446,7 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
   return {info_B_num_bits, info_B_mask};
 }
 
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 12000
 #define DEF_RADIX_SORT_PAIRS_FN(KeyT, ValueT)                        \
   DLL_PUBLIC cudaError_t radix_sort_pairs(                           \
       void* d_temp_storage,                                          \
@@ -453,8 +458,32 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
       const int num_items,                                           \
       const int begin_bit,                                           \
       const int end_bit,                                             \
-      cudaStream_t stream,                                           \
-      const bool debug_synchronous) {                                \
+      cudaStream_t stream) {                                         \
+    return FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
+        d_temp_storage,                                              \
+        temp_storage_bytes,                                          \
+        d_keys_in,                                                   \
+        d_keys_out,                                                  \
+        d_values_in,                                                 \
+        d_values_out,                                                \
+        num_items,                                                   \
+        begin_bit,                                                   \
+        end_bit,                                                     \
+        stream);                                                     \
+  }
+#else
+#define DEF_RADIX_SORT_PAIRS_FN(KeyT, ValueT)                        \
+  DLL_PUBLIC cudaError_t radix_sort_pairs(                           \
+      void* d_temp_storage,                                          \
+      size_t& temp_storage_bytes,                                    \
+      const KeyT* d_keys_in,                                         \
+      KeyT* d_keys_out,                                              \
+      const ValueT* d_values_in,                                     \
+      ValueT* d_values_out,                                          \
+      const int num_items,                                           \
+      const int begin_bit,                                           \
+      const int end_bit,                                             \
+      cudaStream_t stream) {                                         \
     return FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
         d_temp_storage,                                              \
         temp_storage_bytes,                                          \
@@ -466,8 +495,9 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
         begin_bit,                                                   \
         end_bit,                                                     \
         stream,                                                      \
-        debug_synchronous);                                          \
+        false);                                                      \
   }
+#endif
 
 DEF_RADIX_SORT_PAIRS_FN(int64_t, float);
 DEF_RADIX_SORT_PAIRS_FN(int64_t, double);
