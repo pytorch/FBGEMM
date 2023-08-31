@@ -69,8 +69,7 @@ std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(int32_t B, int32_t T);
       int num_items,                           \
       int begin_bit = 0,                       \
       int end_bit = sizeof(KeyT) * 8,          \
-      cudaStream_t stream = 0,                 \
-      bool debug_synchronous = false)
+      cudaStream_t stream = 0)
 
 DECL_RADIX_SORT_PAIRS_FN(int64_t, float);
 DECL_RADIX_SORT_PAIRS_FN(int64_t, double);

@@ -524,8 +524,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             linear_indices.numel(),
             0,
             total_hash_size_bits,
-            at::cuda::getCurrentCUDAStream(),
-            false));
+            at::cuda::getCurrentCUDAStream()));
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(at::kByte));
@@ -539,8 +538,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             linear_indices.numel(),
             0,
             total_hash_size_bits,
-            at::cuda::getCurrentCUDAStream(),
-            false));
+            at::cuda::getCurrentCUDAStream()));
     }
     {%- endif %}
 
@@ -568,8 +566,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                 linear_indices.numel(),
                 0,
                 total_hash_size_bits,
-                at::cuda::getCurrentCUDAStream(),
-                false));
+                at::cuda::getCurrentCUDAStream()));
             auto temp_storage = at::empty(
                 {static_cast<int64_t>(temp_storage_bytes)},
                 indices.options().dtype(at::kByte));
@@ -583,8 +580,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                 linear_indices.numel(),
                 0,
                 total_hash_size_bits,
-                at::cuda::getCurrentCUDAStream(),
-                false));
+                at::cuda::getCurrentCUDAStream()));
             }
             {%- endif %}
 
