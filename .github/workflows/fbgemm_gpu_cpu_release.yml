@@ -47,7 +47,7 @@ jobs:
       matrix:
         host-machine: [
           { arch: x86, instance: "linux.4xlarge" },
-          { arch: arm, instance: "linux.t4g.2xlarge" },
+          { arch: arm, instance: "linux.arm64.2xlarge" },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
 
@@ -111,7 +111,7 @@ jobs:
       matrix:
         host-machine: [
           { arch: x86, instance: "linux.4xlarge" },
-          { arch: arm, instance: "linux.t4g.2xlarge" },
+          { arch: arm, instance: "linux.arm64.2xlarge" },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
     needs: build_artifact
