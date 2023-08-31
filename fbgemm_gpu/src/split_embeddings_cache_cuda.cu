@@ -33,6 +33,7 @@
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
@@ -103,18 +104,18 @@ constexpr int64_t kCacheStateInvalid = -1;
 
 template <typename emb_t, typename cache_t>
 __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         weights_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
-    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
@@ -209,22 +210,21 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
                                   ->philox_cuda_state(4);
         }
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lxu_cache_flush_kernel";
+#endif
         lxu_cache_flush_kernel<emb_t, cache_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                uvm_weights
-                    .packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                cache_hash_size_cumsum
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                cache_index_table_map
-                    .packed_accessor64<int32_t, 1, at::RestrictPtrTraits>(),
-                weights_offsets
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                D_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                lxu_cache_state
-                    .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-                lxu_cache_weights
-                    .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_index_table_map, int32_t, 1, 64),
+                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, lxu_cache_weights, cache_t, 2, 64),
                 stochastic_rounding,
                 rng_engine_inputs);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -235,12 +235,13 @@ namespace {
 
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         table_offsets,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
   const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= indices.size(0)) {
@@ -298,20 +299,23 @@ DLL_PUBLIC Tensor linearize_cache_indices_cuda(
   }
 
   auto table_offsets = offsets.slice(0, B, B * T, B);
+
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "linearize_cache_indices_kernel", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "linearize_cache_indices_kernel";
+#endif
         linearize_cache_indices_kernel<<<
             div_round_up(num_indices, kMaxThreads),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            cache_hash_size_cumsum
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            table_offsets
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            linear_cache_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, table_offsets, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, linear_cache_indices, index_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return linear_cache_indices;
@@ -322,13 +326,13 @@ namespace {
 template <typename index_t>
 __global__
 __launch_bounds__(kMaxThreads) void linearize_cache_indices_from_row_idx_kernel(
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         update_table_indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         update_row_indices,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
   const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= update_row_indices.size(0)) {
@@ -373,19 +377,20 @@ DLL_PUBLIC Tensor linearize_cache_indices_from_row_idx_cuda(
       update_row_indices.scalar_type(),
       "linearize_cache_indices_from_row_idx_kernel",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "linearize_cache_indices_from_row_idx_kernel";
+#endif
         linearize_cache_indices_from_row_idx_kernel<<<
             div_round_up(num_indices, kMaxThreads),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            cache_hash_size_cumsum
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            update_table_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            update_row_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            linear_cache_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, update_table_indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, update_row_indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, linear_cache_indices, index_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return linear_cache_indices;
@@ -499,11 +504,11 @@ get_unique_indices_cuda(
 namespace {
 
 __global__ __launch_bounds__(kMaxThreads) void emulate_cache_miss_kernel(
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
     const int64_t enforced_misses_per_256,
     const bool gather_cache_stats,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         uvm_cache_stats) {
   const int32_t N = lxu_cache_locations.size(0);
   int64_t n_enforced_misses = 0;
@@ -544,16 +549,19 @@ DLL_PUBLIC Tensor emulate_cache_miss(
       div_round_up(N, kMaxThreads),
       get_max_thread_blocks_for_cache_kernels_()));
 
+#ifdef FBGEMM_GPU_MEMCHECK
+  const char* func_name = "emulate_cache_miss_kernel";
+#endif
+
   emulate_cache_miss_kernel<<<
       blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      lxu_cache_locations
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
       enforced_misses_per_256,
       gather_cache_stats,
-      uvm_cache_stats.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+      MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return lxu_cache_locations;
 }
@@ -562,9 +570,9 @@ namespace {
 // count the number of times that a cache_slot appears in lxu_cache_locations
 // we actually only care about whether the number is 0 or > 0.
 __global__ __launch_bounds__(kMaxThreads) void lxu_cache_locations_count_kernel(
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
-    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count,
+    pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count,
     FixedDivisor fd) {
   const int32_t N = lxu_cache_locations.size(0);
   CUDA_KERNEL_LOOP(n, N) {
@@ -581,9 +589,9 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_locations_count_kernel(
 // decrement the counter of that cache_slot.
 __global__
 __launch_bounds__(kMaxThreads) void lxu_cache_locking_counter_decrement_kernel(
-    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
         lxu_cache_locking_counter,
-    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count) {
+    pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count) {
   const int32_t C = lxu_cache_locking_counter.size(0);
   for (int32_t i = blockIdx.x * blockDim.y + threadIdx.y; i < C;
        i += gridDim.x * blockDim.y) {
@@ -621,16 +629,23 @@ void lxu_cache_locking_counter_decrement_cuda(
       div_round_up(N, kMaxThreads),
       get_max_thread_blocks_for_cache_kernels_()));
 
+#ifdef FBGEMM_GPU_MEMCHECK
+  const char* func_name = "lxu_cache_locations_count_kernel";
+#endif
+
   lxu_cache_locations_count_kernel<<<
       blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      lxu_cache_locations
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      count.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>(),
+      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, count, int32_t, 2, 32),
       fd);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+#ifdef FBGEMM_GPU_MEMCHECK
+  const char* func_name2 = "lxu_cache_locking_counter_decrement_kernel";
+#endif
 
   lxu_cache_locking_counter_decrement_kernel<<<
       std::min(
@@ -639,29 +654,28 @@ void lxu_cache_locking_counter_decrement_cuda(
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      lxu_cache_locking_counter
-          .packed_accessor32<int32_t, 2, at::RestrictPtrTraits>(),
-      count.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+      MAKE_PTA_WITH_NAME(func_name2, lxu_cache_locking_counter, int32_t, 2, 32),
+      MAKE_PTA_WITH_NAME(func_name2, count, int32_t, 2, 32));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 namespace {
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         unique_indices,
     const int32_t* __restrict__ N_unique,
     int64_t max_indices,
-    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     int64_t time_stamp,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     const bool gather_cache_stats,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         uvm_cache_stats,
     const bool lock_cache_line,
-    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
         lxu_cache_locking_counter) {
   if (gather_cache_stats) {
     if (blockIdx.x == 0 && threadIdx.x == 0 && threadIdx.y == 0) {
@@ -720,15 +734,15 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
 template <typename index_t>
 __global__
 __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     const int64_t max_indices,
-    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
     const int64_t time_stamp,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_miss_timestamp) {
   const int32_t N = linear_cache_indices.size(0);
   const int32_t C = lxu_cache_state.size(0);
@@ -814,6 +828,9 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lru_cache_find_uncached_kernel";
+#endif
         // Find uncached indices
         lru_cache_find_uncached_kernel<<<
             std::min(
@@ -822,21 +839,18 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            unique_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
             max_indices,
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-            cache_sets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+            MAKE_PTA_WITH_NAME(func_name, cache_sets, int32_t, 1, 32),
             time_stamp,
-            lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
             gather_cache_stats,
-            uvm_cache_stats
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
             lock_cache_line,
-            lxu_cache_locking_counter
-                .packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(
+                func_name, lxu_cache_locking_counter, int32_t, 2, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
         // Sort the cache sets and ids
         size_t temp_storage_bytes = 0;
@@ -898,6 +912,9 @@ Tensor direct_mapped_lru_cache_find_uncached_cuda(
       linear_cache_indices.scalar_type(),
       "direct_mapped_lru_cache_find_uncached_cuda",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "direct_mapped_lru_cache_find_uncached_kernel";
+#endif
         // Find uncached indices
         direct_mapped_lru_cache_find_uncached_kernel<<<
             std::min(
@@ -906,16 +923,14 @@ Tensor direct_mapped_lru_cache_find_uncached_cuda(
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            linear_cache_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            cache_sets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, cache_sets, int32_t, 1, 32),
             max_indices,
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
             time_stamp,
-            lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-            lxu_cache_miss_timestamp
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, lxu_cache_miss_timestamp, int64_t, 2, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
@@ -924,33 +939,33 @@ Tensor direct_mapped_lru_cache_find_uncached_cuda(
 
 template <typename emb_t, typename cache_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         weights_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_cache_sets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
     const int64_t time_stamp,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     const bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     const bool gather_cache_stats,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         uvm_cache_stats,
     const bool lock_cache_line,
-    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
         lxu_cache_locking_counter) {
   const int32_t C = lxu_cache_state.size(0);
   int32_t n_conflict_misses = 0;
@@ -1145,40 +1160,38 @@ void lru_cache_insert_cuda(
             ? div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO)
             : div_round_up(N, kMaxThreads / kWarpSize);
 
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lru_cache_insert_kernel";
+#endif
         lru_cache_insert_kernel<emb_t, cache_t>
             <<<grid_size,
                dim3(kWarpSize, kMaxThreads / kWarpSize),
                0,
                at::cuda::getCurrentCUDAStream()>>>(
-                weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                cache_hash_size_cumsum
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                cache_index_table_map
-                    .packed_accessor64<int32_t, 1, at::RestrictPtrTraits>(),
-                weights_offsets
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                D_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                sorted_cache_sets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                cache_set_sorted_unique_indices
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, weights, emb_t, 1, 64),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_index_table_map, int32_t, 1, 64),
+                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, sorted_cache_sets, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_set_sorted_unique_indices, int64_t, 1, 32),
                 unique_indices_length.data_ptr<int32_t>(),
-                lxu_cache_state
-                    .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-                lxu_cache_weights
-                    .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, lxu_cache_weights, cache_t, 2, 64),
                 time_stamp,
-                lru_state
-                    .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
                 stochastic_rounding,
                 rng_engine_inputs,
                 gather_cache_stats,
-                uvm_cache_stats
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
                 lock_cache_line,
-                lxu_cache_locking_counter
-                    .packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
+                MAKE_PTA_WITH_NAME(
+                    func_name, lxu_cache_locking_counter, int32_t, 2, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 }
@@ -1285,30 +1298,30 @@ namespace {
 
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
-    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         weights_offsets,
-    const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
         weights_tys,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_cache_sets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
     int64_t time_stamp,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
     const bool gather_cache_stats,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         uvm_cache_stats,
     const int64_t row_alignment) {
   const int32_t C = lxu_cache_state.size(0);
@@ -1396,28 +1409,28 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_byte_kernel(
 template <typename index_t>
 __global__
 __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
-    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         weights_offsets,
-    const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
         weights_tys,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
     int64_t time_stamp,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits> lru_state,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_miss_timestamp,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> cache_sets,
     const int64_t row_alignment) {
   const int32_t N = cache_sets.size(0);
 
@@ -1519,6 +1532,9 @@ void lru_cache_insert_byte_cuda(
       cache_set_sorted_unique_indices.scalar_type(),
       "lru_cache_insert_byte_cuda",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lru_cache_insert_byte_kernel";
+#endif
         lru_cache_insert_byte_kernel<<<
             std::min(
                 div_round_up(N, kMaxThreads / kWarpSize),
@@ -1526,29 +1542,24 @@ void lru_cache_insert_byte_cuda(
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
-            cache_hash_size_cumsum
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            cache_index_table_map
-                .packed_accessor64<int32_t, 1, at::RestrictPtrTraits>(),
-            weights_offsets
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            sorted_cache_sets
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            cache_set_sorted_unique_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, weights, uint8_t, 1, 64),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_index_table_map, int32_t, 1, 64),
+            MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, weights_tys, uint8_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, sorted_cache_sets, int32_t, 1, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_set_sorted_unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-            lxu_cache_weights
-                .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, uint8_t, 2, 64),
             time_stamp,
-            lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
             gather_cache_stats,
-            uvm_cache_stats
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
             row_alignment);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
@@ -1591,6 +1602,9 @@ void direct_mapped_lru_cache_insert_byte_cuda(
       linear_cache_indices.scalar_type(),
       "direct_mapped_lru_cache_insert_byte_cuda",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "direct_mapped_lru_cache_insert_byte_kernel";
+#endif
         direct_mapped_lru_cache_insert_byte_kernel<<<
             std::min(
                 div_round_up(N, kMaxThreads / kWarpSize),
@@ -1598,26 +1612,22 @@ void direct_mapped_lru_cache_insert_byte_cuda(
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
-            cache_hash_size_cumsum
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            cache_index_table_map
-                .packed_accessor64<int32_t, 1, at::RestrictPtrTraits>(),
-            weights_offsets
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-            lxu_cache_weights
-                .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, weights, uint8_t, 1, 64),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_index_table_map, int32_t, 1, 64),
+            MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, weights_tys, uint8_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, uint8_t, 2, 64),
             time_stamp,
-            lru_state.packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-            linear_cache_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_miss_timestamp
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-            cache_sets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
+            MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, lxu_cache_miss_timestamp, int64_t, 2, 32),
+            MAKE_PTA_WITH_NAME(func_name, cache_sets, int32_t, 1, 32),
             row_alignment);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
@@ -1809,12 +1819,12 @@ namespace {
 
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lfu_update_counts_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         unique_indices,
     const int32_t* __restrict__ N_unique,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         unique_indices_count,
-    at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> lfu_state) {
+    pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> lfu_state) {
   CUDA_KERNEL_LOOP(n, *N_unique) {
     const auto idx = unique_indices[n];
     lfu_state[idx] += unique_indices_count[n];
@@ -1835,6 +1845,9 @@ void lfu_update_counts_cuda(
   const int32_t N = unique_indices.size(0);
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lfu_update_counts_cuda", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lfu_update_counts_kernel";
+#endif
         lfu_update_counts_kernel<<<
             std::min(
                 div_round_up(N, kMaxThreads),
@@ -1842,12 +1855,10 @@ void lfu_update_counts_cuda(
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            unique_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
-            unique_indices_count
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, unique_indices_count, int32_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 }
@@ -1858,14 +1869,14 @@ static_assert(kCacheSetBits + kLFUCounterBits == 8 * sizeof(int64_t), "");
 
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lfu_cache_find_uncached_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         unique_indices,
     const int32_t* __restrict__ N_unique,
     int64_t max_indices,
-    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
     uint64_t* __restrict__ cache_sets,
-    const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
         lfu_state) {
   const int32_t C = lxu_cache_state.size(0);
 
@@ -1922,6 +1933,9 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lfu_cache_find_uncached_cuda", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lfu_cache_find_uncached_kernel";
+#endif
         // Find uncached indices
         lfu_cache_find_uncached_kernel<<<
             std::min(
@@ -1930,14 +1944,12 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            unique_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
             max_indices,
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
             (uint64_t*)cache_sets.data_ptr<int64_t>(),
-            lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
         // Sort the cache sets and ids
         size_t temp_storage_bytes = 0;
@@ -1974,24 +1986,24 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
 
 template <typename emb_t, typename cache_t>
 __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         weights_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
     const uint64_t* __restrict__ sorted_cache_sets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
-    const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
         lfu_state,
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
@@ -2164,6 +2176,10 @@ void lfu_cache_insert_cuda(
                                   ->philox_cuda_state(4);
         }
 
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lfu_cache_insert_kernel";
+#endif
+
         lfu_cache_insert_kernel<emb_t, cache_t>
             <<<std::min(
                    div_round_up(N, kCacheMaxThreads / kWarpSize),
@@ -2171,25 +2187,21 @@ void lfu_cache_insert_cuda(
                dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
                0,
                at::cuda::getCurrentCUDAStream()>>>(
-                weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                cache_hash_size_cumsum
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                cache_index_table_map
-                    .packed_accessor64<int32_t, 1, at::RestrictPtrTraits>(),
-                weights_offsets
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                D_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, weights, emb_t, 1, 64),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_index_table_map, int32_t, 1, 64),
+                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
                 (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
-                cache_set_sorted_unique_indices
-                    .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(
+                    func_name, cache_set_sorted_unique_indices, int64_t, 1, 32),
                 unique_indices_length.data_ptr<int32_t>(),
-                lxu_cache_state
-                    .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-                lxu_cache_weights
-                    .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                lfu_state
-                    .packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, lxu_cache_weights, cache_t, 2, 64),
+                MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64),
                 stochastic_rounding,
                 rng_engine_inputs);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -2290,26 +2302,26 @@ namespace {
 template <typename index_t>
 __global__
 __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_byte_kernel(
-    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> weights,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int32_t, 1, at::RestrictPtrTraits>
         cache_index_table_map,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         weights_offsets,
-    const at::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<uint8_t, 1, at::RestrictPtrTraits>
         weights_tys,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
     const uint64_t* __restrict__ sorted_cache_sets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cache_set_sorted_indices,
     const int32_t* __restrict__ N_unique,
-    at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
-    at::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
-    const at::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits>
         lfu_state,
     const int64_t row_alignment) {
   const int32_t C = lxu_cache_state.size(0);
@@ -2433,6 +2445,9 @@ void lfu_cache_insert_byte_cuda(
       cache_set_sorted_unique_indices.scalar_type(),
       "lfu_cache_insert_byte_cuda",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lfu_cache_insert_byte_kernel";
+#endif
         lfu_cache_insert_byte_kernel<<<
             std::min(
                 div_round_up(N, kCacheMaxThreads / kWarpSize),
@@ -2440,24 +2455,21 @@ void lfu_cache_insert_byte_cuda(
             dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            weights.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
-            cache_hash_size_cumsum
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            cache_index_table_map
-                .packed_accessor64<int32_t, 1, at::RestrictPtrTraits>(),
-            weights_offsets
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            weights_tys.packed_accessor32<uint8_t, 1, at::RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, weights, uint8_t, 1, 64),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_index_table_map, int32_t, 1, 64),
+            MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, weights_tys, uint8_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
             (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
-            cache_set_sorted_unique_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(
+                func_name, cache_set_sorted_unique_indices, index_t, 1, 32),
             unique_indices_length.data_ptr<int32_t>(),
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
-            lxu_cache_weights
-                .packed_accessor64<uint8_t, 2, at::RestrictPtrTraits>(),
-            lfu_state.packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, uint8_t, 2, 64),
+            MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64),
             row_alignment);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
@@ -2544,15 +2556,15 @@ namespace {
 
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
-    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
     int64_t invalid_index,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
     const bool gather_cache_stats,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         uvm_cache_stats) {
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N = linear_cache_indices.size(0);
@@ -2614,12 +2626,12 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
 template <typename index_t>
 __global__
 __launch_bounds__(kMaxThreads) void direct_mapped_lxu_cache_lookup_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_cache_indices,
-    const at::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 2, at::RestrictPtrTraits>
         lxu_cache_state,
     int64_t invalid_index,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations) {
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N = linear_cache_indices.size(0);
@@ -2676,21 +2688,20 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "lxu_cache_lookup_kernel";
+#endif
         lxu_cache_lookup_kernel<<<
             blocks,
             threads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            linear_cache_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
             invalid_index,
-            lxu_cache_locations
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
             gather_cache_stats,
-            uvm_cache_stats_
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats_, int32_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
@@ -2701,9 +2712,9 @@ namespace {
 
 __global__
 __launch_bounds__(kMaxThreads) void lxu_cache_locations_update_kernel(
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations_new) {
   const int32_t N = lxu_cache_locations.size(0);
   CUDA_KERNEL_LOOP(n, N) {
@@ -2734,15 +2745,17 @@ DLL_PUBLIC void lxu_cache_locations_update_cuda(
       div_round_up(N, kMaxThreads),
       get_max_thread_blocks_for_cache_kernels_()));
 
+#ifdef FBGEMM_GPU_MEMCHECK
+  const char* func_name = "lxu_cache_locations_update_kernel";
+#endif
+
   lxu_cache_locations_update_kernel<<<
       blocks,
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      lxu_cache_locations
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      lxu_cache_locations_new
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations_new, int32_t, 1, 32));
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return;
@@ -2772,18 +2785,18 @@ DLL_PUBLIC Tensor direct_mapped_lxu_cache_lookup_cuda(
       linear_cache_indices.scalar_type(),
       "direct_mapped_lxu_cache_lookup_cuda",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name = "direct_mapped_lxu_cache_lookup_kernel";
+#endif
         direct_mapped_lxu_cache_lookup_kernel<<<
             blocks,
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            linear_cache_indices
-                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_state
-                .packed_accessor32<int64_t, 2, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
             invalid_index,
-            lxu_cache_locations
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
@@ -2798,17 +2811,17 @@ int get_sm_count_() {
 
 __global__ __launch_bounds__(kMaxThreads) void get_cache_indices_kernel(
     int32_t blocks_per_table,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         pruned_indices,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         pruned_indices_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         logical_table_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         buffer_ids,
-    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
   const int64_t index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -2855,37 +2868,37 @@ __global__ __launch_bounds__(kMaxThreads) void get_cache_indices_kernel(
 template <typename emb_t, typename cache_t>
 __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
     int32_t blocks_per_table,
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>
         lxu_cache_weights,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         weights_offsets,
-    at::PackedTensorAccessor64<
+    pta::PackedTensorAccessor64<
         at::acc_type<cache_t, true>,
         1,
         at::RestrictPtrTraits> momentum1_dev,
-    at::PackedTensorAccessor64<
+    pta::PackedTensorAccessor64<
         at::acc_type<cache_t, true>,
         1,
         at::RestrictPtrTraits> momentum1_uvm,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         momentum1_placements,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         momentum1_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         pruned_indices,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         pruned_indices_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         logical_table_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         buffer_ids,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations) {
   const int64_t index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -3025,22 +3038,22 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
     auto linear_cache_indices = at::zeros(
         {num_pruned_indices}, pruned_indices.options().dtype(at::kLong));
 
+#ifdef FBGEMM_GPU_MEMCHECK
+    const char* func_name = "get_cache_indices_kernel";
+#endif
+
     get_cache_indices_kernel<<<
         num_pruned_tables * blocks_per_table,
         kMaxThreads,
         0,
         at::cuda::getCurrentCUDAStream()>>>(
         blocks_per_table,
-        cache_hash_size_cumsum
-            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        pruned_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        pruned_indices_offsets
-            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        logical_table_ids
-            .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        buffer_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        linear_cache_indices
-            .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>());
+        MAKE_PTA_WITH_NAME(func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+        MAKE_PTA_WITH_NAME(func_name, pruned_indices, int64_t, 1, 32),
+        MAKE_PTA_WITH_NAME(func_name, pruned_indices_offsets, int64_t, 1, 32),
+        MAKE_PTA_WITH_NAME(func_name, logical_table_ids, int32_t, 1, 32),
+        MAKE_PTA_WITH_NAME(func_name, buffer_ids, int32_t, 1, 32),
+        MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, int64_t, 1, 32));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     // Look up cache locations
@@ -3060,42 +3073,39 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
       lxu_cache_weights.scalar_type(),
       "reset_weight_momentum_kernel",
       ([&] {
-        reset_weight_momentum_kernel<emb_t, cache_t><<<
-            num_pruned_tables * blocks_per_table,
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            blocks_per_table,
-            dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-            uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_weights
-                .packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-            weights_placements
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            weights_offsets
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            momentum1_dev.packed_accessor64<
-                at::acc_type<cache_t, true>,
-                1,
-                at::RestrictPtrTraits>(),
-            momentum1_uvm.packed_accessor64<
-                at::acc_type<cache_t, true>,
-                1,
-                at::RestrictPtrTraits>(),
-            momentum1_placements
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            momentum1_offsets
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            pruned_indices
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            pruned_indices_offsets
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            logical_table_ids
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            buffer_ids.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            lxu_cache_locations
-                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>());
+#ifdef FBGEMM_GPU_MEMCHECK
+        const char* func_name2 = "get_cache_indices_kernel";
+#endif
+        reset_weight_momentum_kernel<emb_t, cache_t>
+            <<<num_pruned_tables * blocks_per_table,
+               kMaxThreads,
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                blocks_per_table,
+                MAKE_PTA_WITH_NAME(func_name2, dev_weights, emb_t, 1, 64),
+                MAKE_PTA_WITH_NAME(func_name2, uvm_weights, emb_t, 1, 64),
+                MAKE_PTA_WITH_NAME(
+                    func_name2, lxu_cache_weights, cache_t, 2, 64),
+                MAKE_PTA_WITH_NAME(
+                    func_name2, weights_placements, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, weights_offsets, int64_t, 1, 32),
+                MAKE_PTA_ACC_WITH_NAME(
+                    func_name2, momentum1_dev, cache_t, 1, 64),
+                MAKE_PTA_ACC_WITH_NAME(
+                    func_name2, momentum1_uvm, cache_t, 1, 64),
+                MAKE_PTA_WITH_NAME(
+                    func_name2, momentum1_placements, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name2, momentum1_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, D_offsets, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, pruned_indices, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name2, pruned_indices_offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name2, logical_table_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name2, buffer_ids, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name2, lxu_cache_locations, int32_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 }
