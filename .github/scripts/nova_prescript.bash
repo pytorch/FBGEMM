@@ -40,9 +40,10 @@ echo "---------------------------"
 # shellcheck source=.github/scripts/setup_env.bash
 CPU_GPU=$CU_VERSION
 if [ "$CU_VERSION" != 'cpu' ]; then
+    cuda_version_num=$(echo "$CU_VERSION" | cut -c 3-)
     # shellcheck disable=SC1091
     # shellcheck source=.github/scripts/setup_env.bash
-    . $PRELUDE; install_cudnn "$BUILD_ENV_NAME" "$(pwd)/build_only/cudnn" "$CU_VERSION"
+    . $PRELUDE; install_cudnn "$BUILD_ENV_NAME" "$(pwd)/build_only/cudnn" "$cuda_version_num"
     echo "-------- Finding NVML_LIB_PATH -----------"
     NVML_LIB_PATH=$(find "$FBGEMM_DIR" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in $FBGEMM_DIR!"
     echo "NVML_LIB_PATH = $NVML_LIB_PATH"

@@ -9,6 +9,8 @@ import os
 
 import torch
 
+from .version import __version__  # noqa
+
 try:
     torch.ops.load_library(os.path.join(os.path.dirname(__file__), "fbgemm_gpu_py.so"))
 except Exception as e:
