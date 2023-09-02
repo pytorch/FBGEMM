@@ -257,9 +257,11 @@ def main(argv: List[str]) -> None:
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
 
+    # exec(open('version.py').read())
+    __version__=generate_package_version(args.package_name)
     setup(
         name=args.package_name,
-        version=generate_package_version(args.package_name),
+        version=__version__,
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
         long_description=FbgemmGpuInstaller.description(),
