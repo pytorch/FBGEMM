@@ -27,6 +27,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("uvm_to_cpu", uvm_to_cpu);
   m.def("new_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
+  DISPATCH_TO_META("new_managed_tensor", new_managed_tensor_meta);
   m.def("new_host_mapped_tensor(Tensor self, int[] sizes) -> Tensor");
   DISPATCH_TO_CUDA("new_host_mapped_tensor", new_host_mapped_tensor);
   m.def(

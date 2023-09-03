@@ -23,6 +23,10 @@ Tensor new_managed_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes);
 
+Tensor new_managed_tensor_meta(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes);
+
 ///@ingroup cumem-utils
 // Allocate the ATen Tensor with host-mapped memory
 Tensor new_host_mapped_tensor(

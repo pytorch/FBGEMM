@@ -323,6 +323,18 @@ class UvmTest(unittest.TestCase):
         assert not torch.ops.fbgemm.is_uvm_tensor(cpu_clone)
         assert not torch.ops.fbgemm.uvm_storage(cpu_clone)
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        sizes=st.lists(
+            st.integers(min_value=1, max_value=(512)), min_size=1, max_size=3
+        ),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_new_managed_tensor_meta(self, sizes: List[int]) -> None:
+        cpu_tensor = torch.empty(sizes).to("meta")
+        cpu_tensor_meta = torch.ops.fbgemm.new_managed_tensor(cpu_tensor, sizes)
+        assert cpu_tensor.shape == cpu_tensor_meta.shape
+
 
 if __name__ == "__main__":
     unittest.main()
