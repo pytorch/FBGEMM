@@ -320,6 +320,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
+        # Start a fresh compile for each parameter of the test case
+        torch._dynamo.reset()
+
         D = D * 4
         lengths_ = np.random.randint(low=0, high=max_sequence_length, size=B)
         total_lengths = lengths_.sum()
@@ -523,6 +526,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
     def test_jagged_1d_to_dense_dynamic_shape(
         self, B: int, max_sequence_length: int, padding_value: int, device_type: str
     ) -> None:
+        # Start a fresh compile for each parameter of the test case
+        torch._dynamo.reset()
+
         def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
             return torch.repeat_interleave(
                 torch._dim_arange(lengths, 0).long(),
@@ -912,6 +918,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
+        # Start a fresh compile for each parameter of the test case
+        torch._dynamo.reset()
+
         values_2d, offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim,
             outer_dense_size,
@@ -1248,6 +1257,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
+        # Start a fresh compile for each parameter of the test case
+        torch._dynamo.reset()
+
         device = torch.device(device_type)
 
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
@@ -1514,6 +1526,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
+        # Start a fresh compile for each parameter of the test case
+        torch._dynamo.reset()
+
         x_values, x_offsets, max_lengths = self._generate_jagged_tensor(
             num_jagged_dim,
             outer_dense_size,
@@ -1720,6 +1735,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
+        # Start a fresh compile for each parameter of the test case
+        torch._dynamo.reset()
+
         assume(H == 1 or B != 0)
 
         device = torch.device(device_type)
@@ -2405,6 +2423,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype: torch.dtype,
         device_type: str,
     ) -> None:
+        # Start a fresh compile for each parameter of the test case
+        torch._dynamo.reset()
+
         assume(B != 0)
         device = torch.device(device_type)
         torch.backends.cuda.matmul.allow_tf32 = False
