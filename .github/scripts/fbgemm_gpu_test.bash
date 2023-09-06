@@ -113,3 +113,81 @@ run_fbgemm_gpu_tests () {
     fi
   done
 }
+
+
+################################################################################
+# FBGEMM_GPU Test Bulk-Combination Functions
+################################################################################
+
+test_setup_conda_environment () {
+  local python_version="$1"
+  local pytorch_installer="$2"
+  local pytorch_version="$3"
+  local pytorch_variant_type="$4"
+  local pytorch_variant_version="$5"
+  if [ "$pytorch_variant_type" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_VERSION PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env 3.8 pip test cuda 11.8.0       # Setup environment with pytorch-test for Python 3.8 + CUDA 11.8.0"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Setup FBGEMM-GPU Build Container (All Steps)"
+    echo "#"
+    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  local env_name="test_py${python_version}_${pytorch_installer}_pytorch_${pytorch_version}_${pytorch_variant_type}"
+  if [ "$pytorch_variant_version" != "" ]; then
+    local env_name="${env_name}_${pytorch_variant_version}"
+  fi
+
+  echo "Creating the Build Environment: ${env_name} ..."
+  create_conda_environment    "${env_name}" "${python_version}" || return 1
+
+  # Set up the build tools and/or GPU runtimes
+  if [ "$pytorch_variant_type" == "cuda" ]; then
+    install_cxx_compiler      "${env_name}"                                                                         || return 1
+    install_build_tools       "${env_name}"                                                                         || return 1
+    install_cuda              "${env_name}" "${pytorch_variant_version}"                                            || return 1
+    install_cudnn             "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
+
+  elif [ "$pytorch_variant_type" == "rocm" ]; then
+    install_rocm_ubuntu       "${env_name}" "${pytorch_variant_version}"  || return 1
+    install_build_tools       "${env_name}"                               || return 1
+    return 1
+
+  else
+    install_cxx_compiler      "${env_name}" || return 1
+    install_build_tools       "${env_name}" || return 1
+  fi
+
+  # Install PyTorch
+  if [ "$pytorch_installer" == "conda" ]; then
+    install_pytorch_conda     "${env_name}" "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
+  else
+    install_pytorch_pip       "${env_name}" "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
+  fi
+
+  return "${env_name}"
+}
+
+test_fbgemm_gpu_build_and_install () {
+  local env_name="$1"
+  local pytorch_variant_type="$2"
+
+  # Assume we are starting from the repository root directory
+  cd fbgemm_gpu                                                               || return 1
+  prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
+  build_fbgemm_gpu_package    "${env_name}" release "${pytorch_variant_type}" || return 1
+  # shellcheck disable=SC2164
+  cd -
+  install_fbgemm_gpu_package  "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
+
+  cd fbgemm_gpu/test                        || return 1
+  run_fbgemm_gpu_tests        "${env_name}" || return 1
+  # shellcheck disable=SC2164
+  cd -
+}
