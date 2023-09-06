@@ -249,6 +249,7 @@ def main(argv: List[str]) -> None:
 
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
+    print(sys.argv)
 
     setup(
         name=args.package_name,
