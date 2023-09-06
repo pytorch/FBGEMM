@@ -22,7 +22,11 @@
 // clang-format on
 
 #ifdef __HIP_PLATFORM_HCC__
+#if __has_include(<rocm-core/rocm_version.h>)
+#include <rocm-core/rocm_version.h>
+#else
 #include <rocm_version.h>
+#endif
 #endif
 
 inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {

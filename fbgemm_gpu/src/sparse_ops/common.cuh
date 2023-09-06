@@ -32,7 +32,7 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 #ifdef __HIP_PLATFORM_HCC__
-#include <hipblas.h>
+#include <hipblas/hipblas.h>
 #endif
 
 #ifdef __HIP_PLATFORM_HCC__
