@@ -45,6 +45,10 @@ def generate_package_version(package_name: str):
         # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
         # Then remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
         version = re.sub(".post0$", "", gitversion.version_from_git().split("+")[0])
+        print("version from gitversion: ", version)
+        print(gitversion.version_from_git())
+        # Manually change version
+        version = "0.5.0rc0"
 
     print(f"[SETUP.PY] Setting the package version: {version}")
     return version
