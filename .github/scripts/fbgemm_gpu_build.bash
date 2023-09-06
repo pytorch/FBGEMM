@@ -103,7 +103,14 @@ __configure_fbgemm_gpu_build_cuda () {
 
   else
     echo "[BUILD] Using the default CUDA targets ..."
-    local arch_list="7.0;8.0"
+    # For cuda version 12.1, enable sm 9.0
+    cuda_version_nvcc=$(nvcc --version)
+    echo "$cuda_version_nvcc"
+    if [[ $cuda_version_nvcc == *"V12.1"* ]]; then
+      local arch_list="7.0;8.0;9.0"
+    else
+      local arch_list="7.0;8.0"
+    fi
   fi
 
   # Unset the environment-supplied TORCH_CUDA_ARCH_LIST because it will take
