@@ -1,5 +1,5 @@
 cmake
-hypothesis
+hypothesis==6.83.1
 jinja2
 ninja
 numpy
