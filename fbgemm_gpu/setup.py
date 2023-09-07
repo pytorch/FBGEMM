@@ -244,15 +244,24 @@ def main(argv: List[str]) -> None:
     if len(unknown) != 0 and (len(unknown) != 1 or unknown[0] != "clean"):
         print("Unknown Arguments: ", unknown)
 
+    if "BUILD_FROM_NOVA" in os.environ:
+        build_from_nova = os.getenv("BUILD_FROM_NOVA")
+        print("build_from_nova", build_from_nova)
+        if str(build_from_nova) != "0":
+            print("Build from Nova detected... exiting")
+            sys.exit(0)
+
     if not args.cpu_only:
         set_cuda_environment_variables()
 
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
 
+    # exec(open('version.py').read())
+    __version__=generate_package_version(args.package_name)
     setup(
         name=args.package_name,
-        version=generate_package_version(args.package_name),
+        version=__version__,
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
         long_description=FbgemmGpuInstaller.description(),
