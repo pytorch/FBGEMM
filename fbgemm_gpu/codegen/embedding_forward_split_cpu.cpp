@@ -11,6 +11,7 @@
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
 #include "fbgemm_gpu/cpu_utils.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #ifdef FBCODE_CAFFE2
@@ -201,7 +202,7 @@ Tensor split_embedding_codegen_forward_cpu(
   // It is assumed that the indice_weights will always be float
   TORCH_CHECK(
       !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       output.scalar_type(), "split_embedding_cpu_forward", [&]() {
         using output_t = scalar_t;
         AT_DISPATCH_FLOATING_TYPES_AND2(
@@ -298,12 +299,12 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
       indices,
       indices.options().dtype(
           at::toAccumulateType(grad_output.scalar_type(), true)));
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(),
       "split_embedding_grad_indice_weights_cpu_outer",
       [&] {
         using grad_t = scalar_t;
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        FBGEMM_DISPATCH_FLOAT_AND_HALF(
             weights.scalar_type(),
             "split_embedding_grad_indice_weights_cpu",
             [&] {
