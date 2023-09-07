@@ -172,9 +172,6 @@ message("Building FBGEMM for GPU arch: ${PYTORCH_ROCM_ARCH}")
 ADD_DEFINITIONS(-DNDEBUG)
 ADD_DEFINITIONS(-DUSE_ROCM)
 
-# Add HIP to the CMAKE Module Path
-set(CMAKE_MODULE_PATH ${ROCM_PATH}/lib/cmake/hip ${CMAKE_MODULE_PATH})
-
 macro(find_package_and_print_version PACKAGE_NAME)
   find_package("${PACKAGE_NAME}" ${ARGN})
   message("${PACKAGE_NAME} VERSION: ${${PACKAGE_NAME}_VERSION}")
