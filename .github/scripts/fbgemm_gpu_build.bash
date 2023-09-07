@@ -104,7 +104,7 @@ __configure_fbgemm_gpu_build_cuda () {
   else
     echo "[BUILD] Using the default CUDA targets ..."
     # For cuda version 12.1, enable sm 9.0
-    cuda_version_nvcc=$(nvcc --version)
+    cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
     echo "$cuda_version_nvcc"
     if [[ $cuda_version_nvcc == *"V12.1"* ]]; then
       local arch_list="7.0;8.0;9.0"
