@@ -10,6 +10,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 #include "ATen/Parallel.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
@@ -37,7 +38,7 @@ Tensor recat_embedding_grad_output_mixed_D_cpu(
   const auto global_dim_sum = accum_dim_sum[n];
   TORCH_CHECK(B_local * global_dim_sum == grad_output.numel());
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 2>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
