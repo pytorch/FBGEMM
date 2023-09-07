@@ -169,6 +169,8 @@ if(PYTORCH_ROCM_ARCH STREQUAL "")
 endif()
 message("Building FBGEMM for GPU arch: ${PYTORCH_ROCM_ARCH}")
 
+set(CMAKE_MODULE_PATH ${HIP_PATH}/cmake ${CMAKE_MODULE_PATH})
+
 ADD_DEFINITIONS(-DNDEBUG)
 ADD_DEFINITIONS(-DUSE_ROCM)
 
@@ -292,7 +294,7 @@ if(HIP_FOUND)
     set(HIPSOLVER_PATH ${ROCM_PATH})
     set(ROCTRACER_PATH ${ROCM_PATH})
   else()
-    set(CMAKE_MODULE_PATH ${HIP_PATH}/cmake ${CMAKE_MODULE_PATH})
+    
     set(hip_DIR ${ROCM_PATH}/lib/cmake/hip)
     set(hsa-runtime64_DIR ${ROCM_PATH}/lib/cmake/hsa-runtime64)
     set(AMDDeviceLibs_DIR ${ROCM_PATH}/lib/cmake/AMDDeviceLibs)
