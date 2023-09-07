@@ -49,7 +49,6 @@ def generate_package_version(package_name: str):
         print(gitversion.version_from_git())
         # Manually change version
         version = "0.5.0rc2"
-
     print(f"[SETUP.PY] Setting the package version: {version}")
     return version
 
