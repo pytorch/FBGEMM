@@ -214,6 +214,19 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             expected_result,
         )
 
+        input = input.to(device="cpu")
+        result = torch.ops.fbgemm.permute_duplicate_pooled_embs_auto_grad(
+            input,
+            _offset_dim_list.to(device=input.device),
+            _permute.to(device=input.device),
+            _inv_offset_dim_list.to(device=input.device),
+            _inv_permute.to(device=input.device),
+        )
+        self.assertEqual(
+            result.view(16).tolist(),
+            expected_result,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
