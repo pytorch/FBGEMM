@@ -177,7 +177,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Install FBGEMM_GPU Nightly
-      run: . $PRELUDE; install_fbgemm_gpu_package $BUILD_ENV *.whl
+      run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
       timeout-minutes: 10

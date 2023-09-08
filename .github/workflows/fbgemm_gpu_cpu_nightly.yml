@@ -171,7 +171,7 @@ jobs:
       run: |
         . $PRELUDE
         pwd; ls -la .
-        install_fbgemm_gpu_package $BUILD_ENV *.whl
+        install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
       timeout-minutes: 10

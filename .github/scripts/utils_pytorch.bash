@@ -118,15 +118,15 @@ install_pytorch_pip () {
 
   # Set the package variant
   if [ "$pytorch_variant_type" == "cuda" ]; then
-    # Extract the CUDA version or default to 11.7.1
-    local cuda_version="${pytorch_variant_version:-11.7.1}"
+    # Extract the CUDA version or default to 11.8.0
+    local cuda_version="${pytorch_variant_version:-11.8.0}"
     # shellcheck disable=SC2206
     local cuda_version_arr=(${cuda_version//./ })
     # Convert, i.e. cuda 11.7.1 => cu117
     local pytorch_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
   elif [ "$pytorch_variant_type" == "rocm" ]; then
-    # Extract the ROCM version or default to 5.3
-    local rocm_version="${pytorch_variant_version:-5.3}"
+    # Extract the ROCM version or default to 5.5.1
+    local rocm_version="${pytorch_variant_version:-5.5.1}"
     # shellcheck disable=SC2206
     local rocm_version_arr=(${rocm_version//./ })
     # Convert, i.e. rocm 5.5.1 => rocm5.5
