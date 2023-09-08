@@ -5575,6 +5575,129 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 self.assertEqual(num_conflict_miss, e[1])
                 cc1.reset_uvm_cache_stats()
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        N=st.integers(min_value=1, max_value=8),
+        dtype=st.sampled_from([SparseType.INT8, SparseType.INT4, SparseType.INT2]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_nbit_direct_mapped_uvm_cache_stats(
+        self, N: int, dtype: SparseType
+    ) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    dtype,
+                    EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.cuda.current_device(),
+            gather_uvm_cache_stats=True,
+            cache_assoc=1,  # Direct Mapped
+        )
+        cc.fill_random_weights()
+
+        # Create fake input data and the target output
+        x1 = torch.Tensor([[[1], [1]], [[3], [4]]]).cuda()
+        x2 = torch.Tensor([[[2], [1]], [[3], [4]]]).cuda()
+        x3 = torch.Tensor([[[5], [6]], [[7], [8]]]).cuda()
+
+        xs = [x1, x2, x3]
+        # num_unique_indices, num_unique_misses
+        # note that these are cumulative over calls; and also "unique" is per batch.
+        target_counter_list = [[3, 3], [4, 4], [4, 8]]
+        num_calls_expected = 0
+        num_indices_expcted = 0
+        num_unique_indices_expected = 0
+        for x, t_counter in zip(xs, target_counter_list):
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            for _ in range(N):
+                num_calls_expected = num_calls_expected + 1
+                num_indices_expcted = num_indices_expcted + len(indices)
+                cc(indices.int(), offsets.int())
+                (
+                    num_calls,
+                    num_indices,
+                    num_unique_indices,
+                    num_unique_misses,
+                    num_conflict_unique_miss,
+                    num_conflict_miss,
+                ) = cc.get_uvm_cache_stats().cpu()
+                # Note num_unique_indices is cumulative stats.
+                num_unique_indices_expected = num_unique_indices_expected + t_counter[0]
+                self.assertEqual(num_calls, num_calls_expected)
+                self.assertEqual(num_indices, num_indices_expcted)
+                self.assertEqual(num_unique_indices, 0)  # N/A for Direct Mapped
+                self.assertEqual(num_unique_misses, 0)  # N/A for Direct Mapped
+                self.assertEqual(
+                    num_conflict_unique_miss, t_counter[1]
+                )  # number of actually inserted rows for Direct Mapped
+                self.assertEqual(num_conflict_miss, 0)
+
+        T = 1  # for simplicity
+        Ds = [D] * T
+        Es = [E] * T
+        cc1 = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    SparseType.INT8,
+                    EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.cuda.current_device(),
+            gather_uvm_cache_stats=True,
+            cache_sets=1,  # Only one set.
+            cache_assoc=1,  # Direct Mapped
+        )
+        cc1.fill_random_weights()
+
+        associativty = 1  # Direct-Mapped
+        repetition = 17
+        indices1 = torch.Tensor(
+            [[list(range(0, associativty))] * repetition]
+        ).cuda()  # no conflict miss
+        indices2 = torch.Tensor(
+            [[list(range(0, associativty + 1))] * repetition]
+        ).cuda()  # 1 * 17 conflict miss per request
+        indices3 = torch.Tensor(
+            [[list(range(0, associativty + 10))] * repetition]
+        ).cuda()  # 10 * 17 conflict misses per request
+
+        # num_conflict_unique_miss, num_conflict_miss
+        expected = [[1, 0], [1, 17], [1, 170]]
+
+        accum_num_conflict_miss = 0
+        for x, e in zip((indices1, indices2, indices3), expected):
+            (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
+            for _ in range(N):
+                cc1(indices.int(), offsets.int())
+                (
+                    _,
+                    _,
+                    _,
+                    _,
+                    num_conflict_unique_miss,
+                    num_conflict_miss,
+                ) = cc1.get_uvm_cache_stats().cpu()
+                # for DM this represents number of actually inserted rows
+                self.assertEqual(num_conflict_unique_miss, e[0])
+                accum_num_conflict_miss += e[1]
+                self.assertEqual(num_conflict_miss, accum_num_conflict_miss)
+
     @given(
         T=st.integers(min_value=1, max_value=64),
         B=st.integers(min_value=1, max_value=64),
