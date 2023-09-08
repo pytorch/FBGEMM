@@ -143,6 +143,9 @@ __print_system_info_linux () {
   print_exec uname -m
   print_exec cat /proc/version
   print_exec cat /etc/os-release
+  echo "============================"
+  print_exec hostname
+  echo "============================"
 }
 
 __print_system_info_macos () {
