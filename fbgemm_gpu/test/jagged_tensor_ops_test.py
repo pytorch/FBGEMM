@@ -2750,6 +2750,48 @@ class JaggedTensorOpsTest(unittest.TestCase):
             pos = reverse_index_list[i]
             self.assertTrue(unique_indices_list[pos] == indices_list[i])
 
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        B=st.integers(min_value=100, max_value=200),
+        F=st.integers(min_value=50, max_value=100),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    def test_jagged_unique_indices_empty(
+        self,
+        B: int,  # Batch size
+        F: int,  # The number of features
+    ) -> None:
+        hash_size_cumsum_list = [0] + list(itertools.accumulate([10] * F))
+        hash_size_offsets_list = [0] + list(itertools.accumulate([1] * F))
+        offsets_list = [0] * (B * F + 1)
+        indices_list = []
+
+        device = torch.device("cuda")
+        dtype = torch.int64
+        hash_size_cumsum = torch.as_tensor(
+            hash_size_cumsum_list, device=device, dtype=dtype
+        )
+        hash_size_offsets = torch.as_tensor(
+            hash_size_offsets_list, device=device, dtype=dtype
+        )
+        offsets = torch.as_tensor(offsets_list, device=device, dtype=dtype)
+        indices = torch.as_tensor(indices_list, device=device, dtype=dtype)
+
+        (
+            output_lengths,
+            output_offsets,
+            unique_indices,
+            reverse_index,
+        ) = torch.ops.fbgemm.jagged_unique_indices(
+            hash_size_cumsum, hash_size_offsets, offsets, indices
+        )
+
+        # The output should be empty since there are no input indices
+        self.assertEqual(unique_indices.numel(), 0)
+        self.assertEqual(reverse_index.numel(), 0)
+        self.assertEqual(torch.sum(output_lengths).item(), 0)
+        self.assertEqual(torch.sum(output_offsets).item(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

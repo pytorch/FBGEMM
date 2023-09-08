@@ -171,7 +171,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
         const auto delinearize_unique_index_kernel_ =
             delinearize_unique_index_kernel<index_t>;
         delinearize_unique_index_kernel_<<<
-            div_round_up(total_indices, kMaxThreads),
+            div_round_up(total_indices + 1, kMaxThreads),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
