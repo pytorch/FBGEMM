@@ -305,7 +305,7 @@ build_fbgemm_gpu_package () {
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${plat_name}" \
-      "${build_args[@]}"
+      "${build_args[@]}  2>&1 | tee log_build"
 
   # Run checks on the built libraries
   (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
