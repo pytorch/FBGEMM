@@ -298,10 +298,12 @@ build_fbgemm_gpu_package () {
   # See https://github.com/pypa/manylinux
   local plat_name="manylinux2014_${MACHINE_NAME}"
 
+  echo ${build_args[@]} > log_build_arg
+
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
   print_exec conda run --no-capture-output -n "${env_name}" \
-    python setup.py bdist_wheel \
+    python setup.py -j 4 bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${plat_name}" \
