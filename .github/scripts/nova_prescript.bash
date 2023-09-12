@@ -56,7 +56,7 @@ BUILD_FROM_NOVA=0
 export BUILD_FROM_NOVA
 
 ## Build FBGEMM_GPU Nightly
-cd "${FBGEMM_REPO}/fbgemm_gpu " || echo "Failed to cd to ${FBGEMM_REPO}/fbgemm_gpu from $(pwd)"
+cd "${FBGEMM_REPO}/fbgemm_gpu" || echo "Failed to cd to ${FBGEMM_REPO}/fbgemm_gpu from $(pwd)"
 if [[ ${CHANNEL} == "" ]]; then CHANNEL="nightly"; fi #set nightly by default
 echo "----------------------------------------------"
 echo "build_fbgemm_gpu_package ${BUILD_ENV_NAME} ${CHANNEL} ${CPU_GPU}"
