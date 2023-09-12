@@ -9,6 +9,7 @@ FBGEMM_DIR="/__w/FBGEMM/FBGEMM"
 export FBGEMM_REPO="${FBGEMM_DIR}/${REPOSITORY}"
 working_dir=$(pwd)
 export BUILD_FROM_NOVA=1
+<<<<<<< HEAD
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}"; fi
 if [[ "$CU_VERSION" == "cu118" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0'; fi
 if [[ "$CU_VERSION" == "cu121" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0;9.0'; fi
