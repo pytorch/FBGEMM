@@ -44,7 +44,7 @@ if [ "${CU_VERSION}" != 'cpu' ]; then
     echo "-------- Finding NVML_LIB_PATH -----------"
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
     [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${FBGEMM_DIR}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${FBGEMM_DIR}")
-    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CONDA_PREFIX}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CONDA_PREFIX}")
+    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CUDA_HOME}")
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
     echo "------------------------------------------"
     CPU_GPU="cuda"
