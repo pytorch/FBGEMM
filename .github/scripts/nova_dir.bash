@@ -11,3 +11,4 @@ export FBGEMM_REPO
 working_dir=$(pwd)
 BUILD_FROM_NOVA=1
 export BUILD_FROM_NOVA
+if [[ "$working_dir" == "$FBGEMM_REPO" ]]; then cd fbgemm_gpu || echo "Failed to cd fbgemm_gpu from $(pwd)"; fi
