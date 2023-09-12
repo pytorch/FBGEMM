@@ -10,8 +10,7 @@ export FBGEMM_REPO="${FBGEMM_DIR}/${REPOSITORY}"
 working_dir=$(pwd)
 export BUILD_FROM_NOVA=1
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}"; fi
-if [[ "$CU_VERSION" == "cu118" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0'; fi
-if [[ "$CU_VERSION" == "cu121" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0;9.0'; fi
+if [[ "$CU_VERSION" == "cu118" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0' && echo $TORCH_CUDA_ARCH_LIST; fi
+if [[ "$CU_VERSION" == "cu121" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0;9.0' && echo $TORCH_CUDA_ARCH_LIST; fi
 if [[ "$working_dir" == "$FBGEMM_REPO" ]]; then cd fbgemm_gpu || echo "Failed to cd fbgemm_gpu from $(pwd)"; fi
-echo $TORCH_CUDA_ARCH_LIST
 echo $CONDA_RUN
