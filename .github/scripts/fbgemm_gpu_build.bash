@@ -298,7 +298,9 @@ build_fbgemm_gpu_package () {
   # See https://github.com/pypa/manylinux
   local plat_name="manylinux2014_${MACHINE_NAME}"
 
-  echo ${build_args[@]} > log_build_arg
+  echo "[BUILD] Checking arch_list = $arch_list"
+  echo "[BUILD] Checking build_args:  "
+  echo ${build_args[@]} 2>&1 | tee log_build_arg
 
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
