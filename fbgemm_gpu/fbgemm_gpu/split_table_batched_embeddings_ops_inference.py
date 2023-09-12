@@ -594,13 +594,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
         if self.gather_uvm_cache_stats:
-            # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
-            # We may wanna do this accumulation atomically, but as it's only for monitoring,
-            # slightly inaccurate result may be acceptable.
-            self.uvm_cache_stats = torch.add(
-                self.uvm_cache_stats, self.local_uvm_cache_stats
-            )
-            self.local_uvm_cache_stats.zero_()
+            self._accumulate_uvm_cache_stats()
 
     def prefetch_1way(self, linear_cache_indices: Tensor) -> None:
         if self.cache_algorithm == CacheAlgorithm.LRU:
@@ -618,6 +612,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.timestep_counter.get(),
                 self.lxu_state,
                 self.lxu_cache_miss_timestamp,
+                16,  # row_alignment; using default value.
+                self.gather_uvm_cache_stats,
+                self.local_uvm_cache_stats,
             )
         else:
             raise ValueError("Direct Mapped for LRU only")
@@ -630,8 +627,21 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 linear_cache_indices,
                 self.lxu_cache_state,
                 self.total_cache_hash_size,
+                self.gather_uvm_cache_stats,
+                self.local_uvm_cache_stats,
             )
         )
+        if self.gather_uvm_cache_stats:
+            self._accumulate_uvm_cache_stats()
+
+    def _accumulate_uvm_cache_stats(self) -> None:
+        # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
+        # We may wanna do this accumulation atomically, but as it's only for monitoring,
+        # slightly inaccurate result may be acceptable.
+        self.uvm_cache_stats = torch.add(
+            self.uvm_cache_stats, self.local_uvm_cache_stats
+        )
+        self.local_uvm_cache_stats.zero_()
 
     def _update_cache_miss_counter(
         self,

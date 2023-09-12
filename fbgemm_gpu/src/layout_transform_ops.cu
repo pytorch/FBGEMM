@@ -9,6 +9,7 @@
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include <cub/device/device_scan.cuh>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
@@ -49,7 +50,7 @@ Tensor recat_embedding_grad_output_cuda(
 
   Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 3>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
@@ -93,7 +94,7 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
   Tensor sharded_grad_output =
       at::empty({grad_output.numel()}, grad_output.options());
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {
         const auto go = grad_output.accessor<scalar_t, 2>();
         auto sgo = sharded_grad_output.accessor<scalar_t, 1>();
@@ -145,7 +146,7 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
   const dim3 blocks(fbgemm_gpu::div_round_up(
       (B_local * dim_num), fbgemm_gpu::kMaxThreads / fbgemm_gpu::kWarpSize));
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "recat_embedding_gradients", [&] {
         recat_copy_async_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(

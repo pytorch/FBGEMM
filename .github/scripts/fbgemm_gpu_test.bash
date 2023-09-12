@@ -170,8 +170,6 @@ test_setup_conda_environment () {
   else
     install_pytorch_pip       "${env_name}" "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
   fi
-
-  return "${env_name}"
 }
 
 test_fbgemm_gpu_build_and_install () {
@@ -184,7 +182,7 @@ test_fbgemm_gpu_build_and_install () {
   build_fbgemm_gpu_package    "${env_name}" release "${pytorch_variant_type}" || return 1
   # shellcheck disable=SC2164
   cd -
-  install_fbgemm_gpu_package  "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
+  install_fbgemm_gpu_wheel  "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
 
   cd fbgemm_gpu/test                        || return 1
   run_fbgemm_gpu_tests        "${env_name}" || return 1

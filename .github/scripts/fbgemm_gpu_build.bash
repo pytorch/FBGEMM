@@ -402,35 +402,3 @@ build_fbgemm_gpu_develop () {
 
   echo "[BUILD] FBGEMM-GPU build + develop completed"
 }
-
-install_fbgemm_gpu_package () {
-  local env_name="$1"
-  local package_name="$2"
-  if [ "$package_name" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME WHEEL_NAME"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu.whl     # Install the package (wheel)"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Install FBGEMM-GPU Package (Wheel)"
-    echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
-    echo "################################################################################"
-    echo ""
-  fi
-
-  echo "[INSTALL] Printing out FBGEMM-GPU wheel SHA: ${package_name}"
-  print_exec sha1sum "${package_name}"
-  print_exec sha256sum "${package_name}"
-  print_exec md5sum "${package_name}"
-
-  echo "[INSTALL] Installing FBGEMM-GPU wheel: ${package_name} ..."
-  (exec_with_retries conda run --no-capture-output -n "${env_name}" python -m pip install "${package_name}") || return 1
-
-  echo "[INSTALL] Checking imports ..."
-  (test_python_import "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
-
-  echo "[INSTALL] Wheel installation completed ..."
-}

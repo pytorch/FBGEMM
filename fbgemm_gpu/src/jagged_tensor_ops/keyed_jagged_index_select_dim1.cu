@@ -298,7 +298,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
                       "keyed_jagged_index_select_dim1_warpper_3",
                       [&] {
                         if (weights.has_value()) {
-                          AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+                          FBGEMM_DISPATCH_FLOAT_AND_HALF(
                               weights.value().scalar_type(),
                               "keyed_jagged_index_select_dim1_warpper_4",
                               [&] {
