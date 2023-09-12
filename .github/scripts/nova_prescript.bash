@@ -38,11 +38,13 @@ install_build_tools "${BUILD_ENV_NAME}"
 ## Install cuDNN
 CPU_GPU=${CU_VERSION}
 if [ "${CU_VERSION}" != 'cpu' ]; then
-    install_cudnn "${BUILD_ENV_NAME}" "$(pwd)/build_only/cudnn" "${CU_VERSION}"
+    ## Nova $CU_VERSION is e.g., cu118
+    cuda_version_num=$(echo "$CU_VERSION" | cut -c 3-)
+    install_cudnn "${BUILD_ENV_NAME}" "$(pwd)/build_only/cudnn" "$cuda_version_num"
     echo "-------- Finding NVML_LIB_PATH -----------"
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
-    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${FBGEMM_DIR}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${FBGEMM_DIR}!")
-    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CONDA_PREFIX}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CONDA_PREFIX}!")
+    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${FBGEMM_DIR}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${FBGEMM_DIR}")
+    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CONDA_PREFIX}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CONDA_PREFIX}")
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
     echo "------------------------------------------"
     CPU_GPU="cuda"
