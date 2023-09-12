@@ -25,8 +25,8 @@ jobs:
     with:
       repository: pytorch/FBGEMM
       ref: ""
-      pre-script: ../.github/scripts/nova_prescript.bash
-      post-script: ../.github/scripts/nova_postscript.bash
+      pre-script: .github/scripts/nova_prescript.bash
+      post-script: .github/scripts/nova_postscript.bash
       smoke-test-script: ""
       env-var-script: .github/scripts/nova_dir.bash
       package-name: fbgemm_gpu
