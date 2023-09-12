@@ -16,7 +16,7 @@ export GITHUB_ENV
 echo "Current working directory: $(pwd)"
 # shellcheck disable=SC1091
 # shellcheck source=.github/scripts/setup_env.bash
-. $PRELUDE; install_fbgemm_gpu_package "${BUILD_ENV_NAME}" fbgemm_gpu/dist/*.whl
+. $PRELUDE; install_fbgemm_gpu_wheel "${BUILD_ENV_NAME}" fbgemm_gpu/dist/*.whl
 
 # Test with PyTest
 echo "Current working directory: $(pwd)"
