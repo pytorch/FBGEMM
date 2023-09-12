@@ -11,4 +11,5 @@ export FBGEMM_REPO
 working_dir=$(pwd)
 BUILD_FROM_NOVA=1
 export BUILD_FROM_NOVA
+if [[ "$CONDA_ENV" != "" ]]; then (CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && export CONDA_RUN); fi
 if [[ "$working_dir" == "$FBGEMM_REPO" ]]; then cd fbgemm_gpu || echo "Failed to cd fbgemm_gpu from $(pwd)"; fi
