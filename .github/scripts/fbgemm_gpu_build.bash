@@ -301,10 +301,12 @@ build_fbgemm_gpu_package () {
   echo "[BUILD] Checking arch_list = ${arch_list}"
   echo "[BUILD] Checking build_args: ${build_args[@]} "
 
+  n_core=$(expr $(nproc) / 2) || n_core=4
+
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
   print_exec conda run --no-capture-output -n "${env_name}" \
-    python setup.py -j 4 bdist_wheel \
+    python setup.py -j "${n_core}" bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${plat_name}" \
