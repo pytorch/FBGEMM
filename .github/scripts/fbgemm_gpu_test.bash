@@ -93,8 +93,8 @@ run_fbgemm_gpu_tests () {
   print_exec conda install -n "${env_name}" -y pytest
 
   echo "[TEST] Checking imports ..."
-  (test_python_import "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
+  (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
 
   echo "[TEST] Enumerating test files ..."
   print_exec ls -lth ./*.py

@@ -42,7 +42,7 @@ install_lint_tools () {
   # Check Python packages are importable
   local import_tests=( click )
   for p in "${import_tests[@]}"; do
-    (test_python_import "${env_name}" "${p}") || return 1
+    (test_python_import_package "${env_name}" "${p}") || return 1
   done
 
   echo "[INSTALL] Successfully installed all the lint tools"
