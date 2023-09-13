@@ -18,6 +18,7 @@ echo "CU_VERSION = ${CU_VERSION}"
 echo "PYTHON_VERSION = ${PYTHON_VERSION}"
 echo "python3 --version = $(python3 --version)"
 echo "ARCH = ${ARCH}"
+echo "CUDA_HOME = ${CUDA_HOME}"
 echo "---------------------------"
 # shellcheck disable=SC1091
 # shellcheck source=.github/scripts/setup_env.bash
@@ -43,7 +44,7 @@ if [ "${CU_VERSION}" != 'cpu' ]; then
     install_cudnn "${BUILD_ENV_NAME}" "$(pwd)/build_only/cudnn" "$cuda_version_num"
     echo "-------- Finding NVML_LIB_PATH -----------"
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
-    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${FBGEMM_DIR}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${FBGEMM_DIR}")
+    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CONDA_ENV}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CONDA_ENV}")
     [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CUDA_HOME}")
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
     echo "------------------------------------------"
