@@ -133,6 +133,7 @@ __print_system_info_linux () {
   echo "################################################################################"
   echo "[INFO] Print CPU info ..."
   print_exec nproc
+  print_exec lscpu
   print_exec cat /proc/cpuinfo
 
 

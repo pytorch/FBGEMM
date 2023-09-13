@@ -301,7 +301,9 @@ build_fbgemm_gpu_package () {
   echo "[BUILD] Checking arch_list = ${arch_list}"
   echo "[BUILD] Checking build_args: ${build_args[@]} "
 
-  n_core=$(expr $(nproc) / 2) || n_core=4
+  core=$(lscpu | grep "Core(s) per socket" | awk '{print $NF}')
+  sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}')
+  n_core=$(($core * $sockets)) || n_core=4
 
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
