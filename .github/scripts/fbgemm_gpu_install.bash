@@ -13,6 +13,17 @@
 # FBGEMM_GPU Install Functions
 ################################################################################
 
+__fbgemm_gpu_post_install_checks () {
+  echo "[INSTALL] Checking imports and symbols ..."
+  (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
+  (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  (test_python_import_symbol "${env_name}" fbgemm_gpu __version__) || return 1
+
+  echo "[CHECK] Printing out the FBGEMM-GPU version ..."
+  installed_fbgemm_gpu_version=$(conda run -n "${env_name}" python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
+  echo "[CHECK] The installed version is: ${installed_fbgemm_gpu_version}"
+}
+
 install_fbgemm_gpu_wheel () {
   local env_name="$1"
   local wheel_path="$2"
@@ -38,9 +49,7 @@ install_fbgemm_gpu_wheel () {
   echo "[INSTALL] Installing FBGEMM-GPU wheel: ${wheel_path} ..."
   (exec_with_retries conda run -n "${env_name}" python -m pip install "${wheel_path}") || return 1
 
-  echo "[INSTALL] Checking imports ..."
-  (test_python_import "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  __fbgemm_gpu_post_install_checks || return 1
 
   echo "[INSTALL] FBGEMM-GPU installation through wheel completed ..."
 }
@@ -126,9 +135,7 @@ install_fbgemm_gpu_pip () {
   # shellcheck disable=SC2086
   (exec_with_retries conda run -n "${env_name}" pip install ${fbgemm_gpu_package}) || return 1
 
-  echo "[INSTALL] Checking imports ..."
-  (test_python_import "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  __fbgemm_gpu_post_install_checks || return 1
 
   echo "[INSTALL] FBGEMM-GPU installation through PIP completed ..."
 }
