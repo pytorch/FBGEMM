@@ -179,7 +179,7 @@ install_build_tools () {
   # Check Python packages are importable
   local import_tests=( click hypothesis jinja2 numpy skbuild wheel )
   for p in "${import_tests[@]}"; do
-    (test_python_import "${env_name}" "${p}") || return 1
+    (test_python_import_package "${env_name}" "${p}") || return 1
   done
 
   echo "[INSTALL] Successfully installed all the build tools"
@@ -212,8 +212,8 @@ publish_to_pypi () {
 
   echo "[INSTALL] Installing twine ..."
   print_exec conda install -n "${env_name}" -y twine
-  (test_python_import "${env_name}" twine) || return 1
-  (test_python_import "${env_name}" OpenSSL) || return 1
+  (test_python_import_package "${env_name}" twine) || return 1
+  (test_python_import_package "${env_name}" OpenSSL) || return 1
 
   echo "[PUBLISH] Uploading package(s) to PyPI: ${package_name} ..."
   conda run -n "${env_name}" \

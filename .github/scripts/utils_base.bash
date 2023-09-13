@@ -70,7 +70,26 @@ exec_with_retries () {
 # Assert Functions
 ################################################################################
 
-test_python_import () {
+test_python_import_symbol () {
+  local env_name="$1"
+  local package_name="$2"
+  local target_symbol="$3"
+  if [ "$target_symbol" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME SYMBOL"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env numpy __version__"
+    return 1
+  fi
+
+  if conda run -n "${env_name}" python -c "from ${package_name} import ${target_symbol}"; then
+    echo "[CHECK] Found symbol '${target_symbol}' in Python package '${package_name}'."
+  else
+    echo "[CHECK] Could not find symbol '${target_symbol}' in Python package '${package_name}'; the package might be missing or broken."
+    return 1
+  fi
+}
+
+test_python_import_package () {
   local env_name="$1"
   local python_import="$2"
   if [ "$python_import" == "" ]; then
@@ -81,9 +100,9 @@ test_python_import () {
   fi
 
   if conda run -n "${env_name}" python -c "import ${python_import}"; then
-    echo "[CHECK] Python package ${python_import} found."
+    echo "[CHECK] Python package '${python_import}' found."
   else
-    echo "[CHECK] Python package ${python_import} was not found or is broken!"
+    echo "[CHECK] Python package '${python_import}' was not found, or the package is broken!"
     return 1
   fi
 }
