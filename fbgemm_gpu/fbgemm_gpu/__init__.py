@@ -10,11 +10,7 @@ from datetime import date
 
 import torch
 
-# from .version import __version__  # noqa
-
-today = date.today()
-version = f"{today.year}.{today.month}.{today.day}"
-__version__ = "nightly " + version
+from .version import __version__  # noqa
 
 try:
     torch.ops.load_library(os.path.join(os.path.dirname(__file__), "fbgemm_gpu_py.so"))
