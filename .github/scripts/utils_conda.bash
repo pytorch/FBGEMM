@@ -116,7 +116,7 @@ create_conda_environment () {
 
   # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
   echo "[SETUP] Testing pyOpenSSL import ..."
-  (test_python_import "${env_name}" OpenSSL) || return 1
+  (test_python_import_package "${env_name}" OpenSSL) || return 1
 
   echo "[SETUP] Installed Python version: $(conda run -n "${env_name}" python --version)"
   echo "[SETUP] Successfully created Conda environment: ${env_name}"
