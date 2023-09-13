@@ -41,8 +41,8 @@ prepare_fbgemm_gpu_build () {
   echo "[BUILD] Installing other build dependencies ..."
   (exec_with_retries conda run -n "${env_name}" python -m pip install -r requirements.txt) || return 1
 
-  (test_python_import "${env_name}" numpy) || return 1
-  (test_python_import "${env_name}" skbuild) || return 1
+  (test_python_import_package "${env_name}" numpy) || return 1
+  (test_python_import_package "${env_name}" skbuild) || return 1
 
   echo "[BUILD] Successfully ran git submodules update"
 }
@@ -367,7 +367,7 @@ build_fbgemm_gpu_install () {
   # Exit this directory to prevent import clashing, since there is an
   # fbgemm_gpu/ subdirectory present
   cd - || return 1
-  (test_python_import "${env_name}" fbgemm_gpu) || return 1
+  (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
 
   echo "[BUILD] FBGEMM-GPU build + install completed"
 }

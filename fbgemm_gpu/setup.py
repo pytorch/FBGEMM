@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# @licenselint-loose-mode
 
 import argparse
 import os
@@ -11,6 +12,7 @@ import random
 import re
 import subprocess
 import sys
+import textwrap
 
 from datetime import date
 from typing import List, Optional
@@ -183,6 +185,26 @@ class FbgemmGpuInstaller(PipInstall):
     """FBGEMM_GPU PIP Installer"""
 
     @classmethod
+    def generate_version_file(cls, package_version: str) -> None:
+        with open("fbgemm_gpu/_fbgemm_gpu_version.py", "w") as file:
+            print(
+                f"[SETUP.PY] Generating version file at: {os.path.realpath(file.name)}"
+            )
+            text = textwrap.dedent(
+                f"""
+                #!/usr/bin/env python3
+                # Copyright (c) Meta Platforms, Inc. and affiliates.
+                # All rights reserved.
+                #
+                # This source code is licensed under the BSD-style license found in the
+                # LICENSE file in the root directory of this source tree.
+
+                __version__: str = "{package_version}"
+                """
+            )
+            file.write(text)
+
+    @classmethod
     def description(cls) -> str:
         # Get the long description from the relevant file
         current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -253,9 +275,15 @@ def main(argv: List[str]) -> None:
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
 
+    # Determine the package version
+    package_version = generate_package_version(args.package_name)
+
+    # Generate the version file
+    FbgemmGpuInstaller.generate_version_file(package_version)
+
     setup(
         name=args.package_name,
-        version=generate_package_version(args.package_name),
+        version=package_version,
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
         long_description=FbgemmGpuInstaller.description(),

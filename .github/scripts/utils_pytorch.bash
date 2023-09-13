@@ -65,7 +65,7 @@ install_pytorch_conda () {
   (exec_with_retries conda install --force-reinstall -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}") || return 1
 
   # Check that PyTorch is importable
-  (test_python_import "${env_name}" torch.distributed) || return 1
+  (test_python_import_package "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
   installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
@@ -154,7 +154,7 @@ install_pytorch_pip () {
   (exec_with_retries conda run -n "${env_name}" pip install ${pytorch_package} --extra-index-url ${pytorch_channel}) || return 1
 
   # Check that PyTorch is importable
-  (test_python_import "${env_name}" torch.distributed) || return 1
+  (test_python_import_package "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
   installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
