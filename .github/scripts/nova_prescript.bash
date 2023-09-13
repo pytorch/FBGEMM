@@ -44,8 +44,9 @@ if [ "${CU_VERSION}" != 'cpu' ]; then
     install_cudnn "${BUILD_ENV_NAME}" "$(pwd)/build_only/cudnn" "$cuda_version_num"
     echo "-------- Finding NVML_LIB_PATH -----------"
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
-    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CONDA_ENV}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CONDA_ENV}")
-    [[ ${NVML_LIB_PATH} = "" ]] && (NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CUDA_HOME}")
+    echo "CONDA_ENV = ${CONDA_ENV}, CUDA_HOME = ${CUDA_HOME}"
+    [[ ${NVML_LIB_PATH} == "" ]] && (NVML_LIB_PATH=$(find "${CONDA_ENV}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CONDA_ENV}")
+    [[ ${NVML_LIB_PATH} == "" ]] && (NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) || echo "libnvidia-ml.so not found in ${CUDA_HOME}")
     echo "NVML_LIB_PATH = ${NVML_LIB_PATH}"
     echo "------------------------------------------"
     CPU_GPU="cuda"
