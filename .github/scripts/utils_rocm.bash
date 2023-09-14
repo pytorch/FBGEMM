@@ -33,6 +33,8 @@ install_rocm_ubuntu () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
   # Based on instructions found in https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.4.3/page/How_to_Install_ROCm.html
 
   # Disable CLI prompts during package installation

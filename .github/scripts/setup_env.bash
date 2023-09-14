@@ -41,6 +41,8 @@ setup_bazel () {
   echo "################################################################################"
   echo ""
 
+  test_network_connection || return 1
+
   local bazel_variant="$PLATFORM_NAME_LC"
   echo "[SETUP] Downloading installer Bazel ${bazel_version} (${bazel_variant}) ..."
   print_exec wget -q "https://github.com/bazelbuild/bazel/releases/download/${bazel_version}/bazel-${bazel_version}-installer-${bazel_variant}.sh" -O install-bazel.sh
@@ -75,6 +77,8 @@ install_cxx_compiler () {
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   if [ "$use_system_package_manager" != "" ]; then
     echo "[INSTALL] Installing C/C++ compilers through the system package manager ..."
@@ -161,6 +165,8 @@ install_build_tools () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
   echo "[INSTALL] Installing build tools ..."
   (exec_with_retries conda install -n "${env_name}" -y \
     click \
@@ -209,6 +215,8 @@ publish_to_pypi () {
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   echo "[INSTALL] Installing twine ..."
   print_exec conda install -n "${env_name}" -y twine

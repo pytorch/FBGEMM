@@ -54,8 +54,6 @@ install_fbgemm_gpu_wheel () {
   echo "[INSTALL] FBGEMM-GPU installation through wheel completed ..."
 }
 
-
-
 install_fbgemm_gpu_pip () {
   local env_name="$1"
   local fbgemm_gpu_version="$2"
@@ -74,6 +72,8 @@ install_fbgemm_gpu_pip () {
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Set the package variant
   if [ "$fbgemm_gpu_variant_type" == "cuda" ]; then

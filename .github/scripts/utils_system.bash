@@ -21,6 +21,8 @@ install_system_packages () {
     return 1
   fi
 
+  test_network_connection || return 1
+
   if which sudo; then
     local update_cmd=(sudo)
     local install_cmd=(sudo)
