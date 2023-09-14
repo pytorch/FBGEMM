@@ -118,7 +118,10 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
             ncols_aligned = (ncols + 4 - 1) // 4 * 4
             # compare quantized data
             np.testing.assert_allclose(
-                quantized_data_numpy[:, :ncols], reference[:, :ncols]
+                quantized_data_numpy[:, :ncols],
+                reference[:, :ncols],
+                # Allow 1 mantissa bit difference (LSB)
+                atol=1,
             )
             # compare scales
             np.testing.assert_array_almost_equal(
