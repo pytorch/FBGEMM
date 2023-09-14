@@ -30,6 +30,8 @@ install_cuda () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
   # Check CUDA version formatting
   # shellcheck disable=SC2206
   local cuda_version_arr=(${cuda_version//./ })
@@ -88,6 +90,8 @@ install_cudnn () {
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Install cuDNN manually
   # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh

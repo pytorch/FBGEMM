@@ -35,6 +35,8 @@ setup_miniconda () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
   # Download and install Miniconda if doesn't exist
   if [ ! -f "${miniconda_prefix}/bin/conda" ]; then
     print_exec mkdir -p "$miniconda_prefix"
@@ -90,6 +92,8 @@ create_conda_environment () {
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   echo "[SETUP] Listing existing Conda environments ..."
   print_exec conda info --envs

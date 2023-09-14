@@ -29,6 +29,8 @@ install_lint_tools () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
   echo "[INSTALL] Installing lint tools ..."
   (exec_with_retries conda install -n "${env_name}" -c conda-forge -y \
     click \

@@ -29,6 +29,8 @@ prepare_fbgemm_gpu_build () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
   if [[ "${GITHUB_WORKSPACE}" ]]; then
     # https://github.com/actions/checkout/issues/841
     git config --global --add safe.directory "${GITHUB_WORKSPACE}"

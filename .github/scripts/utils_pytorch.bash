@@ -36,6 +36,8 @@ install_pytorch_conda () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
   # Install the cpuonly package if needed
   if [ "$pytorch_variant_type" == "cpu" ]; then
     local pytorch_package="cpuonly pytorch"
@@ -115,6 +117,8 @@ install_pytorch_pip () {
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Set the package variant
   if [ "$pytorch_variant_type" == "cuda" ]; then
