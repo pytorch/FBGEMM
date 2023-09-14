@@ -39,7 +39,7 @@ prepare_fbgemm_gpu_build () {
   git submodule update --init --recursive
 
   echo "[BUILD] Installing other build dependencies ..."
-  (exec_with_retries conda run -n "${env_name}" python -m pip install -r requirements.txt) || return 1
+  (exec_with_retries conda run --no-capture-output -n "${env_name}" python -m pip install -r requirements.txt) || return 1
 
   (test_python_import_package "${env_name}" numpy) || return 1
   (test_python_import_package "${env_name}" skbuild) || return 1
@@ -122,7 +122,7 @@ __configure_fbgemm_gpu_build_cuda () {
   # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
   echo "[BUILD] Setting CUDA build args ..."
   # shellcheck disable=SC2155
-  local nvml_lib_path=$(conda run -n "${env_name}" printenv NVML_LIB_PATH)
+  local nvml_lib_path=$(conda run --no-capture-output -n "${env_name}" printenv NVML_LIB_PATH)
   build_args=(
     --nvml_lib_path="${nvml_lib_path}"
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
@@ -193,7 +193,7 @@ __build_fbgemm_gpu_common_pre_steps () {
 
   # Extract the Python tag
   # shellcheck disable=SC2207
-  python_version=($(conda run -n "${env_name}" python --version))
+  python_version=($(conda run --no-capture-output -n "${env_name}" python --version))
   # shellcheck disable=SC2206
   python_version_arr=(${python_version[1]//./ })
   python_tag="py${python_version_arr[0]}${python_version_arr[1]}"
@@ -201,7 +201,7 @@ __build_fbgemm_gpu_common_pre_steps () {
 
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
-  print_exec conda run -n "${env_name}" python setup.py clean
+  print_exec conda run --no-capture-output -n "${env_name}" python setup.py clean
 
   echo "[BUILD] Printing git status ..."
   print_exec git status
@@ -305,10 +305,23 @@ build_fbgemm_gpu_package () {
   # See https://github.com/pypa/manylinux
   local plat_name="manylinux2014_${MACHINE_NAME}"
 
+  echo "[BUILD] Checking arch_list = ${arch_list}"
+  echo "[BUILD] Checking build_args:"
+  echo "${build_args[@]}"
+
+  core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
+  sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
+  re='^[0-9]+$'
+  run_multicore=""
+  if [[ $core =~ $re && $sockets =~ $re ]] ; then
+    n_core=$((core * sockets))
+    run_multicore=" -j ${n_core}"
+  fi
+
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
-  print_exec conda run -n "${env_name}" \
-    python setup.py bdist_wheel \
+  print_exec conda run --no-capture-output -n "${env_name}" \
+    python setup.py "${run_multicore}" bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${plat_name}" \
@@ -357,7 +370,7 @@ build_fbgemm_gpu_install () {
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
   echo "[BUILD] Building + installing FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
-  print_exec conda run -n "${env_name}" \
+  print_exec conda run --no-capture-output -n "${env_name}" \
     python setup.py install "${build_args[@]}"
 
   # Run checks on the built libraries
@@ -401,7 +414,7 @@ build_fbgemm_gpu_develop () {
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
   echo "[BUILD] Building (develop) FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
-  print_exec conda run -n "${env_name}" \
+  print_exec conda run --no-capture-output -n "${env_name}" \
     python setup.py build develop "${build_args[@]}"
 
   # Run checks on the built libraries
