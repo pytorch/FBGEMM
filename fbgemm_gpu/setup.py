@@ -266,6 +266,19 @@ def main(argv: List[str]) -> None:
     if len(unknown) != 0 and (len(unknown) != 1 or unknown[0] != "clean"):
         print("Unknown Arguments: ", unknown)
 
+    # Skip Nova build steps since it will be done in pre-script
+    if "BUILD_FROM_NOVA" in os.environ:
+        build_from_nova = os.getenv("BUILD_FROM_NOVA")
+        print("build_from_nova", build_from_nova)
+        # Package name is the same for all variants in Nova
+        package_name = "fbgemm_gpu"
+        if str(build_from_nova) != "0":
+            # Skip build clean and build wheel steps in Nova workflow since they are done in pre-script
+            print("Build from Nova detected... exiting")
+            sys.exit(0)
+    else:
+        package_name = args.package_name
+
     if not args.cpu_only:
         set_cuda_environment_variables()
 
@@ -279,7 +292,7 @@ def main(argv: List[str]) -> None:
     FbgemmGpuInstaller.generate_version_file(package_version)
 
     setup(
-        name=args.package_name,
+        name=package_name,
         version=package_version,
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
