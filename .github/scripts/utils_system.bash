@@ -79,10 +79,12 @@ free_disk_space () {
 ################################################################################
 
 print_gpu_info () {
-  echo "################################################################################"
-  echo "[INFO] Printing general display info ..."
-  install_system_packages lshw
-  print_exec sudo lshw -C display
+  if [[ "${BUILD_FROM_NOVA}" != '1' ]]; then
+    echo "################################################################################"
+    echo "[INFO] Printing general display info ..."
+    install_system_packages lshw
+    print_exec sudo lshw -C display
+  fi
 
   echo "################################################################################"
   echo "[INFO] Printing NVIDIA GPU info ..."
@@ -133,11 +135,15 @@ __print_system_info_linux () {
   echo "################################################################################"
   echo "[INFO] Print CPU info ..."
   print_exec nproc
+  print_exec lscpu
   print_exec cat /proc/cpuinfo
 
-  echo "################################################################################"
-  echo "[INFO] Print PCI info ..."
-  print_exec lspci -v
+
+  if [[ "${BUILD_FROM_NOVA}" != '1' ]]; then
+    echo "################################################################################"
+    echo "[INFO] Print PCI info ..."
+    print_exec lspci -v
+  fi
 
   echo "################################################################################"
   echo "[INFO] Print Linux distribution info ..."
