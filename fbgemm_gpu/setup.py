@@ -266,6 +266,17 @@ def main(argv: List[str]) -> None:
     if len(unknown) != 0 and (len(unknown) != 1 or unknown[0] != "clean"):
         print("Unknown Arguments: ", unknown)
 
+    if args.cpu_only:
+        version_variant = "+cpu"
+    else:
+        set_cuda_environment_variables()
+        if torch.version.cuda is not None:
+            cuda_version = torch.version.cuda.split(".")
+            version_variant = "+cu" + str(cuda_version[0]) + str(cuda_version[1])
+        else:
+            # rocm or other gpus - to be specified if we offcially support them
+            version_variant = ""
+
     # Skip Nova build steps since it will be done in pre-script
     if "BUILD_FROM_NOVA" in os.environ:
         build_from_nova = os.getenv("BUILD_FROM_NOVA")
@@ -277,18 +288,10 @@ def main(argv: List[str]) -> None:
             print("Build from Nova detected... exiting")
             sys.exit(0)
     else:
+        # If not building from Nova, use the fbgemm_gpu-<variant>
+        # PyPi does not accept version+xx in the name convention.
+        version_variant = ""
         package_name = args.package_name
-
-    if args.cpu_only:
-        version_variant = "+cpu"
-    else:
-        set_cuda_environment_variables()
-        if torch.version.cuda is not None:
-            cuda_version = torch.version.cuda.split(".")
-            version_variant = "+cu" + str(cuda_version[0]) + str(cuda_version[1])
-        else:
-            version_variant = ""
-
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
 
