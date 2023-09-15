@@ -70,6 +70,32 @@ exec_with_retries () {
 # Assert Functions
 ################################################################################
 
+env_name_or_prefix () {
+  local env=$1
+  if [[ ${env} == /* ]]; then
+    # If the input string is a PATH (i.e. starts with '/'), then determine the
+    # Conda environment by directory prefix
+    echo "-p ${env}";
+  else
+    # Else, determine the Conda environment by name
+    echo "-n ${env}";
+  fi
+}
+
+test_network_connection () {
+  wget --timeout 1 pypi.org -O /dev/null
+  local exit_status=$?
+
+  # https://man7.org/linux/man-pages/man1/wget.1.html
+  if [ $exit_status == 0 ]; then
+    echo "[CHECK] Network does not appear to be blocked."
+  else
+    echo "[CHECK] Network check exit status: ${exit_status}"
+    echo "[CHECK] Network appears to be blocked; please proxy the network connetions, i.e. re-run the command prefixed with 'with-proxy'."
+    return 1
+  fi
+}
+
 test_python_import_symbol () {
   local env_name="$1"
   local package_name="$2"
@@ -81,7 +107,10 @@ test_python_import_symbol () {
     return 1
   fi
 
-  if conda run -n "${env_name}" python -c "from ${package_name} import ${target_symbol}"; then
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2086
+  if conda run ${env_prefix} python -c "from ${package_name} import ${target_symbol}"; then
     echo "[CHECK] Found symbol '${target_symbol}' in Python package '${package_name}'."
   else
     echo "[CHECK] Could not find symbol '${target_symbol}' in Python package '${package_name}'; the package might be missing or broken."
@@ -99,7 +128,10 @@ test_python_import_package () {
     return 1
   fi
 
-  if conda run -n "${env_name}" python -c "import ${python_import}"; then
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2086
+  if conda run ${env_prefix} python -c "import ${python_import}"; then
     echo "[CHECK] Python package '${python_import}' found."
   else
     echo "[CHECK] Python package '${python_import}' was not found, or the package is broken!"
@@ -117,7 +149,10 @@ test_binpath () {
     return 1
   fi
 
-  if conda run -n "${env_name}" which "${bin_name}"; then
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2086
+  if conda run ${env_prefix} which "${bin_name}"; then
     echo "[CHECK] Binary ${bin_name} found in PATH"
   else
     echo "[CHECK] Binary ${bin_name} not found in PATH!"
@@ -135,12 +170,15 @@ test_filepath () {
     return 1
   fi
 
-  # shellcheck disable=SC2155
-  local conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2155
   local file_path=$(find "${conda_prefix}" -type f -name "${file_name}")
   # shellcheck disable=SC2155
   local link_path=$(find "${conda_prefix}" -type l -name "${file_name}")
+
   if [ "${file_path}" != "" ]; then
     echo "[CHECK] ${file_name} found in CONDA_PREFIX PATH (file): ${file_path}"
   elif [ "${link_path}" != "" ]; then
@@ -161,7 +199,10 @@ test_env_var () {
     return 1
   fi
 
-  if conda run -n "${env_name}" printenv "${env_key}"; then
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2086
+  if conda run ${env_prefix} printenv "${env_key}"; then
     echo "[CHECK] Environment variable ${env_key} is defined in the Conda environment"
   else
     echo "[CHECK] Environment variable ${env_key} is not defined in the Conda environment!"

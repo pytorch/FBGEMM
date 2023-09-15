@@ -98,16 +98,21 @@ install_cxx_compiler () {
     else
       archname="$MACHINE_NAME_LC"
     fi
+
+    # shellcheck disable=SC2155
+    local env_prefix=$(env_name_or_prefix "${env_name}")
+
     echo "[INSTALL] Installing C/C++ compilers through Conda (architecture = ${archname}) ..."
-    (exec_with_retries conda install -n "${env_name}" -y "gxx_linux-${archname}"=10.4.0 "sysroot_linux-${archname}"=2.17 -c conda-forge) || return 1
+    # shellcheck disable=SC2086
+    (exec_with_retries conda install ${env_prefix} -y "gxx_linux-${archname}"=10.4.0 "sysroot_linux-${archname}"=2.17 -c conda-forge) || return 1
 
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
     echo "[INSTALL] Setting the C/C++ compiler symlinks ..."
-    # shellcheck disable=SC2155
-    local cc_path=$(conda run -n "${env_name}" printenv CC)
-    # shellcheck disable=SC2155
-    local cxx_path=$(conda run -n "${env_name}" printenv CXX)
+    # shellcheck disable=SC2155,SC2086
+    local cc_path=$(conda run ${env_prefix} printenv CC)
+    # shellcheck disable=SC2155,SC2086
+    local cxx_path=$(conda run ${env_prefix} printenv CXX)
 
     print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/cc"
     print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/gcc"
@@ -123,22 +128,25 @@ install_cxx_compiler () {
 
   # https://stackoverflow.com/questions/2224334/gcc-dump-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in the C compiler ..."
-  print_exec conda run -n "${env_name}" cc -dM -E -
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} cc -dM -E -
 
   # https://stackoverflow.com/questions/2224334/gcc-dump-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in the C++ compiler ..."
-  print_exec conda run -n "${env_name}" c++ -dM -E -x c++ -
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} c++ -dM -E -x c++ -
 
   # Print out the C++ version
-  print_exec conda run -n "${env_name}" c++ --version
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} c++ --version
 
   # https://stackoverflow.com/questions/4991707/how-to-find-my-current-compilers-standard-like-if-it-is-c90-etc
   echo "[INFO] Printing the default version of the C standard used by the compiler ..."
-  print_exec "conda run -n ${env_name} cc -dM -E - | grep __STDC_VERSION__"
+  print_exec "conda run ${env_prefix} cc -dM -E - | grep __STDC_VERSION__"
 
   # https://stackoverflow.com/questions/2324658/how-to-determine-the-version-of-the-c-standard-used-by-the-compiler
   echo "[INFO] Printing the default version of the C++ standard used by the compiler ..."
-  print_exec "conda run -n ${env_name} c++ -dM -E -x c++ - | grep __cplusplus"
+  print_exec "conda run ${env_prefix} c++ -dM -E -x c++ - | grep __cplusplus"
 
   echo "[INSTALL] Successfully installed C/C++ compilers"
 }
@@ -159,8 +167,14 @@ install_build_tools () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Installing build tools ..."
-  (exec_with_retries conda install -n "${env_name}" -y \
+  # shellcheck disable=SC2086
+  (exec_with_retries conda install ${env_prefix} -y \
     click \
     cmake \
     hypothesis \
@@ -208,13 +222,20 @@ publish_to_pypi () {
     echo ""
   fi
 
+  test_network_connection || return 1
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Installing twine ..."
-  print_exec conda install -n "${env_name}" -y twine
+  # shellcheck disable=SC2086
+  print_exec conda install ${env_prefix} -y twine
   (test_python_import_package "${env_name}" twine) || return 1
   (test_python_import_package "${env_name}" OpenSSL) || return 1
 
   echo "[PUBLISH] Uploading package(s) to PyPI: ${package_name} ..."
-  conda run -n "${env_name}" \
+  # shellcheck disable=SC2086
+  conda run ${env_prefix} \
     python -m twine upload \
       --username __token__ \
       --password "${pypi_token}" \

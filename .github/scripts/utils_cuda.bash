@@ -41,9 +41,13 @@ install_cuda () {
   # Clean up packages before installation
   conda_cleanup
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
-  (exec_with_retries conda install --force-reinstall -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries conda install --force-reinstall ${env_prefix} -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
 
   # Ensure that nvcc is properly installed
   (test_binpath "${env_name}" nvcc) || return 1
@@ -56,18 +60,21 @@ install_cuda () {
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
 
   echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
-  # shellcheck disable=SC2155
-  local conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2155
   local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
-  print_exec conda env config vars set -n "${env_name}" NVML_LIB_PATH="${nvml_lib_path}"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
 
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."
-  print_exec conda run -n "${env_name}" nvcc --compiler-options -dM -E -x cu - < /dev/null
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} nvcc --compiler-options -dM -E -x cu - < /dev/null
 
   # Print nvcc version
-  print_exec conda run -n "${env_name}" nvcc --version
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} nvcc --version
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
 }
 
@@ -141,9 +148,13 @@ install_cudnn () {
   cd - || return 1
   rm -rf "$tmp_dir"
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Export the environment variables to the Conda environment
   echo "[INSTALL] Set environment variables CUDNN_INCLUDE_DIR and CUDNN_LIBRARY ..."
-  print_exec conda env config vars set -n "${env_name}" CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
 
   echo "[INSTALL] Successfully installed cuDNN (for CUDA ${cuda_version})"
 }

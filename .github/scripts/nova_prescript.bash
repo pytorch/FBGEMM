@@ -8,7 +8,7 @@
 echo "Current working directory: $(pwd)"
 cd "${FBGEMM_REPO}" || echo "Failed to cd to ${FBGEMM_REPO}"
 PRELUDE="${FBGEMM_REPO}/.github/scripts/setup_env.bash"
-BUILD_ENV_NAME=base
+BUILD_ENV_NAME=${CONDA_ENV}
 echo "--------------------------"
 echo "----- conda env list -----"
 conda env list

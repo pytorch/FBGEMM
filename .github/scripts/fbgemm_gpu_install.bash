@@ -20,7 +20,8 @@ __fbgemm_gpu_post_install_checks () {
   (test_python_import_symbol "${env_name}" fbgemm_gpu __version__) || return 1
 
   echo "[CHECK] Printing out the FBGEMM-GPU version ..."
-  installed_fbgemm_gpu_version=$(conda run -n "${env_name}" python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
+  # shellcheck disable=SC2086
+  installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
   echo "[CHECK] The installed version is: ${installed_fbgemm_gpu_version}"
 }
 
@@ -46,8 +47,12 @@ install_fbgemm_gpu_wheel () {
   print_exec sha256sum "${wheel_path}"
   print_exec md5sum "${wheel_path}"
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Installing FBGEMM-GPU wheel: ${wheel_path} ..."
-  (exec_with_retries conda run -n "${env_name}" python -m pip install "${wheel_path}") || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries conda run ${env_prefix} python -m pip install "${wheel_path}") || return 1
 
   __fbgemm_gpu_post_install_checks || return 1
 
@@ -131,9 +136,12 @@ install_fbgemm_gpu_pip () {
     fi
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Attempting to install FBGEMM-GPU ${fbgemm_gpu_version}+${fbgemm_gpu_variant} through PIP ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda run -n "${env_name}" pip install ${fbgemm_gpu_package}) || return 1
+  (exec_with_retries conda run ${env_prefix} pip install ${fbgemm_gpu_package}) || return 1
 
   __fbgemm_gpu_post_install_checks || return 1
 
