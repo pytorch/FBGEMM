@@ -31,11 +31,15 @@ install_docs_tools () {
 
   test_network_connection || return 1
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Installing docs tools ..."
-  (exec_with_retries conda install -n "${env_name}" -c conda-forge -y \
+  # shellcheck disable=SC2086
+  (exec_with_retries conda install ${env_prefix} -c conda-forge -y \
     doxygen) || return 1
 
-  # Check binaries are visible in the PAATH
+  # Check binaries are visible in the PATH
   (test_binpath "${env_name}" doxygen) || return 1
 
   echo "[INSTALL] Successfully installed all the docs tools"
@@ -62,14 +66,20 @@ build_fbgemm_gpu_docs () {
     echo ""
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[BUILD] Installing docs-build dependencies ..."
-  (exec_with_retries conda run -n "${env_name}" python -m pip install -r requirements.txt) || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
   echo "[BUILD] Running Doxygen build ..."
-  (exec_with_retries conda run -n "${env_name}" doxygen Doxyfile.in) || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries conda run ${env_prefix} doxygen Doxyfile.in) || return 1
 
   echo "[BUILD] Building HTML pages ..."
-  (exec_with_retries conda run -n "${env_name}" make html) || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries conda run ${env_prefix} make html) || return 1
 
   echo "[INSTALL] FBGEMM-GPU documentation build completed"
 }

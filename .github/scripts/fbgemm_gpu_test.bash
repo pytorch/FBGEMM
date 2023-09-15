@@ -28,7 +28,11 @@ run_python_test () {
     echo "################################################################################"
   fi
 
-  if print_exec conda run --no-capture-output -n "${env_name}" python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2086
+  if print_exec conda run --no-capture-output ${env_prefix} python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
     echo ""
   else
@@ -62,10 +66,14 @@ run_fbgemm_gpu_tests () {
     echo ""
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Enable ROCM testing if specified
   if [ "$fbgemm_variant" == "rocm" ]; then
     echo "[TEST] Set environment variable FBGEMM_TEST_WITH_ROCM to enable ROCm tests ..."
-    print_exec conda env config vars set -n "${env_name}" FBGEMM_TEST_WITH_ROCM=1
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} FBGEMM_TEST_WITH_ROCM=1
   fi
 
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
@@ -90,7 +98,8 @@ run_fbgemm_gpu_tests () {
   fi
 
   echo "[TEST] Installing pytest ..."
-  print_exec conda install -n "${env_name}" -y pytest
+  # shellcheck disable=SC2086
+  print_exec conda install ${env_prefix} -y pytest
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1

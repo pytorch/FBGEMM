@@ -59,25 +59,30 @@ install_pytorch_conda () {
   # Clean up packages before installation
   conda_cleanup
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Install PyTorch packages
   # NOTE: Installation of large package might fail due to corrupt package download
   # Use --force-reinstall to address this on retries - https://datascience.stackexchange.com/questions/41732/conda-verification-failed
   echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, variant = ${pytorch_variant_type}) through Conda using channel '${pytorch_channel}' ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda install --force-reinstall -n "${env_name}" -y ${pytorch_package} -c "${pytorch_channel}") || return 1
+  (exec_with_retries conda install --force-reinstall ${env_prefix} -y ${pytorch_package} -c "${pytorch_channel}") || return 1
 
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
-  installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
+  # shellcheck disable=SC2086
+  installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
 
   # Run check for GPU variant
   if [ "$pytorch_variant_type" == "cuda" ]; then
     # Ensure that the PyTorch build is the GPU variant (i.e. contains cuDNN reference)
     # This test usually applies to the PyTorch nightly builds
-    if conda list -n "${env_name}" pytorch | grep cudnn; then
+    # shellcheck disable=SC2086
+    if conda list ${env_prefix} pytorch | grep cudnn; then
       echo "[CHECK] The installed PyTorch ${pytorch_version} contains references to cuDNN"
     else
       echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be the CPU-only version as it is missing references to cuDNN!"
@@ -153,21 +158,26 @@ install_pytorch_pip () {
     local pytorch_channel="https://download.pytorch.org/whl/${pytorch_variant}/"
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Attempting to install PyTorch ${pytorch_version}+${pytorch_variant} through PIP using channel ${pytorch_channel} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda run -n "${env_name}" pip install ${pytorch_package} --extra-index-url ${pytorch_channel}) || return 1
+  (exec_with_retries conda run ${env_prefix} pip install ${pytorch_package} --extra-index-url ${pytorch_channel}) || return 1
 
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
-  installed_pytorch_version=$(conda run -n "${env_name}" python -c "import torch; print(torch.__version__)")
+  # shellcheck disable=SC2086
+  installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
 
   if [ "$pytorch_variant_type" != "cpu" ]; then
     # Ensure that the PyTorch build is of the correct variant
     # This test usually applies to the PyTorch nightly builds
-    if conda run -n "${env_name}" pip list torch | grep torch | grep "${pytorch_variant}"; then
+    # shellcheck disable=SC2086
+    if conda run ${env_prefix} pip list torch | grep torch | grep "${pytorch_variant}"; then
       echo "[CHECK] The installed PyTorch ${pytorch_version} is the correct variant (${pytorch_variant})"
     else
       echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be an incorrect variant as it is missing references to ${pytorch_variant}!"

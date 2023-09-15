@@ -40,10 +40,16 @@ prepare_fbgemm_gpu_build () {
   git submodule sync
   git submodule update --init --recursive
 
-  echo "[BUILD] Installing other build dependencies ..."
-  (exec_with_retries conda run --no-capture-output -n "${env_name}" python -m pip install -r requirements.txt) || return 1
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
 
+  echo "[BUILD] Installing other build dependencies ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries conda run --no-capture-output ${env_prefix} python -m pip install -r requirements.txt) || return 1
+
+  # shellcheck disable=SC2086
   (test_python_import_package "${env_name}" numpy) || return 1
+  # shellcheck disable=SC2086
   (test_python_import_package "${env_name}" skbuild) || return 1
 
   echo "[BUILD] Successfully ran git submodules update"
@@ -78,7 +84,8 @@ __configure_fbgemm_gpu_build_rocm () {
   fi
 
   echo "[BUILD] Setting the following ROCm targets: ${arch_list}"
-  print_exec conda env config vars set -n "${env_name}" PYTORCH_ROCM_ARCH="${arch_list}"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
 
   echo "[BUILD] Setting ROCm build args ..."
   build_args=()
@@ -116,8 +123,8 @@ __configure_fbgemm_gpu_build_cuda () {
 
   # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
   echo "[BUILD] Setting CUDA build args ..."
-  # shellcheck disable=SC2155
-  local nvml_lib_path=$(conda run --no-capture-output -n "${env_name}" printenv NVML_LIB_PATH)
+  # shellcheck disable=SC2155,SC2086
+  local nvml_lib_path=$(conda run --no-capture-output ${env_prefix} printenv NVML_LIB_PATH)
   build_args=(
     --nvml_lib_path="${nvml_lib_path}"
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
@@ -187,8 +194,8 @@ __build_fbgemm_gpu_common_pre_steps () {
   echo "[BUILD] Determined Python package name to use: ${package_name}"
 
   # Extract the Python tag
-  # shellcheck disable=SC2207
-  python_version=($(conda run --no-capture-output -n "${env_name}" python --version))
+  # shellcheck disable=SC2207,SC2086
+  python_version=($(conda run --no-capture-output ${env_prefix} python --version))
   # shellcheck disable=SC2206
   python_version_arr=(${python_version[1]//./ })
   python_tag="py${python_version_arr[0]}${python_version_arr[1]}"
@@ -196,7 +203,8 @@ __build_fbgemm_gpu_common_pre_steps () {
 
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
-  print_exec conda run --no-capture-output -n "${env_name}" python setup.py clean
+  # shellcheck disable=SC2086
+  print_exec conda run --no-capture-output ${env_prefix} python setup.py clean
 
   echo "[BUILD] Printing git status ..."
   print_exec git status
@@ -285,6 +293,9 @@ build_fbgemm_gpu_package () {
     return 1
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
   __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
@@ -315,7 +326,8 @@ build_fbgemm_gpu_package () {
 
   # Distribute Python extensions as wheels on Linux
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
-  print_exec conda run --no-capture-output -n "${env_name}" \
+  # shellcheck disable=SC2086
+  print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py "${run_multicore}" bdist_wheel \
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
@@ -351,6 +363,9 @@ build_fbgemm_gpu_install () {
     return 1
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
   __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
@@ -365,7 +380,8 @@ build_fbgemm_gpu_install () {
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
   echo "[BUILD] Building + installing FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
-  print_exec conda run --no-capture-output -n "${env_name}" \
+  # shellcheck disable=SC2086
+  print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py install "${build_args[@]}"
 
   # Run checks on the built libraries
@@ -395,6 +411,9 @@ build_fbgemm_gpu_develop () {
     return 1
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
   __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
@@ -409,7 +428,8 @@ build_fbgemm_gpu_develop () {
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
   echo "[BUILD] Building (develop) FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
-  print_exec conda run --no-capture-output -n "${env_name}" \
+  # shellcheck disable=SC2086
+  print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py build develop "${build_args[@]}"
 
   # Run checks on the built libraries

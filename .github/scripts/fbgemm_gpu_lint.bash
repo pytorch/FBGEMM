@@ -31,8 +31,12 @@ install_lint_tools () {
 
   test_network_connection || return 1
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Installing lint tools ..."
-  (exec_with_retries conda install -n "${env_name}" -c conda-forge -y \
+  # shellcheck disable=SC2086
+  (exec_with_retries conda install ${env_prefix} -c conda-forge -y \
     click \
     flake8 \
     ufmt) || return 1
@@ -72,10 +76,14 @@ lint_fbgemm_gpu_flake8 () {
 
   echo "::add-matcher::fbgemm_gpu/test/lint/flake8_problem_matcher.json"
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # E501 = line too long
   # W503 = line break before binary operator (deprecated)
   # E203 = whitespace before ":"
-  (print_exec conda run -n "${env_name}" flake8 --ignore=E501,W503,E203 .) || return 1
+  # shellcheck disable=SC2086
+  (print_exec conda run ${env_prefix} flake8 --ignore=E501,W503,E203 .) || return 1
 
   echo "[TEST] Finished running flake8 lint checks"
 }
@@ -102,8 +110,12 @@ lint_fbgemm_gpu_ufmt () {
     fbgemm_gpu/bench
   )
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   for p in "${lint_paths[@]}"; do
-    (print_exec conda run -n "${env_name}" ufmt diff "${p}") || return 1
+    # shellcheck disable=SC2086
+    (print_exec conda run ${env_prefix} ufmt diff "${p}") || return 1
   done
 
   echo "[TEST] Finished running ufmt lint checks"
@@ -131,8 +143,12 @@ lint_fbgemm_gpu_copyright () {
     fbgemm_gpu/bench
   )
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   for p in "${lint_paths[@]}"; do
-    (print_exec conda run -n "${env_name}" python fbgemm_gpu/test/lint/check_meta_header.py --path="${p}" --fixit=False) || return 1
+    # shellcheck disable=SC2086
+    (print_exec conda run ${env_prefix} python fbgemm_gpu/test/lint/check_meta_header.py --path="${p}" --fixit=False) || return 1
   done
 
   echo "[TEST] Finished running Meta Copyright Header checks"
