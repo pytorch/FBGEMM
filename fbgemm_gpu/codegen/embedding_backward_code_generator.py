@@ -366,7 +366,7 @@ def forward_quantized() -> None:
                 template_instance_params(*map(str, (2, 4, 1, 2))),
                 template_instance_params(*map(str, (2, 4, 2, 4))),
                 template_instance_params(*map(str, (2, 4, 4, 8))),
-                template_instance_params(*map(str, (2, 2, 4, 8))),
+                template_instance_params(*map(str, (2, 2, 8, 16))),
             ],
         ),
         "INT8": elem_type(

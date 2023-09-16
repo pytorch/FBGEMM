@@ -4644,6 +4644,28 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
+    def test_nbit_forward_gpu_no_cache_fp8_2048(self) -> None:
+        # Test the case of FB8 table with 128B*8 < D <= 128B*16
+        self.execute_nbit_forward_(
+            T=1,
+            D=2048,  # 128B*8 < D <= 128B*16
+            B=128,
+            log_E=2,
+            L=4,
+            weighted=False,
+            mixed=False,
+            pooling_mode=PoolingMode.SUM,
+            weights_ty=SparseType.FP8,  # FP8 table
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,
+            use_cpu=False,
+            use_array_for_index_remapping=True,
+            do_pruning=False,
+            mixed_weights_ty=False,
+            output_dtype=SparseType.FP16,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
