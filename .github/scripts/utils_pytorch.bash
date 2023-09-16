@@ -10,6 +10,8 @@
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_conda.bash"
+# shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_pip.bash"
 
 ################################################################################
 # PyTorch Setup Functions
@@ -73,8 +75,8 @@ install_pytorch_conda () {
   (test_python_import_package "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
-  # shellcheck disable=SC2086
-  installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
+  # shellcheck disable=SC2086,SC2155
+  local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
 
   # Run check for GPU variant
@@ -123,73 +125,24 @@ install_pytorch_pip () {
     echo ""
   fi
 
-  test_network_connection || return 1
-
-  # Set the package variant
-  if [ "$pytorch_variant_type" == "cuda" ]; then
-    # Extract the CUDA version or default to 11.8.0
-    local cuda_version="${pytorch_variant_version:-11.8.0}"
-    # shellcheck disable=SC2206
-    local cuda_version_arr=(${cuda_version//./ })
-    # Convert, i.e. cuda 11.7.1 => cu117
-    local pytorch_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
-  elif [ "$pytorch_variant_type" == "rocm" ]; then
-    # Extract the ROCM version or default to 5.5.1
-    local rocm_version="${pytorch_variant_version:-5.5.1}"
-    # shellcheck disable=SC2206
-    local rocm_version_arr=(${rocm_version//./ })
-    # Convert, i.e. rocm 5.5.1 => rocm5.5
-    local pytorch_variant="rocm${rocm_version_arr[0]}.${rocm_version_arr[1]}"
-  else
-    local pytorch_variant_type="cpu"
-    local pytorch_variant="cpu"
-  fi
-  echo "[INSTALL] Extracted PyTorch variant: ${pytorch_variant}"
-
-  # Set the package name and installation channel
-  if [ "$pytorch_version" == "nightly" ] || [ "$pytorch_version" == "test" ]; then
-    local pytorch_package="--pre torch"
-    local pytorch_channel="https://download.pytorch.org/whl/${pytorch_version}/${pytorch_variant}/"
-  elif [ "$pytorch_version" == "latest" ]; then
-    local pytorch_package="torch"
-    local pytorch_channel="https://download.pytorch.org/whl/${pytorch_variant}/"
-  else
-    local pytorch_package="torch==${pytorch_version}+${pytorch_variant}"
-    local pytorch_channel="https://download.pytorch.org/whl/${pytorch_variant}/"
-  fi
-
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Attempting to install PyTorch ${pytorch_version}+${pytorch_variant} through PIP using channel ${pytorch_channel} ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries conda run ${env_prefix} pip install ${pytorch_package} --extra-index-url ${pytorch_channel}) || return 1
+  # Install the package from PyTorch PIP (not PyPI)
+  install_from_pytorch_pip "${env_name}" torch "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
 
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
 
   # Print out the actual installed PyTorch version
-  # shellcheck disable=SC2086
-  installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
+  # shellcheck disable=SC2086,SC2155
+  local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
-
-  if [ "$pytorch_variant_type" != "cpu" ]; then
-    # Ensure that the PyTorch build is of the correct variant
-    # This test usually applies to the PyTorch nightly builds
-    # shellcheck disable=SC2086
-    if conda run ${env_prefix} pip list torch | grep torch | grep "${pytorch_variant}"; then
-      echo "[CHECK] The installed PyTorch ${pytorch_version} is the correct variant (${pytorch_variant})"
-    else
-      echo "[CHECK] The installed PyTorch ${pytorch_version} appears to be an incorrect variant as it is missing references to ${pytorch_variant}!"
-      echo "[CHECK] This can happen if the variant of PyTorch (e.g. GPU, nightly) for the MAJOR.MINOR version of CUDA or ROCm presently installed on the system is not available."
-      return 1
-    fi
-  fi
 
   if [ "$pytorch_variant_type" == "cuda" ]; then
     # Ensure that the PyTorch-CUDA headers are properly installed
     (test_filepath "${env_name}" cuda_cmake_macros.h) || return 1
   fi
 
-  echo "[INSTALL] Successfully installed PyTorch through PIP"
+  echo "[INSTALL] Successfully installed PyTorch through PyTorch PIP"
 }
