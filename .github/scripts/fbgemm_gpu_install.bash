@@ -8,6 +8,8 @@
 
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
+# shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_pip.bash"
 
 ################################################################################
 # FBGEMM_GPU Install Functions
@@ -78,72 +80,14 @@ install_fbgemm_gpu_pip () {
     echo ""
   fi
 
-  test_network_connection || return 1
-
-  # Set the package variant
-  if [ "$fbgemm_gpu_variant_type" == "cuda" ]; then
-    # Extract the CUDA version or default to 11.8.0
-    local cuda_version="${fbgemm_gpu_variant_version:-11.8.0}"
-    # shellcheck disable=SC2206
-    local cuda_version_arr=(${cuda_version//./ })
-    # Convert, i.e. cuda 11.7.1 => cu117
-    local fbgemm_gpu_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
-  elif [ "$fbgemm_gpu_variant_type" == "rocm" ]; then
-    # Extract the ROCM version or default to 5.5.1
-    local rocm_version="${fbgemm_gpu_variant_version:-5.5.1}"
-    # shellcheck disable=SC2206
-    local rocm_version_arr=(${rocm_version//./ })
-    # Convert, i.e. rocm 5.5.1 => rocm5.5
-    local fbgemm_gpu_variant="rocm${rocm_version_arr[0]}.${rocm_version_arr[1]}"
-  else
-    local fbgemm_gpu_variant_type="cpu"
-    local fbgemm_gpu_variant="cpu"
-  fi
-  echo "[INSTALL] Extracted FBGEMM-GPU variant: ${fbgemm_gpu_variant}"
-
-  # Set the package name and installation channel
-#   if [ "$fbgemm_gpu_version" == "nightly" ] || [ "$fbgemm_gpu_version" == "test" ]; then
-#     local fbgemm_gpu_package="--pre fbgemm-gpu"
-#     local fbgemm_gpu_channel="https://download.pytorch.org/whl/${fbgemm_gpu_version}/${fbgemm_gpu_variant}/"
-#   elif [ "$fbgemm_gpu_version" == "latest" ]; then
-#     local fbgemm_gpu_package="fbgemm-gpu"
-#     local fbgemm_gpu_channel="https://download.pytorch.org/whl/${fbgemm_gpu_variant}/"
-#   else
-#     local fbgemm_gpu_package="fbgemm-gpu==${fbgemm_gpu_version}+${fbgemm_gpu_variant}"
-#     local fbgemm_gpu_channel="https://download.pytorch.org/whl/${fbgemm_gpu_variant}/"
-#   fi
-
-  if [ "$fbgemm_gpu_variant_type" == "cuda" ]; then
-    if [ "$fbgemm_gpu_version" == "nightly" ]; then
-      local fbgemm_gpu_package="fbgemm-gpu-nightly"
-    elif [ "$fbgemm_gpu_version" == "latest" ]; then
-      local fbgemm_gpu_package="fbgemm-gpu"
-    else
-      local fbgemm_gpu_package="fbgemm-gpu==${fbgemm_gpu_version}"
-    fi
-
-  elif [ "$fbgemm_gpu_variant_type" == "rocm" ]; then
-    echo "ROCm is currently not supported in PyPI!"
-    return 1
-
-  else
-    if [ "$fbgemm_gpu_version" == "nightly" ]; then
-      local fbgemm_gpu_package="fbgemm-gpu-nightly-cpu"
-    elif [ "$fbgemm_gpu_version" == "latest" ]; then
-      local fbgemm_gpu_package="fbgemm-gpu-cpu"
-    else
-      local fbgemm_gpu_package="fbgemm-gpu-cpu==${fbgemm_gpu_version}"
-    fi
-  fi
-
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Attempting to install FBGEMM-GPU ${fbgemm_gpu_version}+${fbgemm_gpu_variant} through PIP ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries conda run ${env_prefix} pip install ${fbgemm_gpu_package}) || return 1
+  # Install the package from PyTorch PIP (not PyPI)
+  install_from_pytorch_pip "${env_name}" fbgemm_gpu "${fbgemm_gpu_version}" "${fbgemm_gpu_variant_type}" "${fbgemm_gpu_variant_version}" || return 1
 
+  # Run post-installation checks
   __fbgemm_gpu_post_install_checks || return 1
 
-  echo "[INSTALL] FBGEMM-GPU installation through PIP completed ..."
+  echo "[INSTALL] Successfully installed FBGEMM-GPU through PyTorch PIP"
 }
