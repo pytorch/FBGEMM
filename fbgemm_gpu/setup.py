@@ -33,7 +33,7 @@ def generate_package_version(package_name: str, version_variant: str):
         today = date.today()
         version = f"{today.year}.{today.month}.{today.day}"
 
-    elif "test" in package_name:
+    elif ("test" in package_name) and (not "BUILD_FROM_NOVA" in os.environ):
         # Use date stamp for nightly versions
         print("[SETUP.PY] Package is for TEST: using random number for the versioning")
         version = (f"0.0.{random.randint(0, 1000)}",)
