@@ -34,12 +34,33 @@ Tensor permute_pooled_embs_auto_grad_split_gpu(
       inv_permute_list);
 }
 
+Tensor permute_duplicate_pooled_embs_auto_grad_split_gpu(
+    const Tensor& pooled_embs,
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
+  return PermutePooledEmbsFunctionSplit<
+      permute_duplicate_pooled_embs_split_gpu>::
+      apply(
+          pooled_embs,
+          offset_dim_list,
+          permute_list,
+          inv_offset_dim_list,
+          inv_permute_list);
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "permute_pooled_embs_split", fbgemm_gpu::permute_pooled_embs_split_gpu);
   DISPATCH_TO_CUDA(
+      "permute_duplicate_pooled_embs_split",
+      fbgemm_gpu::permute_duplicate_pooled_embs_split_gpu);
+  DISPATCH_TO_CUDA(
       "permute_pooled_embs_auto_grad_split",
       fbgemm_gpu::permute_pooled_embs_auto_grad_split_gpu);
+  DISPATCH_TO_CUDA(
+      "permute_duplicate_pooled_embs_auto_grad_split",
+      fbgemm_gpu::permute_duplicate_pooled_embs_auto_grad_split_gpu);
 }
