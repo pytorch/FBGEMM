@@ -318,6 +318,12 @@ def main(argv: List[str]) -> None:
             "CUDA",
         ],
         packages=["fbgemm_gpu"],
+        install_requires=[
+            # Only specify numpy, as specifying torch will auto-install the
+            # release version of torch, which is not what we want for the
+            # nightly and test packages
+            "numpy",
+        ],
         cmake_args=cmake_environment_variables(args),
         cmdclass={
             "install": FbgemmGpuInstaller,
