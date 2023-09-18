@@ -57,6 +57,7 @@ Tensor permute_pooled_embs_gpu(
       inv_permute_list,
       false);
 }
+
 Tensor permute_pooled_embs_gpu_impl(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,

@@ -24,12 +24,13 @@ using torch::autograd::AutogradContext;
 using torch::autograd::Variable;
 using torch::autograd::variable_list;
 
-Tensor permute_pooled_embs_split_cpu(
+Tensor permute_pooled_embs_split_cpu_impl(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list) {
+    const Tensor& inv_permute_list,
+    const bool& allow_duplicates) {
   TORCH_CHECK(
       offset_dim_list.scalar_type() == at::ScalarType::Long,
       "offset_dim_list needs to have long/int64 type")
@@ -38,9 +39,10 @@ Tensor permute_pooled_embs_split_cpu(
       "permute_list needs to have long/int64 type")
   auto permute = permute_list.data_ptr<int64_t>();
   const auto n = permute_list.numel();
+  const auto dims_size = allow_duplicates ? offset_dim_list.numel() : n;
   std::vector<int64_t> dims;
-  dims.reserve(n - 1);
-  for (const auto i : c10::irange(1, n)) {
+  dims.reserve(dims_size - 1);
+  for (const auto i : c10::irange(1, dims_size)) {
     dims.push_back(offset_dim_list[i].item<int64_t>());
   }
   auto ts = pooled_embs.tensor_split(dims, 1);
@@ -50,6 +52,36 @@ Tensor permute_pooled_embs_split_cpu(
     permuted_ts.push_back(ts[permute[i]]);
   }
   return at::cat(permuted_ts, 1);
+}
+
+Tensor permute_pooled_embs_split_cpu(
+    const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
+  return permute_pooled_embs_split_cpu_impl(
+      pooled_embs,
+      offset_dim_list,
+      permute_list,
+      inv_offset_dim_list,
+      inv_permute_list,
+      false);
+}
+
+Tensor permute_duplicate_pooled_embs_split_cpu(
+    const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
+  return permute_pooled_embs_split_cpu_impl(
+      pooled_embs,
+      offset_dim_list,
+      permute_list,
+      inv_offset_dim_list,
+      inv_permute_list,
+      true);
 }
 
 Tensor permute_pooled_embs_auto_grad_split_cpu(
@@ -65,6 +97,22 @@ Tensor permute_pooled_embs_auto_grad_split_cpu(
       inv_offset_dim_list,
       inv_permute_list);
 }
+
+Tensor permute_duplicate_pooled_embs_auto_grad_split_cpu(
+    const Tensor& pooled_embs,
+    const Tensor& offset_dim_list,
+    const Tensor& permute_list,
+    const Tensor& inv_offset_dim_list,
+    const Tensor& inv_permute_list) {
+  return PermutePooledEmbsFunctionSplit<
+      permute_duplicate_pooled_embs_split_cpu>::
+      apply(
+          pooled_embs,
+          offset_dim_list,
+          permute_list,
+          inv_offset_dim_list,
+          inv_permute_list);
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -73,8 +121,18 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CPU(
       "permute_pooled_embs_split", fbgemm_gpu::permute_pooled_embs_split_cpu);
   m.def(
+      "permute_duplicate_pooled_embs_split(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
+  DISPATCH_TO_CPU(
+      "permute_duplicate_pooled_embs_split",
+      fbgemm_gpu::permute_duplicate_pooled_embs_split_cpu);
+  m.def(
       "permute_pooled_embs_auto_grad_split(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
   DISPATCH_TO_CPU(
       "permute_pooled_embs_auto_grad_split",
       fbgemm_gpu::permute_pooled_embs_auto_grad_split_cpu);
+  m.def(
+      "permute_duplicate_pooled_embs_auto_grad_split(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
+  DISPATCH_TO_CPU(
+      "permute_duplicate_pooled_embs_auto_grad_split",
+      fbgemm_gpu::permute_duplicate_pooled_embs_auto_grad_split_cpu);
 }
