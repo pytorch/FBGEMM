@@ -61,7 +61,7 @@ __global__ inline void _float_to_paddedFP8rowwise_cuda_kernel(
         *reinterpret_cast<float*>((row == threads - 1) ? &pad : &last_buc_idx);
     for (int col = 0; col < range; col += 1) {
       output_row[col] =
-          float_to_hfp8(input_row[col] * scale, ebit, bias, max_pos);
+          float_to_hfp8(to_float(input_row[col]) * scale, ebit, bias, max_pos);
     }
     return;
   }
@@ -88,8 +88,8 @@ __global__ inline void _float_to_paddedFP8rowwise_cuda_kernel(
     output_row_scale[1] = *reinterpret_cast<float*>(
         (ncols - col > row_dim) ? &last_buc_idx : &pad);
     for (int bi = 0; bi < std::min(row_dim, (int)(ncols - col)); ++bi) {
-      output_row[col + bi + col_offset] =
-          float_to_hfp8(input_row[col + bi] * scale, ebit, bias, max_pos);
+      output_row[col + bi + col_offset] = float_to_hfp8(
+          to_float(input_row[col + bi]) * scale, ebit, bias, max_pos);
     }
   }
 }
@@ -160,7 +160,8 @@ __global__ inline void _PaddedFP8rowwise_to_float_1d_cuda_kernel(
   const auto pad_offset = offsets[row];
   output_t* output_row = output + row * row_dim - pad_offset;
   for (int col = threadIdx.x; col < row_dim - pad; col += blockDim.x) {
-    output_row[col] = hfp8_to_float(input_row[col], ebit, bias) / scale;
+    const auto output_ = hfp8_to_float(input_row[col], ebit, bias) / scale;
+    quantize_float_store(&output_row[col], output_);
   }
 }
 
@@ -193,8 +194,9 @@ __global__ inline void _PaddedFP8rowwise_to_float_2d_cuda_kernel(
     // bucket
     pad = (pad > 0) ? pad : 0;
     for (int bi = 0; bi < row_dim - pad; ++bi) {
-      output_row[col + bi - col_offset] =
+      const auto output_ =
           hfp8_to_float(input_row[col + bi], ebit, bias) / input_row_scale[0];
+      quantize_float_store(&output_row[col + bi - col_offset], output_);
     }
     col_offset = col_offset + 8 + pad;
   }
@@ -203,7 +205,6 @@ __global__ inline void _PaddedFP8rowwise_to_float_2d_cuda_kernel(
 } // namespace
 
 // revising INT8 rowwise template for FP8 rowwise quantization
-template <typename input_t>
 Tensor _float_to_paddedFP8rowwise_gpu_t(
     const Tensor& input,
     const bool forward,
@@ -241,7 +242,7 @@ Tensor _float_to_paddedFP8rowwise_gpu_t(
   const auto num_blocks = cuda_calc_xblock_count(
       nrows == 1 ? (ncols + row_dim - 1) / row_dim : nrows, threads_per_block);
 
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
       input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
         _float_to_paddedFP8rowwise_cuda_kernel<scalar_t>
             <<<num_blocks,
@@ -259,12 +260,12 @@ Tensor _float_to_paddedFP8rowwise_gpu_t(
   return output;
 }
 
-template <typename output_t>
 Tensor _paddedFP8rowwise_to_float_gpu_t(
     const Tensor& input,
     const bool forward,
     const int64_t row_dim,
-    const int64_t output_last_dim) {
+    const int64_t output_last_dim,
+    const int64_t output_dtype) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
@@ -328,16 +329,15 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
   }
 
   output_dims[last_dim] = output_columns;
-  Tensor output;
-  if constexpr (std::is_same_v<output_t, float>) {
-    output = at::empty(
-        output_dims, // 4 = sizeof(float)
-        input.options().dtype(at::kFloat));
-  } else { // T = at::Half
-    output = at::empty(
-        output_dims, // 4 = sizeof(float)
-        input.options().dtype(at::kHalf));
-  }
+
+  const auto output_sdtype = static_cast<SparseType>(output_dtype);
+  TORCH_CHECK(
+      output_sdtype == SparseType::FP32 || output_sdtype == SparseType::FP16 ||
+      output_sdtype == SparseType::BF16);
+
+  Tensor output = at::empty(
+      output_dims, // 4 = sizeof(float)
+      input.options().dtype(getScalarType(output_sdtype)));
 
   if (nrows == 0 || output_columns == 0) {
     return output;
@@ -357,7 +357,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
     constexpr int kMaxThreads = 1024;
     const auto threads_per_block =
         kMaxThreads < row_dim ? kMaxThreads : row_dim;
-    FBGEMM_DISPATCH_FLOAT_AND_HALF(
+    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
         output.scalar_type(), "PaddedFP8rowwise_to_float_1d_cuda_kernel", [&] {
           _PaddedFP8rowwise_to_float_1d_cuda_kernel<scalar_t>
               <<<num_rows,
@@ -375,7 +375,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
         });
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
-    FBGEMM_DISPATCH_FLOAT_AND_HALF(
+    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
         output.scalar_type(), "PaddedFP8rowwise_to_float_2d_cuda_kernel", [&] {
           _PaddedFP8rowwise_to_float_2d_cuda_kernel<scalar_t>
               <<<num_blocks,
@@ -402,16 +402,17 @@ DLL_PUBLIC Tensor _float_to_paddedFP8rowwise_gpu(
     const Tensor& input,
     const bool forward,
     const int64_t row_dim) {
-  return _float_to_paddedFP8rowwise_gpu_t<float>(input, forward, row_dim);
+  return _float_to_paddedFP8rowwise_gpu_t(input, forward, row_dim);
 }
 
 DLL_PUBLIC at::Tensor _paddedFP8rowwise_to_float_gpu(
     const at::Tensor& input,
     const bool forward,
     const int64_t row_dim,
-    const int64_t output_last_dim) {
-  return _paddedFP8rowwise_to_float_gpu_t<float>(
-      input, forward, row_dim, output_last_dim);
+    const int64_t output_last_dim,
+    const int64_t output_dtype) {
+  return _paddedFP8rowwise_to_float_gpu_t(
+      input, forward, row_dim, output_last_dim, output_dtype);
 }
 
 } // namespace fbgemm_gpu
