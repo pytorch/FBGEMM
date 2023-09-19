@@ -16,6 +16,10 @@
 ################################################################################
 
 __fbgemm_gpu_post_install_checks () {
+  local env_name="$1"
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Checking imports and symbols ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
   (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
@@ -56,7 +60,7 @@ install_fbgemm_gpu_wheel () {
   # shellcheck disable=SC2086
   (exec_with_retries conda run ${env_prefix} python -m pip install "${wheel_path}") || return 1
 
-  __fbgemm_gpu_post_install_checks || return 1
+  __fbgemm_gpu_post_install_checks "${env_name}" || return 1
 
   echo "[INSTALL] FBGEMM-GPU installation through wheel completed ..."
 }
@@ -80,14 +84,12 @@ install_fbgemm_gpu_pip () {
     echo ""
   fi
 
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
   # Install the package from PyTorch PIP (not PyPI)
+  # The package's canonical name is 'fbgemm-gpu' (hyphen, not underscore)
   install_from_pytorch_pip "${env_name}" fbgemm_gpu "${fbgemm_gpu_version}" "${fbgemm_gpu_variant_type}" "${fbgemm_gpu_variant_version}" || return 1
 
   # Run post-installation checks
-  __fbgemm_gpu_post_install_checks || return 1
+  __fbgemm_gpu_post_install_checks "${env_name}" || return 1
 
   echo "[INSTALL] Successfully installed FBGEMM-GPU through PyTorch PIP"
 }

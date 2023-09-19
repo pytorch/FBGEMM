@@ -6,7 +6,7 @@
 name: FBGEMM_GPU-CPU Nightly Build
 
 on:
-  # PR Trigger (enabled only for debugging)
+  # PR Trigger (enabled for regression checks and debugging)
   #
   pull_request:
     branches:

@@ -15,7 +15,7 @@
 
 install_from_pytorch_pip () {
   local env_name="$1"
-  local package_name="$2"
+  local package_name_raw="$2"
   local package_version="$3"
   local package_variant_type="$4"
   local package_variant_version="$5"
@@ -29,7 +29,7 @@ install_from_pytorch_pip () {
     return 1
   else
     echo "################################################################################"
-    echo "# Install ${package_name} (PyTorch PIP)"
+    echo "# Install ${package_name_raw} (PyTorch PIP)"
     echo "#"
     echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
     echo "################################################################################"
@@ -37,6 +37,10 @@ install_from_pytorch_pip () {
   fi
 
   test_network_connection || return 1
+
+  # Replace underscores with hyphens to materialize the canonical name of the package
+  # shellcheck disable=SC2155
+  local package_name=$(echo "${package_name_raw}" | tr '_' '-')
 
   # Set the package variant
   if [ "$package_variant_type" == "cuda" ]; then
