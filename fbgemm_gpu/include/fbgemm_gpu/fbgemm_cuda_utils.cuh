@@ -1696,6 +1696,19 @@ static DEVICE_INLINE float __bfloat162float(const at::BFloat16 input) {
 #endif
 }
 
+// Helper functions for converting data to float
+static DEVICE_INLINE float to_float(const float input) {
+  return input;
+}
+
+static DEVICE_INLINE float to_float(const at::Half input) {
+  return __half2float(input);
+}
+
+static DEVICE_INLINE float to_float(const at::BFloat16 input) {
+  return __bfloat162float(input);
+}
+
 #ifdef __HIP_PLATFORM_HCC__
 // the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
 // https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
@@ -1709,6 +1722,25 @@ static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
   return output.round_to_bfloat16(f);
 }
 #endif
+
+// Helper functions for storing float in quantized storage
+static DEVICE_INLINE void quantize_float_store(
+    at::BFloat16* output,
+    const float input) {
+  *reinterpret_cast<__nv_bfloat16*>(output) = __float2bfloat16(input);
+}
+
+static DEVICE_INLINE void quantize_float_store(
+    at::Half* output,
+    const float input) {
+  *output = __float2half(input);
+}
+
+static DEVICE_INLINE void quantize_float_store(
+    float* output,
+    const float input) {
+  *output = input;
+}
 
 #if !(                                                  \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
