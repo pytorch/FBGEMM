@@ -1,4 +1,4 @@
-name: Build x86 Linux Wheels
+name: Build x86 Linux Wheels (ROCm)
 
 on:
   pull_request:
@@ -20,15 +20,16 @@ concurrency:
 
 jobs:
   generate-matrix:
+    if: ${{ github.event_name == 'pull_request' || (inputs.trigger-event == 'push' && startsWith(github.event.ref, 'refs/heads/nightly')) }}
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
     with:
       package-type: wheel
       os: linux
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
-      with-cuda: enable
-      with-rocm: disable
-      with-cpu: enable
+      with-cuda: disable
+      with-rocm: enable
+      with-cpu: disable
   build:
     needs: generate-matrix
     name: pytorch/FBGEMM
