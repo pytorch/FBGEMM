@@ -11,6 +11,8 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
+#include "c10/core/SymIntArrayRef.h"
+#include "c10/util/DimVector.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -23,12 +25,26 @@ namespace {
 Tensor pack_segments_forward_meta(
     const Tensor& t_in,
     const Tensor& lengths,
-    const int64_t max_length) {
-  at::DimVector padded_values_shape({lengths.numel(), max_length});
+    const at::SymInt max_length) {
+  at::SymDimVector padded_values_shape({lengths.sym_numel(), max_length});
+
   for (const auto i : c10::irange(1, t_in.dim())) {
-    padded_values_shape.push_back(t_in.size(i));
+    padded_values_shape.push_back(t_in.sym_size(i));
   }
-  return at::empty(padded_values_shape, t_in.options());
+  return at::empty_symint(padded_values_shape, t_in.options());
+}
+
+Tensor pack_segments_backward_meta(
+    const at::Tensor& data,
+    const at::Tensor& lengths,
+    const at::SymInt total_length,
+    const at::SymInt max_length) {
+  // Create output tensor of appropriate dimensions
+  auto shape = data.sym_sizes().vec();
+  shape.erase(shape.begin());
+  shape[0] = total_length;
+
+  return at::empty_symint(shape, data.options());
 }
 
 Tensor offsets_range_meta_symint(const Tensor& offsets, at::SymInt range_size) {
@@ -52,6 +68,7 @@ Tensor batched_unary_embeddings_forward_meta(
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("pack_segments", TORCH_FN(fbgemm_gpu::pack_segments_forward_meta));
+  m.impl("unpack_segments", TORCH_FN(fbgemm_gpu::pack_segments_backward_meta));
   m.impl(
       "asynchronous_complete_cumsum",
       TORCH_FN(fbgemm_gpu::asynchronous_complete_cumsum_meta));
