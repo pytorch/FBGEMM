@@ -2508,54 +2508,12 @@ Tensor pack_segments_backward_cpu(
 
   return unpacked_tensor;
 }
-
-class PackSegmentsFunction
-    : public torch::autograd::Function<PackSegmentsFunction> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& t_in,
-      const Tensor& lengths,
-      const int64_t max_length) {
-    int64_t total_length = t_in.expect_contiguous()->sizes()[0];
-    ctx->saved_data["max_length"] = max_length;
-    ctx->saved_data["total_length"] = total_length;
-    ctx->save_for_backward({lengths});
-
-    // Run the forward pass.
-    const auto& res = pack_segments_forward_cpu(t_in, lengths, max_length);
-    torch::autograd::variable_list outputs(1);
-    outputs[0] = res;
-    return outputs;
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_output) {
-    TORCH_CHECK(grad_output.size() == 1);
-    const Tensor& grad = grad_output[0];
-    const auto& max_length = ctx->saved_data["max_length"].toInt();
-    const auto& total_length = ctx->saved_data["total_length"].toInt();
-
-    // Retrieve saved variables for backward.
-    const auto& saved_variables = ctx->get_saved_variables();
-    const auto& lengths = saved_variables[0];
-
-    torch::autograd::variable_list grad_inputs(5);
-    grad_inputs[0] =
-        pack_segments_backward_cpu(grad, lengths, total_length, max_length);
-    return grad_inputs;
-  }
-};
-
 Tensor pack_segments_cpu(
     const Tensor& t_in,
     const Tensor& lengths,
     const int64_t max_length) {
-  const auto& res = PackSegmentsFunction::apply(t_in, lengths, max_length);
-  return res[0];
+  return pack_segments_forward_cpu(t_in, lengths, max_length);
 }
-
 namespace {
 Tensor index_select_dim0(
     const Tensor& input,
@@ -2692,7 +2650,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> Tensor");
   m.def(
       "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
-  m.def("pack_segments(Tensor t_in, Tensor lengths, int max_length) -> Tensor");
+  m.def(
+      "pack_segments(Tensor t_in, Tensor lengths, SymInt max_length) -> Tensor");
+  m.def(
+      "pack_segments_backward(Tensor data, Tensor lengths, SymInt total_length, SymInt max_length) -> Tensor");
   // A specialization of at::index_select for selecting dim 0
   //
   // The consecutive_range_start and consecutive_range_length arguments are for
@@ -2789,6 +2750,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_sequence_embeddings",
       fbgemm_gpu::permute_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
+  DISPATCH_TO_CPU(
+      "pack_segments_backward", fbgemm_gpu::pack_segments_backward_cpu);
   DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
   DISPATCH_TO_CPU(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0);
