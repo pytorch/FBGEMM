@@ -1731,6 +1731,7 @@ class SparseOpsTest(unittest.TestCase):
                 torch.half,
             ]
         ),
+        torch_compile=st.booleans(),
     )
     @settings(deadline=None)
     def test_pack_segments(
@@ -1740,11 +1741,13 @@ class SparseOpsTest(unittest.TestCase):
         batch_size: int,
         divisions: int,
         dtype: torch.dtype,
+        torch_compile: bool,
     ) -> None:
         input_raw = np.random.rand(batch_size, n, k)
         input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
         lengths = torch.tensor(
-            get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+            get_n_rand_num_summing_to_k(divisions, batch_size),
+            dtype=torch.int,
         )
         max_length = lengths.max().item()
 
@@ -1766,7 +1769,48 @@ class SparseOpsTest(unittest.TestCase):
         packed_tensor.backward(grad_cpu)
 
         if gpu_available:
-            packed_cuda = torch.ops.fbgemm.pack_segments(
+            pack_segments_fun = torch.ops.fbgemm.pack_segments
+
+            if torch_compile:
+                pack_segments_fun = torch.compile(pack_segments_fun, dynamic=True)
+
+            packed_cuda = pack_segments_fun(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+
+            self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+
+            # GPU backward
+            packed_cuda.backward(grad_cpu.cuda())
+
+            # dynamic check
+            input_raw = np.random.rand(batch_size, n + 1, k + 2)
+            input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
+            lengths = torch.tensor(
+                get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+            )
+            max_length = lengths.max().item()
+            packed_tensor = torch.ops.fbgemm.pack_segments(
+                t_in=input_data, lengths=lengths, max_length=max_length
+            )
+
+            packed_ref = self._pack_segments_ref(lengths, input_raw)
+            packed_ref = torch.Tensor(packed_ref).to(dtype)
+
+            self.assertTrue(torch.equal(packed_tensor, packed_ref))
+
+            grad_cpu = torch.tensor(
+                np.random.uniform(low=0.01, high=0.5, size=packed_ref.shape).astype(
+                    np.float32
+                )
+            ).to(dtype)
+            # CPU backward
+            packed_tensor.backward(grad_cpu)
+
+            # reusing the previously compiled kernel
+            packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),
                 lengths=lengths.cuda(),
                 max_length=max_length,
@@ -1788,6 +1832,7 @@ class SparseOpsTest(unittest.TestCase):
                 torch.half,
             ]
         ),
+        torch_compile=st.booleans(),
     )
     @settings(deadline=None)
     def test_pack_segments_smaller_max_len(
@@ -1798,6 +1843,7 @@ class SparseOpsTest(unittest.TestCase):
         divisions: int,
         max_length: int,
         dtype: torch.dtype,
+        torch_compile: bool,
     ) -> None:
         input_data = torch.tensor(np.random.rand(batch_size, n, k), dtype=dtype)
         lengths = torch.tensor(
@@ -1820,7 +1866,11 @@ class SparseOpsTest(unittest.TestCase):
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
         if gpu_available:
-            packed_cuda = torch.ops.fbgemm.pack_segments(
+            pack_segments_fun = torch.ops.fbgemm.pack_segments
+            if torch_compile:
+                pack_segments_fun = torch.compile(pack_segments_fun)
+
+            packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),
                 lengths=lengths.cuda(),
                 max_length=max_length,
