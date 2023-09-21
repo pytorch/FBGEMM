@@ -28,7 +28,7 @@ install_rocm_ubuntu () {
     echo "################################################################################"
     echo "# Install ROCm (Ubuntu)"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi

@@ -33,7 +33,7 @@ install_pytorch_conda () {
     echo "################################################################################"
     echo "# Install PyTorch (Conda)"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -120,7 +120,7 @@ install_pytorch_pip () {
     echo "################################################################################"
     echo "# Install PyTorch (PIP)"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
