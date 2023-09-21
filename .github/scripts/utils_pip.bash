@@ -31,7 +31,7 @@ install_from_pytorch_pip () {
     echo "################################################################################"
     echo "# Install ${package_name_raw} (PyTorch PIP)"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -117,7 +117,7 @@ publish_to_pypi () {
     echo "################################################################################"
     echo "# Publish to PyPI"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi

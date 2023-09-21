@@ -43,7 +43,7 @@ install_fbgemm_gpu_wheel () {
     echo "################################################################################"
     echo "# Install FBGEMM-GPU from Wheel"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -79,7 +79,7 @@ install_fbgemm_gpu_pip () {
     echo "################################################################################"
     echo "# Install FBGEMM-GPU Package from PIP"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi

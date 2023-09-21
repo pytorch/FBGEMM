@@ -24,7 +24,7 @@ install_lint_tools () {
     echo "################################################################################"
     echo "# Install Lint Tools"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -69,7 +69,7 @@ lint_fbgemm_gpu_flake8 () {
     echo "################################################################################"
     echo "# Run FBGEMM_GPU Lint: flake8"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -99,7 +99,7 @@ lint_fbgemm_gpu_ufmt () {
     echo "################################################################################"
     echo "# Run FBGEMM_GPU Lint: ufmt"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -132,7 +132,7 @@ lint_fbgemm_gpu_copyright () {
     echo "################################################################################"
     echo "# Run FBGEMM_GPU Lint: Meta Copyright Headers"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi

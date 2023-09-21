@@ -24,7 +24,7 @@ install_docs_tools () {
     echo "################################################################################"
     echo "# Install Documentation Tools"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -61,7 +61,7 @@ build_fbgemm_gpu_docs () {
     echo "################################################################################"
     echo "# Build FBGEMM-GPU Documentation"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi

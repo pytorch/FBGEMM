@@ -61,7 +61,7 @@ run_fbgemm_gpu_tests () {
     echo "################################################################################"
     echo "# Run FBGEMM-GPU Tests"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -143,7 +143,7 @@ test_setup_conda_environment () {
     echo "################################################################################"
     echo "# Setup FBGEMM-GPU Build Container (All Steps)"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi

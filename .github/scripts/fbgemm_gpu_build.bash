@@ -24,7 +24,7 @@ prepare_fbgemm_gpu_build () {
     echo "################################################################################"
     echo "# Prepare FBGEMM-GPU Build"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -154,7 +154,7 @@ __configure_fbgemm_gpu_build () {
     echo "################################################################################"
     echo "# Configure FBGEMM-GPU Build"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -310,7 +310,7 @@ build_fbgemm_gpu_package () {
   echo "################################################################################"
   echo "# Build FBGEMM-GPU Package (Wheel)"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -322,13 +322,15 @@ build_fbgemm_gpu_package () {
   echo "[BUILD] Checking build_args:"
   echo "${build_args[@]}"
 
-  core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
-  sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
-  re='^[0-9]+$'
-  run_multicore=""
+  # shellcheck disable=SC2155
+  local core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
+  # shellcheck disable=SC2155
+  local sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
+  local re='^[0-9]+$'
+  local run_multicore=""
   if [[ $core =~ $re && $sockets =~ $re ]] ; then
-    n_core=$((core * sockets))
-    run_multicore=" -j ${n_core}"
+    local n_core=$((core * sockets))
+    local run_multicore=" -j ${n_core}"
   fi
 
   # Distribute Python extensions as wheels on Linux
@@ -380,7 +382,7 @@ build_fbgemm_gpu_install () {
   echo "################################################################################"
   echo "# Build + Install FBGEMM-GPU Package"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -426,9 +428,9 @@ build_fbgemm_gpu_develop () {
   __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
 
   echo "################################################################################"
-  echo "# Build + Install FBGEMM-GPU Package"
+  echo "# Build + Install FBGEMM-GPU Package (Develop)"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
