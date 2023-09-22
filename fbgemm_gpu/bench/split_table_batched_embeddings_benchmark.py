@@ -2798,7 +2798,7 @@ def device_with_spec(  # noqa C901
         )
     else:
         read_write_bytes = (
-            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
+            output_size_multiplier * B * sum_DLs + param_size_multiplier * B * sum_DLs
         )
 
     if use_variable_bag_sizes:
