@@ -26,12 +26,17 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, skipIfRocm
+    from test_utils import gpu_available, gpu_unavailable, running_on_github, skipIfRocm
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_unavailable,
+        running_on_github,
+        skipIfRocm,
+    )
 
 
 def unbucketize_indices_value(
@@ -1733,6 +1738,7 @@ class SparseOpsTest(unittest.TestCase):
         ),
         torch_compile=st.booleans(),
     )
+    @unittest.skipIf(*running_on_github)
     @settings(deadline=None)
     def test_pack_segments(
         self,
