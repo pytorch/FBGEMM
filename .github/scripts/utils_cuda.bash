@@ -102,7 +102,7 @@ install_cudnn () {
 
   # Install cuDNN manually
   # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
-  local cudnn_packages=(
+  declare -A cudnn_packages=(
     ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-${PLATFORM_NAME_LC}-8.5.0.96_cuda11-archive.tar.xz"

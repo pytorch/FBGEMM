@@ -129,13 +129,14 @@ run_fbgemm_gpu_tests () {
 ################################################################################
 
 test_setup_conda_environment () {
-  local python_version="$1"
-  local pytorch_installer="$2"
-  local pytorch_version="$3"
-  local pytorch_variant_type="$4"
-  local pytorch_variant_version="$5"
+  local env_name="$1"
+  local python_version="$2"
+  local pytorch_installer="$3"
+  local pytorch_version="$4"
+  local pytorch_variant_type="$5"
+  local pytorch_variant_version="$6"
   if [ "$pytorch_variant_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_VERSION PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_VERSION PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env 3.8 pip test cuda 11.8.0       # Setup environment with pytorch-test for Python 3.8 + CUDA 11.8.0"
     return 1
@@ -148,9 +149,11 @@ test_setup_conda_environment () {
     echo ""
   fi
 
-  local env_name="test_py${python_version}_${pytorch_installer}_pytorch_${pytorch_version}_${pytorch_variant_type}"
-  if [ "$pytorch_variant_version" != "" ]; then
-    local env_name="${env_name}_${pytorch_variant_version}"
+  if [ "$env_name" == "" ]; then
+    local env_name="test_py${python_version}_${pytorch_installer}_pytorch_${pytorch_version}_${pytorch_variant_type}"
+    if [ "$pytorch_variant_version" != "" ]; then
+      local env_name="${env_name}_${pytorch_variant_version}"
+    fi
   fi
 
   echo "Creating the Build Environment: ${env_name} ..."
