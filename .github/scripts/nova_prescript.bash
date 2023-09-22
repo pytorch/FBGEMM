@@ -57,15 +57,15 @@ if [[ $CU_VERSION = cu* ]]; then
   echo "[NOVA] ------------------------------------------"
 
   echo "[NOVA] Building the CUDA variant of FBGEMM_GPU ..."
-  fbgemm_variant="cuda"
+  export fbgemm_variant="cuda"
 
 elif [[ $CU_VERSION = rocm* ]]; then
   echo "[NOVA] Building the ROCm variant of FBGEMM_GPU ..."
-  fbgemm_variant="rocm"
+  export fbgemm_variant="rocm"
 
 else
   echo "[NOVA] Building the CPU variant of FBGEMM_GPU ..."
-  fbgemm_variant="cpu"
+  export fbgemm_variant="cpu"
 fi
 
 # Install the necessary Python eggs for building
@@ -78,7 +78,7 @@ export BUILD_FROM_NOVA
 
 # Build FBGEMM_GPU nightly by default
 if [[ ${CHANNEL} == "" ]]; then
-  CHANNEL="nightly"
+  export CHANNEL="nightly"
 fi
 
 # Build the wheel

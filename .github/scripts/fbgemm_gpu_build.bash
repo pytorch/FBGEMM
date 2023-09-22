@@ -290,7 +290,7 @@ build_fbgemm_gpu_package () {
   fbgemm_variant="$3"
   fbgemm_variant_targets="$4"
   if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME VARIANT [TARGETS]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_TYPE VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env nightly cpu                           # Nightly CPU-only variant"
     echo "    ${FUNCNAME[0]} build_env nightly cuda                          # Nightly CUDA variant for default target(s)"
