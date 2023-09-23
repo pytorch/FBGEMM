@@ -27,7 +27,6 @@ try:
         gpu_available,
         gpu_unavailable,
         on_arm_platform,
-        running_on_github,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
@@ -38,7 +37,6 @@ except Exception:
         gpu_available,
         gpu_unavailable,
         on_arm_platform,
-        running_on_github,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
@@ -1805,7 +1803,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         new_embeddings = torch.index_select(values, 0, all_indices)
         return new_embeddings
 
-    @unittest.skipIf(*running_on_github)
     @given(
         max_seq_length=st.integers(5, 10),
         batch_size=st.integers(1, 128),
@@ -1826,7 +1823,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
     )
-    @settings(max_examples=20, deadline=None)
+    @settings(max_examples=20, deadline=None, verbosity=Verbosity.verbose)
     def test_jagged_index_select_2d(
         self,
         max_seq_length: int,
@@ -1899,7 +1896,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
-    @unittest.skipIf(*running_on_github)
     @given(
         max_seq_length=st.integers(5, 10),
         batch_size=st.integers(1, 128),
