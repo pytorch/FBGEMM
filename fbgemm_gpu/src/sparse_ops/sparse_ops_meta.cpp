@@ -20,6 +20,17 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
+Tensor asynchronous_complete_cumsum_meta(const Tensor& t_in) {
+  const auto num_dims = t_in.dim();
+  TORCH_CHECK(num_dims == 1 || num_dims == 2);
+
+  auto output = num_dims == 1
+      ? at::zeros_symint({t_in.sym_numel() + 1}, t_in.options())
+      : at::zeros_symint(
+            {t_in.sym_size(0), t_in.sym_size(1) + 1}, t_in.options());
+  return output;
+}
+
 namespace {
 
 Tensor pack_segments_forward_meta(
@@ -62,6 +73,14 @@ Tensor batched_unary_embeddings_forward_meta(
   return at::empty_symint({N, B, T}, weight.options());
 }
 
+Tensor asynchronous_inclusive_cumsum_meta(const Tensor& t_in) {
+  return at::empty_symint(t_in.sym_sizes(), t_in.options());
+}
+
+Tensor asynchronous_exclusive_cumsum_meta(const Tensor& t_in) {
+  return at::empty_symint(t_in.sym_sizes(), t_in.options());
+}
+
 } // namespace
 
 } // namespace fbgemm_gpu
@@ -71,6 +90,12 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "pack_segments_backward",
       TORCH_FN(fbgemm_gpu::pack_segments_backward_meta));
+  m.impl(
+      "asynchronous_inclusive_cumsum",
+      TORCH_FN(fbgemm_gpu::asynchronous_inclusive_cumsum_meta));
+  m.impl(
+      "asynchronous_exclusive_cumsum",
+      TORCH_FN(fbgemm_gpu::asynchronous_exclusive_cumsum_meta));
   m.impl(
       "asynchronous_complete_cumsum",
       TORCH_FN(fbgemm_gpu::asynchronous_complete_cumsum_meta));
