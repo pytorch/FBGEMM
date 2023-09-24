@@ -1126,17 +1126,6 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
   return output;
 }
 
-Tensor asynchronous_complete_cumsum_meta(const Tensor& t_in) {
-  const auto num_dims = t_in.dim();
-  TORCH_CHECK(num_dims == 1 || num_dims == 2);
-
-  auto output = num_dims == 1
-      ? at::zeros_symint({t_in.sym_numel() + 1}, t_in.options())
-      : at::zeros_symint(
-            {t_in.sym_size(0), t_in.sym_size(1) + 1}, t_in.options());
-  return output;
-}
-
 template <typename index_t, typename scalar_t>
 void reorder_batched_ad_lengths_(
     const Tensor& cat_ad_lengths,
