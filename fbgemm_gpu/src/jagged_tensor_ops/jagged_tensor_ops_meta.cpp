@@ -95,7 +95,7 @@ Tensor jagged_dense_elementwise_add_meta(
 Tensor dense_to_jagged_forward_meta(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<at::SymInt>& total_L) {
+    c10::optional<at::SymInt> total_L) {
   auto dense_values = dense;
   at::SymInt D = dense_values.sym_size(-1);
   TORCH_CHECK_NOT_IMPLEMENTED(
@@ -110,7 +110,7 @@ Tensor dense_to_jagged_forward_meta(
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged_meta(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<at::SymInt>& total_L) {
+    c10::optional<at::SymInt> total_L) {
   return {dense_to_jagged_forward_meta(dense, offsets, total_L), offsets};
 }
 

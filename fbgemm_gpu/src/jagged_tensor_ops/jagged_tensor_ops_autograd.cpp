@@ -284,7 +284,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
             .typed<Tensor(
                 const Tensor& dense,
                 const std::vector<Tensor>& offsets,
-                const c10::optional<at::SymInt>& total_L)>();
+                c10::optional<at::SymInt> total_L)>();
     auto output = op.call(dense, offsets, total_L);
 
     return {output};
@@ -763,7 +763,7 @@ Tensor batched_dense_vec_jagged_2d_mul(
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<at::SymInt>& total_L) {
+    c10::optional<at::SymInt> total_L) {
   return {DenseToJaggedOp::apply(dense, offsets, total_L)[0], offsets};
 }
 
