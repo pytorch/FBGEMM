@@ -428,6 +428,12 @@ at::Tensor jagged_2d_to_dense(
     at::Tensor offsets,
     c10::SymInt max_sequence_length);
 
+at::Tensor jagged_1d_to_dense_meta(
+    at::Tensor values,
+    at::Tensor offsets,
+    c10::SymInt max_L,
+    int64_t padding_value);
+
 at::Tensor jagged_2d_to_dense_meta(
     at::Tensor values,
     at::Tensor offsets,
