@@ -1090,6 +1090,11 @@ Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
   return output;
 }
 
+Tensor asynchronous_exclusive_cumsum_meta(const Tensor& t_in) {
+  auto output = at::zeros_symint(t_in.sym_sizes(), t_in.options());
+  return output;
+}
+
 Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
   TENSOR_ON_CPU(t_in);
 
