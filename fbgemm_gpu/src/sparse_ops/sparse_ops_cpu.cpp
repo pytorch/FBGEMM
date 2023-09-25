@@ -15,6 +15,7 @@
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
+#include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -54,6 +55,73 @@ void _to_dense_representation(
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+
+// Custom PackSegments operator that is based on the Caffe2 PackSegments and
+// UnpackSegments.
+// Needed this to support backward pass.
+class PackSegments : public torch::autograd::Function<PackSegments> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& t_in,
+      const Tensor& lengths,
+      const at::SymInt& max_length) {
+    const at::SymInt total_length = t_in.sym_size(0);
+
+    at::AutoDispatchBelowADInplaceOrView guard;
+
+    static auto custom_pack_segments_op =
+        at::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::pack_segments", "")
+            .typed<at::Tensor(
+                const at::Tensor&, const at::Tensor&, const at::SymInt)>();
+
+    Tensor res = custom_pack_segments_op.call(t_in, lengths, max_length);
+
+    ctx->saved_data["max_length"] = max_length;
+    ctx->saved_data["total_length"] = total_length;
+    ctx->save_for_backward({lengths});
+
+    return {res};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output) {
+    TORCH_CHECK(grad_output.size() == 2 or grad_output.size() == 1);
+    const Tensor& grad = grad_output[0];
+    const auto& max_length = ctx->saved_data["max_length"].toSymInt();
+    const auto& total_length = ctx->saved_data["total_length"].toSymInt();
+
+    // Retrieve saved variables for backward.
+    const auto& saved_variables = ctx->get_saved_variables();
+    const auto& lengths = saved_variables[0];
+
+    torch::autograd::variable_list grad_inputs(5);
+
+    static auto custom_pack_segments_backward_op =
+        at::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::pack_segments_backward", "")
+            .typed<at::Tensor(
+                const at::Tensor&,
+                const at::Tensor&,
+                const at::SymInt,
+                const at::SymInt)>();
+
+    grad_inputs[0] = custom_pack_segments_backward_op.call(
+        grad, lengths, total_length, max_length);
+    return grad_inputs;
+  }
+};
+
+Tensor pack_segments_autograd(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const at::SymInt max_length
+
+) {
+  return PackSegments::apply(t_in, lengths, max_length)[0];
+}
 
 Tensor native_empty_like(const Tensor& self) {
   return at::native::empty_like(
@@ -2766,4 +2834,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0);
   DISPATCH_TO_CPU("bottom_k_per_row", fbgemm_gpu::bottom_k_per_row);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
+  m.impl("pack_segments", &fbgemm_gpu::pack_segments_autograd);
 }
