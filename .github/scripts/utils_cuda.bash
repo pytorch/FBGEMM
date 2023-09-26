@@ -117,11 +117,11 @@ install_cudnn () {
   local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
 
   # Get the URL
-  local cudnn_url="${cudnn_packages[cuda_concat_version]}"
+  local cudnn_url="${cudnn_packages[$cuda_concat_version]}"
   if [ "$cudnn_url" == "" ]; then
-    # Default to cuDNN for 11.7 if no CUDA version fits
-    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.7"
-    cudnn_url="${cudnn_packages[117]}"
+    # Default to cuDNN for 11.8 if no CUDA version fits
+    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.8"
+    cudnn_url="${cudnn_packages[118]}"
   fi
 
   # Clear the install path

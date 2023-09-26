@@ -20,16 +20,27 @@ from torch import nn, Tensor
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 if getattr(fbgemm_gpu, "open_source", False):
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_unavailable
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, on_arm_platform
 else:
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, gpu_unavailable
+    from fbgemm_gpu.test.test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_unavailable,
+        on_arm_platform,
+    )
 
 typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
+typed_on_arm_platform: Tuple[bool, str] = on_arm_platform
 
-if getattr(HealthCheck, "not_a_test_method", False):
-    suppressed_list: List[HealthCheck] = [HealthCheck.not_a_test_method]
-else:
-    suppressed_list = []
+suppressed_list: List[HealthCheck] = (
+    [HealthCheck.not_a_test_method]
+    if getattr(HealthCheck, "not_a_test_method", False)
+    else []
+) + (
+    # pyre-fixme[16]: Module `HealthCheck` has no attribute `differing_executors`.
+    [HealthCheck.differing_executors]
+    if getattr(HealthCheck, "differing_executors", False)
+    else []
+)
 
 INTERN_MODULE = "fbgemm_gpu.permute_pooled_embedding_modules"
 FIXED_EXTERN_API = {
@@ -79,7 +90,6 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
     def setUp(self, device_type: torch.device) -> None:
         self.device = device_type
 
-    @unittest.skipIf(True, "Skip until FailedHealthCheck is fixed")
     def test_permutation(self) -> None:
         net = Net().to(self.device)
 
@@ -89,7 +99,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             [6, 7, 8, 9, 0, 1, 5, 2, 3, 4],
         )
 
-    @unittest.skipIf(True, "Skip until FailedHealthCheck is fixed")
+    @unittest.skipIf(*typed_on_arm_platform)
     def test_permutation_autograd(self) -> None:
         net = Net().to(self.device)
 
@@ -122,7 +132,6 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
                     f"{FWD_COMPAT_MSG}",
                 )
 
-    @unittest.skipIf(True, "Skip until FailedHealthCheck is fixed")
     def test_pooled_table_batched_embedding(self) -> None:
         num_emb_bags = 5
         num_embeddings = 10
@@ -165,7 +174,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             ref_permuted_pooled_emb.to(self.device), permuted_pooled_emb
         )
 
-    @unittest.skipIf(True, "Skip until FailedHealthCheck is fixed")
+    @unittest.skipIf(*typed_on_arm_platform)
     def test_permutation_autograd_meta(self) -> None:
         """
         Test that permute_pooled_embeddings_autograd works with meta tensor and
@@ -180,7 +189,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         assert output_meta.shape == output_cpu.shape
         assert input.shape == output_meta.shape
 
-    @unittest.skipIf(True, "Skip until FailedHealthCheck is fixed")
+    @unittest.skipIf(*typed_gpu_unavailable)
     def test_duplicate_permutations(self) -> None:
         embs_dims = [2, 3, 1, 4]
         permute = [3, 0, 2, 0, 1, 3]

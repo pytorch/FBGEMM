@@ -12,6 +12,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include "fbgemm_gpu/ops_utils.h"
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/layout_transform_ops.cuh"

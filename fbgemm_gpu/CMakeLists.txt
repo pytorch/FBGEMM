@@ -561,6 +561,8 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
+    src/permute_pooled_embedding_ops/permute_pooled_embedding_function.cpp
+    src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_cpu.cpp
     src/jagged_tensor_ops/jagged_tensor_ops_autograd.cpp
     src/jagged_tensor_ops/jagged_tensor_ops_meta.cpp
