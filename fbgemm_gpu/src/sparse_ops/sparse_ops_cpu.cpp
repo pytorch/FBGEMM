@@ -65,7 +65,7 @@ class PackSegments : public torch::autograd::Function<PackSegments> {
       torch::autograd::AutogradContext* ctx,
       const Tensor& t_in,
       const Tensor& lengths,
-      const at::SymInt& max_length) {
+      at::SymInt max_length) {
     const at::SymInt total_length = t_in.sym_size(0);
 
     at::AutoDispatchBelowADInplaceOrView guard;

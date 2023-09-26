@@ -45,7 +45,7 @@ class JaggedToPaddedDenseOp
             .typed<at::Tensor(
                 const Tensor& values,
                 const std::vector<Tensor>& offsets,
-                const at::ArrayRef<at::SymInt>& max_lengths,
+                at::ArrayRef<at::SymInt> max_lengths,
                 const double padding_value)>();
     Tensor padded_values = op.call(values, offsets, max_lengths, padding_value);
 
@@ -66,7 +66,7 @@ class JaggedToPaddedDenseOp
             .typed<at::Tensor(
                 const Tensor& grad_output,
                 const std::vector<Tensor>& offsets,
-                const at::SymInt& total_L)>();
+                at::SymInt total_L)>();
     auto grad_values = op.call(grad_outputs[0], {offsets}, total_L);
 
     return {
@@ -131,7 +131,7 @@ class JaggedDenseDenseAddJaggedOutputOp
             .typed<at::Tensor(
                 const Tensor& values,
                 const std::vector<Tensor>& offsets,
-                const at::ArrayRef<at::SymInt>& max_lengths,
+                at::ArrayRef<at::SymInt> max_lengths,
                 const double padding_value)>();
     Tensor dense_values_grad_0 = op.call(
         grad_outputs[0],
@@ -308,7 +308,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
             .typed<Tensor(
                 const Tensor& values,
                 const std::vector<Tensor>& offsets,
-                const at::ArrayRef<at::SymInt>& max_lengths,
+                at::ArrayRef<at::SymInt> max_lengths,
                 const double padding_value)>();
     auto dense_values_grad = op.call(
         grad_outputs[0],
