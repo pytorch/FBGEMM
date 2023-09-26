@@ -8,7 +8,24 @@
 
 #pragma once
 
+#ifdef FBGEMM_GPU_ENABLE_DUMMY_IA32_SERIALIZE
+// Workaround the missing __builtin_ia32_serialize issue
+#if defined(__NVCC__) && \
+    (__CUDACC_VER_MAJOR__ > 11 || __CUDACC_VER_MINOR__ >= 4)
+#if defined(__i386__) || defined(__i686__) || defined(__x86_64__)
+static __inline void __attribute__((
+    __gnu_inline__,
+    __always_inline__,
+    __artificial__,
+    __target__("serialize"))) __builtin_ia32_serialize(void) {
+  abort();
+}
+#endif
+#endif // __NVCC__
+#endif // FBGEMM_GPU_ENABLE_DUMMY_IA32_SERIALIZE
+
 #include <ATen/ATen.h>
+#include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 
 /*
