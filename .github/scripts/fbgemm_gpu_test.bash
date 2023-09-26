@@ -187,14 +187,28 @@ test_setup_conda_environment () {
 test_fbgemm_gpu_build_and_install () {
   local env_name="$1"
   local pytorch_variant_type="$2"
+  if [ "$pytorch_variant_type" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VARIANT_TYPE"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env cuda   # Build and install FBGEMM_GPU for CUDA (All Steps)"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Setup FBGEMM-GPU Build Container (All Steps)"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
 
   # Assume we are starting from the repository root directory
   cd fbgemm_gpu                                                               || return 1
   prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
   build_fbgemm_gpu_package    "${env_name}" release "${pytorch_variant_type}" || return 1
+
   # shellcheck disable=SC2164
   cd -
-  install_fbgemm_gpu_wheel  "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
+  install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
 
   cd fbgemm_gpu/test                        || return 1
   run_fbgemm_gpu_tests        "${env_name}" || return 1
