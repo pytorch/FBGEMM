@@ -15,7 +15,7 @@ namespace fbgemm_gpu {
 at::Tensor jagged_to_padded_dense_backward(
     const Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const at::SymInt& total_L) {
+    at::SymInt total_L) {
   auto grad_padded_values = grad_output;
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(grad_padded_values.get_device());
