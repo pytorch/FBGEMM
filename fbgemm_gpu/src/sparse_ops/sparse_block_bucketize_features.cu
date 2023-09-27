@@ -19,7 +19,7 @@ __global__
 __launch_bounds__(kMaxThreads) void _populate_length_to_feature_id_inplace_kernel(
     const uint64_t max_B,
     const int T,
-    const offset_t* const __restrict__ batch_sizes,
+    const offset_t* const __restrict__ batch_size_per_feature,
     const offset_t* const __restrict__ batch_size_offsets,
     offset_t* const __restrict__ length_to_feature_idx) {
   const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
@@ -27,7 +27,7 @@ __launch_bounds__(kMaxThreads) void _populate_length_to_feature_id_inplace_kerne
   const auto t = b_t / max_B;
   const auto b = b_t % max_B;
 
-  if (t >= T || b >= batch_sizes[t]) {
+  if (t >= T || b >= batch_size_per_feature[t]) {
     return;
   }
 
@@ -146,7 +146,7 @@ block_bucketize_sparse_features_cuda(
     const Tensor& block_sizes,
     const int64_t my_size,
     const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_sizes,
+    const c10::optional<Tensor>& batch_size_per_feature,
     const int64_t max_B) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
@@ -165,7 +165,8 @@ block_bucketize_sparse_features_cuda(
   auto indices_contig = indices.contiguous();
   auto offsets_contig = offsets.contiguous();
   auto batch_sizes_contig =
-      batch_sizes.value_or(at::empty({T}, lengths.options())).contiguous();
+      batch_size_per_feature.value_or(at::empty({T}, lengths.options()))
+          .contiguous();
   auto batch_sizes_offsets_contig =
       at::empty({T}, batch_sizes_contig.options());
   Tensor new_weights;
@@ -173,14 +174,14 @@ block_bucketize_sparse_features_cuda(
   Tensor unbucketize_permute;
   // count nonzeros
   offsets_contig = asynchronous_inclusive_cumsum_gpu(lengths);
-  if (batch_sizes.has_value()) {
+  if (batch_size_per_feature.has_value()) {
     TORCH_CHECK(max_B > 0);
     batch_sizes_offsets_contig =
-        asynchronous_exclusive_cumsum_gpu(batch_sizes.value());
+        asynchronous_exclusive_cumsum_gpu(batch_size_per_feature.value());
   }
   auto length_to_feature_idx =
       at::empty({lengths_size}, lengths_contig.options());
-  if (batch_sizes.has_value()) {
+  if (batch_size_per_feature.has_value()) {
     constexpr auto threads_per_block = 256;
     const auto num_blocks =
         cuda_calc_xblock_count(max_B * T, threads_per_block);
@@ -227,7 +228,7 @@ block_bucketize_sparse_features_cuda(
                   offsets_contig.data_ptr<offset_t>(),
                   indices_contig.data_ptr<index_t>(),
                   new_lengths.data_ptr<offset_t>(),
-                  batch_sizes.has_value()
+                  batch_size_per_feature.has_value()
                       ? length_to_feature_idx.data_ptr<offset_t>()
                       : static_cast<offset_t*>(nullptr));
               C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -280,7 +281,7 @@ block_bucketize_sparse_features_cuda(
                                 new_weights.data_ptr<scalar_t>(),
                                 new_pos.data_ptr<index_t>(),
                                 unbucketize_permute.data_ptr<index_t>(),
-                                batch_sizes.has_value()
+                                batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -327,7 +328,7 @@ block_bucketize_sparse_features_cuda(
                                 new_weights.data_ptr<scalar_t>(),
                                 nullptr,
                                 unbucketize_permute.data_ptr<index_t>(),
-                                batch_sizes.has_value()
+                                batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -368,7 +369,7 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           new_pos.data_ptr<index_t>(),
                           unbucketize_permute.data_ptr<index_t>(),
-                          batch_sizes.has_value()
+                          batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -407,7 +408,7 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           nullptr,
                           unbucketize_permute.data_ptr<index_t>(),
-                          batch_sizes.has_value()
+                          batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -456,7 +457,7 @@ block_bucketize_sparse_features_cuda(
                                 new_weights.data_ptr<scalar_t>(),
                                 new_pos.data_ptr<index_t>(),
                                 nullptr,
-                                batch_sizes.has_value()
+                                batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -503,7 +504,7 @@ block_bucketize_sparse_features_cuda(
                                 new_weights.data_ptr<scalar_t>(),
                                 nullptr,
                                 nullptr,
-                                batch_sizes.has_value()
+                                batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -544,7 +545,7 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           new_pos.data_ptr<index_t>(),
                           nullptr,
-                          batch_sizes.has_value()
+                          batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -583,7 +584,7 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           nullptr,
                           nullptr,
-                          batch_sizes.has_value()
+                          batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
