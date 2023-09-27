@@ -371,7 +371,7 @@ void jagged_dense_elementwise_jagged_output_(
 at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const at::ArrayRef<at::SymInt>& max_lengths,
+    c10::SymIntArrayRef max_lengths,
     const double padding_value) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(
@@ -429,7 +429,7 @@ at::Tensor jagged_to_padded_dense_forward(
 at::Tensor jagged_to_padded_dense_backward(
     const Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const at::SymInt& total_L) {
+    const at::SymInt total_L) {
   auto grad_padded_values = grad_output;
 
   // Canonicalize padded_values by unsqueeze the last dim if the inner dense

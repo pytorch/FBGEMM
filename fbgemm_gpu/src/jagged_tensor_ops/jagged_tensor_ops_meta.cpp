@@ -22,7 +22,7 @@ using Tensor = at::Tensor;
 Tensor jagged_to_padded_dense_forward_meta(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const at::ArrayRef<at::SymInt>& max_lengths,
+    c10::SymIntArrayRef max_lengths,
     const double padding_value = 0) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(
@@ -53,7 +53,7 @@ Tensor jagged_to_padded_dense_meta(
 Tensor jagged_to_padded_dense_backward_meta(
     const at::Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const at::SymInt& total_L) {
+    at::SymInt total_L) {
   auto grad_padded_values = grad_output;
 
   at::SymInt D = grad_padded_values.sym_size(-1);
