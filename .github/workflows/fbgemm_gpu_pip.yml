@@ -9,10 +9,15 @@ on:
   # Cron Trigger (UTC)
   #
   # Based on the the nightly releases schedule in PyTorch infrastructure, the
-  # wheels are published to PyTorch PIP at around 11:30 UTC every day.
+  # wheels are published to PyTorch PIP at around 11:30 UTC every day.  After
+  # publication, it can take up to 30 minutes for the wheels to be published, as
+  # the re-indexing job is scheduled to run every 30 minutes.  As such, we set
+  # the PIP install + test workflow to be kicked off 4 hours after the publish
+  # job is kicked off to give ample time for the nightly wheel to be available
+  # in PyTorch PIP.
   #
   schedule:
-    - cron: '30 12 * * *'
+    - cron: '30 15 * * *'
 
   # Manual Trigger
   #
