@@ -37,6 +37,7 @@
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 constexpr size_t kCacheMaxThreads = 512;
@@ -73,15 +74,6 @@ cache_slot(const int64_t h_in, const int32_t C) {
 
   return h % (uint32_t)C;
 }
-
-enum uvm_cache_stats_index {
-  num_calls = 0,
-  num_requested_indices = 1,
-  num_unique_indices = 2,
-  num_unique_misses = 3,
-  num_conflict_unique_misses = 4,
-  num_conflict_misses = 5,
-};
 
 // Experiments showed that performance of lru/lxu_cache_find_uncached_kernel is
 // not sensitive to grid size as long as the number thread blocks per SM is not

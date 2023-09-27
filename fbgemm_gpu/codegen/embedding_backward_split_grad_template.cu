@@ -58,9 +58,9 @@ split_embedding_backward_codegen_find_long_segments(
 }
 
 {% for vbe in [True, False] %}
-{% set vbe_desc = "_vbe" if vbe else "" %}
+{% set vdesc = "_vbe" if vbe else "" %}
 template <typename grad_t>
-__global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
+__global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
     pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean,
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
@@ -132,7 +132,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
 
 {% for grad_type in ['at::Half', 'float'] %}
 template __global__ __launch_bounds__(kMaxThreads)
-void grad_mean{{ vbe_desc }}_kernel
+void grad_mean{{ vdesc }}_kernel
 <{{ grad_type }}> (
     pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output_mean,
