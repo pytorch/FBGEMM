@@ -282,7 +282,7 @@ void _block_bucketize_sparse_features_cpu(
     c10::optional<Tensor> new_weights,
     c10::optional<Tensor> new_pos,
     const c10::optional<Tensor>& unbucketize_permute,
-    const c10::optional<Tensor>& batch_sizes) {
+    const c10::optional<Tensor>& batch_size_per_feature) {
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
@@ -302,7 +302,7 @@ void _block_bucketize_sparse_features_cpu(
   index_t* const new_indices_data = new_indices.data_ptr<index_t>();
   const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
   offset_t* batch_sizes_data = nullptr;
-  const auto variable_batch_size = batch_sizes.has_value();
+  const auto variable_batch_size = batch_size_per_feature.has_value();
 
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
@@ -319,7 +319,7 @@ void _block_bucketize_sparse_features_cpu(
   }
 
   if (variable_batch_size) {
-    batch_sizes_data = batch_sizes.value().data_ptr<offset_t>();
+    batch_sizes_data = batch_size_per_feature.value().data_ptr<offset_t>();
   }
 
   // count nonzeros
@@ -908,7 +908,7 @@ block_bucketize_sparse_features_cpu(
     const Tensor& block_sizes,
     const int64_t my_size,
     const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_sizes,
+    const c10::optional<Tensor>& batch_size_per_feature,
     const int64_t /* max_batch_size */ // Only used in GPU variant
 ) {
   const auto lengths_size = lengths.numel();
@@ -957,7 +957,7 @@ block_bucketize_sparse_features_cpu(
                             new_weights,
                             new_pos,
                             unbucketize_permute,
-                            batch_sizes);
+                            batch_size_per_feature);
                       });
                 });
           });
@@ -992,7 +992,7 @@ block_bucketize_sparse_features_cpu(
                             new_weights,
                             new_pos,
                             unbucketize_permute,
-                            batch_sizes);
+                            batch_size_per_feature);
                       });
                 });
           });
@@ -1025,7 +1025,7 @@ block_bucketize_sparse_features_cpu(
                       new_weights,
                       new_pos,
                       unbucketize_permute,
-                      batch_sizes);
+                      batch_size_per_feature);
                 });
           });
     } else {
@@ -1053,7 +1053,7 @@ block_bucketize_sparse_features_cpu(
                       new_weights,
                       new_pos,
                       unbucketize_permute,
-                      batch_sizes);
+                      batch_size_per_feature);
                 });
           });
     }
@@ -2692,7 +2692,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, int output_size) -> Tensor");
   m.def(
-      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None, Tensor? batch_sizes=None, int max_B= -1) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, int max_B= -1) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
       "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
   m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
