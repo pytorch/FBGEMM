@@ -645,7 +645,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 cur_offset = i
                 is_zero = False
                 for d in range(len(max_lengths)):
+                    # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
                     begin = offsets[d][cur_offset].item()
+                    # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
                     end = offsets[d][cur_offset + 1].item()
                     # pyre-fixme[6]: For 1st param expected `int` but got
                     #  `Union[bool, float, int]`.
@@ -654,7 +656,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
                         break
                     cur_offset = begin + jagged_coord[d]
                 dense[(i,) + jagged_coord] = (
-                    padding_value if is_zero else values[cur_offset]
+                    padding_value
+                    if is_zero
+                    # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
+                    else values[cur_offset]
                 )
         return dense.squeeze(-1) if values.ndim == 1 else dense
 
