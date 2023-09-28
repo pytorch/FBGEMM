@@ -195,6 +195,7 @@ def benchmark_requests(
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
+            # pyre-fixme[61]: `end_event` is undefined, or not always defined.
             it_time = start_event.elapsed_time(end_event) * 1.0e-3
             times.append(it_time)
         else:
@@ -285,6 +286,7 @@ def benchmark_requests_refer(
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
+            # pyre-fixme[61]: `end_event` is undefined, or not always defined.
             it_time = start_event.elapsed_time(end_event) * 1.0e-3
             times.append(it_time)
         else:

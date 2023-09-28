@@ -104,6 +104,7 @@ def batch_reuse_index_select_device(
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
 
+    # pyre-fixme[16]: Module `cuda` has no attribute `IntTensor`.
     indices = torch.cuda.IntTensor(gen_inverse_index(unique_batch_size, batch_size))
 
     input = torch.rand(unique_batch_size, row_size, dtype=dtype, device="cuda")
@@ -264,6 +265,7 @@ def group_index_select_2d_bench(
     offset_indices_group = []
     indices_group = []
     for i in range(num_groups):
+        # pyre-fixme[16]: Module `cuda` has no attribute `IntTensor`.
         indices = torch.cuda.IntTensor(gen_inverse_index(unique_batch_size, batch_size))
         if sort_indices:
             indices, _ = indices.sort()
