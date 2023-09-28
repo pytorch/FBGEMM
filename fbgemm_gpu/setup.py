@@ -30,7 +30,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         "--package_variant",
         type=str,
         choices=["cpu", "cuda", "rocm"],
-        default="cpu",
+        default="cuda",
         help="The FBGEMM_GPU variant to build.",
     )
     parser.add_argument(
@@ -344,7 +344,7 @@ def main(argv: List[str]) -> None:
 
     # Generate the full package version string
     package_version = FbgemmGpuInstaller.generate_package_version(
-        package_name, variant_version
+        args.package_name, variant_version
     )
 
     # Generate the version file
