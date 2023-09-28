@@ -2843,6 +2843,7 @@ def device_with_spec(  # noqa C901
     else:
         # Obtain B * L from indices len
         # pyre-ignore[19]
+        # pyre-fixme[61]: `D` is undefined, or not always defined.
         grad_output = torch.randn(requests[0][0].numel(), D).to(get_device())
     # backward
     time_per_iter = benchmark_requests(

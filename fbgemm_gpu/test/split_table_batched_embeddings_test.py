@@ -4419,7 +4419,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     shifts = np.random.uniform(-2, 2, size=(E,)).astype(np.float16)
 
                 scale_shift[:, :] = torch.tensor(
-                    np.stack([scales, shifts], axis=1).astype(np.float16).view(np.uint8)
+                    # pyre-fixme[61]: `scales` is undefined, or not always defined.
+                    # pyre-fixme[61]: `shifts` is undefined, or not always defined.
+                    np.stack([scales, shifts], axis=1)
+                    .astype(np.float16)
+                    .view(np.uint8)
                 )
 
             fake_quantize_embs(
