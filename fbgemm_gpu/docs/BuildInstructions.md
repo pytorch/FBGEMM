@@ -354,6 +354,7 @@ unset TORCH_CUDA_ARCH_LIST
 # Build the wheel artifact only
 python setup.py bdist_wheel \
     --package_name="${package_name}" \
+    --package_variant=cuda \
     --python-tag="${python_tag}" \
     --plat-name="manylinux1_${ARCH}" \
     --nvml_lib_path=${NVML_LIB_PATH} \
@@ -361,6 +362,7 @@ python setup.py bdist_wheel \
 
 # Build and install the library into the Conda environment
 python setup.py install \
+    --package_variant=cuda \
     --nvml_lib_path=${NVML_LIB_PATH} \
     -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 ```
@@ -384,11 +386,12 @@ package_name=fbgemm_gpu_rocm
 # Build the wheel artifact only
 python setup.py bdist_wheel \
     --package_name="${package_name}" \
+    --package_variant=rocm \
     --python-tag="${python_tag}" \
     --plat-name="manylinux1_${ARCH}"
 
 # Build and install the library into the Conda environment
-python setup.py install develop
+python setup.py install develop --package_variant=rocm
 ```
 
 ### CPU-Only Build
@@ -406,12 +409,12 @@ package_name=fbgemm_gpu_cpu
 # Build the wheel artifact only
 python setup.py bdist_wheel \
     --package_name="${package_name}" \
+    --package_variant=cpu \
     --python-tag="${python_tag}" \
     --plat-name="manylinux1_${ARCH}" \
-    --cpu_only
 
 # Build and install the library into the Conda environment
-python setup.py install --cpu_only
+python setup.py install --package_variant=cpu
 ```
 
 ### Post-Build Checks (For Developers)

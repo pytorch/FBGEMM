@@ -58,7 +58,9 @@ prepare_fbgemm_gpu_build () {
 __configure_fbgemm_gpu_build_cpu () {
   # Update the package name and build args depending on if CUDA is specified
   echo "[BUILD] Setting CPU-only build args ..."
-  build_args=(--cpu_only)
+  build_args=(
+    --package_variant=cpu
+  )
 }
 
 __configure_fbgemm_gpu_build_rocm () {
@@ -88,7 +90,9 @@ __configure_fbgemm_gpu_build_rocm () {
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
 
   echo "[BUILD] Setting ROCm build args ..."
-  build_args=()
+  build_args=(
+    --package_variant=rocm
+  )
 }
 
 __configure_fbgemm_gpu_build_cuda () {
@@ -133,6 +137,7 @@ __configure_fbgemm_gpu_build_cuda () {
   # shellcheck disable=SC2155,SC2086
   local nvml_lib_path=$(conda run --no-capture-output ${env_prefix} printenv NVML_LIB_PATH)
   build_args=(
+    --package_variant=cuda
     --nvml_lib_path="${nvml_lib_path}"
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
