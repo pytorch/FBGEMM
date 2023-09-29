@@ -1453,10 +1453,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
-        if use_cpu:
-            # NOTE: GPU version of DenseTableBatchedEmbeddingBagsCodegen doesn't support double.
-            cc = cc.double()
-            per_sample_weights = per_sample_weights.double()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
         offsets.requires_grad = False
@@ -1494,13 +1490,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
-        if use_cpu:
-            # NOTE: GPU version of DenseTableBatchedEmbeddingBagsCodegen doesn't support double.
-            cc = cc.double()
-            per_sample_weights = per_sample_weights.double()
-        else:
-            cc = cc.float()
-            per_sample_weights = per_sample_weights.float()
+        cc = cc.float()
+        per_sample_weights = per_sample_weights.float()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
         offsets.requires_grad = False
@@ -2531,10 +2522,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
         )
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
-        if use_cpu:
-            # NOTE: GPU version of SplitTableBatchedEmbeddingBagsCodegen doesn't support double.
-            cc = cc.double()
-            per_sample_weights = per_sample_weights.double()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
         offsets.requires_grad = False
@@ -2552,8 +2539,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
-        if use_cpu:
-            per_sample_weights = per_sample_weights.double()
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
         offsets.requires_grad = False
