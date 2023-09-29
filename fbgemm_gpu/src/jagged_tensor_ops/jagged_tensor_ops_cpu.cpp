@@ -17,10 +17,6 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 namespace fbgemm_gpu {
 
 ///@defgroup jagged-tensor-ops-cpu Jagged Tensor Operators
@@ -1243,11 +1239,7 @@ void jagged_softmax_kernel(
     const int64_t max_L) {
   const int B = offsets.size(0) - 1;
   const int D = values.size(1);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1284,10 +1276,6 @@ Tensor jagged_softmax_forward(
   const int D = values.size(1);
   auto output = at::empty_like(values);
 
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && D > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_softmax_kernel_1", [&] {
@@ -1317,11 +1305,7 @@ void jagged_softmax_backward_kernel(
     const int64_t max_L) {
   const int B = offsets.size(0) - 1;
   const int D = grad_output.size(1);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1354,10 +1338,6 @@ Tensor jagged_softmax_backward(
   const int D = grad_output.size(1);
   auto grad_input = at::empty_like(grad_output);
 
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && D > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_backward_kernel_1", [&] {
@@ -1389,11 +1369,7 @@ void jagged_jagged_bmm_kernel(
   const int B = offsets.size(0) - 1;
   const int M = x_values.size(1);
   const int N = y_values.size(1);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1421,11 +1397,6 @@ Tensor jagged_jagged_bmm_forward(
   const int M = x_values.size(-1);
   const int N = y_values.size(-1);
   auto output = at::zeros({B, M, N}, x_values.options());
-
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && M > 0 && N > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
@@ -1459,11 +1430,7 @@ void jagged_dense_bmm_kernel(
   const int B = x_offsets.size(0) - 1;
   const int K = x_values.size(1);
   const int N = y.size(2);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = x_offsets[b];
     const int row_end = x_offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1492,11 +1459,6 @@ Tensor jagged_dense_bmm_forward(
   const int N = y.size(-1);
   const int total_L = x_values.size(0);
   auto output = at::zeros({total_L, N}, x_values.options());
-
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && M > 0 && N > 0) {
     AT_DISPATCH_INDEX_TYPES(
         x_offsets.scalar_type(), "jagged_dense_bmm_kernel_1", [&] {
