@@ -62,6 +62,7 @@ if open_source:
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
+        fill_random_scale_bias,
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
@@ -70,6 +71,7 @@ else:
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
+        fill_random_scale_bias,
     )
 
 
@@ -815,6 +817,7 @@ def nbit_cpu(  # noqa C901
         fp8_exponent_bias=fp8_exponent_bias,
     ).cpu()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -987,6 +990,7 @@ def nbit_device(  # noqa C901
         fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -1267,6 +1271,7 @@ def nbit_device_with_spec(  # noqa C901
     else:
         emb = emb.cuda()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -1843,6 +1848,7 @@ def nbit_uvm_compare_direct_mapped(
             uvm_host_mapped=uvm_host_mapped,
         ).cuda()
         emb.fill_random_weights()
+        fill_random_scale_bias(emb, T, weights_precision)
 
         nvtx_range = (
             f"UVM-RECORD-CACHE-{name.upper()}"
@@ -2015,6 +2021,7 @@ def nbit_cache(  # noqa C901
         cache_assoc=cache_assoc,
     ).cuda()
     emb_nc.fill_random_weights()
+    fill_random_scale_bias(emb_nc, T, weights_precision)
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [
@@ -2040,6 +2047,7 @@ def nbit_cache(  # noqa C901
         cache_assoc=cache_assoc,
     ).cuda()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
