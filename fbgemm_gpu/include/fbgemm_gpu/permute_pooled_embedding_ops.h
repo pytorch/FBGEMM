@@ -9,7 +9,8 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <torch/script.h>
+#include <torch/csrc/api/include/torch/types.h>
+#include <torch/csrc/autograd/custom_function.h>
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
