@@ -87,6 +87,15 @@ MAX_EXAMPLES = 40
 # For long running tests reduce the number of iterations to reduce timeout errors.
 MAX_EXAMPLES_LONG_RUNNING = 15
 
+# If gpu_available, get number of devices
+device_list: List[Optional[torch.device]] = []
+device_list.append(None)
+if gpu_available:
+    if not TEST_WITH_ROCM:
+        device_list.append(torch.device("cpu"))
+    for i in range(torch.cuda.device_count()):
+        device_list.append(torch.device("cuda:" + str(i)))
+
 
 @composite
 # pyre-ignore
@@ -1268,6 +1277,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        device=st.sampled_from(device_list),
     )
     @settings(
         verbosity=Verbosity.verbose,
@@ -1289,6 +1299,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         use_cpu: bool,
         output_dtype: SparseType,
+        device: Optional[torch.device],
     ) -> None:
         # NOTE: torch.autograd.gradcheck() is too time-consuming for CPU version
         #       so we have to limit (T * B * L * D)!
@@ -1332,18 +1343,23 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ]
         if do_pooling:
             bs = [
-                to_device(torch.nn.EmbeddingBag(E, D, mode=mode, sparse=False), use_cpu)
+                to_device(
+                    torch.nn.EmbeddingBag(E, D, mode=mode, sparse=False),
+                    use_cpu,
+                    device,
+                )
                 for (E, D) in zip(Es, Ds)
             ]
         else:
             bs = [
-                to_device(torch.nn.Embedding(E, D, sparse=False), use_cpu)
+                to_device(torch.nn.Embedding(E, D, sparse=False), use_cpu, device)
                 for (E, D) in zip(Es, Ds)
             ]
 
         if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
+        # Generate indices
         xs = [
             to_device(
                 torch.from_numpy(
@@ -1352,6 +1368,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     )
                 ),
                 use_cpu,
+                device,
             )
             for e in Es
         ]
@@ -1359,15 +1376,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             for x in xs:
                 x[:, 0] = 0
 
-        xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
+        xws = [to_device(torch.randn(size=(B, L)), use_cpu, device) for _ in range(T)]
         xws_acc_type = copy.deepcopy(xws)
 
         if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
+        # Run Baseline's forward
         fs = (
             [
-                b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling)
+                b_indices(b, x, use_cpu=use_cpu, do_pooling=do_pooling, device=device)
                 for (b, x) in zip(bs, xs)
             ]
             if not weighted
@@ -1378,11 +1396,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     per_sample_weights=xw.view(-1),
                     use_cpu=use_cpu,
                     do_pooling=do_pooling,
+                    device=device,
                 )
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
+        # Generate grads
         gos = [torch.randn_like(f) for f in fs]
+        # Run Baseline's backward
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
         # pyre-fixme[16]: `Optional` has no attribute `view`.
@@ -1390,12 +1411,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16 and not use_cpu:
             grad_weights = grad_weights.half()
 
+        # Create TBE op
         cc = emb_op(
             embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
             pooling_mode=pooling_mode,
             use_cpu=use_cpu,
             weights_precision=weights_precision,
             output_dtype=output_dtype,
+            device=device,
         )
         if do_pooling:
             # NOTE: test TorchScript-compatible!
@@ -1407,11 +1430,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
         xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
 
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
+        (indices, offsets) = get_table_batched_offsets_from_dense(
+            x, use_cpu=use_cpu, device=device
+        )
+        # Run TBE's forward
         fc2 = (
             cc(indices, offsets)
             if not weighted
-            else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
+            else cc(
+                indices, offsets, to_device(xw.contiguous().view(-1), use_cpu, device)
+            )
         )
 
         if do_pooling:
@@ -1419,6 +1447,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
 
+        # Test forward
         torch.testing.assert_close(
             fc2.float(),
             f.float(),
@@ -1429,11 +1458,14 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if weights_precision == SparseType.FP16 or output_dtype == SparseType.FP16
             else 1.0e-5,
         )
+        # Generate grads
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
             goc = torch.cat(gos, dim=0)
+        # Run TBE's backward
         fc2.backward(goc)
+        # Test backward
         torch.testing.assert_close(
             cc.weights.grad,
             grad_weights,
@@ -1445,20 +1477,24 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else 1.0e-4,
         )
 
+        # Create TBE op
         cc = DenseTableBatchedEmbeddingBagsCodegen(
             [(E, D) for (E, D) in zip(Es, Ds)],
             # NOTE: only SUM pooling can work with per_sample_weights!
             pooling_mode=PoolingMode.SUM,
             use_cpu=use_cpu,
+            device=device,
         )
 
-        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu, device)
         per_sample_weights.requires_grad = True
         indices.requires_grad = False
         offsets.requires_grad = False
         for param in cc.parameters():
             param.requires_grad = False
+        # Run TBE's forward with per_sample_weights
         y = cc(indices, offsets, per_sample_weights)
+        # Run TBE's  backward with per_sample_weights
         y.sum().backward()
         # pyre-fixme[16]: `Optional` has no attribute `clone`.
         indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
@@ -1466,6 +1502,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         feature_requires_grad = to_device(
             torch.tensor(np.random.choice([0, 1], replace=True, size=(T_,))).int(),
             use_cpu,
+            device,
         )
         per_sample_weights = per_sample_weights.detach().clone()
         per_sample_weights.requires_grad = True
@@ -1488,8 +1525,8 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     indice_weight_grad_mask.view(T_, B, L)[t],
                     torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
                 )
+        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu, device)
 
-        per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
         cc = cc.float()
         per_sample_weights = per_sample_weights.float()
         per_sample_weights.requires_grad = True
