@@ -224,11 +224,9 @@ Tensor new_host_mapped_tensor(
   // can minimize the cost while holding this global lock.
   void* const ptr = malloc(size_bytes);
 
-  // advise the kernel to allocate large 2M pages
-  madvise(ptr, size_bytes, MADV_HUGEPAGE);
-
-  // pre-fault/map the pages by setting the first byte of the page
-  size_t pageSize = (1 << 21);
+  // Pre-fault/map the pages by setting the first byte of the page
+  // TODO: parallelize the mapping of pages with a threadpool executor
+  const size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
   uintptr_t alignedPtr = (((uintptr_t)ptr + pageSize - 1) & ~(pageSize - 1));
   for (uintptr_t p = alignedPtr; p < ((uintptr_t)ptr + size_bytes);
        p += pageSize) {
