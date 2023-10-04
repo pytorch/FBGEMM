@@ -17,6 +17,7 @@ export BUILD_FROM_NOVA=1
 export CHANNEL="test"
 echo "CHANNEL=test" >> "${GITHUB_ENV}"
 export PIP_INSTALL_TORCH="pip install torch --index-url https://download.pytorch.org/whl/${CU_VERSION}"
+echo PYTORCH_S3_BUCKET_PATH="s3://pytorch/whl/${CU_VERSION}/" >> "${GITHUB_ENV}"
 export PYTORCH_S3_BUCKET_PATH="s3://pytorch/whl/${CU_VERSION}/"
 
 ## Overwrite existing ENV VAR in Nova
