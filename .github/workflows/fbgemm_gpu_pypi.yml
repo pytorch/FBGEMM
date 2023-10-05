@@ -4,6 +4,8 @@
 # LICENSE file in the root directory of this source tree.
 
 name: Test and Upload Artifacts to PyPI
+on:
+  pull_request:
 
 on:
   # Manual Trigger
