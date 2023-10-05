@@ -108,6 +108,10 @@ install_from_pytorch_pip () {
 
   echo "[INSTALL] Attempting to install [${package_name}, ${package_version}+${package_variant}] from PyTorch PIP using channel ${pip_channel} ..."
   # shellcheck disable=SC2086
+
+  echo "[INSTALL] jinja2 # hacking for py11 arm"
+  conda run ${env_prefix} pip install jinja2 || return 1
+
   (exec_with_retries conda run ${env_prefix} pip install ${pip_package} --index-url ${pip_channel}) || return 1
 
   # Check only applies to non-CPU variants
