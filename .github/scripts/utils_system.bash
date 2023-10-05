@@ -21,6 +21,8 @@ install_system_packages () {
     return 1
   fi
 
+  test_network_connection || return 1
+
   if which sudo; then
     local update_cmd=(sudo)
     local install_cmd=(sudo)
@@ -54,7 +56,7 @@ free_disk_space () {
   echo "################################################################################"
   echo "# Free Disk Space"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -166,7 +168,7 @@ print_system_info () {
   echo "################################################################################"
   echo "# Print System Info"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -185,7 +187,7 @@ print_ec2_info () {
   echo "################################################################################"
   echo "# Print EC2 Instance Info"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 

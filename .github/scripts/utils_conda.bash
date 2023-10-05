@@ -30,10 +30,12 @@ setup_miniconda () {
     echo "################################################################################"
     echo "# Setup Miniconda"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Download and install Miniconda if doesn't exist
   if [ ! -f "${miniconda_prefix}/bin/conda" ]; then
@@ -86,10 +88,12 @@ create_conda_environment () {
     echo "################################################################################"
     echo "# Create Conda Environment"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   echo "[SETUP] Listing existing Conda environments ..."
   print_exec conda info --envs
@@ -127,4 +131,20 @@ create_conda_environment () {
   # shellcheck disable=SC2086
   echo "[SETUP] Installed Python version: $(conda run ${env_prefix} python --version)"
   echo "[SETUP] Successfully created Conda environment: ${env_name}"
+}
+
+print_conda_info () {
+  echo "################################################################################"
+  echo "# Print Conda Environment Info"
+  echo "#"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+  echo "################################################################################"
+  echo ""
+  print_exec conda info
+  echo ""
+  print_exec conda info --envs
+  echo ""
+  # shellcheck disable=SC2153
+  echo "PYTHON_VERSION:     ${PYTHON_VERSION}"
+  echo "python3 --version:  $(python3 --version)"
 }

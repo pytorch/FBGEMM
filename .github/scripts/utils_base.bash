@@ -83,7 +83,7 @@ env_name_or_prefix () {
 }
 
 test_network_connection () {
-  wget --timeout 1 pypi.org -O /dev/null
+  wget -q --timeout 1 pypi.org -O /dev/null
   local exit_status=$?
 
   # https://man7.org/linux/man-pages/man1/wget.1.html

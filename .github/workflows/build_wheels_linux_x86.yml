@@ -1,4 +1,4 @@
-name: Build Linux Wheels
+name: Build x86 Linux Wheels
 
 on:
   pull_request:
@@ -14,6 +14,10 @@ on:
       - v[0-9]+.[0-9]+.[0-9]+
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   generate-matrix:
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
@@ -23,7 +27,7 @@ jobs:
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
       with-cuda: enable
-      with-rocm: disable
+      with-rocm: enable
       with-cpu: enable
   build:
     needs: generate-matrix

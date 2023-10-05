@@ -36,7 +36,7 @@ def generate_package_version(package_name: str, version_variant: str):
     elif ("test" in package_name) and (not "BUILD_FROM_NOVA" in os.environ):
         # Use date stamp for nightly versions
         print("[SETUP.PY] Package is for TEST: using random number for the versioning")
-        version = (f"0.0.{random.randint(0, 1000)}",)
+        version = "0.5.0rc5"
 
     else:
         # Use git tag / branch / commit info to generate a PEP-440-compliant version string
@@ -47,6 +47,7 @@ def generate_package_version(package_name: str, version_variant: str):
         # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
         # Then remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
         version = re.sub(".post0$", "", gitversion.version_from_git().split("+")[0])
+        version = "0.5.0"
     version = str(version) + version_variant
     print(f"[SETUP.PY] Setting the package version: {version}")
     return version

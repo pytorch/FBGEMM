@@ -25,10 +25,12 @@ install_cuda () {
     echo "################################################################################"
     echo "# Install CUDA"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Check CUDA version formatting
   # shellcheck disable=SC2206
@@ -91,14 +93,16 @@ install_cudnn () {
     echo "################################################################################"
     echo "# Install cuDNN"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
 
+  test_network_connection || return 1
+
   # Install cuDNN manually
   # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
-  local cudnn_packages=(
+  declare -A cudnn_packages=(
     ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-${PLATFORM_NAME_LC}-8.5.0.96_cuda11-archive.tar.xz"
@@ -113,11 +117,11 @@ install_cudnn () {
   local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
 
   # Get the URL
-  local cudnn_url="${cudnn_packages[cuda_concat_version]}"
+  local cudnn_url="${cudnn_packages[$cuda_concat_version]}"
   if [ "$cudnn_url" == "" ]; then
-    # Default to cuDNN for 11.7 if no CUDA version fits
-    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.7"
-    cudnn_url="${cudnn_packages[117]}"
+    # Default to cuDNN for 11.8 if no CUDA version fits
+    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.8"
+    cudnn_url="${cudnn_packages[118]}"
   fi
 
   # Clear the install path

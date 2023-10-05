@@ -24,10 +24,12 @@ prepare_fbgemm_gpu_build () {
     echo "################################################################################"
     echo "# Prepare FBGEMM-GPU Build"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   if [[ "${GITHUB_WORKSPACE}" ]]; then
     # https://github.com/actions/checkout/issues/841
@@ -56,7 +58,9 @@ prepare_fbgemm_gpu_build () {
 __configure_fbgemm_gpu_build_cpu () {
   # Update the package name and build args depending on if CUDA is specified
   echo "[BUILD] Setting CPU-only build args ..."
-  build_args=(--cpu_only)
+  build_args=(
+    --package_variant=cpu
+  )
 }
 
 __configure_fbgemm_gpu_build_rocm () {
@@ -86,7 +90,10 @@ __configure_fbgemm_gpu_build_rocm () {
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
 
   echo "[BUILD] Setting ROCm build args ..."
-  build_args=()
+  build_args=(
+    --package_variant=rocm
+    -DTORCH_USE_HIP_DSA=1
+  )
 }
 
 __configure_fbgemm_gpu_build_cuda () {
@@ -131,6 +138,7 @@ __configure_fbgemm_gpu_build_cuda () {
   # shellcheck disable=SC2155,SC2086
   local nvml_lib_path=$(conda run --no-capture-output ${env_prefix} printenv NVML_LIB_PATH)
   build_args=(
+    --package_variant=cuda
     --nvml_lib_path="${nvml_lib_path}"
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
@@ -152,7 +160,7 @@ __configure_fbgemm_gpu_build () {
     echo "################################################################################"
     echo "# Configure FBGEMM-GPU Build"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -288,7 +296,7 @@ build_fbgemm_gpu_package () {
   fbgemm_variant="$3"
   fbgemm_variant_targets="$4"
   if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME VARIANT [TARGETS]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_TYPE VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env nightly cpu                           # Nightly CPU-only variant"
     echo "    ${FUNCNAME[0]} build_env nightly cuda                          # Nightly CUDA variant for default target(s)"
@@ -308,7 +316,7 @@ build_fbgemm_gpu_package () {
   echo "################################################################################"
   echo "# Build FBGEMM-GPU Package (Wheel)"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -320,13 +328,15 @@ build_fbgemm_gpu_package () {
   echo "[BUILD] Checking build_args:"
   echo "${build_args[@]}"
 
-  core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
-  sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
-  re='^[0-9]+$'
-  run_multicore=""
+  # shellcheck disable=SC2155
+  local core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
+  # shellcheck disable=SC2155
+  local sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
+  local re='^[0-9]+$'
+  local run_multicore=""
   if [[ $core =~ $re && $sockets =~ $re ]] ; then
-    n_core=$((core * sockets))
-    run_multicore=" -j ${n_core}"
+    local n_core=$((core * sockets))
+    local run_multicore=" -j ${n_core}"
   fi
 
   # Distribute Python extensions as wheels on Linux
@@ -378,7 +388,7 @@ build_fbgemm_gpu_install () {
   echo "################################################################################"
   echo "# Build + Install FBGEMM-GPU Package"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -424,9 +434,9 @@ build_fbgemm_gpu_develop () {
   __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
 
   echo "################################################################################"
-  echo "# Build + Install FBGEMM-GPU Package"
+  echo "# Build + Install FBGEMM-GPU Package (Develop)"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -441,36 +451,4 @@ build_fbgemm_gpu_develop () {
   (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
 
   echo "[BUILD] FBGEMM-GPU build + develop completed"
-}
-
-install_fbgemm_gpu_package () {
-  local env_name="$1"
-  local package_name="$2"
-  if [ "$package_name" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME WHEEL_NAME"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu.whl     # Install the package (wheel)"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Install FBGEMM-GPU Package (Wheel)"
-    echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
-    echo "################################################################################"
-    echo ""
-  fi
-
-  echo "[INSTALL] Printing out FBGEMM-GPU wheel SHA: ${package_name}"
-  print_exec sha1sum "${package_name}"
-  print_exec sha256sum "${package_name}"
-  print_exec md5sum "${package_name}"
-
-  echo "[INSTALL] Installing FBGEMM-GPU wheel: ${package_name} ..."
-  (exec_with_retries conda run -n "${env_name}" python -m pip install "${package_name}") || return 1
-
-  echo "[INSTALL] Checking imports ..."
-  (test_python_import "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
-
-  echo "[INSTALL] Wheel installation completed ..."
 }
