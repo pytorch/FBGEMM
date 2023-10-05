@@ -146,3 +146,48 @@ publish_to_pypi () {
   echo "[PUBLISH] Successfully published package(s) to PyPI: ${package_name}"
   echo "[PUBLISH] NOTE: The publish command is a successful no-op if the wheel version already existed in PyPI; please double check!"
 }
+
+
+################################################################################
+# Download Wheel Functions
+################################################################################
+
+download_from_pytorch () {
+  local fbgemm_version="$1"
+  local python_version="$2"
+  local fbgemm_variant="$3"
+  local cuda_version_variant="$3"
+  if [ "$fbgemm_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} FBGEMM_VERSION PYTHON_VERSION FBGEMM_VARIANT CUDA_VARIANT"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly-*.whl MY_TOKEN"
+    echo ""
+    echo "fbgemm_version is missing!"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Download Wheel from Pytorch.org"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  test_network_connection || return 1
+
+  cp=${python_version//.};
+  platform=$(uname -m);
+
+  if [[ $fbgemm_variant == "cuda" ]]; then
+    cuda_version_variant=${cuda_version_variant%.*};
+    cuda_version_variant=cu${c//.};
+    link=https://download.pytorch.org/whl/${cuda_version_variant}/fbgemm_gpu-${fbgemm_version}%2B${cuda_version_variant}-cp${cp}-cp${cp}-manylinux2014_${platform}.whl
+  else
+    link=https://download.pytorch.org/whl/cpu/fbgemm_gpu-${fbgemm_version}%2Bcpu-cp${cp}-cp${cp}-manylinux2014_${platform}.whl
+  fi
+
+  echo "[Download] Link to download: $link"
+  print_exec wget -q $link || echo "[Download] Failed to download wheel
+
+  echo "[Download] Successfully downloaded FBGEMM ${fbgemm_version} wheel to $(pwd)"
+}

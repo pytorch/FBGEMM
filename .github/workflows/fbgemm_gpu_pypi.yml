@@ -74,8 +74,8 @@ jobs:
     - name: Install PyTorch-CPU
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV latest cpu
 
-    - name: Download FBGEMM_GPU-CPU
-      run: py=${{ matrix.python-version }}; cp=${py//.}; platform=$(uname -m); wget -q https://download.pytorch.org/whl/cpu/fbgemm_gpu-${{ github.event.inputs.fbgemm_gpu_version }}%2Bcpu-cp${cp}-cp${cp}-manylinux2014_${platform}.whl
+    - name: Download FBGEMM_GPU-CPU Wheel
+      run: . $PRELUDE; download_from_pytorch ${{ github.event.inputs.fbgemm_gpu_version }} ${{ matrix.python-version }} cpu
 
     - name: Install FBGEMM_GPU-CPU
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV github.event.inputs.fbgemm_gpu_version cpu
@@ -140,7 +140,7 @@ jobs:
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV latest cuda ${{ matrix.cuda-version }}
 
     - name: Download FBGEMM_GPU-CUDA
-      run: py=${{ matrix.python-version }}; cp=${py//.}; platform=$(uname -m); c=${{ matrix.cuda-version }}; c=${c%.*}; c=${c//.}; cu="cu"${c}; wget -q https://download.pytorch.org/whl/${cu}/fbgemm_gpu-${{ github.event.inputs.fbgemm_gpu_version }}%2B${cu}-cp${cp}-cp${cp}-manylinux2014_${platform}.whl
+      run: . $PRELUDE; download_from_pytorch ${{ github.event.inputs.fbgemm_gpu_version }} ${{ matrix.python-version }} cuda ${{ matrix.cuda-version }}
 
     - name: Install FBGEMM_GPU-CUDA
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_version }} cuda ${{ matrix.cuda-version }}
