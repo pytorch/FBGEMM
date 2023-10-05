@@ -20,7 +20,7 @@ namespace {
 inline void FloatToFloat16KernelAvx2(const float* src, float16* dst) {
   __m256 float_vector = _mm256_loadu_ps(src);
   __m128i half_vector = _mm256_cvtps_ph(
-      float_vector, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+      float_vector, (_MM_FROUND_TO_NEAREST_INT));
   _mm_storeu_si128((__m128i*)dst, half_vector);
 }
 
@@ -36,7 +36,7 @@ inline void FloatToFloat16KernelAvx2WithClip(const float* src, float16* dst) {
       neg_fp16_max_vector, _mm256_min_ps(float_vector, pos_fp16_max_vector));
 
   __m128i half_vector = _mm256_cvtps_ph(
-      float_vector, (_MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+      float_vector, (_MM_FROUND_TO_NEAREST_INT));
   _mm_storeu_si128((__m128i*)dst, half_vector);
 }
 

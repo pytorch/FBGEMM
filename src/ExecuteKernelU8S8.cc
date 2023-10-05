@@ -125,7 +125,8 @@ void ExecuteKernel<
 
   int group = kBlock / packedB_.blockRows();
   int NDim = packedB_.numCols();
-  bool lastKBlock = packedB_.isThisLastKBlock(kBlock % packedB_.blockRows());
+  bool lastKBlock = false;
+  /* packedB_.isThisLastKBlock(kBlock % packedB_.blockRows()); */
   bool accum = (kBlock % packedB_.blockRows()) > 0;
 
   int64_t jb_begin, jb_end;

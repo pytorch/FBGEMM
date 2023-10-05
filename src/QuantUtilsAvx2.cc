@@ -1552,7 +1552,7 @@ static inline uint16_t floatToHalf(float val) {
   // exist in MSVC.
   __m256 val_v = _mm256_set1_ps(val);
   __m128i val_half_v =
-      _mm256_cvtps_ph(val_v, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+      _mm256_cvtps_ph(val_v, _MM_FROUND_TO_NEAREST_INT);
   return static_cast<std::uint16_t>(_mm_cvtsi128_si32(val_half_v));
 #else
   return _cvtss_sh(val, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
@@ -2034,19 +2034,19 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col),
               _mm256_cvtps_ph(
-                  vinq0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq0, _MM_FROUND_TO_NEAREST_INT));
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col + VLEN),
               _mm256_cvtps_ph(
-                  vinq1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq1, _MM_FROUND_TO_NEAREST_INT));
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col + 2 * VLEN),
               _mm256_cvtps_ph(
-                  vinq2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq2, _MM_FROUND_TO_NEAREST_INT));
           _mm_storeu_si128(
               reinterpret_cast<__m128i*>(output_row + col + 3 * VLEN),
               _mm256_cvtps_ph(
-                  vinq3, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq3, _MM_FROUND_TO_NEAREST_INT));
         }
       }
 
@@ -2099,22 +2099,22 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
               reinterpret_cast<int*>(output_row + col),
               _mm256_castsi256_si128(vmask_store0),
               _mm256_cvtps_ph(
-                  vinq0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq0, _MM_FROUND_TO_NEAREST_INT));
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col + VLEN),
               _mm256_castsi256_si128(vmask_store1),
               _mm256_cvtps_ph(
-                  vinq1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq1, _MM_FROUND_TO_NEAREST_INT));
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col + 2 * VLEN),
               _mm256_castsi256_si128(vmask_store2),
               _mm256_cvtps_ph(
-                  vinq2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq2, _MM_FROUND_TO_NEAREST_INT));
           _mm_maskstore_epi32(
               reinterpret_cast<int*>(output_row + col + 3 * VLEN),
               _mm256_castsi256_si128(vmask_store3),
               _mm256_cvtps_ph(
-                  vinq3, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                  vinq3, _MM_FROUND_TO_NEAREST_INT));
         }
       }
     } else {
@@ -2167,7 +2167,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
         _mm_storeu_si128(
             reinterpret_cast<__m128i*>(output_row + col),
             _mm256_cvtps_ph(
-                dequantzed_v, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC));
+                dequantzed_v, _MM_FROUND_TO_NEAREST_INT));
       }
     }
 
