@@ -32,7 +32,7 @@ on:
         type: choice
         required: false
         options: [ "11.8.0", "12.1.1" ]
-        default: "11.8.0"
+        default: "12.1.1"
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
