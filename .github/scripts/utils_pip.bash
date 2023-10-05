@@ -23,8 +23,8 @@ __extract_pip_arguments () {
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Install the CPU variant a specific version"
-    echo "    ${FUNCNAME[0]} build_env torch latest cpu             # Install the CPU variant of the latest stable version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 11.7.1  # Install the variant for CUDA 11.7"
+    echo "    ${FUNCNAME[0]} build_env torch release cpu            # Install the CPU variant of the latest stable version"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 12.1.0  # Install the variant for CUDA 12.1"
     echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Install the variant for ROCM 5.3"
     return 1
   else
@@ -48,7 +48,7 @@ __extract_pip_arguments () {
     local cuda_version="${package_variant_version:-11.8.0}"
     # shellcheck disable=SC2206
     local cuda_version_arr=(${cuda_version//./ })
-    # Convert, i.e. cuda 11.7.1 => cu117
+    # Convert, i.e. cuda 12.1.0 => cu121
     export package_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
   elif [ "$package_variant_type" == "rocm" ]; then
     # Extract the ROCM version or default to 5.5.1
@@ -67,7 +67,7 @@ __extract_pip_arguments () {
   if [ "$package_version" == "nightly" ] || [ "$package_version" == "test" ]; then
     export pip_package="--pre ${package_name}"
     export pip_channel="https://download.pytorch.org/whl/${package_version}/${package_variant}/"
-  elif [ "$package_version" == "latest" ]; then
+  elif [ "$package_version" == "release" ]; then
     export pip_package="${package_name}"
     export pip_channel="https://download.pytorch.org/whl/${package_variant}/"
   else
@@ -85,10 +85,10 @@ install_from_pytorch_pip () {
   if [ "$package_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Install the CPU variant a specific version"
-    echo "    ${FUNCNAME[0]} build_env torch latest cpu             # Install the CPU variant of the latest stable version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 11.7.1  # Install the variant for CUDA 11.7"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Install the variant for ROCM 5.3"
+    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Install the CPU variant for a specific version"
+    echo "    ${FUNCNAME[0]} build_env torch release cpu            # Install the CPU variant, latest release version"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 12.1.0  # Install the CUDA 12.1 variant, latest test version"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Install the ROCM 5.3 variant, latest nightly version"
     return 1
   else
     echo "################################################################################"
@@ -138,10 +138,10 @@ download_from_pytorch_pip () {
   if [ "$package_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Download the CPU variant a specific version"
-    echo "    ${FUNCNAME[0]} build_env torch latest cpu             # Download the CPU variant of the latest stable version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 11.7.1  # Download the variant for CUDA 11.7"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Download the variant for ROCM 5.3"
+    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Download the CPU variant for a specific version"
+    echo "    ${FUNCNAME[0]} build_env torch release cpu            # Download the CPU variant, latest stable version"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 12.1.0  # Download the CUDA 12.1 variant, latest test version"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Download the ROCM 5.3 variant, latest nightly version"
     return 1
   else
     echo "################################################################################"
