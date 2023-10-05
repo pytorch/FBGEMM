@@ -13,6 +13,69 @@
 # PyTorch PIP Install Functions
 ################################################################################
 
+__extract_pip_arguments () {
+  export env_name="$1"
+  export package_name_raw="$2"
+  export package_version="$3"
+  export package_variant_type="$4"
+  export package_variant_version="$5"
+  if [ "$package_variant_type" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Install the CPU variant a specific version"
+    echo "    ${FUNCNAME[0]} build_env torch latest cpu             # Install the CPU variant of the latest stable version"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 11.7.1  # Install the variant for CUDA 11.7"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Install the variant for ROCM 5.3"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Install ${package_name_raw} (PyTorch PIP)"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  test_network_connection || return 1
+
+  # Replace underscores with hyphens to materialize the canonical name of the package
+  # shellcheck disable=SC2155
+  export package_name=$(echo "${package_name_raw}" | tr '_' '-')
+
+  # Set the package variant
+  if [ "$package_variant_type" == "cuda" ]; then
+    # Extract the CUDA version or default to 11.8.0
+    local cuda_version="${package_variant_version:-11.8.0}"
+    # shellcheck disable=SC2206
+    local cuda_version_arr=(${cuda_version//./ })
+    # Convert, i.e. cuda 11.7.1 => cu117
+    export package_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
+  elif [ "$package_variant_type" == "rocm" ]; then
+    # Extract the ROCM version or default to 5.5.1
+    local rocm_version="${package_variant_version:-5.5.1}"
+    # shellcheck disable=SC2206
+    local rocm_version_arr=(${rocm_version//./ })
+    # Convert, i.e. rocm 5.5.1 => rocm5.5
+    export package_variant="rocm${rocm_version_arr[0]}.${rocm_version_arr[1]}"
+  else
+    export package_variant_type="cpu"
+    export package_variant="cpu"
+  fi
+  echo "[INSTALL] Extracted package variant: ${package_variant}"
+
+  # Set the package name and installation channel
+  if [ "$package_version" == "nightly" ] || [ "$package_version" == "test" ]; then
+    export pip_package="--pre ${package_name}"
+    export pip_channel="https://download.pytorch.org/whl/${package_version}/${package_variant}/"
+  elif [ "$package_version" == "latest" ]; then
+    export pip_package="${package_name}"
+    export pip_channel="https://download.pytorch.org/whl/${package_variant}/"
+  else
+    export pip_package="${package_name}==${package_version}+${package_variant}"
+    export pip_channel="https://download.pytorch.org/whl/${package_variant}/"
+  fi
+}
+
 install_from_pytorch_pip () {
   local env_name="$1"
   local package_name_raw="$2"
@@ -38,49 +101,14 @@ install_from_pytorch_pip () {
 
   test_network_connection || return 1
 
-  # Replace underscores with hyphens to materialize the canonical name of the package
-  # shellcheck disable=SC2155
-  local package_name=$(echo "${package_name_raw}" | tr '_' '-')
-
-  # Set the package variant
-  if [ "$package_variant_type" == "cuda" ]; then
-    # Extract the CUDA version or default to 11.8.0
-    local cuda_version="${package_variant_version:-11.8.0}"
-    # shellcheck disable=SC2206
-    local cuda_version_arr=(${cuda_version//./ })
-    # Convert, i.e. cuda 11.7.1 => cu117
-    local package_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
-  elif [ "$package_variant_type" == "rocm" ]; then
-    # Extract the ROCM version or default to 5.5.1
-    local rocm_version="${package_variant_version:-5.5.1}"
-    # shellcheck disable=SC2206
-    local rocm_version_arr=(${rocm_version//./ })
-    # Convert, i.e. rocm 5.5.1 => rocm5.5
-    local package_variant="rocm${rocm_version_arr[0]}.${rocm_version_arr[1]}"
-  else
-    local package_variant_type="cpu"
-    local package_variant="cpu"
-  fi
-  echo "[INSTALL] Extracted package variant: ${package_variant}"
-
-  # Set the package name and installation channel
-  if [ "$package_version" == "nightly" ] || [ "$package_version" == "test" ]; then
-    local package_package="--pre ${package_name}"
-    local package_channel="https://download.pytorch.org/whl/${package_version}/${package_variant}/"
-  elif [ "$package_version" == "latest" ]; then
-    local package_package="${package_name}"
-    local package_channel="https://download.pytorch.org/whl/${package_variant}/"
-  else
-    local package_package="${package_name}==${package_version}+${package_variant}"
-    local package_channel="https://download.pytorch.org/whl/${package_variant}/"
-  fi
+  __extract_pip_arguments "$env_name" "$package_name_raw" "$package_version" "$package_variant_type" "$package_variant_version"
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Attempting to install [${package_name}, ${package_version}+${package_variant}] through PIP using channel ${package_channel} ..."
+  echo "[INSTALL] Attempting to install [${package_name}, ${package_version}+${package_variant}] from PyTorch PIP using channel ${pip_channel} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda run ${env_prefix} pip install ${package_package} --extra-index-url ${package_channel}) || return 1
+  (exec_with_retries conda run ${env_prefix} pip install ${pip_package} --extra-index-url ${pip_channel}) || return 1
 
   # Check only applies to non-CPU variants
   if [ "$package_variant_type" != "cpu" ]; then
@@ -97,6 +125,58 @@ install_from_pytorch_pip () {
   fi
 }
 
+################################################################################
+# PyTorch PIP Download Functions
+################################################################################
+
+download_from_pytorch_pip () {
+  local env_name="$1"
+  local package_name_raw="$2"
+  local package_version="$3"
+  local package_variant_type="$4"
+  local package_variant_version="$5"
+  if [ "$package_variant_type" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Download the CPU variant a specific version"
+    echo "    ${FUNCNAME[0]} build_env torch latest cpu             # Download the CPU variant of the latest stable version"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 11.7.1  # Download the variant for CUDA 11.7"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Download the variant for ROCM 5.3"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Download ${package_name_raw} (PyTorch PIP)"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  test_network_connection || return 1
+
+  __extract_pip_arguments "$env_name" "$package_name_raw" "$package_version" "$package_variant_type" "$package_variant_version"
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  echo "[DOWNLOAD] Removing previously downloaded wheels from current directory ..."
+  # shellcheck disable=SC2035
+  rm -rf *.whl || return 1
+
+  echo "[DOWNLOAD] Attempting to download wheel [${package_name}, ${package_version}+${package_variant}] from PyTorch PIP using channel ${pip_channel} ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries conda run ${env_prefix} pip download ${pip_package} --extra-index-url ${pip_channel}) || return 1
+
+  # Ensure that the package build is of the correct variant
+  # This test usually applies to the nightly builds
+  # shellcheck disable=SC2010
+  if ls -la . | grep "${package_name}-"; then
+    echo "[CHECK] Successfully downloaded the wheel."
+  else
+    echo "[CHECK] The wheel was not found!"
+    return 1
+  fi
+}
 
 ################################################################################
 # PyPI Publish Functions
