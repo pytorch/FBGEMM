@@ -32,7 +32,7 @@ usage () {
   echo "CUDA_VERSION        : PyTorch's CUDA version (e.g., 11.6, 11.7)"
   echo "FBGEMM_WHEEL_PATH   : path to FBGEMM_GPU's wheel file"
   echo "MINICONDA_PREFIX    : path to install Miniconda (default: \$HOME/miniconda)"
-  echo "Example: Python 3.10 + PyTorch nightly (CUDA 11.7), install miniconda at \$HOME/miniconda, using dist/fbgemm_gpu_nightly.whl"
+  echo "Example: Python 3.10 + PyTorch nightly (CUDA 12.1), install miniconda at \$HOME/miniconda, using dist/fbgemm_gpu_nightly.whl"
   # shellcheck disable=SC2086
   echo "       bash $(basename ${BASH_SOURCE[0]}) -v -o torchrec_nightly -p 3.10 -P pytorch-nightly -c 11.7 -w dist/fbgemm_gpu_nightly.whl"
 }

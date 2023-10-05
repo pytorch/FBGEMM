@@ -253,13 +253,13 @@ PyTorch for ROCm builds.
 
 ```sh
 # Install the latest nightly
-conda run -n "${env_name}" pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/cu117/
+conda run -n "${env_name}" pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121/
 # Install the latest test (RC)
-conda run -n "${env_name}" pip install --pre torch --extra-index-url https://download.pytorch.org/whl/test/cu117/
+conda run -n "${env_name}" pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu121/
 # Install a specific version
-conda run -n "${env_name}" pip install torch==2.0.0+cu117 --extra-index-url https://download.pytorch.org/whl/cu117/
+conda run -n "${env_name}" pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu121/
 # Install the latest nightly (ROCm 5.3)
-conda run -n "${env_name}" pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/rocm5.3/
+conda run -n "${env_name}" pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm5.3/
 ```
 
 ### Post-Install Checks
