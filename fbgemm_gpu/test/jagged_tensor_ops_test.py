@@ -1827,6 +1827,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
+        check_non_contiguous=st.booleans(),
     )
     @settings(max_examples=20, deadline=None, verbosity=Verbosity.verbose)
     def test_jagged_index_select_2d(
@@ -1838,6 +1839,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
         use_cpu: bool,
+        check_non_contiguous: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
@@ -1873,6 +1875,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
             )
         values_ref = values.detach().clone()
 
+        if check_non_contiguous:
+            values = values.as_strided(values.shape, (1, values.shape[0]))
+            values_ref = values_ref.as_strided(values.shape, (1, values.shape[0]))
+
         # Only float tensors can require grad
         if is_float:
             values.requires_grad = True
@@ -1890,6 +1896,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         grad = torch.rand_like(output)
         grad_ref = grad.detach().clone()
+
+        if check_non_contiguous:
+            grad = grad.as_strided(grad.shape, (1, grad.shape[0]))
+            grad_ref = grad_ref.as_strided(grad.shape, (1, grad.shape[0]))
 
         output.backward(grad)
         output_ref.backward(grad_ref)
