@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <cassert>
+#define FBGEMM_EXPORTS
 #include <cmath>
 #include "RefImplementations.h"
 #include "fbgemm/FbgemmEmbedding.h"
