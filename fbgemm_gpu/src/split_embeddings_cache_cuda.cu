@@ -1473,7 +1473,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_insert_byte_kernel(
       continue;
     }
 
-    // no need to check because cache_sets[pos] != -1 only when it was the
+    // no need to check because cache_sets[pos] != C only when it was the
     // first one to set the buffer time_stamp
     // if (lxu_cache_miss_timestamp[cache_set][0] != time_stamp) {
     //   continue;
