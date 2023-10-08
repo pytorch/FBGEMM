@@ -253,6 +253,7 @@ def masked_select_jagged_1d(
         cum_count = torch.cumsum(mask, 0)
         cum_count = torch.cat((cum_count, torch.tensor([0])))
         cum_length = cum_count[torch.cumsum(lengths, 0) - 1]
+        # pyre-ignore Incompatible parameter type [6]
         cum_length_shift_right = torch.roll(cum_length, 1)
         cum_length_shift_right[0] = 0
         masked_lengths_ref = cum_length - cum_length_shift_right

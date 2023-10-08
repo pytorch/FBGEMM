@@ -191,7 +191,12 @@ on_arm_platform: Tuple[bool, str] = (
 
 
 def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
-    gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
+    # Use try-except to avoid the "Torch not compiled with CUDA enabled"
+    # assertion error when `not hasattr(torch._C, '_cuda_getDeviceCount')`
+    try:
+        gpu_available = torch.cuda.is_available() and torch.cuda.device_count() > 0
+    except Exception:
+        gpu_available = False
     # st.sampled_from is not guaranteed to test all the values passed to it.
     # However, Hypothesis, by default, generates 100 test cases from the specified strategies.
     # If st.sampled_from contains >100 items or if it's used in conjunction with other strategies
