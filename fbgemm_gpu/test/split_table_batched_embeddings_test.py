@@ -6128,6 +6128,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         lxu_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices_0, lxu_cache_state_gpu, max_index
         )
+        print(f"linear_cache_indices_0: {linear_cache_indices_0}")
+        print(f"lxu_cache_state_gpu: {lxu_cache_state_gpu}")
+        print(f"max_index: {max_index}")
+        print(f"lxu_locations: {lxu_locations}")
+        print(f"torch.full_like(lxu_locations, -1): {torch.full_like(lxu_locations, -1)}")
         torch.testing.assert_close(
             lxu_locations,
             torch.full_like(lxu_locations, -1),
