@@ -22,11 +22,11 @@
 using namespace std;
 using namespace fbgemm;
 
+namespace {
+
 vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::OUT_CHANNEL};
-
-namespace {
 
 // tuple represents #rows, #cols, fuse_relu, quantization_granularity, bias_type
 class FloatRequantizeTest

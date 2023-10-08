@@ -42,9 +42,10 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
+namespace {
+
 vector<int> prefetch_distances{0, 16, 1000000};
 
-namespace {
 class SparseAdagradTest
     : public testing::TestWithParam<tuple<bool, int, bool, bool, bool>> {};
 }; // namespace
