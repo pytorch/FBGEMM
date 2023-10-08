@@ -266,11 +266,9 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
   const auto max_offset =
       ::__ldg(&cache_hash_size_cumsum[cache_hash_size_cumsum.size(0) - 1]);
   const auto curr_offset = ::__ldg(&cache_hash_size_cumsum[table_index]);
-  if (curr_offset >= 0 && indices[index] >= 0) {
+  if (curr_offset >= 0) {
     linear_cache_indices[index] = indices[index] + curr_offset;
   } else {
-    // Either table index is wrong, or index value is negative (due to pruning):
-    // set it to invalid value.
     linear_cache_indices[index] = max_offset;
   }
 }
