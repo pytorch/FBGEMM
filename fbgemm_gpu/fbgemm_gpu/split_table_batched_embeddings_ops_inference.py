@@ -1209,14 +1209,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         splits.append(
                             (
                                 weights_shifts[:, self.scale_bias_size_in_bytes :],
-                                weights_shifts[
-                                    :, : self.scale_bias_size_in_bytes // 2
-                                ].view(torch.float16),
+                                weights_shifts[:, : self.scale_bias_size_in_bytes // 2],
                                 weights_shifts[
                                     :,
                                     self.scale_bias_size_in_bytes
                                     // 2 : self.scale_bias_size_in_bytes,
-                                ].view(torch.float16),
+                                ],
                             )
                         )
                 elif (
