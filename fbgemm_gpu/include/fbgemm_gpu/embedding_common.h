@@ -95,33 +95,29 @@ div_round_up(uint32_t a, uint32_t b) {
   return ((a + b - 1) / b);
 }
 
-C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t
-unpadded_row_size_in_bytes(int32_t dim, fbgemm_gpu::SparseType weight_ty) {
-  if (weight_ty == fbgemm_gpu::SparseType::FP32) {
-    return dim * 4;
+C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t unpadded_row_size_in_bytes(
+    const int32_t dim,
+    const fbgemm_gpu::SparseType weight_ty) {
+  switch (weight_ty) {
+    case fbgemm_gpu::SparseType::FP32:
+      return dim * 4;
+    case fbgemm_gpu::SparseType::FP16:
+      return dim * 2;
+    case fbgemm_gpu::SparseType::INT8:
+      return dim + 4;
+    case fbgemm_gpu::SparseType::INT4:
+      return dim / 2 + 4;
+    case fbgemm_gpu::SparseType::INT2:
+      return dim / 4 + 4;
+    default:
+      return 0;
   }
-  if (weight_ty == fbgemm_gpu::SparseType::FP16) {
-    return dim * 2;
-  }
-  if (weight_ty == fbgemm_gpu::SparseType::FP8) {
-    return dim;
-  }
-  if (weight_ty == fbgemm_gpu::SparseType::INT8) {
-    return dim + 4;
-  }
-  if (weight_ty == fbgemm_gpu::SparseType::INT4) {
-    return dim / 2 + 4;
-  }
-  if (weight_ty == fbgemm_gpu::SparseType::INT2) {
-    return dim / 4 + 4;
-  }
-  return 0;
 }
 
 C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t padded_row_size_in_bytes(
-    int32_t dim,
-    fbgemm_gpu::SparseType weight_ty,
-    int32_t row_alignment) {
+    const int32_t dim,
+    const fbgemm_gpu::SparseType weight_ty,
+    const int32_t row_alignment) {
   auto r = unpadded_row_size_in_bytes(dim, weight_ty);
   return round_up(r, row_alignment);
 }
