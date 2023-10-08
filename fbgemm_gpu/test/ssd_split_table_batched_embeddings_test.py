@@ -7,6 +7,7 @@
 # pyre-ignore-all-errors[56]
 
 import copy
+import pickle
 import random
 import unittest
 
@@ -778,3 +779,35 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=1.0e-2,
                 rtol=1.0e-2,
             )
+
+    def test_pickle(self) -> None:
+        import tempfile
+
+        ssd_prefix = "/tmp/"
+        num_shards = 8
+        num_threads = 8
+        embedding_dim = 128
+        with tempfile.TemporaryDirectory(prefix=ssd_prefix) as ssd_directory:
+            emb_rocksdb_wrapper = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                num_shards,
+                num_threads,
+                0,  # ssd_memtable_flush_period,
+                0,  # ssd_memtable_flush_offset,
+                4,  # ssd_l0_files_per_compact,
+                embedding_dim,
+                0,  # ssd_rate_limit_mbps,
+                1,  # ssd_size_ratio,
+                8,  # ssd_compaction_trigger,
+                536870912,  # 512MB ssd_write_buffer_size,
+                8,  # ssd_max_write_buffer_num,
+                -0.01,  # ssd_uniform_init_lower
+                0.01,  # ssd_uniform_init_upper
+                8,  # row_storage_bitwidth
+            )
+            pickled = pickle.dumps(emb_rocksdb_wrapper)
+            unpickled = pickle.loads(pickled)  # noqa
+
+
+if __name__ == "__main__":
+    unittest.main()
