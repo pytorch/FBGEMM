@@ -22,6 +22,9 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
     )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
+    )
 
 
 class PermutePooledEmbeddings(nn.Module):
