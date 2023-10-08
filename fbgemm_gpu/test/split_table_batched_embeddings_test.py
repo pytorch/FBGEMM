@@ -6538,6 +6538,31 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         check_weight_momentum(0)
 
+    def test_only_weights_on_meta(self) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        tbe = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    SparseType.INT8,
+                    EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.device("meta"),
+            cache_sets=1,
+            only_weights_on_meta=True,
+        )
+        for _, v in tbe.state_dict().items():
+            self.assertEqual(v.device.type, "cpu")
+
 
 if __name__ == "__main__":
     unittest.main()
