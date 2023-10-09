@@ -99,7 +99,7 @@ run_fbgemm_gpu_tests () {
 
   echo "[TEST] Installing pytest ..."
   # shellcheck disable=SC2086
-  print_exec conda install ${env_prefix} -y pytest
+  print_exec conda install ${env_prefix} -y pytest expecttest
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
