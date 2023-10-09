@@ -11,6 +11,7 @@ import contextlib
 import functools
 import itertools
 import logging
+import os
 import random
 import unittest
 from itertools import accumulate
@@ -19,7 +20,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from hypothesis import given, settings, Verbosity
+from hypothesis import given, HealthCheck, settings, Verbosity
+
+from torch._utils_internal import get_file_path_2
+from torch.testing._internal.optests import generate_opcheck_tests
+
 
 try:
     # pyre-ignore[21]
@@ -32,6 +37,13 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
+
+suppressed_list: List[HealthCheck] = (
+    # pyre-fixme[16]: Module `HealthCheck` has no attribute `differing_executors`.
+    [HealthCheck.differing_executors]
+    if getattr(HealthCheck, "differing_executors", False)
+    else []
+)
 
 
 def unbucketize_indices_value(
@@ -90,6 +102,7 @@ def permute_scripted(
 
 class SparseOpsTest(unittest.TestCase):
     @staticmethod
+    @settings(suppress_health_check=suppressed_list)
     def permute_indices_ref_(
         lengths: torch.Tensor,
         indices: torch.Tensor,
@@ -2386,6 +2399,72 @@ class SparseOpsTest(unittest.TestCase):
             "grad",
         )
 
+
+failures_dict_path: str = get_file_path_2(
+    "", os.path.dirname(__file__), "failures_dict.json"
+)
+
+# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
+# Please avoid putting tests here, you should put operator-specific
+# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
+# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_aot_dispatch_dynamic__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_aot_dispatch_static__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_autograd_registration__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_schema__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_aot_dispatch_dynamic__test_pack_segments": [
+        unittest.skip("ASAN heap buffer overflow")
+    ],
+    "test_aot_dispatch_static__test_pack_segments": [
+        unittest.skip("ASAN heap buffer overflow")
+    ],
+    "test_faketensor__test_pack_segments": [unittest.skip("ASAN heap buffer overflow")],
+    "test_autograd_registration__test_pack_segments": [
+        unittest.skip("ASAN heap buffer overflow")
+    ],
+    "test_schema__test_pack_segments": [unittest.skip("ASAN heap buffer overflow")],
+    "test_aot_dispatch_static__test_group_index_select_dim0": [
+        unittest.skip("CUDA memory error")
+    ],
+    "test_aot_dispatch_dynamic__test_group_index_select_dim0": [
+        unittest.skip("CUDA memory error")
+    ],
+    "test_aot_dispatch_dynamic__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_aot_dispatch_static__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_faketensor__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_autograd_registration__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_schema__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+}
+
+# only generate tests on nightly pytorch (current release version is 2.1)
+if torch.__version__ >= "2.2.*":
+    generate_opcheck_tests(
+        SparseOpsTest,
+        ["fb", "fbgemm"],
+        failures_dict_path,
+        # pyre-fixme[6]: For 4th argument expected `List[typing.Callable[...,
+        #  typing.Any]]` but got `Dict[str, List[typing.Callable[..., typing.Any]]]`.
+        additional_decorators,
+        [
+            "test_schema",
+            "test_autograd_registration",
+            "test_faketensor",
+            "test_aot_dispatch_static",
+            "test_aot_dispatch_dynamic",
+        ],
+    )
 
 if __name__ == "__main__":
     unittest.main()
