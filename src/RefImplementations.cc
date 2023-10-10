@@ -1435,9 +1435,12 @@ bool EmbeddingSpMDMNBit_ref(
         scale_bias_offset;
   }
   int64_t current = 0;
-  vector<float> buf(block_size);
+  const int64_t rounded_bs =
+      ((block_size + num_elem_per_byte - 1) / num_elem_per_byte) *
+      num_elem_per_byte;
+  vector<float> buf(rounded_bs);
   for (int m = 0; m < output_size; ++m) {
-    memset(buf.data(), 0, sizeof(float) * block_size);
+    memset(buf.data(), 0, sizeof(float) * rounded_bs);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
     if (current + len > index_size) {
@@ -1462,26 +1465,71 @@ bool EmbeddingSpMDMNBit_ref(
       const float scale = weight * cpu_half2float(scale_bias[0]);
       const float bias = weight * cpu_half2float(scale_bias[1]);
 
-      for (int j = 0; j < block_size; ++j) {
-        uint8_t quantized = input
-            [input_stride * idx + j / num_elem_per_byte +
-             (scale_bias_last ? 0 : scale_bias_offset)];
-        quantized >>= (j % num_elem_per_byte) * bit_rate;
-        quantized &= (1 << bit_rate) - 1;
-
-        buf[j] = std::fma(scale, quantized, buf[j] + bias);
+      const int64_t offset =
+          input_stride * idx + (scale_bias_last ? 0 : scale_bias_offset);
+      if (bit_rate == 4) {
+        size_t halfbufsz = (block_size + 1) / 2;
+        vector<float> buf1(halfbufsz);
+        vector<float> buf2(halfbufsz);
+#pragma omp simd
+        for (size_t j = 0; j < halfbufsz; ++j) {
+          uint8_t quantized1 = input[offset + j] & 0xf;
+          uint8_t quantized2 = input[offset + j] & 0xf0;
+          quantized2 = quantized2 >> 4;
+          buf1[j] = quantized1;
+          buf2[j] = quantized2;
+        }
+#pragma omp simd
+        for (size_t j = 0; j < halfbufsz; ++j) {
+          buf[j * 2] = std::fma(scale, buf1[j], buf[j * 2] + bias);
+          buf[j * 2 + 1] = std::fma(scale, buf2[j], buf[j * 2 + 1] + bias);
+        }
+      } else if (bit_rate == 2) {
+        size_t qbufsz = (block_size + 3) / 4;
+        vector<vector<float>> qbufs(4);
+        for (int k = 0; k < 4; ++k) {
+          qbufs[k].resize(qbufsz);
+        }
+        vector<uint8_t> masks{0x3, 0xC, 0x30, 0xC0};
+#pragma omp simd collapse(2)
+        for (size_t j = 0; j < qbufsz; ++j) {
+          for (size_t k = 0; k < 4; ++k) {
+            uint8_t quantized = input[offset + j] & masks[k];
+            quantized = quantized >> (k * 2);
+            qbufs[k][j] = quantized;
+          }
+        }
+#pragma omp simd collapse(2)
+        for (size_t j = 0; j < qbufsz; ++j) {
+          for (size_t k = 0; k < 4; ++k) {
+            buf[j * 4 + k] =
+                std::fma(scale, qbufs[k][j], buf[j * 4 + k] + bias);
+          }
+        }
       }
-
       ++current;
     }
+
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;
+#pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         buf[j] *= scale;
       }
     }
-    for (int j = 0; j < block_size; ++j) {
-      out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+    if (std::is_same<OutType, float>::value) {
+      memcpy(out, buf.data(), block_size * sizeof(OutType));
+    } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+#pragma omp simd
+      for (int j = 0; j < block_size; ++j) {
+        uint32_t temp;
+        memcpy(&temp, &buf[j], sizeof(uint32_t));
+        out[j] = (temp + (1u << 15)) >> 16;
+      }
+    } else {
+      for (int j = 0; j < block_size; ++j) {
+        out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+      }
     }
     out += output_stride;
   }
