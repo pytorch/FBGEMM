@@ -940,6 +940,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 
     // Tail warp
     // STEP_MASK computation assumes STEP = 4
+    {% if not weighted %}
     if (load_D - load_d < kWarpSize) {
       const auto tail_warp_size = load_D % kWarpSize;
       if (tail_warp_size <= 8) {
@@ -955,6 +956,9 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     else {
       INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, 0xf)
     }
+    {% else %}
+    INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, 0xf)
+    {% endif %}
 
 #undef INVOKE_PROCESS_ALL_INDICES_HELPER
 #undef INVOKE_PROCESS_ALL_INDICES
