@@ -25,6 +25,10 @@
 #include "fbgemm/SimdUtils.h"
 #include "fbgemm/Types.h"
 
+#ifndef USE_REF_IMPL
+#define USE_REF_IMPL 0
+#endif
+
 using namespace std;
 
 namespace fbgemm {
@@ -1045,6 +1049,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     input_stride =
         ceil_div(block_size, num_elem_per_byte) + 2 * sizeof(uint16_t);
   }
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && !USE_REF_IMPL
   if (fbgemmHasAvx512Support()) {
     static GenEmbeddingSpMDMNBitLookup<
         indxType,
@@ -1129,6 +1134,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
+#endif // (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && !USE_REF_IMPL
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t data_size,
@@ -1156,7 +1162,9 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
           scale_bias_last,
           is_bf16_out);
     };
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && !USE_REF_IMPL
   }
+#endif
 }
 
 template <typename IndexType, typename OffsetType, typename OutType>
@@ -1204,6 +1212,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
   int64_t num_elem_per_byte = 8 / bit_rate;
   int64_t input_stride =
       ceil_div(block_size, num_elem_per_byte) + 2 * sizeof(uint16_t);
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && !USE_REF_IMPL
   if (fbgemmHasAvx512Support()) {
     static GenEmbeddingSpMDMNBitLookup<
         indxType,
@@ -1290,6 +1299,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
+#endif // (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && !USE_REF_IMPL
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t uncompressed_data_size,
@@ -1316,7 +1326,9 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
           is_weight_positional,
           use_offsets);
     };
+#if (CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64) && !USE_REF_IMPL
   }
+#endif
 }
 
 #define INSTANTIATE_SPMDM_BASE(                               \

@@ -136,8 +136,8 @@ int run_benchmark(
   vector<float> output_slws_ref(output_sls_ref.size()),
       output_sls(output_sls_ref.size()), output_slws(output_sls_ref.size());
 
-  constexpr int NUM_WARMUP = 4;
-  constexpr int NUM_ITER = 10;
+  constexpr int NUM_WARMUP = 10;
+  constexpr int NUM_ITER = 100;
   // Only counts the number of bytes for reading embedding table and ignore
   // others. Should be good enough as long as embdding_dim is big enough.
   double bytes = lengths_sum * fused_embedding_dim;
@@ -150,34 +150,6 @@ int run_benchmark(
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
 
     bool success = false, success_ref = false;
-
-    if (use_32_bit_indices) {
-      success_ref = EmbeddingSpMDMNBit_ref(
-          bit_rate,
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          fused_embedding_table.data(),
-          indices_32.data(),
-          offsets.data(),
-          has_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output_ref.data());
-    } else {
-      success = EmbeddingSpMDMNBit_ref(
-          bit_rate,
-          embedding_dim,
-          batch_size,
-          lengths_sum,
-          num_rows,
-          fused_embedding_table.data(),
-          indices.data(),
-          offsets.data(),
-          has_weight ? weights.data() : nullptr,
-          normalize_by_lengths,
-          output_ref.data());
-    }
 
     auto kernel_32 = GenerateEmbeddingSpMDMNBit<int32_t>(
         bit_rate,
@@ -194,6 +166,49 @@ int run_benchmark(
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
+      double t_ref = measureWithWarmup(
+          [&]() {
+            if (use_32_bit_indices) {
+              success_ref = EmbeddingSpMDMNBit_ref(
+                  bit_rate,
+                  embedding_dim,
+                  batch_size,
+                  lengths_sum,
+                  num_rows,
+                  fused_embedding_table.data(),
+                  indices_32.data(),
+                  offsets.data(),
+                  has_weight ? weights.data() : nullptr,
+                  normalize_by_lengths,
+                  output_ref.data());
+            } else {
+              success_ref = EmbeddingSpMDMNBit_ref(
+                  bit_rate,
+                  embedding_dim,
+                  batch_size,
+                  lengths_sum,
+                  num_rows,
+                  fused_embedding_table.data(),
+                  indices.data(),
+                  offsets.data(),
+                  has_weight ? weights.data() : nullptr,
+                  normalize_by_lengths,
+                  output_ref.data());
+            }
+          },
+          NUM_WARMUP,
+          NUM_ITER,
+          [&]() {
+            if (flush_cache) {
+              cache_evict(fused_embedding_table);
+              cache_evict(indices);
+              cache_evict(indices_32);
+              cache_evict(offsets);
+              cache_evict(weights);
+              cache_evict(output);
+            }
+          });
+
       double t = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
@@ -263,25 +278,27 @@ int run_benchmark(
       }
 
       if (has_weight) {
-        cout << setw(16) << "SLW(WEIGHTED) ";
+        cout << "SLW(WEIGHTED), ";
       } else {
-        cout << setw(16) << "SLS ";
+        cout << "SLS, ";
       }
       if (flush_cache) {
-        cout << setw(20) << "cache flushed";
+        cout << "cache flushed, ";
       } else {
-        cout << setw(20) << "cache not flushed";
+        cout << "cache not flushed, ";
       }
       if (prefetch) {
-        cout << setw(16) << "prefetch on";
+        cout << "prefetch on, ";
       } else {
-        cout << setw(16) << "prefetch off";
+        cout << "prefetch off, ";
       }
 
-      cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / t << " GB/s"
-           << setw(20) << "effective b/w: " << setw(16)
-           << bytes_padded / 1e9 / t << "GB/s" << setw(8) << " time "
-           << setw(16) << t << endl;
+      cout << "b/w, " << bytes / 1e9 / t << ", GB/s, "
+           << "effective b/w, " << bytes_padded / 1e9 / t << ", GB/s, "
+           << "time, " << t << ", ref b/w, " << bytes / 1e9 / t_ref
+           << ", GB/s, "
+           << "ref eff. b/w, " << bytes_padded / 1e9 / t_ref << ", GB/s, "
+           << ", ref time, " << t_ref << endl;
     } // flush_cache
   } // has_weight
   return 0;
@@ -303,10 +320,9 @@ int main() {
       embedding_dim = input[2];
       average_len = input[3];
 
-      cout << "bit_rate" << setw(6) << bit_rate << "batch size" << setw(6)
-           << batch_size << setw(10) << "num rows" << setw(16) << num_rows
-           << setw(10) << "emb dim" << setw(6) << embedding_dim << setw(16)
-           << "avg length" << setw(6) << average_len << endl;
+      cout << "bit_rate," << bit_rate << ", batch size, " << batch_size
+           << ", num rows, " << num_rows << ", emb dim, " << embedding_dim
+           << ", avg length, " << average_len << endl;
       // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
       // prefetch
       cout << "64 bit indices, ";
