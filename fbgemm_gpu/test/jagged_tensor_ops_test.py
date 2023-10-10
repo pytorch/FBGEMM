@@ -2118,6 +2118,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ]  # Disable torch.bfloat16 due to large error bound
         ),
         has_weights=st.booleans(),
+        check_non_contiguous=st.booleans(),
     )
     @settings(max_examples=20, deadline=None)
     def test_keyed_jagged_index_select_dim1(
@@ -2129,6 +2130,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
         has_weights: bool,
+        check_non_contiguous: bool,
     ) -> None:
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
@@ -2148,20 +2150,31 @@ class JaggedTensorOpsTest(unittest.TestCase):
             dtype=index_dtype,
             device="cuda",
         )
+
+        # If check_non_contiguous=True, create a tensor that is twice as big
+        # and then select only odd indices to make it non contiguous
+        values_numel = int(offsets[-1].item())
+        values_numel = values_numel * 2 if check_non_contiguous else values_numel
+
         if is_float:
             values = torch.rand(
-                int(offsets[-1].item()),
+                values_numel,
                 dtype=jagged_tensor_dtype,
                 device="cuda",
             )
         else:
             values = torch.randint(
                 2**16,
-                (int(offsets[-1].item()),),
+                (values_numel,),
                 dtype=jagged_tensor_dtype,
                 device="cuda",
             )
         values_ref = values.detach().clone()
+
+        if check_non_contiguous:
+            values = values[1::2]
+            values_ref = values_ref[1::2]
+
         if has_weights:
             weights = torch.rand(
                 int(offsets[-1].item()),
@@ -2215,8 +2228,17 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if not is_float:
             return
 
-        grad = torch.rand_like(output)
+        # If check_non_contiguous=True, create a tensor that is twice as big
+        # and then select only odd indices to make it non contiguous
+        grad_numel = output.numel()
+        grad_numel = grad_numel * 2 if check_non_contiguous else grad_numel
+
+        grad = torch.rand(grad_numel, dtype=output.dtype, device=output.device)
         grad_ref = grad.detach().clone()
+
+        if check_non_contiguous:
+            grad = grad[1::2]
+            grad_ref = grad_ref[1::2]
 
         output.backward(grad)
         output_ref.backward(grad_ref)
