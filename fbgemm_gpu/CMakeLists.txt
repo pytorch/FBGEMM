@@ -675,7 +675,13 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
       src/sparse_ops/sparse_zipf.cu
-      src/split_embeddings_cache_cuda.cu
+      src/split_embeddings_cache/lfu_cache.cu
+      src/split_embeddings_cache/lru_cache_find.cu
+      src/split_embeddings_cache/lru_cache_populate.cu
+      src/split_embeddings_cache/lru_cache_populate_byte.cu
+      src/split_embeddings_cache/lxu_cache.cu
+      src/split_embeddings_cache/linearize_cache_indices.cu
+      src/split_embeddings_cache/reset_weight_momentum.cu
       src/split_embeddings_utils.cu)
 
   set_source_files_properties(${fbgemm_gpu_sources_static_gpu}

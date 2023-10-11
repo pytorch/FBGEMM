@@ -13,6 +13,19 @@
 ///@defgroup table-batched-embed-cuda CUDA Operators
 /// The following are CUDA Operators
 
+namespace fbgemm_gpu {
+
+enum uvm_cache_stats_index {
+  num_calls = 0,
+  num_requested_indices = 1,
+  num_unique_indices = 2,
+  num_unique_misses = 3,
+  num_conflict_unique_misses = 4,
+  num_conflict_misses = 5,
+};
+
+} // namespace fbgemm_gpu
+
 ///@ingroup table-batched-embed-cuda
 /// Deduplicate indices.
 std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
