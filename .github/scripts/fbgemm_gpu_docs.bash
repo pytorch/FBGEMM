@@ -36,7 +36,7 @@ install_docs_tools () {
 
   echo "[INSTALL] Installing docs tools ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     doxygen) || return 1
 
   # Check binaries are visible in the PATH
@@ -71,15 +71,15 @@ build_fbgemm_gpu_docs () {
 
   echo "[BUILD] Installing docs-build dependencies ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
   echo "[BUILD] Running Doxygen build ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda run ${env_prefix} doxygen Doxyfile.in) || return 1
+  (exec_with_retries 3 conda run ${env_prefix} doxygen Doxyfile.in) || return 1
 
   echo "[BUILD] Building HTML pages ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda run ${env_prefix} make html) || return 1
+  (exec_with_retries 3 conda run ${env_prefix} make html) || return 1
 
   echo "[INSTALL] FBGEMM-GPU documentation build completed"
 }

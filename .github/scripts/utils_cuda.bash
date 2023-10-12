@@ -49,7 +49,7 @@ install_cuda () {
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda install --force-reinstall ${env_prefix} -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
+  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
 
   # Ensure that nvcc is properly installed
   (test_binpath "${env_name}" nvcc) || return 1
@@ -135,7 +135,7 @@ install_cudnn () {
 
   # Download cuDNN
   echo "[INSTALL] Downloading cuDNN to ${tmp_dir} ..."
-  (exec_with_retries wget -q "$cudnn_url" -O cudnn.tar.xz) || return 1
+  (exec_with_retries 3 wget -q "$cudnn_url" -O cudnn.tar.xz) || return 1
 
   # Unpack the tarball
   echo "[INSTALL] Unpacking cuDNN ..."

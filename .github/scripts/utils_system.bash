@@ -44,12 +44,12 @@ install_system_packages () {
 
   echo "[INSTALL] Updating system repositories ..."
   # shellcheck disable=SC2068
-  exec_with_retries ${update_cmd[@]}
+  (exec_with_retries 3 ${update_cmd[@]}) || return 1
 
   # shellcheck disable=SC2145
   echo "[INSTALL] Installing system package(s): $@ ..."
   # shellcheck disable=SC2068
-  exec_with_retries ${install_cmd[@]}
+  (exec_with_retries 3 ${install_cmd[@]}) || return 1
 }
 
 free_disk_space () {

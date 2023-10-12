@@ -40,26 +40,31 @@ print_exec () {
 }
 
 exec_with_retries () {
-  local max=5
-  local delay=2
+  local max_retries="$1"
+  local delay_secs=2
   local retcode=0
 
-  for i in $(seq 1 ${max}); do
-    echo "[EXEC] [ATTEMPT ${i}/${max}]    + $*"
+  # shellcheck disable=SC2086
+  for i in $(seq 0 ${max_retries}); do
+    # shellcheck disable=SC2145
+    echo "[EXEC] [ATTEMPT ${i}/${max_retries}]    + ${@:2}"
 
-    if "$@"; then
-      retcode=0
+    if "${@:2}"; then
+      local retcode=0
       break
     else
-      retcode=$?
-      echo "[EXEC] [ATTEMPT ${i}/${max}] Command attempt failed."
+      local retcode=$?
+      echo "[EXEC] [ATTEMPT ${i}/${max_retries}] Command attempt failed."
       echo ""
-      sleep $delay
+
+      if [ "$i" -ne "$max_retries" ]; then
+        sleep $delay_secs
+      fi
     fi
   done
 
   if [ $retcode -ne 0 ]; then
-    echo "[EXEC] The command has failed after ${max} attempts; aborting."
+    echo "[EXEC] The command has failed after ${max_retries} + 1 attempts; aborting."
   fi
 
   return $retcode

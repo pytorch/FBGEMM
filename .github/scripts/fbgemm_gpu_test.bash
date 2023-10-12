@@ -32,7 +32,7 @@ run_python_test () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # shellcheck disable=SC2086
-  if print_exec conda run --no-capture-output ${env_prefix} python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
+  if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
     echo ""
   else
@@ -99,7 +99,7 @@ run_fbgemm_gpu_tests () {
 
   echo "[TEST] Installing pytest ..."
   # shellcheck disable=SC2086
-  print_exec conda install ${env_prefix} -y pytest expecttest
+  (exec_with_retries 3 conda install ${env_prefix} -y pytest expecttest) || return 1
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1

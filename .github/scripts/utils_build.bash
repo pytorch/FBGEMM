@@ -91,7 +91,7 @@ install_cxx_compiler () {
 
     echo "[INSTALL] Installing C/C++ compilers through Conda (architecture = ${archname}) ..."
     # shellcheck disable=SC2086
-    (exec_with_retries conda install ${env_prefix} -y "gxx_linux-${archname}"=10.4.0 "sysroot_linux-${archname}"=2.17 -c conda-forge) || return 1
+    (exec_with_retries 3 conda install ${env_prefix} -y "gxx_linux-${archname}"=10.4.0 "sysroot_linux-${archname}"=2.17 -c conda-forge) || return 1
 
     # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
     # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
@@ -161,7 +161,7 @@ install_build_tools () {
 
   echo "[INSTALL] Installing build tools ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda install ${env_prefix} -y \
+  (exec_with_retries 3 conda install ${env_prefix} -y \
     click \
     cmake \
     hypothesis \

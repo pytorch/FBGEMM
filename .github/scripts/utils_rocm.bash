@@ -63,7 +63,7 @@ install_rocm_ubuntu () {
 
   # Skip installation of kernel driver when run in Docker mode with --no-dkms
   echo "[INSTALL] Installing ROCm ..."
-  (exec_with_retries amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
+  (exec_with_retries 3 amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
 
   echo "[INSTALL] Installing HIP-relevant packages ..."
   install_system_packages hipify-clang miopen-hip miopen-hip-dev
