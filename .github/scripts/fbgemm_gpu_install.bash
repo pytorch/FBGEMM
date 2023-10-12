@@ -58,7 +58,7 @@ install_fbgemm_gpu_wheel () {
 
   echo "[INSTALL] Installing FBGEMM-GPU wheel: ${wheel_path} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda run ${env_prefix} python -m pip install "${wheel_path}") || return 1
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install "${wheel_path}") || return 1
 
   __fbgemm_gpu_post_install_checks "${env_name}" || return 1
 

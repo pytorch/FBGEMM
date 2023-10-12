@@ -69,7 +69,7 @@ install_pytorch_conda () {
   # Use --force-reinstall to address this on retries - https://datascience.stackexchange.com/questions/41732/conda-verification-failed
   echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, variant = ${pytorch_variant_type}) through Conda using channel '${pytorch_channel}' ..."
   # shellcheck disable=SC2086
-  (exec_with_retries conda install --force-reinstall ${env_prefix} -y ${pytorch_package} -c "${pytorch_channel}") || return 1
+  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -y ${pytorch_package} -c "${pytorch_channel}") || return 1
 
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
