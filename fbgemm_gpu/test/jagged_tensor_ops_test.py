@@ -10,13 +10,12 @@
 import itertools
 import random
 import unittest
-from typing import Any, Callable, List, Tuple, Union
+from typing import List, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 import torch._dynamo
-import torch.testing._internal.optests as optests
 from hypothesis import assume, given, settings, Verbosity
 
 try:
@@ -25,7 +24,6 @@ try:
 
     # pyre-ignore[21]
     from test_utils import (
-        generate_opcheck_tests,
         gpu_available,
         gpu_unavailable,
         on_arm_platform,
@@ -36,7 +34,6 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     from fbgemm_gpu.test.test_utils import (
-        generate_opcheck_tests,
         gpu_available,
         gpu_unavailable,
         on_arm_platform,
@@ -50,26 +47,6 @@ def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
         torch._dim_arange(lengths, 0).long(),
         lengths.long(),
     )
-
-
-# Version of torch.autograd.gradcheck that works with generate_opcheck_tests.
-# The problem with just torch.autograd.gradcheck is that it results in
-# very slow tests when composed with generate_opcheck_tests.
-def gradcheck(
-    # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-    f: Callable,
-    # pyre-ignore[2]
-    inputs: Union[torch.Tensor, Tuple[Any, ...]],
-    *args: Any,
-    **kwargs: Any,
-) -> None:
-    if optests.is_inside_opcheck_mode():
-        if isinstance(inputs, torch.Tensor):
-            f(inputs)
-        else:
-            f(*inputs)
-        return
-    torch.autograd.gradcheck(f, inputs, *args, **kwargs)
 
 
 # Converts lengths + values format to COO format
@@ -131,7 +108,6 @@ def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
     return hash_size_offsets_list
 
 
-@generate_opcheck_tests
 class JaggedTensorOpsTest(unittest.TestCase):
     def setUp(self) -> None:
         if symint_vector_unsupported()[0]:
@@ -319,7 +295,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             output_values.backward(ref_output_values)
             torch.testing.assert_close(expected_grad, values.grad)
 
-    @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @settings(
         verbosity=Verbosity.verbose,
@@ -532,7 +507,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             )
             torch.testing.assert_close(ref_output, output)
 
-    @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @settings(
         verbosity=Verbosity.verbose,
@@ -927,7 +901,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         # verify forward
         assert dense.size() == dense2.size()
 
-    @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @given(
         num_jagged_dim=st.integers(1, 5),
@@ -1072,7 +1045,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(output, output_ref)
 
-        gradcheck(
+        torch.autograd.gradcheck(
             torch.ops.fbgemm.jagged_to_padded_dense,
             (
                 x_values.double().requires_grad_(True),
@@ -1198,7 +1171,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
             f = mul_func
 
-        gradcheck(
+        torch.autograd.gradcheck(
             f,
             (
                 x_values.double().requires_grad_(True),
@@ -1266,7 +1239,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             device_type,
         )
 
-    @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @given(
         num_jagged_dim=st.integers(1, 5),
@@ -1424,7 +1396,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         f = add_jagged_output_func
 
-        gradcheck(
+        torch.autograd.gradcheck(
             f,
             (
                 x_values.double().requires_grad_(True),
@@ -1540,7 +1512,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         assert output.size() == output_ref.size()
 
-    @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @given(
         num_jagged_dim=st.integers(1, 4),
@@ -1676,7 +1647,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if dtype in [torch.half, torch.bfloat16] else None,
         )
 
-        gradcheck(
+        torch.autograd.gradcheck(
             torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
             (
                 dense.clone().detach().double().requires_grad_(True),
@@ -1744,7 +1715,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
         assert output.size() == output_ref.size()
 
-    @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @settings(
         verbosity=Verbosity.verbose,
@@ -2466,7 +2436,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch.testing.assert_close(x_values.grad, x_values_ref.grad)
         torch.testing.assert_close(y.grad, y_ref.grad)
 
-    @optests.dontGenerateOpCheckTests("tests that call torch.compile are slow")
     @unittest.skipIf(*symint_vector_unsupported())
     @given(
         B=st.integers(10, 512),

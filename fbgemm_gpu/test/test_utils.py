@@ -4,14 +4,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import inspect
 import math
 import os
 import struct
 import subprocess
 import unittest
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, List, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -201,58 +200,6 @@ def cpu_and_maybe_gpu() -> st.SearchStrategy[List[torch.device]]:
     return st.sampled_from(
         [torch.device("cpu")] + ([torch.device("cuda")] if gpu_available else [])
     )
-
-
-# Usage examples:
-#
-# @generate_opcheck_tests
-# class MyOpTest(unittest.TestCase):
-#     ...
-#
-# @generate_opcheck_tests(additional_decorators={})
-# class MyOpTest(unittest.TestCase):
-#     ...
-#
-# pyre-ignore[3]
-def generate_opcheck_tests(
-    test_class: Optional[unittest.TestCase] = None,
-    *,
-    # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-    additional_decorators: Optional[Dict[str, Callable]] = None,
-):
-    if additional_decorators is None:
-        additional_decorators = {}
-
-    def decorator(test_class: unittest.TestCase) -> unittest.TestCase:
-        if not torch.__version__ >= "2.2.*":
-            return test_class
-        import torch.testing._internal.optests as optests
-        from torch._utils_internal import get_file_path_2
-
-        filename = inspect.getfile(test_class)
-        failures_dict_path = get_file_path_2(
-            "", os.path.dirname(filename), "failures_dict.json"
-        )
-        optests.generate_opcheck_tests(
-            test_class,
-            ["fb", "fbgemm"],
-            failures_dict_path,
-            # pyre-ignore[6]
-            additional_decorators,
-            [
-                "test_schema",
-                "test_autograd_registration",
-                "test_faketensor",
-                "test_aot_dispatch_static",
-                "test_aot_dispatch_dynamic",
-            ],
-        )
-        return test_class
-
-    if test_class is None:
-        return decorator
-    else:
-        return decorator(test_class)
 
 
 def cpu_only() -> st.SearchStrategy[List[torch.device]]:
