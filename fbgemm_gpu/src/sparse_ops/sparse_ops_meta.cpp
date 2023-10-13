@@ -31,6 +31,10 @@ Tensor asynchronous_complete_cumsum_meta(const Tensor& t_in) {
   return output;
 }
 
+Tensor asynchronous_exclusive_cumsum_meta(const Tensor& t_in) {
+  return at::zeros_symint(t_in.sym_sizes(), t_in.options());
+}
+
 namespace {
 
 Tensor pack_segments_forward_meta(
@@ -74,10 +78,6 @@ Tensor batched_unary_embeddings_forward_meta(
 }
 
 Tensor asynchronous_inclusive_cumsum_meta(const Tensor& t_in) {
-  return at::empty_symint(t_in.sym_sizes(), t_in.options());
-}
-
-Tensor asynchronous_exclusive_cumsum_meta(const Tensor& t_in) {
   return at::empty_symint(t_in.sym_sizes(), t_in.options());
 }
 
