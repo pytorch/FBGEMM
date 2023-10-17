@@ -88,24 +88,6 @@ __configure_fbgemm_gpu_build_rocm () {
   echo "[BUILD] Setting the following ROCm targets: ${arch_list}"
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
-  ver=$(apt show rocm-libs | grep Version | grep -Po '(\d+\.\d+\.\d+)')
-  if [ "$ver" == "5.6.0" ]; then
-    new_path="$PATH:/opt/rocm/llvm/bin:\
-/opt/rocm/opencl/bin:\
-/opt/rocm/hip/bin:\
-/opt/rocm/hcc/bin:\
-/opt/rocm/bin:\
-/opt/conda/bin:\
-/usr/local/sbin:\
-/usr/local/bin:\
-/usr/sbin:\
-/usr/bin:\
-/sbin:\
-/bin"
-    echo $new_path
-    print_exec conda run ${env_prefix} export PATH="$new_path"
-    (exec_with_retries 3 conda run ${env_prefix} echo "===============$PATH") || return 1
-  fi
 
   echo "[BUILD] Setting ROCm build args ..."
   build_args=(
@@ -462,6 +444,24 @@ build_fbgemm_gpu_develop () {
   # canceled for going over ulimits
   echo "[BUILD] Building (develop) FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
   # shellcheck disable=SC2086
+  ver=$(apt show rocm-libs | grep Version | grep -Po '(\d+\.\d+\.\d+)')
+  if [ "$ver" == "5.6.0" ]; then
+    new_path="$PATH:/opt/rocm/llvm/bin:\
+/opt/rocm/opencl/bin:\
+/opt/rocm/hip/bin:\
+/opt/rocm/hcc/bin:\
+/opt/rocm/bin:\
+/opt/conda/bin:\
+/usr/local/sbin:\
+/usr/local/bin:\
+/usr/sbin:\
+/usr/bin:\
+/sbin:\
+/bin"
+    echo $new_path
+    print_exec conda env config vars set ${env_prefix} PATH="$new_path"
+    (exec_with_retries 3 conda run ${env_prefix} echo "===============$PATH") || return 1
+  fi
   print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py build develop "${build_args[@]}"
 
