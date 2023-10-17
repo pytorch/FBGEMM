@@ -91,17 +91,17 @@ __configure_fbgemm_gpu_build_rocm () {
   ver=$(apt show rocm-libs | grep Version | grep -Po '(\d+\.\d+\.\d+)')
   if [ "$ver" == "5.6.0" ]; then
     new_path="$PATH:/opt/rocm/llvm/bin:\
-    /opt/rocm/opencl/bin:\
-    /opt/rocm/hip/bin:\
-    /opt/rocm/hcc/bin:\
-    /opt/rocm/bin:\
-    /opt/conda/bin:\
-    /usr/local/sbin:\
-    /usr/local/bin:\
-    /usr/sbin:\
-    /usr/bin:\
-    /sbin:\
-    /bin"
+/opt/rocm/opencl/bin:\
+/opt/rocm/hip/bin:\
+/opt/rocm/hcc/bin:\
+/opt/rocm/bin:\
+/opt/conda/bin:\
+/usr/local/sbin:\
+/usr/local/bin:\
+/usr/sbin:\
+/usr/bin:\
+/sbin:\
+/bin"
     print_exec conda env config vars set ${env_prefix} PATH="$new_path"
   fi
 
