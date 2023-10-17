@@ -42,22 +42,6 @@ prepare_fbgemm_gpu_build () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
-  ver=$(apt show rocm-libs | grep Version | grep -Po '(\d+\.\d+\.\d+)')
-  if [ "$ver" == "5.6.0" ]; then
-    export PATH="$PATH:/opt/rocm/llvm/bin:\
-/opt/rocm/opencl/bin:\
-/opt/rocm/hip/bin:\
-/opt/rocm/hcc/bin:\
-/opt/rocm/bin:\
-/opt/conda/bin:\
-/usr/local/sbin:\
-/usr/local/bin:\
-/usr/sbin:\
-/usr/bin:\
-/sbin:\
-/bin"
-  echo "==============$PATH"
-  fi
 
   echo "[BUILD] Installing other build dependencies ..."
   # shellcheck disable=SC2086
@@ -119,7 +103,7 @@ __configure_fbgemm_gpu_build_rocm () {
 /sbin:\
 /bin"
     echo $new_path
-    print_exec conda env config vars set ${env_prefix} PATH="$new_path"
+    print_exec conda run ${env_prefix} export PATH="$new_path"
     (exec_with_retries 3 conda run ${env_prefix} echo "===============$PATH") || return 1
   fi
 
