@@ -118,7 +118,10 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
             ncols_aligned = (ncols + 4 - 1) // 4 * 4
             # compare quantized data
             np.testing.assert_allclose(
-                quantized_data_numpy[:, :ncols], reference[:, :ncols]
+                quantized_data_numpy[:, :ncols],
+                reference[:, :ncols],
+                # Allow 1 mantissa bit difference (LSB)
+                atol=1,
             )
             # compare scales
             np.testing.assert_array_almost_equal(
@@ -974,11 +977,17 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
 
 class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
     enable_logging: bool = False
+    max_examples: int = 40
 
     def setUp(self) -> None:
         self.enable_logging = bool(os.getenv("FBGEMM_GPU_ENABLE_LOGGING", 0))
         if self.enable_logging:
             logging.info("Enabled logging for TestFP8RowwiseQuantizationConversion")
+
+        torch._dynamo.config.cache_size_limit = self.max_examples
+        logging.info(
+            f"Setting torch._dynamo.config.cache_size_limit = {self.max_examples}"
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
@@ -999,7 +1008,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
         # if before PT 2.1, we don't support symint_vector, so turn it off
         test_compile=st.booleans() if symint_vector_unsupported() else st.just(False),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=max_examples, deadline=None)
     def test_quantize_and_dequantize_op_fp8_rowwise(
         self,
         batched: bool,
@@ -1036,16 +1045,16 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
             torch._dynamo.mark_dynamic(quantized_data_gpu, 0)
             torch._dynamo.mark_dynamic(quantized_data_gpu, 1)
 
+        output_dtype = {
+            torch.float: SparseType.FP32,
+            torch.half: SparseType.FP16,
+            torch.bfloat16: SparseType.BF16,
+        }[dtype].as_int()
+
         dequantized_data_gpu = quantize_func(
             quantized_data_gpu,
             forward=forward,
-            output_dtype=SparseType.FP32.as_int()
-            if dtype == torch.float
-            else (
-                SparseType.FP16.as_int()
-                if dtype == torch.half
-                else SparseType.BF16.as_int()
-            ),
+            output_dtype=output_dtype,
         )
 
         if m == 0 or n == 0:
@@ -1054,9 +1063,12 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
 
         assert (
             dequantized_data_gpu.dtype == dtype
-        ), "result is {dequantized_data_gpu.dtype} type, but expected {dtype}"
+        ), "Result is {dequantized_data_gpu.dtype} type, but expected {dtype}"
+
         qref = input_data_gpu.float()
         dq = dequantized_data_gpu.float()
+
+        assert not torch.isnan(dq).any(), "Results contain nan"
 
         if self.enable_logging:
             # Logging quantization errors
@@ -1069,6 +1081,97 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
             logging.info(f"max relative error {errors.flatten()[idx]}")
 
         torch.testing.assert_close(qref.cpu(), dq.cpu(), rtol=0.1, atol=0.05)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-fixme[56]:
+    @given(
+        m=st.integers(min_value=1, max_value=1000),
+        n1=st.integers(min_value=1, max_value=1000),
+        n2=st.integers(min_value=1, max_value=1000),
+        n3=st.integers(min_value=1, max_value=1000),
+        row_dim=st.integers(min_value=1, max_value=2048),
+        forward=st.booleans(),
+        given_last_dim=st.booleans(),
+        dtype=st.sampled_from(
+            [
+                torch.float,
+                torch.half,
+                torch.bfloat16,
+            ],
+        ),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=max_examples, deadline=None)
+    def test_quantize_and_dequantize_op_padded_fp8_rowwise(
+        self,
+        m: int,
+        n1: int,
+        n2: int,
+        n3: int,
+        row_dim: int,
+        forward: bool,
+        given_last_dim: bool,
+        dtype: torch.dtype,
+    ) -> None:
+        row_dim = row_dim * 4
+        device = "cuda"
+        input1 = torch.rand(m, n1, device=device, dtype=dtype)
+        input2 = torch.rand(m, n2, device=device, dtype=dtype)
+        input3 = torch.rand(m, n3, device=device, dtype=dtype)
+        output_dtype = {
+            torch.float: SparseType.FP32,
+            torch.half: SparseType.FP16,
+            torch.bfloat16: SparseType.BF16,
+        }[dtype].as_int()
+
+        q1 = torch.ops.fbgemm.FloatToPaddedFP8RowwiseQuantized(
+            input1, forward=forward, row_dim=row_dim
+        )
+        q2 = torch.ops.fbgemm.FloatToPaddedFP8RowwiseQuantized(
+            input2, forward=forward, row_dim=row_dim
+        )
+        q3 = torch.ops.fbgemm.FloatToPaddedFP8RowwiseQuantized(
+            input3, forward=forward, row_dim=row_dim
+        )
+        qcat = torch.cat([q1, q3, q2], dim=-1)
+        if given_last_dim:
+            d_qcat = torch.ops.fbgemm.PaddedFP8RowwiseQuantizedToFloat(
+                qcat,
+                forward=forward,
+                row_dim=row_dim,
+                output_last_dim=n1 + n2 + n3,
+                output_dtype=output_dtype,
+            )
+        else:
+            d_qcat = torch.ops.fbgemm.PaddedFP8RowwiseQuantizedToFloat(
+                qcat,
+                forward=forward,
+                row_dim=row_dim,
+                output_dtype=output_dtype,
+            )
+
+        assert (
+            d_qcat.dtype == dtype
+        ), "Result is {d_qcat.dtype} type, but expected {dtype}"
+        qref = torch.cat([input1, input3, input2], dim=-1).cpu().float()
+        dqcat = d_qcat.cpu().float()
+
+        assert not torch.isnan(dqcat).any(), "Results contain nan"
+
+        if self.enable_logging:
+            # Logging quantization errors
+            errors = (dqcat - qref) / (qref + 1e-5)
+            assert not torch.isnan(errors).any()
+            val, idx = torch.topk(errors.abs(), k=min(10, errors.shape[-1]))
+            logging.info(f"top-10 errors {val}")
+            logging.info(f"qref {torch.gather(qref, dim=1, index=idx)}")
+            logging.info(f"dqcat {torch.gather(dqcat, dim=1, index=idx)}")
+            logging.info(
+                f"relative error: max: {errors.abs().max()*100:.1f}%, "
+                f"median: {errors.abs().median()*100:.1f}%, "
+                f"mean: {errors.abs().mean()*100:.1f}%"
+            )
+
+        torch.testing.assert_allclose(dqcat, qref, rtol=0.1, atol=0.05)
 
 
 if __name__ == "__main__":

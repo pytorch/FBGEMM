@@ -112,7 +112,11 @@ def generate_requests(  # noqa C901
     sigma_L: Optional[int] = None,
     emulate_pruning: bool = False,
     use_cpu: bool = False,
+    deterministic_output: bool = False,  # generate_requests uses numpy.random.default_rng without a set random seed be default, causing the indices tensor to vary with each call to generate_requests - set generate_repeatable_output to use a fixed random seed instead for repeatable outputs
+    length_dist: str = "normal",  # distribution of embedding sequence lengths
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
+    # TODO: refactor and split into helper functions to separate load from file,
+    # generate from distribution, and other future methods of generating data
     if requests_data_file is not None:
         indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
 
@@ -181,7 +185,24 @@ def generate_requests(  # noqa C901
     # Generate L from stats
     if sigma_L is not None:
         use_variable_L = True
-        Ls = np.random.normal(loc=L, scale=sigma_L, size=T * B).astype(int)
+        if length_dist == "uniform":
+            # TODO: either make these separate parameters or make a separate version of
+            # generate_requests to handle the uniform dist case once whole
+            # generate_requests function is refactored to split into helper functions
+            # for each use case.
+            # L represents the lower bound when the uniform distribution is used
+            lower_bound = L
+            # sigma_L represetns the upper bound when the uniform distribution is used
+            upper_bound = sigma_L + 1
+            Ls = np.random.randint(
+                lower_bound,
+                upper_bound,
+                (T, B),
+                dtype=np.int32,
+            )
+        else:  # normal dist
+            Ls = np.random.normal(loc=L, scale=sigma_L, size=T * B).astype(int)
+
         # Make sure that Ls are positive
         Ls[Ls < 0] = 0
         # Use the same L distribution across iters
@@ -240,7 +261,10 @@ def generate_requests(  # noqa C901
             all_indices = torch.ops.fbgemm.bottom_k_per_row(
                 all_indices, torch.tensor([0, L], dtype=torch.long), True
             )
-        rng = default_rng()
+        if deterministic_output:
+            rng = default_rng(12345)
+        else:
+            rng = default_rng()
         permutation = torch.as_tensor(
             rng.choice(E, size=all_indices.max().item() + 1, replace=False)
         )

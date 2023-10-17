@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# @licenselint-loose-mode
 
 import argparse
 import os
@@ -11,6 +12,7 @@ import random
 import re
 import subprocess
 import sys
+import textwrap
 
 from datetime import date
 from typing import List, Optional
@@ -22,47 +24,20 @@ from skbuild import setup
 from tabulate import tabulate
 
 
-def generate_package_version(package_name: str):
-    print("[SETUP.PY] Generating the package version ...")
-
-    if "nightly" in package_name:
-        # Use date stamp for nightly versions
-        print("[SETUP.PY] Package is for NIGHTLY; using timestamp for the versioning")
-        today = date.today()
-        version = f"{today.year}.{today.month}.{today.day}"
-
-    elif "test" in package_name:
-        # Use date stamp for nightly versions
-        print("[SETUP.PY] Package is for TEST: using random number for the versioning")
-        version = (f"0.0.{random.randint(0, 1000)}",)
-
-    else:
-        # Use git tag / branch / commit info to generate a PEP-440-compliant version string
-        print("[SETUP.PY] Package is for RELEASE: using git info for the versioning")
-        print(
-            f"[SETUP.PY] TAG: {gitversion.get_tag()}, BRANCH: {gitversion.get_branch()}, SHA: {gitversion.get_sha()}"
-        )
-        # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
-        # Then remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
-        version = re.sub(".post0$", "", gitversion.version_from_git().split("+")[0])
-
-    print(f"[SETUP.PY] Setting the package version: {version}")
-    return version
-
-
 def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="fbgemm_gpu setup")
     parser.add_argument(
-        "--cpu_only",
-        dest="cpu_only",
-        action="store_true",
-        help="build for cpu-only (no GPU support)",
+        "--package_variant",
+        type=str,
+        choices=["cpu", "cuda", "rocm"],
+        default="cuda",
+        help="The FBGEMM_GPU variant to build.",
     )
     parser.add_argument(
         "--package_name",
         type=str,
         default="fbgemm_gpu",
-        help="the name of this output wheel",
+        help="The candidate name of the output wheel.",
     )
     parser.add_argument(
         "--nvml_lib_path",
@@ -169,7 +144,7 @@ def cmake_environment_variables(args) -> None:
     os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
 
     cmake_args = [f"-DCMAKE_PREFIX_PATH={torch_root}", _get_cxx11_abi()]
-    if args.cpu_only:
+    if args.package_variant == "cpu":
         cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
     if args.nvml_lib_path:
         cmake_args.append(f"-DNVML_LIB_PATH={args.nvml_lib_path}")
@@ -178,6 +153,120 @@ def cmake_environment_variables(args) -> None:
 
 class FbgemmGpuInstaller(PipInstall):
     """FBGEMM_GPU PIP Installer"""
+
+    @classmethod
+    def extract_package_name(cls, args_package_name: str) -> str:
+        package_name: str = ""
+
+        if "BUILD_FROM_NOVA" in os.environ:
+            nova_flag = os.getenv("BUILD_FROM_NOVA")
+            print(f"[SETUP.PY] BUILD_FROM_NOVA={nova_flag}")
+
+            # The package name is the same for all build variants in Nova
+            package_name = "fbgemm_gpu"
+
+            if str(nova_flag) != "0":
+                # Skip build clean and build wheel steps in Nova workflow since
+                # they are done in pre-script
+                print("[SETUP.PY] Build from Nova detected... exiting.")
+                sys.exit(0)
+
+        else:
+            package_name = args_package_name
+
+        print(f"[SETUP.PY] Extracted the package name: '{package_name}'")
+        return package_name
+
+    @classmethod
+    def extract_variant_version(cls, variant: str) -> str:
+        variant_version: str = ""
+
+        if variant == "cpu":
+            variant_version = "+cpu"
+        elif variant == "cuda":
+            set_cuda_environment_variables()
+            if torch.version.cuda is not None:
+                cuda_version = torch.version.cuda.split(".")
+                variant_version = f"+cu{cuda_version[0]}{cuda_version[1]}"
+            else:
+                sys.exit(
+                    "[SETUP.PY] Installed PyTorch variant is not CUDA; cannot determine the CUDA version!"
+                )
+        elif variant == "rocm":
+            if torch.version.hip is not None:
+                rocm_version = torch.version.hip.split(".")
+                variant_version = f"+rocm{rocm_version[0]}.{rocm_version[1]}"
+            else:
+                sys.exit(
+                    "[SETUP.PY] Installed PyTorch variant is not ROCm; cannot determine the ROCm version!"
+                )
+        else:
+            sys.exit(
+                f"[SETUP.PY] Unrecognized build variant variant '{variant}'; cannot proceed with FBGEMM_GPU build!"
+            )
+
+        if "BUILD_FROM_NOVA" not in os.environ:
+            # If not building from Nova, use the fbgemm_gpu-<variant>
+            # PyPI does not accept version+xx in the name convention.
+            print("[SETUP.PY] Not building FBGEMM_GPU from Nova.")
+            variant_version = ""
+
+        print(f"[SETUP.PY] Extracted the package variant+version: '{variant_version}'")
+        return variant_version
+
+    @classmethod
+    def generate_package_version(cls, package_name: str, variant_version: str):
+        print("[SETUP.PY] Generating the package version ...")
+
+        if "nightly" in package_name:
+            # Use date stamp for nightly versions
+            print(
+                "[SETUP.PY] Package is for NIGHTLY; using timestamp for the versioning"
+            )
+            today = date.today()
+            version = f"{today.year}.{today.month}.{today.day}"
+
+        elif "test" in package_name and "BUILD_FROM_NOVA" not in os.environ:
+            # Use random numbering for test versions
+            print(
+                "[SETUP.PY] Package is for TEST: using random number for the versioning"
+            )
+            version = (f"0.0.{random.randint(0, 1000)}",)
+
+        else:
+            # Use git tag / branch / commit info to generate a PEP-440-compliant version string
+            print(
+                "[SETUP.PY] Package is for RELEASE: using git info for the versioning"
+            )
+            print(
+                f"[SETUP.PY] TAG: {gitversion.get_tag()}, BRANCH: {gitversion.get_branch()}, SHA: {gitversion.get_sha()}"
+            )
+            # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
+            # Then remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
+            version = re.sub(".post0$", "", gitversion.version_from_git().split("+")[0])
+        version = str(version) + variant_version
+        print(f"[SETUP.PY] Setting the full package version string: {version}")
+        return version
+
+    @classmethod
+    def generate_version_file(cls, package_version: str) -> None:
+        with open("fbgemm_gpu/_fbgemm_gpu_version.py", "w") as file:
+            print(
+                f"[SETUP.PY] Generating version file at: {os.path.realpath(file.name)}"
+            )
+            text = textwrap.dedent(
+                f"""
+                #!/usr/bin/env python3
+                # Copyright (c) Meta Platforms, Inc. and affiliates.
+                # All rights reserved.
+                #
+                # This source code is licensed under the BSD-style license found in the
+                # LICENSE file in the root directory of this source tree.
+
+                __version__: str = "{package_version}"
+                """
+            )
+            file.write(text)
 
     @classmethod
     def description(cls) -> str:
@@ -240,19 +329,30 @@ class FbgemmGpuInstaller(PipInstall):
 def main(argv: List[str]) -> None:
     # Handle command line args before passing to main setup() method.
     args, unknown = parse_args(argv)
-    print("Parsed Arguments: ", args)
+    print(f"[SETUP.PY] Parsed Arguments: {args}")
     if len(unknown) != 0 and (len(unknown) != 1 or unknown[0] != "clean"):
-        print("Unknown Arguments: ", unknown)
-
-    if not args.cpu_only:
-        set_cuda_environment_variables()
+        print(f"[SETUP.PY] Unknown Arguments: {unknown}")
 
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
 
+    # Extract the package name
+    package_name = FbgemmGpuInstaller.extract_package_name(args.package_name)
+
+    # Extract the variant version, e.g. cpu, cu121, rocm5.6
+    variant_version = FbgemmGpuInstaller.extract_variant_version(args.package_variant)
+
+    # Generate the full package version string
+    package_version = FbgemmGpuInstaller.generate_package_version(
+        args.package_name, variant_version
+    )
+
+    # Generate the version file
+    FbgemmGpuInstaller.generate_version_file(package_version)
+
     setup(
-        name=args.package_name,
-        version=generate_package_version(args.package_name),
+        name=package_name,
+        version=package_version,
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
         long_description=FbgemmGpuInstaller.description(),
@@ -267,6 +367,12 @@ def main(argv: List[str]) -> None:
             "CUDA",
         ],
         packages=["fbgemm_gpu"],
+        install_requires=[
+            # Only specify numpy, as specifying torch will auto-install the
+            # release version of torch, which is not what we want for the
+            # nightly and test packages
+            "numpy",
+        ],
         cmake_args=cmake_environment_variables(args),
         cmdclass={
             "install": FbgemmGpuInstaller,

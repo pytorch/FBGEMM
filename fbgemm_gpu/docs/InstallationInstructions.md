@@ -14,20 +14,20 @@ The shortened summary of the installation steps:
 
 ```sh
 # CUDA Nightly
-pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/cu117/
-pip install fbgemm-gpu-nightly
+pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121/
+pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cu121/
 
 # CUDA Release
-pip install --pre torch --extra-index-url https://download.pytorch.org/whl/test/cu117/
-pip install fbgemm-gpu
+pip install torch --index-url https://download.pytorch.org/whl/cu121/
+pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cu121/
 
 # CPU-only Nightly
-pip install --pre torch --extra-index-url https://download.pytorch.org/whl/nightly/cpu/
-pip install fbgemm-gpu-nightly-cpu
+pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu/
+pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cpu/
 
 # CPU-only Release
-pip install --pre torch --extra-index-url https://download.pytorch.org/whl/test/cpu/
-pip install fbgemm-gpu-cpu
+pip install torch --index-url https://download.pytorch.org/whl/cpu/
+pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cpu/
 
 # Test the installation
 python -c "import torch; import fbgemm_gpu"

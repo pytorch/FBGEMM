@@ -6,7 +6,7 @@
 name: FBGEMM_GPU-CPU Release Build
 
 on:
-  # PR Trigger (enabled only for debugging)
+  # PR Trigger (enabled for regression checks and debugging)
   #
   pull_request:
     branches:
@@ -21,6 +21,18 @@ on:
   # Manual Trigger
   #
   workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: Publish Artifact to PyPI
+        type: boolean
+        required: false
+        default: false
+      pytorch_channel:
+        description: PyTorch Package Channel
+        type: choice
+        required: false
+        options: [ "test", "release" ]
+        default: "test"
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -79,7 +91,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch-CPU Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cpu
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
@@ -143,7 +155,7 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cpu
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
@@ -152,14 +164,14 @@ jobs:
       run: |
         . $PRELUDE
         pwd; ls -la .
-        install_fbgemm_gpu_package $BUILD_ENV *.whl
+        install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 10
+      timeout-minutes: 15
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpu
 
     - name: Push FBGEMM_GPU (CPU version) Binary to PYPI
-      if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' }}
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_cpu-*.whl "$PYPI_TOKEN"

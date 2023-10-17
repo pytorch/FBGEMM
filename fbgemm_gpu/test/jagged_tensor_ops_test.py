@@ -27,7 +27,6 @@ try:
         gpu_available,
         gpu_unavailable,
         on_arm_platform,
-        running_on_github,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
@@ -38,7 +37,6 @@ except Exception:
         gpu_available,
         gpu_unavailable,
         on_arm_platform,
-        running_on_github,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
@@ -647,7 +645,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 cur_offset = i
                 is_zero = False
                 for d in range(len(max_lengths)):
+                    # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
                     begin = offsets[d][cur_offset].item()
+                    # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
                     end = offsets[d][cur_offset + 1].item()
                     # pyre-fixme[6]: For 1st param expected `int` but got
                     #  `Union[bool, float, int]`.
@@ -656,7 +656,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
                         break
                     cur_offset = begin + jagged_coord[d]
                 dense[(i,) + jagged_coord] = (
-                    padding_value if is_zero else values[cur_offset]
+                    padding_value
+                    if is_zero
+                    # pyre-fixme[6]: For 1st argument expected `Union[None, _NestedSe...
+                    else values[cur_offset]
                 )
         return dense.squeeze(-1) if values.ndim == 1 else dense
 
@@ -1805,7 +1808,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         new_embeddings = torch.index_select(values, 0, all_indices)
         return new_embeddings
 
-    @unittest.skipIf(*running_on_github)
     @given(
         max_seq_length=st.integers(5, 10),
         batch_size=st.integers(1, 128),
@@ -1825,8 +1827,9 @@ class JaggedTensorOpsTest(unittest.TestCase):
         else st.just(False)
         if (gpu_available and TEST_WITH_ROCM)
         else st.just(True),
+        check_non_contiguous=st.booleans(),
     )
-    @settings(max_examples=20, deadline=None)
+    @settings(max_examples=20, deadline=None, verbosity=Verbosity.verbose)
     def test_jagged_index_select_2d(
         self,
         max_seq_length: int,
@@ -1836,6 +1839,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
         use_cpu: bool,
+        check_non_contiguous: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
@@ -1871,6 +1875,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
             )
         values_ref = values.detach().clone()
 
+        if check_non_contiguous:
+            values = values.as_strided(values.shape, (1, values.shape[0]))
+            values_ref = values_ref.as_strided(values.shape, (1, values.shape[0]))
+
         # Only float tensors can require grad
         if is_float:
             values.requires_grad = True
@@ -1889,6 +1897,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
         grad = torch.rand_like(output)
         grad_ref = grad.detach().clone()
 
+        if check_non_contiguous:
+            grad = grad.as_strided(grad.shape, (1, grad.shape[0]))
+            grad_ref = grad_ref.as_strided(grad.shape, (1, grad.shape[0]))
+
         output.backward(grad)
         output_ref.backward(grad_ref)
 
@@ -1899,7 +1911,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
             atol=1e-2 if jagged_tensor_dtype in [torch.half, torch.bfloat16] else None,
         )
 
-    @unittest.skipIf(*running_on_github)
     @given(
         max_seq_length=st.integers(5, 10),
         batch_size=st.integers(1, 128),
@@ -2107,6 +2118,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             ]  # Disable torch.bfloat16 due to large error bound
         ),
         has_weights=st.booleans(),
+        check_non_contiguous=st.booleans(),
     )
     @settings(max_examples=20, deadline=None)
     def test_keyed_jagged_index_select_dim1(
@@ -2118,6 +2130,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         index_dtype: torch.dtype,
         jagged_tensor_dtype: torch.dtype,
         has_weights: bool,
+        check_non_contiguous: bool,
     ) -> None:
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
@@ -2137,20 +2150,31 @@ class JaggedTensorOpsTest(unittest.TestCase):
             dtype=index_dtype,
             device="cuda",
         )
+
+        # If check_non_contiguous=True, create a tensor that is twice as big
+        # and then select only odd indices to make it non contiguous
+        values_numel = int(offsets[-1].item())
+        values_numel = values_numel * 2 if check_non_contiguous else values_numel
+
         if is_float:
             values = torch.rand(
-                int(offsets[-1].item()),
+                values_numel,
                 dtype=jagged_tensor_dtype,
                 device="cuda",
             )
         else:
             values = torch.randint(
                 2**16,
-                (int(offsets[-1].item()),),
+                (values_numel,),
                 dtype=jagged_tensor_dtype,
                 device="cuda",
             )
         values_ref = values.detach().clone()
+
+        if check_non_contiguous:
+            values = values[1::2]
+            values_ref = values_ref[1::2]
+
         if has_weights:
             weights = torch.rand(
                 int(offsets[-1].item()),
@@ -2204,8 +2228,17 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if not is_float:
             return
 
-        grad = torch.rand_like(output)
+        # If check_non_contiguous=True, create a tensor that is twice as big
+        # and then select only odd indices to make it non contiguous
+        grad_numel = output.numel()
+        grad_numel = grad_numel * 2 if check_non_contiguous else grad_numel
+
+        grad = torch.rand(grad_numel, dtype=output.dtype, device=output.device)
         grad_ref = grad.detach().clone()
+
+        if check_non_contiguous:
+            grad = grad[1::2]
+            grad_ref = grad_ref[1::2]
 
         output.backward(grad)
         output_ref.backward(grad_ref)
@@ -2749,6 +2782,48 @@ class JaggedTensorOpsTest(unittest.TestCase):
         for i in range(len(reverse_index_list)):
             pos = reverse_index_list[i]
             self.assertTrue(unique_indices_list[pos] == indices_list[i])
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        B=st.integers(min_value=100, max_value=200),
+        F=st.integers(min_value=50, max_value=100),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    def test_jagged_unique_indices_empty(
+        self,
+        B: int,  # Batch size
+        F: int,  # The number of features
+    ) -> None:
+        hash_size_cumsum_list = [0] + list(itertools.accumulate([10] * F))
+        hash_size_offsets_list = [0] + list(itertools.accumulate([1] * F))
+        offsets_list = [0] * (B * F + 1)
+        indices_list = []
+
+        device = torch.device("cuda")
+        dtype = torch.int64
+        hash_size_cumsum = torch.as_tensor(
+            hash_size_cumsum_list, device=device, dtype=dtype
+        )
+        hash_size_offsets = torch.as_tensor(
+            hash_size_offsets_list, device=device, dtype=dtype
+        )
+        offsets = torch.as_tensor(offsets_list, device=device, dtype=dtype)
+        indices = torch.as_tensor(indices_list, device=device, dtype=dtype)
+
+        (
+            output_lengths,
+            output_offsets,
+            unique_indices,
+            reverse_index,
+        ) = torch.ops.fbgemm.jagged_unique_indices(
+            hash_size_cumsum, hash_size_offsets, offsets, indices
+        )
+
+        # The output should be empty since there are no input indices
+        self.assertEqual(unique_indices.numel(), 0)
+        self.assertEqual(reverse_index.numel(), 0)
+        self.assertEqual(torch.sum(output_lengths).item(), 0)
+        self.assertEqual(torch.sum(output_offsets).item(), 0)
 
 
 if __name__ == "__main__":

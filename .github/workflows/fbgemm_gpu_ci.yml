@@ -47,7 +47,7 @@ jobs:
         ]
         container-image: [ "ubuntu:20.04" ]
         python-version: [ "3.8", "3.9", "3.10" ]
-        rocm-version: [ "5.5.1", "5.6" ]
+        rocm-version: [ "5.6", "5.7" ]
 
     steps:
     - name: Setup Build Container
@@ -88,11 +88,11 @@ jobs:
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
-    - name: Build FBGEMM_GPU-ROCM Nightly
+    - name: Build FBGEMM_GPU-ROCm Nightly
       run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_develop $BUILD_ENV rocm gfx90a
 
-    - name: Test FBGEMM_GPU-ROCM Nightly Installation
-      timeout-minutes: 10
+    - name: Test FBGEMM_GPU-ROCm Nightly Installation
+      timeout-minutes: 15
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm
 
     - name: save container
@@ -119,7 +119,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test against Python 3.10
         python-version: [ "3.10" ]
-        rocm-version: [ "5.5.1", "5.6" ]
+        rocm-version: [ "5.6", "5.7" ]
 
     steps:
     - name: Setup Build Container
@@ -157,10 +157,10 @@ jobs:
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
-    - name: Build FBGEMM_GPU-ROCM Nightly
+    - name: Build FBGEMM_GPU-ROCm Nightly
       run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_develop $BUILD_ENV rocm
 
-    - name: Test FBGEMM_GPU-ROCM Nightly Installation
+    - name: Test FBGEMM_GPU-ROCm Nightly Installation
       timeout-minutes: 15
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm
 

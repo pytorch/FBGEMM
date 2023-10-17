@@ -1,0 +1,213 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+name: FBGEMM_GPU PIP Install + Test
+
+on:
+  # Cron Trigger (UTC)
+  #
+  # Based on the the nightly releases schedule in PyTorch infrastructure, the
+  # wheels are published to PyTorch PIP at around 11:30 UTC every day.  After
+  # publication, it can take up to 30 minutes for the wheels to be published, as
+  # the re-indexing job is scheduled to run every 30 minutes.  As such, we set
+  # the PIP install + test workflow to be kicked off 4 hours after the publish
+  # job is kicked off to give ample time for the nightly wheel to be available
+  # in PyTorch PIP.
+  #
+  schedule:
+    - cron: '30 15 * * *'
+
+  # Manual Trigger
+  #
+  workflow_dispatch:
+    inputs:
+      pytorch_version:
+        description: PyTorch Version (e.g. '2.1.0', 'nightly', 'test')
+        type: string
+        required: true
+      fbgemm_gpu_version:
+        description: FBGEMM-GPU Version (e.g. '0.5.0rc1', 'nightly', 'test')
+        type: string
+        required: true
+      fbgemm_gpu_variant_type:
+        description: FBGEMM-GPU Variant
+        type: choice
+        required: true
+        options: [ "cpu", "cuda", "rocm" ]
+        default: "cpu"
+
+
+jobs:
+  test_pypi_install_cpu:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cpu') }}
+    runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: amazonlinux:2023
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: test_install
+    strategy:
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { instance: "linux.4xlarge" },
+          { instance: "linux.arm64.2xlarge" },
+        ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
+
+    steps:
+    - name: Setup Build Container
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info; print_ec2_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install PyTorch-CPU
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_version || 'nightly' }} cpu
+
+    - name: Install FBGEMM_GPU-CPU
+      run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_version || 'nightly' }} cpu
+
+    - name: Test with PyTest
+      timeout-minutes: 10
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpu
+
+
+  test_pypi_install_cuda:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cuda') }}
+    runs-on: ${{ matrix.host-machine.instance }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: test_install
+      ENFORCE_NVIDIA_GPU: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { instance: "linux.g5.4xlarge.nvidia.gpu" },
+        ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
+        cuda-version: [ "11.8.0", "12.1.1" ]
+        # Specify exactly ONE CUDA version for artifact publish
+        cuda-version-publish: [ "11.8.0" ]
+
+    steps:
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+
+    - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
+      uses: pytorch/test-infra/.github/actions/setup-nvidia@main
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info; print_ec2_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install CUDA
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+
+    - name: Install PyTorch-CUDA
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_version || 'nightly' }} cuda ${{ matrix.cuda-version }}
+
+    - name: Install FBGEMM_GPU-CUDA
+      run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_version || 'nightly' }} cuda ${{ matrix.cuda-version }}
+
+    - name: Test with PyTest
+      timeout-minutes: 15
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV
+
+
+  test_pypi_install_rocm:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'rocm') }}
+    runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
+      options: --user root --device=/dev/kfd --device=/dev/dri --ipc=host --shm-size 16G --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: test_install
+      ENFORCE_AMD_GPU: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { instance: "rocm" },
+        ]
+        # ROCm machines are limited, so we only test against Python 3.10
+        python-version: [ "3.10" ]
+        rocm-version: [ "5.6", "5.7" ]
+
+    steps:
+    - name: Setup Build Container
+      run: |
+        apt update -y
+        apt install -y git wget
+        git config --global --add safe.directory '*'
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Free Disk Space
+      run: . $PRELUDE; free_disk_space
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install PyTorch-ROCm
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_version || 'nightly' }} rocm ${{ matrix.rocm-version }}
+
+    - name: Install FBGEMM_GPU-ROCm
+      run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_version || 'nightly' }} rocm ${{ matrix.rocm-version }}
+
+    - name: Test FBGEMM_GPU-ROCm
+      timeout-minutes: 15
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm

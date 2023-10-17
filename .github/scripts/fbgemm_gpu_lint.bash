@@ -24,13 +24,19 @@ install_lint_tools () {
     echo "################################################################################"
     echo "# Install Lint Tools"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
 
+  test_network_connection || return 1
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   echo "[INSTALL] Installing lint tools ..."
-  (exec_with_retries conda install -n "${env_name}" -c conda-forge -y \
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     click \
     flake8 \
     ufmt) || return 1
@@ -42,7 +48,7 @@ install_lint_tools () {
   # Check Python packages are importable
   local import_tests=( click )
   for p in "${import_tests[@]}"; do
-    (test_python_import "${env_name}" "${p}") || return 1
+    (test_python_import_package "${env_name}" "${p}") || return 1
   done
 
   echo "[INSTALL] Successfully installed all the lint tools"
@@ -63,17 +69,21 @@ lint_fbgemm_gpu_flake8 () {
     echo "################################################################################"
     echo "# Run FBGEMM_GPU Lint: flake8"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
 
   echo "::add-matcher::fbgemm_gpu/test/lint/flake8_problem_matcher.json"
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # E501 = line too long
   # W503 = line break before binary operator (deprecated)
   # E203 = whitespace before ":"
-  (print_exec conda run -n "${env_name}" flake8 --ignore=E501,W503,E203 .) || return 1
+  # shellcheck disable=SC2086
+  (print_exec conda run ${env_prefix} flake8 --ignore=E501,W503,E203 .) || return 1
 
   echo "[TEST] Finished running flake8 lint checks"
 }
@@ -89,7 +99,7 @@ lint_fbgemm_gpu_ufmt () {
     echo "################################################################################"
     echo "# Run FBGEMM_GPU Lint: ufmt"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -100,8 +110,12 @@ lint_fbgemm_gpu_ufmt () {
     fbgemm_gpu/bench
   )
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   for p in "${lint_paths[@]}"; do
-    (print_exec conda run -n "${env_name}" ufmt diff "${p}") || return 1
+    # shellcheck disable=SC2086
+    (print_exec conda run ${env_prefix} ufmt diff "${p}") || return 1
   done
 
   echo "[TEST] Finished running ufmt lint checks"
@@ -118,7 +132,7 @@ lint_fbgemm_gpu_copyright () {
     echo "################################################################################"
     echo "# Run FBGEMM_GPU Lint: Meta Copyright Headers"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
@@ -129,8 +143,12 @@ lint_fbgemm_gpu_copyright () {
     fbgemm_gpu/bench
   )
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   for p in "${lint_paths[@]}"; do
-    (print_exec conda run -n "${env_name}" python fbgemm_gpu/test/lint/check_meta_header.py --path="${p}" --fixit=False) || return 1
+    # shellcheck disable=SC2086
+    (print_exec conda run ${env_prefix} python fbgemm_gpu/test/lint/check_meta_header.py --path="${p}" --fixit=False) || return 1
   done
 
   echo "[TEST] Finished running Meta Copyright Header checks"

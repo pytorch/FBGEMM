@@ -10,6 +10,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
+#include <ATen/cuda/PeerToPeerAccess.h>
 #include <ATen/native/TensorAdvancedIndexing.h>
 #include <c10/core/Device.h>
 #include <c10/core/TensorOptions.h>
@@ -17,6 +18,7 @@
 #include <c10/util/irange.h>
 #include <torch/library.h>
 #include <algorithm>
+#include <tuple>
 
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -148,7 +150,12 @@ void all_to_one(
   });
 
   auto target_device_index = target_device.index();
-  TORCH_CHECK(target_device_index < num_gpus && target_device_index >= 0);
+  TORCH_CHECK(
+      target_device_index != -1,
+      "target_device.index() is -1. Please pass target_device with device "
+      "index, e.g., torch.device(\"cuda:0\")")
+
+  TORCH_CHECK(target_device_index < num_gpus);
 
   std::vector<TwoHopTransferContainer> two_hop_transfers;
   two_hop_transfers.reserve(input_tensors.size());
@@ -509,16 +516,16 @@ Tensor sum_reduce_to_one(
   return output_tensor;
 }
 
-Tensor cat_dim_2d(
+std::tuple<std::array<int64_t, 2>, std::vector<int64_t>, int64_t>
+cat_dim_2d_output_shape(
     std::vector<Tensor>& tensors,
     int64_t uncat_dim_size,
-    at::Device output_device,
-    int64_t cat_dim = 1) {
+    int64_t cat_dim) {
+  TORCH_CHECK(!tensors.empty());
+
   // only support 2d tensor concatenation.
   TORCH_CHECK(cat_dim >= 0 && cat_dim <= 1);
-  if (tensors.size() == 0) {
-    return at::empty({0}, at::TensorOptions().device(output_device));
-  }
+
   int64_t total_cat_dim = 0;
   std::vector<int64_t> cumulative_dims;
   cumulative_dims.push_back(0);
@@ -530,14 +537,30 @@ Tensor cat_dim_2d(
     cumulative_dims.push_back(total_cat_dim);
   }
 
-  auto* prop = at::cuda::getCurrentDeviceProperties();
   // default shape for concatenating on dim 1
-  std::vector<int64_t> output_shape;
+  std::array<int64_t, 2> output_shape;
   if (cat_dim == 0) {
     output_shape = {total_cat_dim, uncat_dim_size};
   } else {
     output_shape = {uncat_dim_size, total_cat_dim};
   }
+
+  return std::make_tuple(output_shape, cumulative_dims, total_cat_dim);
+}
+
+Tensor cat_dim_2d(
+    std::vector<Tensor>& tensors,
+    int64_t uncat_dim_size,
+    at::Device output_device,
+    int64_t cat_dim = 1) {
+  if (tensors.size() == 0) {
+    return at::empty({0}, at::TensorOptions().device(output_device));
+  }
+  // only support 2d tensor concatenation.
+  auto [output_shape, cumulative_dims, total_cat_dim] =
+      cat_dim_2d_output_shape(tensors, uncat_dim_size, cat_dim);
+
+  auto* prop = at::cuda::getCurrentDeviceProperties();
   auto output =
       at::empty(output_shape, tensors.front().options().device(output_device));
   TORCH_CHECK(
@@ -562,15 +585,7 @@ void init_p2p_access() {
     for (const auto i : c10::irange(at::cuda::getNumGPUs())) {
       for (const auto j : c10::irange(at::cuda::getNumGPUs())) {
         if (i != j) {
-          at::cuda::CUDAGuard g(i);
-          const auto err =
-              C10_CUDA_ERROR_HANDLED(cudaDeviceEnablePeerAccess(j, 0));
-          if (err == cudaErrorPeerAccessAlreadyEnabled) {
-            // ignore and clear the error if access was already enabled
-            C10_CUDA_CLEAR_ERROR();
-          } else {
-            AT_CUDA_CHECK(err);
-          }
+          AT_ASSERT(at::cuda::get_p2p_access(i, j));
         }
       }
     }
@@ -625,8 +640,22 @@ Tensor sum_reduce_to_one_device(
   init_p2p_access();
 
   return sum_reduce_to_one(input_tensors, target_device);
-};
+}
 
+Tensor merge_pooled_embeddings_meta(
+    std::vector<Tensor> pooled_embeddings,
+    int64_t uncat_dim_size,
+    at::Device /*target_device*/,
+    int64_t cat_dim) {
+  if (pooled_embeddings.size() == 0) {
+    return at::empty({0}, at::TensorOptions().device("meta"));
+  }
+
+  auto [output_shape, cumulative_dims, total_cat_dim] =
+      cat_dim_2d_output_shape(pooled_embeddings, uncat_dim_size, cat_dim);
+
+  return at::empty(output_shape, pooled_embeddings.front().options());
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -640,4 +669,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "sum_reduce_to_one(Tensor[] input_tensors, Device target_device) -> Tensor");
   DISPATCH_TO_CUDA("sum_reduce_to_one", fbgemm_gpu::sum_reduce_to_one_device);
+  DISPATCH_TO_META(
+      "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings_meta);
 }

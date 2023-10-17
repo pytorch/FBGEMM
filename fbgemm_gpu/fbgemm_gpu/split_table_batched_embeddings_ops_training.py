@@ -54,6 +54,7 @@ class DoesNotHavePrefix(Exception):
 class ComputeDevice(enum.IntEnum):
     CPU = 0
     CUDA = 1
+    MTIA = 2
 
 
 class WeightDecayMode(enum.IntEnum):
@@ -349,6 +350,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.embedding_specs = embedding_specs
         (rows, dims, locations, compute_devices) = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
+        # pyre-fixme[8]: Attribute has type `List[int]`; used as
+        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
         self.dims: List[int] = dims
         assert T_ > 0
         # mixed D is not supported by no bag kernels
@@ -366,7 +369,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert all(
             cd == compute_devices[0] for cd in compute_devices
         ), "Heterogenous compute_devices are NOT supported!"
-        self.use_cpu: bool = all(cd == ComputeDevice.CPU for cd in compute_devices)
+        # Split TBE has different function schemas for CUDA and CPU.
+        # For MTIA device type, it uses the CPU one.
+        self.use_cpu: bool = (
+            compute_devices[0] == ComputeDevice.CPU
+            or compute_devices[0] == ComputeDevice.MTIA
+        )
+
         assert not self.use_cpu or all(
             loc == EmbeddingLocation.HOST for loc in locations
         ), "ComputeDevice.CPU is only for EmbeddingLocation.HOST!"
@@ -692,6 +701,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     persistent=False,
                 )
 
+        # pyre-fixme[6]: For 1st argument expected `List[int]` but got
+        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
+        # pyre-fixme[6]: For 2nd argument expected `List[EmbeddingLocation]` but got
+        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
         # Add table-wise cache miss counter
@@ -998,7 +1011,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             placements=self.momentum2_placements,
         )
         # Ensure iter is always on CPU so the increment doesn't synchronize.
-        if self.iter.is_cuda:
+        if not self.iter.is_cpu:
             self.iter = self.iter.cpu()
         self.iter[0] += 1
 

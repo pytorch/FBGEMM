@@ -62,6 +62,7 @@ if open_source:
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
+        fill_random_scale_bias,
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
@@ -70,6 +71,7 @@ else:
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
+        fill_random_scale_bias,
     )
 
 
@@ -815,6 +817,7 @@ def nbit_cpu(  # noqa C901
         fp8_exponent_bias=fp8_exponent_bias,
     ).cpu()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -987,6 +990,7 @@ def nbit_device(  # noqa C901
         fp8_exponent_bias=fp8_exponent_bias,
     ).cuda()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -1267,6 +1271,7 @@ def nbit_device_with_spec(  # noqa C901
     else:
         emb = emb.cuda()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -1727,6 +1732,7 @@ def nbit_uvm(
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 @click.option("--record-cache", is_flag=True, default=False)
+@click.option("--uvm-host-mapped", is_flag=True, default=False)
 @click.option(
     "--dump-requests", type=int, default=0, help="number of reqs to dump (0=no dump)"
 )
@@ -1753,6 +1759,7 @@ def nbit_uvm_compare_direct_mapped(
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
     record_cache: bool,
+    uvm_host_mapped: bool,
     dump_requests: int,
 ) -> None:
     logging.info(json.dumps({k: str(v) for k, v in locals().items()}, indent=2))
@@ -1837,18 +1844,22 @@ def nbit_uvm_compare_direct_mapped(
             enforce_hbm=enforce_hbm,
             fp8_exponent_bits=fp8_exponent_bits,
             fp8_exponent_bias=fp8_exponent_bias,
-            record_cache_metrics=RecordCacheMetrics(record_cache, record_cache),
+            gather_uvm_cache_stats=record_cache,
+            uvm_host_mapped=uvm_host_mapped,
         ).cuda()
         emb.fill_random_weights()
+        fill_random_scale_bias(emb, T, weights_precision)
 
-        # label nvtx only when cache counter is off
-        nvtx_range = "" if record_cache else f"UVM-{name.upper()}"
-        callback_after_warmup = emb.reset_cache_miss_counter if record_cache else None
-        requests = requests_uvm[:1] if record_cache else requests_uvm
+        nvtx_range = (
+            f"UVM-RECORD-CACHE-{name.upper()}"
+            if record_cache
+            else f"UVM-{name.upper()}"
+        )
+        callback_after_warmup = emb.reset_uvm_cache_stats if record_cache else None
 
         torch.cuda.cudart().cudaProfilerStart()
         time_per_iter = benchmark_requests(
-            requests,
+            requests_uvm,
             lambda indices, offsets, per_sample_weights: emb.forward(
                 indices.int(),
                 offsets.int(),
@@ -1881,12 +1892,14 @@ def nbit_uvm_compare_direct_mapped(
             )
 
         if record_cache:
-            cmc = emb.cache_miss_counter.detach().cpu().numpy().tolist()
+            ucs = emb.uvm_cache_stats.detach().cpu().numpy().tolist()
             cache_stats = {
-                "miss_forward_count": cmc[0],
-                "unique_miss": cmc[1],
-                "unique_req": cmc[2],
-                "nondedup_req": cmc[3],
+                "num_calls": ucs[0],
+                "num_requested_indices": ucs[1],
+                "num_unique_indices": ucs[2],
+                "num_unique_misses": ucs[3],
+                "num_conflict_unique_misses": ucs[4],
+                "num_conflict_misses": ucs[5],
             }
             stats[name]["cache_stats"] = cache_stats
             logging.info(f"[{name:>8s}] cache stats {cache_stats}")
@@ -1932,6 +1945,7 @@ def nbit_uvm_compare_direct_mapped(
 @click.option("--batch-size", default=512)
 @click.option("--cache-algorithm", default="lru")
 @click.option("--cache-load-factor", default=0.2)
+@click.option("--cache-assoc", default=32)
 @click.option("--embedding-dim", default=128)
 @click.option("--weights-precision", type=SparseType, default=SparseType.INT4)
 @click.option("--iters", default=100)
@@ -1954,6 +1968,7 @@ def nbit_cache(  # noqa C901
     batch_size: int,
     cache_algorithm: str,
     cache_load_factor: float,
+    cache_assoc: int,
     embedding_dim: int,
     weights_precision: SparseType,
     iters: int,
@@ -2003,8 +2018,10 @@ def nbit_cache(  # noqa C901
         enforce_hbm=enforce_hbm,
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
+        cache_assoc=cache_assoc,
     ).cuda()
     emb_nc.fill_random_weights()
+    fill_random_scale_bias(emb_nc, T, weights_precision)
 
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [
@@ -2027,8 +2044,10 @@ def nbit_cache(  # noqa C901
         enforce_hbm=enforce_hbm,
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
+        cache_assoc=cache_assoc,
     ).cuda()
     emb.fill_random_weights()
+    fill_random_scale_bias(emb, T, weights_precision)
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -2787,7 +2806,7 @@ def device_with_spec(  # noqa C901
         )
     else:
         read_write_bytes = (
-            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
+            output_size_multiplier * B * sum_DLs + param_size_multiplier * B * sum_DLs
         )
 
     if use_variable_bag_sizes:
@@ -2832,6 +2851,7 @@ def device_with_spec(  # noqa C901
     else:
         # Obtain B * L from indices len
         # pyre-ignore[19]
+        # pyre-fixme[61]: `D` is undefined, or not always defined.
         grad_output = torch.randn(requests[0][0].numel(), D).to(get_device())
     # backward
     time_per_iter = benchmark_requests(

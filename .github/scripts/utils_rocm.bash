@@ -28,10 +28,12 @@ install_rocm_ubuntu () {
     echo "################################################################################"
     echo "# Install ROCm (Ubuntu)"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Based on instructions found in https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.4.3/page/How_to_Install_ROCm.html
 
@@ -61,7 +63,7 @@ install_rocm_ubuntu () {
 
   # Skip installation of kernel driver when run in Docker mode with --no-dkms
   echo "[INSTALL] Installing ROCm ..."
-  (exec_with_retries amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
+  (exec_with_retries 3 amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
 
   echo "[INSTALL] Installing HIP-relevant packages ..."
   install_system_packages hipify-clang miopen-hip miopen-hip-dev

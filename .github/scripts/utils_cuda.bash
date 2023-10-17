@@ -25,10 +25,12 @@ install_cuda () {
     echo "################################################################################"
     echo "# Install CUDA"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Check CUDA version formatting
   # shellcheck disable=SC2206
@@ -41,9 +43,13 @@ install_cuda () {
   # Clean up packages before installation
   conda_cleanup
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
-  (exec_with_retries conda install --force-reinstall -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
 
   # Ensure that nvcc is properly installed
   (test_binpath "${env_name}" nvcc) || return 1
@@ -56,18 +62,21 @@ install_cuda () {
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
 
   echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
-  # shellcheck disable=SC2155
-  local conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2155
   local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
-  print_exec conda env config vars set -n "${env_name}" NVML_LIB_PATH="${nvml_lib_path}"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
 
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."
-  print_exec conda run -n "${env_name}" nvcc --compiler-options -dM -E -x cu - < /dev/null
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} nvcc --compiler-options -dM -E -x cu - < /dev/null
 
   # Print nvcc version
-  print_exec conda run -n "${env_name}" nvcc --version
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} nvcc --version
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
 }
 
@@ -84,14 +93,16 @@ install_cudnn () {
     echo "################################################################################"
     echo "# Install cuDNN"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
 
+  test_network_connection || return 1
+
   # Install cuDNN manually
   # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
-  local cudnn_packages=(
+  declare -A cudnn_packages=(
     ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-${PLATFORM_NAME_LC}-8.5.0.96_cuda11-archive.tar.xz"
@@ -106,11 +117,11 @@ install_cudnn () {
   local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
 
   # Get the URL
-  local cudnn_url="${cudnn_packages[cuda_concat_version]}"
+  local cudnn_url="${cudnn_packages[$cuda_concat_version]}"
   if [ "$cudnn_url" == "" ]; then
-    # Default to cuDNN for 11.7 if no CUDA version fits
-    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.7"
-    cudnn_url="${cudnn_packages[117]}"
+    # Default to cuDNN for 11.8 if no CUDA version fits
+    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.8"
+    cudnn_url="${cudnn_packages[118]}"
   fi
 
   # Clear the install path
@@ -124,7 +135,7 @@ install_cudnn () {
 
   # Download cuDNN
   echo "[INSTALL] Downloading cuDNN to ${tmp_dir} ..."
-  (exec_with_retries wget -q "$cudnn_url" -O cudnn.tar.xz) || return 1
+  (exec_with_retries 3 wget -q "$cudnn_url" -O cudnn.tar.xz) || return 1
 
   # Unpack the tarball
   echo "[INSTALL] Unpacking cuDNN ..."
@@ -141,9 +152,13 @@ install_cudnn () {
   cd - || return 1
   rm -rf "$tmp_dir"
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Export the environment variables to the Conda environment
   echo "[INSTALL] Set environment variables CUDNN_INCLUDE_DIR and CUDNN_LIBRARY ..."
-  print_exec conda env config vars set -n "${env_name}" CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CUDNN_INCLUDE_DIR="${install_path}/include" CUDNN_LIBRARY="${install_path}/lib"
 
   echo "[INSTALL] Successfully installed cuDNN (for CUDA ${cuda_version})"
 }

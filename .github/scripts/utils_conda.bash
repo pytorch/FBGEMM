@@ -30,17 +30,19 @@ setup_miniconda () {
     echo "################################################################################"
     echo "# Setup Miniconda"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   # Download and install Miniconda if doesn't exist
   if [ ! -f "${miniconda_prefix}/bin/conda" ]; then
     print_exec mkdir -p "$miniconda_prefix"
 
     echo "[SETUP] Downloading the Miniconda installer ..."
-    (exec_with_retries wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh) || return 1
+    (exec_with_retries 3 wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh) || return 1
 
     echo "[SETUP] Installing Miniconda ..."
     print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
@@ -52,7 +54,7 @@ setup_miniconda () {
   print_exec . ~/.bashrc
 
   echo "[SETUP] Updating Miniconda base packages ..."
-  (exec_with_retries conda update -n base -c defaults --update-deps -y conda) || return 1
+  (exec_with_retries 3 conda update -n base -c defaults --update-deps -y conda) || return 1
 
   # Clean up packages
   conda_cleanup
@@ -86,10 +88,12 @@ create_conda_environment () {
     echo "################################################################################"
     echo "# Create Conda Environment"
     echo "#"
-    echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
     echo ""
   fi
+
+  test_network_connection || return 1
 
   echo "[SETUP] Listing existing Conda environments ..."
   print_exec conda info --envs
@@ -102,22 +106,45 @@ create_conda_environment () {
   local conda_prefix=$(conda run -n base printenv CONDA_PREFIX)
   print_exec rm -rf "${conda_prefix}/envs/${env_name}"
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # The `-y` flag removes any existing Conda environment with the same name
   echo "[SETUP] Creating new Conda environment (Python ${python_version}) ..."
-  (exec_with_retries conda create -y --name "${env_name}" python="${python_version}") || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda create -y ${env_prefix} python="${python_version}") || return 1
 
   echo "[SETUP] Upgrading PIP to latest ..."
-  (exec_with_retries conda run -n "${env_name}" pip install --upgrade pip) || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run ${env_prefix} pip install --upgrade pip) || return 1
 
   # The pyOpenSSL and cryptography packages versions need to line up for PyPI publishing to work
   # https://stackoverflow.com/questions/74981558/error-updating-python3-pip-attributeerror-module-lib-has-no-attribute-openss
   echo "[SETUP] Upgrading pyOpenSSL ..."
-  (exec_with_retries conda run -n "${env_name}" python -m pip install "pyOpenSSL>22.1.0") || return 1
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install "pyOpenSSL>22.1.0") || return 1
 
   # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
   echo "[SETUP] Testing pyOpenSSL import ..."
-  (test_python_import "${env_name}" OpenSSL) || return 1
+  (test_python_import_package "${env_name}" OpenSSL) || return 1
 
-  echo "[SETUP] Installed Python version: $(conda run -n "${env_name}" python --version)"
+  # shellcheck disable=SC2086
+  echo "[SETUP] Installed Python version: $(conda run ${env_prefix} python --version)"
   echo "[SETUP] Successfully created Conda environment: ${env_name}"
+}
+
+print_conda_info () {
+  echo "################################################################################"
+  echo "# Print Conda Environment Info"
+  echo "#"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+  echo "################################################################################"
+  echo ""
+  print_exec conda info
+  echo ""
+  print_exec conda info --envs
+  echo ""
+  # shellcheck disable=SC2153
+  echo "PYTHON_VERSION:     ${PYTHON_VERSION}"
+  echo "python3 --version:  $(python3 --version)"
 }

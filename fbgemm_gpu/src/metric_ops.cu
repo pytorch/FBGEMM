@@ -13,6 +13,7 @@
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
 
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "metric_ops.h"
 
@@ -276,7 +277,7 @@ at::Tensor batch_auc(
     AT_DISPATCH_ALL_TYPES_AND(
         at::ScalarType::Half, labels.scalar_type(), "auc_wrapper_2", [&] {
           using label_t = scalar_t;
-          AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+          FBGEMM_DISPATCH_FLOAT_AND_HALF(
               weights.scalar_type(), "auc_wrapper_3", [&] {
                 using acc_t = at::acc_type<scalar_t, true>;
                 if (padded_section_size == 1) {

@@ -12,6 +12,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include "fbgemm_gpu/ops_utils.h"
 
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/layout_transform_ops.cuh"
@@ -57,6 +58,7 @@ Tensor permute_pooled_embs_gpu(
       inv_permute_list,
       false);
 }
+
 Tensor permute_pooled_embs_gpu_impl(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,

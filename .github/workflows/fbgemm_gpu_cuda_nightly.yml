@@ -6,7 +6,7 @@
 name: FBGEMM_GPU-CUDA Nightly Build
 
 on:
-  # PR Trigger (enabled only for debugging)
+  # PR Trigger (enabled for regression checks and debugging)
   #
   pull_request:
     branches:
@@ -29,6 +29,12 @@ on:
   # Manual Trigger
   #
   workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: Publish Artifact to PyPI
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -130,7 +136,7 @@ jobs:
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.8.0", "12.1.1" ]
         # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "11.8.0" ]
+        cuda-version-publish: [ "12.1.1" ]
     needs: build_artifact
 
     steps:
@@ -171,14 +177,14 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Install FBGEMM_GPU Nightly
-      run: . $PRELUDE; install_fbgemm_gpu_package $BUILD_ENV *.whl
+      run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 10
+      timeout-minutes: 15
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV
 
     - name: Push FBGEMM_GPU Nightly Binary to PYPI
-      if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && matrix.cuda-version == matrix.cuda-version-publish }}
+      if: ${{ (github.event_name == 'schedule' && matrix.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == matrix.cuda-version-publish) }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_nightly-*.whl "$PYPI_TOKEN"

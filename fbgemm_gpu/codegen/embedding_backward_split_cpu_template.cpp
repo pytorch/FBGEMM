@@ -20,6 +20,7 @@
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/cpu_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -344,11 +345,11 @@ for (const auto d : c10::irange(D)) {
   grad_output = grad_output.contiguous();
 
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(),
       "split_embedding_backward_exact_cpu_outer", [&]() {
         using grad_t = scalar_t;
-      AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+      FBGEMM_DISPATCH_FLOAT_AND_HALF(
           host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
             split_embedding_backward_exact_cpu_kernel<scalar_t, grad_t>(
                 grad_output,
@@ -379,7 +380,7 @@ for (const auto d : c10::irange(D)) {
 
   // When input is dense enough, avoid sorting and just treat as dense.
   auto grad = zeros_like(host_weights, grad_output.dtype());
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
 
         split_embedding_backward_exact_cpu_dense_kernel<scalar_t>(

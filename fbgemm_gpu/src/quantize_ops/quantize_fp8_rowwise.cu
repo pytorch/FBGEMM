@@ -48,16 +48,8 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
         max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
     output_row_scale_bias[0] = scale;
     for (int64_t col = 0; col < ncols; ++col) {
-      if constexpr (std::is_same<input_t, at::BFloat16>::value) {
-        output_row[col] = float_to_hfp8(
-            __bfloat162float(input_row[col]) * scale, ebit, bias, max_pos);
-      } else if constexpr (std::is_same<input_t, at::Half>::value) {
-        output_row[col] = float_to_hfp8(
-            __half2float(input_row[col]) * scale, ebit, bias, max_pos);
-      } else {
-        output_row[col] =
-            float_to_hfp8(input_row[col] * scale, ebit, bias, max_pos);
-      }
+      output_row[col] =
+          float_to_hfp8(to_float(input_row[col]) * scale, ebit, bias, max_pos);
     }
   }
 }
@@ -95,15 +87,7 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
     for (int64_t col = threadIdx.x; col < ncols; col += lane_width) {
       // Get thread-local minmax. These are the smallest min and max ever seen
       // by this thread.
-      if constexpr (std::is_same<input_t, at::BFloat16>::value) {
-        maximum_element =
-            fmaxf(maximum_element, fabs(__bfloat162float(input_row[col])));
-      } else if constexpr (std::is_same<input_t, at::Half>::value) {
-        maximum_element =
-            fmaxf(maximum_element, fabs(__half2float(input_row[col])));
-      } else {
-        maximum_element = fmaxf(maximum_element, fabs(input_row[col]));
-      }
+      maximum_element = fmaxf(maximum_element, fabs(to_float(input_row[col])));
     }
   }
 
@@ -164,16 +148,8 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
       // TODO: lift range_list into shared memory. However, when nrows is large,
       // it might exceed the size of shared memory.
       // output_addr[0] = lrintf((input[input_idx] - bias) * inverse_scale);
-      if constexpr (std::is_same<input_t, at::BFloat16>::value) {
-        output_addr[0] = float_to_hfp8(
-            __bfloat162float(input[input_idx]) * scale, ebit, bias, max_pos);
-      } else if constexpr (std::is_same<input_t, at::Half>::value) {
-        output_addr[0] = float_to_hfp8(
-            __half2float(input[input_idx]) * scale, ebit, bias, max_pos);
-      } else {
-        output_addr[0] =
-            float_to_hfp8(input[input_idx] * scale, ebit, bias, max_pos);
-      }
+      output_addr[0] = float_to_hfp8(
+          to_float(input[input_idx]) * scale, ebit, bias, max_pos);
     }
   }
 }
@@ -201,15 +177,7 @@ __global__ inline void _FP8rowwise_to_float_cuda_kernel(
 
       const float output_ =
           hfp8_to_float(input_row[col], ebit, bias) / input_row_scale_bias[0];
-
-      if constexpr (std::is_same<output_t, at::BFloat16>::value) {
-        *reinterpret_cast<__nv_bfloat16*>(&output_row[col]) =
-            __float2bfloat16(output_);
-      } else if constexpr (std::is_same<output_t, at::Half>::value) {
-        output_row[col] = __half2float(output_);
-      } else {
-        output_row[col] = output_;
-      }
+      quantize_float_store(&output_row[col], output_);
     }
   }
 }
@@ -348,8 +316,10 @@ _float_to_FP8rowwise_gpu(const Tensor& input, const bool forward) {
   }
 }
 
-template <typename output_t>
-Tensor _FP8rowwise_to_float_gpu_t(const Tensor& input, bool forward) {
+Tensor _FP8rowwise_to_float_gpu_t(
+    const Tensor& input,
+    bool forward,
+    const int64_t output_dtype) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
@@ -371,24 +341,14 @@ Tensor _FP8rowwise_to_float_gpu_t(const Tensor& input, bool forward) {
   // that size).
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
-  Tensor output;
-  if constexpr (std::is_same_v<output_t, float>) {
-    output = at::empty(
-        output_dims, // 4 = sizeof(float)
-        input.options().dtype(at::kFloat));
-  } else if constexpr (std::is_same_v<output_t, half>) { // T = at::Half
-    output = at::empty(
-        output_dims, // 4 = sizeof(float)
-        input.options().dtype(at::kHalf));
-  } else if constexpr (std::is_same_v<
-                           output_t,
-                           __nv_bfloat16>) { // T = at::BFloat16
-    output = at::empty(
-        output_dims, // 4 = sizeof(float)
-        input.options().dtype(at::kBFloat16));
-  } else {
-    TORCH_CHECK(false);
-  }
+  const auto output_sdtype = static_cast<SparseType>(output_dtype);
+  TORCH_CHECK(
+      output_sdtype == SparseType::FP32 || output_sdtype == SparseType::FP16 ||
+      output_sdtype == SparseType::BF16);
+
+  Tensor output = at::empty(
+      output_dims, // 4 = sizeof(float)
+      input.options().dtype(getScalarType(output_sdtype)));
 
   if (nrows == 0 || output_columns == 0) {
     return output;
@@ -422,22 +382,7 @@ DLL_PUBLIC at::Tensor _FP8rowwise_to_float_gpu(
     const at::Tensor& input,
     bool forward,
     const int64_t output_dtype) {
-  SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
-  Tensor output;
-  switch (output_sparse_dtype) {
-    case SparseType::FP32:
-      output = _FP8rowwise_to_float_gpu_t<float>(input, forward);
-      break;
-    case SparseType::FP16:
-      output = _FP8rowwise_to_float_gpu_t<half>(input, forward);
-      break;
-    case SparseType::BF16:
-      output = _FP8rowwise_to_float_gpu_t<__nv_bfloat16>(input, forward);
-      break;
-    default:
-      TORCH_CHECK(false);
-  }
-  return output;
+  return _FP8rowwise_to_float_gpu_t(input, forward, output_dtype);
 }
 
 } // namespace fbgemm_gpu

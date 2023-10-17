@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <cstdint>
 
 namespace fbgemm_gpu {
 
@@ -43,6 +44,9 @@ at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cuda
 at::Tensor asynchronous_complete_cumsum_meta(const at::Tensor& t_in);
+
+///@ingroup sparse-data-cuda
+at::Tensor asynchronous_exclusive_cumsum_meta(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cuda
 at::Tensor offsets_range_cuda(const at::Tensor& offsets, int64_t range_size);
@@ -137,13 +141,15 @@ std::tuple<
 
 ///@ingroup sparse-data-cuda
 block_bucketize_sparse_features_cuda(
-    at::Tensor lengths,
-    at::Tensor indices,
-    bool bucketize_pos,
-    bool sequence,
-    at::Tensor block_sizes,
-    int64_t my_size,
-    c10::optional<at::Tensor> weights);
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size);
 
 std::tuple<
     at::Tensor,
@@ -154,13 +160,15 @@ std::tuple<
 
 ///@ingroup sparse-data-cpu
 block_bucketize_sparse_features_cpu(
-    at::Tensor lengths,
-    at::Tensor indices,
-    bool bucketize_pos,
-    bool sequence,
-    at::Tensor block_sizes,
-    int64_t my_size,
-    c10::optional<at::Tensor> weights);
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size);
 
 std::tuple<
     at::Tensor,
@@ -226,7 +234,8 @@ at::Tensor _paddedFP8rowwise_to_float_gpu(
     const at::Tensor& input,
     const bool forward = true,
     const int64_t row_dim = 256,
-    const int64_t output_last_dim = -1);
+    const int64_t output_last_dim = -1,
+    const int64_t output_dtype = 0);
 at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input);
 at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,
@@ -426,6 +435,12 @@ at::Tensor jagged_2d_to_dense(
     at::Tensor offsets,
     c10::SymInt max_sequence_length);
 
+at::Tensor jagged_1d_to_dense_meta(
+    at::Tensor values,
+    at::Tensor offsets,
+    c10::SymInt max_L,
+    int64_t padding_value);
+
 at::Tensor jagged_2d_to_dense_meta(
     at::Tensor values,
     at::Tensor offsets,
@@ -451,7 +466,7 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> jagged_dense_elementwise_mul(
 std::tuple<at::Tensor, std::vector<at::Tensor>> dense_to_jagged(
     const at::Tensor& dense,
     const std::vector<at::Tensor>& offsets,
-    const c10::optional<at::SymInt>& total_L);
+    c10::optional<at::SymInt> total_L);
 
 std::tuple<at::Tensor, std::vector<at::Tensor>>
 jagged_dense_elementwise_add_jagged_output(
@@ -721,18 +736,18 @@ std::tuple<at::Tensor, at::Tensor> permute_sequence_embeddings_cuda(
 at::Tensor pack_segments_cpu(
     const at::Tensor& t_in,
     const at::Tensor& lengths,
-    const int64_t max_length);
+    int64_t max_length);
 
 ///@ingroup sparse-data-cuda
 at::Tensor pack_segments_cuda(
     const at::Tensor& t_in,
     const at::Tensor& lengths,
-    const int64_t max_length);
+    int64_t max_length);
 
 at::Tensor pack_segments_forward_cuda(
     const at::Tensor& t_in,
     const at::Tensor& lengths,
-    const int64_t max_length);
+    int64_t max_length);
 
 at::Tensor pack_segments_backward_cuda(
     const at::Tensor& data,

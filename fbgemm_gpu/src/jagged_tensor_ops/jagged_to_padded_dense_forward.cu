@@ -21,7 +21,7 @@ namespace fbgemm_gpu {
 at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const at::ArrayRef<at::SymInt>& max_lengths,
+    c10::SymIntArrayRef max_lengths,
     const double padding_value) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(

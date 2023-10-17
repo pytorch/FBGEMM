@@ -15,6 +15,7 @@
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
+#include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -54,6 +55,73 @@ void _to_dense_representation(
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+
+// Custom PackSegments operator that is based on the Caffe2 PackSegments and
+// UnpackSegments.
+// Needed this to support backward pass.
+class PackSegments : public torch::autograd::Function<PackSegments> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& t_in,
+      const Tensor& lengths,
+      at::SymInt max_length) {
+    const at::SymInt total_length = t_in.sym_size(0);
+
+    at::AutoDispatchBelowADInplaceOrView guard;
+
+    static auto custom_pack_segments_op =
+        at::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::pack_segments", "")
+            .typed<at::Tensor(
+                const at::Tensor&, const at::Tensor&, const at::SymInt)>();
+
+    Tensor res = custom_pack_segments_op.call(t_in, lengths, max_length);
+
+    ctx->saved_data["max_length"] = max_length;
+    ctx->saved_data["total_length"] = total_length;
+    ctx->save_for_backward({lengths});
+
+    return {res};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output) {
+    TORCH_CHECK(grad_output.size() == 2 or grad_output.size() == 1);
+    const Tensor& grad = grad_output[0];
+    const auto& max_length = ctx->saved_data["max_length"].toSymInt();
+    const auto& total_length = ctx->saved_data["total_length"].toSymInt();
+
+    // Retrieve saved variables for backward.
+    const auto& saved_variables = ctx->get_saved_variables();
+    const auto& lengths = saved_variables[0];
+
+    torch::autograd::variable_list grad_inputs(5);
+
+    static auto custom_pack_segments_backward_op =
+        at::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::pack_segments_backward", "")
+            .typed<at::Tensor(
+                const at::Tensor&,
+                const at::Tensor&,
+                const at::SymInt,
+                const at::SymInt)>();
+
+    grad_inputs[0] = custom_pack_segments_backward_op.call(
+        grad, lengths, total_length, max_length);
+    return grad_inputs;
+  }
+};
+
+Tensor pack_segments_autograd(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const at::SymInt max_length
+
+) {
+  return PackSegments::apply(t_in, lengths, max_length)[0];
+}
 
 Tensor native_empty_like(const Tensor& self) {
   return at::native::empty_like(
@@ -203,17 +271,18 @@ template <
     typename index_t,
     typename scalar_t>
 void _block_bucketize_sparse_features_cpu(
-    Tensor lengths,
-    Tensor indices,
-    c10::optional<Tensor> weights,
-    bool bucketize_pos,
-    Tensor block_sizes,
-    int64_t my_size,
+    const Tensor& lengths,
+    const Tensor& indices,
+    const c10::optional<Tensor>& weights,
+    const bool bucketize_pos,
+    const Tensor& block_sizes,
+    const int64_t my_size,
     Tensor new_lengths,
     Tensor new_indices,
     c10::optional<Tensor> new_weights,
     c10::optional<Tensor> new_pos,
-    c10::optional<Tensor> unbucketize_permute) {
+    const c10::optional<Tensor>& unbucketize_permute,
+    const c10::optional<Tensor>& batch_size_per_feature) {
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
@@ -224,21 +293,24 @@ void _block_bucketize_sparse_features_cpu(
   const offset_t* lengths_data = lengths.data_ptr<offset_t>();
   offset_t* offsets_data = offsets.data_ptr<offset_t>();
   const index_t* indices_data = indices.data_ptr<index_t>();
-  scalar_t* weights_data;
-  scalar_t* new_weights_data;
-  index_t* new_pos_data;
-  index_t* unbucketize_permute_data;
-  offset_t* new_lengths_data = new_lengths.data_ptr<offset_t>();
-  offset_t* new_offsets_data = new_offsets.data_ptr<offset_t>();
-  index_t* new_indices_data = new_indices.data_ptr<index_t>();
-  index_t* block_sizes_data = block_sizes.data_ptr<index_t>();
+  scalar_t* weights_data = nullptr;
+  scalar_t* new_weights_data = nullptr;
+  index_t* new_pos_data = nullptr;
+  index_t* unbucketize_permute_data = nullptr;
+  offset_t* const new_lengths_data = new_lengths.data_ptr<offset_t>();
+  offset_t* const new_offsets_data = new_offsets.data_ptr<offset_t>();
+  index_t* const new_indices_data = new_indices.data_ptr<index_t>();
+  const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
+  offset_t* batch_sizes_data = nullptr;
+  const auto variable_batch_size = batch_size_per_feature.has_value();
+
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
 
-  if (sequence) {
+  if constexpr (sequence) {
     unbucketize_permute_data = unbucketize_permute.value().data_ptr<index_t>();
   }
-  if (has_weight) {
+  if constexpr (has_weight) {
     weights_data = weights.value().data_ptr<scalar_t>();
     new_weights_data = new_weights.value().data_ptr<scalar_t>();
   }
@@ -246,13 +318,19 @@ void _block_bucketize_sparse_features_cpu(
     new_pos_data = new_pos.value().data_ptr<index_t>();
   }
 
+  if (variable_batch_size) {
+    batch_sizes_data = batch_size_per_feature.value().data_ptr<offset_t>();
+  }
+
   // count nonzeros
   prefix_sum(lengths_size, lengths_data, offsets_data);
   assert(offsets_data[lengths_size] == indices.numel());
+  int64_t cur_offset = 0;
   for (const auto t : c10::irange(T)) {
-    auto blk_size = block_sizes_data[t];
-    for (const auto b : c10::irange(B)) {
-      const auto b_t = t * B + b;
+    const auto blk_size = block_sizes_data[t];
+    const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
+    for (const auto b : c10::irange(cur_batch_size)) {
+      const auto b_t = (variable_batch_size ? cur_offset : t * B) + b;
       const offset_t rowstart = offsets_data[b_t];
       const offset_t rowend = offsets_data[b_t + 1];
       for (const auto i : c10::irange(rowstart, rowend)) {
@@ -269,15 +347,18 @@ void _block_bucketize_sparse_features_cpu(
         new_lengths_data[p * lengths_size + b_t]++;
       }
     }
+    cur_offset += cur_batch_size;
   }
 
   // bucketize nonzeros
   prefix_sum(new_lengths_size, new_lengths_data, new_offsets_data);
   assert(new_offsets_data[new_lengths_size] == new_indices.numel());
+  cur_offset = 0;
   for (const auto t : c10::irange(T)) {
-    auto blk_size = block_sizes_data[t];
-    for (const auto b : c10::irange(B)) {
-      const auto b_t = t * B + b;
+    const auto blk_size = block_sizes_data[t];
+    const auto cur_batch_size = variable_batch_size ? batch_sizes_data[t] : B;
+    for (const auto b : c10::irange(cur_batch_size)) {
+      const auto b_t = (variable_batch_size ? cur_offset : t * B) + b;
       const offset_t rowstart = offsets_data[b_t];
       const offset_t rowend = offsets_data[b_t + 1];
       for (const auto i : c10::irange(rowstart, rowend)) {
@@ -308,6 +389,7 @@ void _block_bucketize_sparse_features_cpu(
         }
       }
     }
+    cur_offset += cur_batch_size;
   }
 }
 
@@ -819,13 +901,16 @@ std::tuple<
     c10::optional<Tensor>,
     c10::optional<Tensor>>
 block_bucketize_sparse_features_cpu(
-    Tensor lengths,
-    Tensor indices,
-    bool bucketize_pos,
-    bool sequence,
-    Tensor block_sizes,
-    int64_t my_size,
-    c10::optional<Tensor> weights) {
+    const Tensor& lengths,
+    const Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const Tensor& block_sizes,
+    const int64_t my_size,
+    const c10::optional<Tensor>& weights,
+    const c10::optional<Tensor>& batch_size_per_feature,
+    const int64_t /* max_batch_size */ // Only used in GPU variant
+) {
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
@@ -871,7 +956,8 @@ block_bucketize_sparse_features_cpu(
                             new_indices,
                             new_weights,
                             new_pos,
-                            unbucketize_permute);
+                            unbucketize_permute,
+                            batch_size_per_feature);
                       });
                 });
           });
@@ -905,7 +991,8 @@ block_bucketize_sparse_features_cpu(
                             new_indices,
                             new_weights,
                             new_pos,
-                            unbucketize_permute);
+                            unbucketize_permute,
+                            batch_size_per_feature);
                       });
                 });
           });
@@ -937,7 +1024,8 @@ block_bucketize_sparse_features_cpu(
                       new_indices,
                       new_weights,
                       new_pos,
-                      unbucketize_permute);
+                      unbucketize_permute,
+                      batch_size_per_feature);
                 });
           });
     } else {
@@ -964,7 +1052,8 @@ block_bucketize_sparse_features_cpu(
                       new_indices,
                       new_weights,
                       new_pos,
-                      unbucketize_permute);
+                      unbucketize_permute,
+                      batch_size_per_feature);
                 });
           });
     }
@@ -1123,17 +1212,6 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
           });
         }
       });
-  return output;
-}
-
-Tensor asynchronous_complete_cumsum_meta(const Tensor& t_in) {
-  const auto num_dims = t_in.dim();
-  TORCH_CHECK(num_dims == 1 || num_dims == 2);
-
-  auto output = num_dims == 1
-      ? at::zeros_symint({t_in.sym_numel() + 1}, t_in.options())
-      : at::zeros_symint(
-            {t_in.sym_size(0), t_in.sym_size(1) + 1}, t_in.options());
   return output;
 }
 
@@ -2508,54 +2586,12 @@ Tensor pack_segments_backward_cpu(
 
   return unpacked_tensor;
 }
-
-class PackSegmentsFunction
-    : public torch::autograd::Function<PackSegmentsFunction> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const Tensor& t_in,
-      const Tensor& lengths,
-      const int64_t max_length) {
-    int64_t total_length = t_in.expect_contiguous()->sizes()[0];
-    ctx->saved_data["max_length"] = max_length;
-    ctx->saved_data["total_length"] = total_length;
-    ctx->save_for_backward({lengths});
-
-    // Run the forward pass.
-    const auto& res = pack_segments_forward_cpu(t_in, lengths, max_length);
-    torch::autograd::variable_list outputs(1);
-    outputs[0] = res;
-    return outputs;
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_output) {
-    TORCH_CHECK(grad_output.size() == 1);
-    const Tensor& grad = grad_output[0];
-    const auto& max_length = ctx->saved_data["max_length"].toInt();
-    const auto& total_length = ctx->saved_data["total_length"].toInt();
-
-    // Retrieve saved variables for backward.
-    const auto& saved_variables = ctx->get_saved_variables();
-    const auto& lengths = saved_variables[0];
-
-    torch::autograd::variable_list grad_inputs(5);
-    grad_inputs[0] =
-        pack_segments_backward_cpu(grad, lengths, total_length, max_length);
-    return grad_inputs;
-  }
-};
-
 Tensor pack_segments_cpu(
     const Tensor& t_in,
     const Tensor& lengths,
     const int64_t max_length) {
-  const auto& res = PackSegmentsFunction::apply(t_in, lengths, max_length);
-  return res[0];
+  return pack_segments_forward_cpu(t_in, lengths, max_length);
 }
-
 namespace {
 Tensor index_select_dim0(
     const Tensor& input,
@@ -2656,7 +2692,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, int output_size) -> Tensor");
   m.def(
-      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, int my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, int max_B= -1) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
       "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, int my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
   m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
@@ -2692,7 +2728,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute102_baddbmm_permute102(Tensor bias, Tensor A, Tensor B) -> Tensor");
   m.def(
       "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
-  m.def("pack_segments(Tensor t_in, Tensor lengths, int max_length) -> Tensor");
+  m.def(
+      "pack_segments(Tensor t_in, Tensor lengths, SymInt max_length) -> Tensor");
+  m.def(
+      "pack_segments_backward(Tensor data, Tensor lengths, SymInt total_length, SymInt max_length) -> Tensor");
   // A specialization of at::index_select for selecting dim 0
   //
   // The consecutive_range_start and consecutive_range_length arguments are for
@@ -2789,8 +2828,14 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_sequence_embeddings",
       fbgemm_gpu::permute_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("pack_segments", fbgemm_gpu::pack_segments_cpu);
+  DISPATCH_TO_CPU(
+      "pack_segments_backward", fbgemm_gpu::pack_segments_backward_cpu);
   DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
   DISPATCH_TO_CPU(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0);
   DISPATCH_TO_CPU("bottom_k_per_row", fbgemm_gpu::bottom_k_per_row);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
+  m.impl("pack_segments", &fbgemm_gpu::pack_segments_autograd);
 }

@@ -17,6 +17,7 @@
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm_gpu/cpu_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -193,10 +194,10 @@ for (const auto t : c10::irange(t_begin,t_end)) {
 
   {% endif %}
 
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(), "split_embedding_backward_cpu", [&] {
         using grad_t = scalar_t;
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        FBGEMM_DISPATCH_FLOAT_AND_HALF(
             host_weights.scalar_type(),
             "split_embedding_backward_cpu_inner",
             [&] {

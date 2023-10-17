@@ -21,6 +21,8 @@ install_system_packages () {
     return 1
   fi
 
+  test_network_connection || return 1
+
   if which sudo; then
     local update_cmd=(sudo)
     local install_cmd=(sudo)
@@ -42,19 +44,19 @@ install_system_packages () {
 
   echo "[INSTALL] Updating system repositories ..."
   # shellcheck disable=SC2068
-  exec_with_retries ${update_cmd[@]}
+  (exec_with_retries 3 ${update_cmd[@]}) || return 1
 
   # shellcheck disable=SC2145
   echo "[INSTALL] Installing system package(s): $@ ..."
   # shellcheck disable=SC2068
-  exec_with_retries ${install_cmd[@]}
+  (exec_with_retries 3 ${install_cmd[@]}) || return 1
 }
 
 free_disk_space () {
   echo "################################################################################"
   echo "# Free Disk Space"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -77,10 +79,12 @@ free_disk_space () {
 ################################################################################
 
 print_gpu_info () {
-  echo "################################################################################"
-  echo "[INFO] Printing general display info ..."
-  install_system_packages lshw
-  print_exec sudo lshw -C display
+  if [[ "${BUILD_FROM_NOVA}" != '1' ]]; then
+    echo "################################################################################"
+    echo "[INFO] Printing general display info ..."
+    install_system_packages lshw
+    print_exec sudo lshw -C display
+  fi
 
   echo "################################################################################"
   echo "[INFO] Printing NVIDIA GPU info ..."
@@ -131,11 +135,15 @@ __print_system_info_linux () {
   echo "################################################################################"
   echo "[INFO] Print CPU info ..."
   print_exec nproc
+  print_exec lscpu
   print_exec cat /proc/cpuinfo
 
-  echo "################################################################################"
-  echo "[INFO] Print PCI info ..."
-  print_exec lspci -v
+
+  if [[ "${BUILD_FROM_NOVA}" != '1' ]]; then
+    echo "################################################################################"
+    echo "[INFO] Print PCI info ..."
+    print_exec lspci -v
+  fi
 
   echo "################################################################################"
   echo "[INFO] Print Linux distribution info ..."
@@ -163,7 +171,7 @@ print_system_info () {
   echo "################################################################################"
   echo "# Print System Info"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 
@@ -182,7 +190,7 @@ print_ec2_info () {
   echo "################################################################################"
   echo "# Print EC2 Instance Info"
   echo "#"
-  echo "# [TIMESTAMP] $(date --utc +%FT%T.%3NZ)"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
   echo "################################################################################"
   echo ""
 

@@ -11,6 +11,7 @@ import contextlib
 import functools
 import itertools
 import logging
+import os
 import random
 import unittest
 from itertools import accumulate
@@ -19,7 +20,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from hypothesis import given, settings, Verbosity
+from hypothesis import given, HealthCheck, settings, Verbosity
+
+from torch._utils_internal import get_file_path_2
+from torch.testing._internal.optests import generate_opcheck_tests
+
 
 try:
     # pyre-ignore[21]
@@ -32,6 +37,13 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
+
+suppressed_list: List[HealthCheck] = (
+    # pyre-fixme[16]: Module `HealthCheck` has no attribute `differing_executors`.
+    [HealthCheck.differing_executors]
+    if getattr(HealthCheck, "differing_executors", False)
+    else []
+)
 
 
 def unbucketize_indices_value(
@@ -90,6 +102,7 @@ def permute_scripted(
 
 class SparseOpsTest(unittest.TestCase):
     @staticmethod
+    @settings(suppress_health_check=suppressed_list)
     def permute_indices_ref_(
         lengths: torch.Tensor,
         indices: torch.Tensor,
@@ -597,11 +610,11 @@ class SparseOpsTest(unittest.TestCase):
 
         # meta tests
         mx = torch.randint(low=0, high=100, size=(n,)).type(index_dtype).to("meta")
-        # mze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(mx)
+        mze = torch.ops.fbgemm.asynchronous_exclusive_cumsum(mx)
+        self.assertEqual(ze.size(), mze.size())
         # mzi = torch.ops.fbgemm.asynchronous_inclusive_cumsum(mx)
-        mzc = torch.ops.fbgemm.asynchronous_complete_cumsum(mx)
-        # self.assertEqual(ze.size(), mze.size())
         # self.assertEqual(zi.size(), mzi.size())
+        mzc = torch.ops.fbgemm.asynchronous_complete_cumsum(mx)
         self.assertEqual(zc.size(), mzc.size())
 
         if gpu_available:
@@ -838,6 +851,93 @@ class SparseOpsTest(unittest.TestCase):
                 torch.testing.assert_close(
                     unbucketized_indices, indices, rtol=0, atol=0
                 )
+
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        has_weight=st.booleans(),
+        bucketize_pos=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_with_variable_batch_sizes(
+        self,
+        index_type: Optional[torch.dtype],
+        has_weight: bool,
+        bucketize_pos: bool,
+        sequence: bool,
+    ) -> None:
+        lengths = torch.tensor([2, 1, 1, 2, 0, 2], dtype=index_type)
+        indices = torch.tensor(
+            [1, 8, 5, 6, 7, 8, 8, 4],
+            dtype=index_type,
+        )
+        batch_sizes = torch.tensor([3, 1, 2], dtype=index_type)
+        weights = (
+            torch.tensor(
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+                dtype=torch.float,
+            )
+            if has_weight
+            else None
+        )
+
+        block_sizes = torch.tensor([5, 10, 8], dtype=index_type)
+        my_size = 2
+        max_B = batch_sizes.max().item()
+
+        new_lengths_ref = torch.tensor(
+            [1, 0, 0, 2, 0, 1, 1, 1, 1, 0, 0, 1],
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [1, 7, 8, 4, 3, 0, 1, 0],
+            dtype=index_type,
+        )
+
+        (
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths,
+            indices,
+            bucketize_pos,
+            sequence,
+            block_sizes,
+            my_size,
+            weights,
+            batch_sizes,
+        )
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
+
+        if gpu_available:
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                new_weights_gpu,
+                new_pos_gpu,
+                unbucketize_permute_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+                lengths.cuda(),
+                indices.cuda(),
+                bucketize_pos,
+                sequence,
+                block_sizes.cuda(),
+                my_size,
+                weights.cuda() if weights is not None else None,
+                batch_sizes.cuda(),
+                max_B,
+            )
+
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+            torch.testing.assert_close(
+                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+            )
 
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
@@ -1731,6 +1831,7 @@ class SparseOpsTest(unittest.TestCase):
                 torch.half,
             ]
         ),
+        torch_compile=st.booleans(),
     )
     @settings(deadline=None)
     def test_pack_segments(
@@ -1740,11 +1841,13 @@ class SparseOpsTest(unittest.TestCase):
         batch_size: int,
         divisions: int,
         dtype: torch.dtype,
+        torch_compile: bool,
     ) -> None:
         input_raw = np.random.rand(batch_size, n, k)
         input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
         lengths = torch.tensor(
-            get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+            get_n_rand_num_summing_to_k(divisions, batch_size),
+            dtype=torch.int,
         )
         max_length = lengths.max().item()
 
@@ -1766,7 +1869,48 @@ class SparseOpsTest(unittest.TestCase):
         packed_tensor.backward(grad_cpu)
 
         if gpu_available:
-            packed_cuda = torch.ops.fbgemm.pack_segments(
+            pack_segments_fun = torch.ops.fbgemm.pack_segments
+
+            if torch_compile:
+                pack_segments_fun = torch.compile(pack_segments_fun, dynamic=True)
+
+            packed_cuda = pack_segments_fun(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+
+            self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+
+            # GPU backward
+            packed_cuda.backward(grad_cpu.cuda())
+
+            # dynamic check
+            input_raw = np.random.rand(batch_size, n + 1, k + 2)
+            input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
+            lengths = torch.tensor(
+                get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
+            )
+            max_length = lengths.max().item()
+            packed_tensor = torch.ops.fbgemm.pack_segments(
+                t_in=input_data, lengths=lengths, max_length=max_length
+            )
+
+            packed_ref = self._pack_segments_ref(lengths, input_raw)
+            packed_ref = torch.Tensor(packed_ref).to(dtype)
+
+            self.assertTrue(torch.equal(packed_tensor, packed_ref))
+
+            grad_cpu = torch.tensor(
+                np.random.uniform(low=0.01, high=0.5, size=packed_ref.shape).astype(
+                    np.float32
+                )
+            ).to(dtype)
+            # CPU backward
+            packed_tensor.backward(grad_cpu)
+
+            # reusing the previously compiled kernel
+            packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),
                 lengths=lengths.cuda(),
                 max_length=max_length,
@@ -1788,6 +1932,7 @@ class SparseOpsTest(unittest.TestCase):
                 torch.half,
             ]
         ),
+        torch_compile=st.booleans(),
     )
     @settings(deadline=None)
     def test_pack_segments_smaller_max_len(
@@ -1798,6 +1943,7 @@ class SparseOpsTest(unittest.TestCase):
         divisions: int,
         max_length: int,
         dtype: torch.dtype,
+        torch_compile: bool,
     ) -> None:
         input_data = torch.tensor(np.random.rand(batch_size, n, k), dtype=dtype)
         lengths = torch.tensor(
@@ -1820,7 +1966,11 @@ class SparseOpsTest(unittest.TestCase):
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
         if gpu_available:
-            packed_cuda = torch.ops.fbgemm.pack_segments(
+            pack_segments_fun = torch.ops.fbgemm.pack_segments
+            if torch_compile:
+                pack_segments_fun = torch.compile(pack_segments_fun)
+
+            packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),
                 lengths=lengths.cuda(),
                 max_length=max_length,
@@ -2249,6 +2399,72 @@ class SparseOpsTest(unittest.TestCase):
             "grad",
         )
 
+
+failures_dict_path: str = get_file_path_2(
+    "", os.path.dirname(__file__), "failures_dict.json"
+)
+
+# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
+# Please avoid putting tests here, you should put operator-specific
+# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
+# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_aot_dispatch_dynamic__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_aot_dispatch_static__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_autograd_registration__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_schema__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_aot_dispatch_dynamic__test_pack_segments": [
+        unittest.skip("ASAN heap buffer overflow")
+    ],
+    "test_aot_dispatch_static__test_pack_segments": [
+        unittest.skip("ASAN heap buffer overflow")
+    ],
+    "test_faketensor__test_pack_segments": [unittest.skip("ASAN heap buffer overflow")],
+    "test_autograd_registration__test_pack_segments": [
+        unittest.skip("ASAN heap buffer overflow")
+    ],
+    "test_schema__test_pack_segments": [unittest.skip("ASAN heap buffer overflow")],
+    "test_aot_dispatch_static__test_group_index_select_dim0": [
+        unittest.skip("CUDA memory error")
+    ],
+    "test_aot_dispatch_dynamic__test_group_index_select_dim0": [
+        unittest.skip("CUDA memory error")
+    ],
+    "test_aot_dispatch_dynamic__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_aot_dispatch_static__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_faketensor__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_autograd_registration__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+    "test_schema__test_pack_segments_smaller_max_len": [
+        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
+    ],
+}
+
+# only generate tests on nightly pytorch (current release version is 2.1)
+if torch.__version__ >= "2.2.*":
+    generate_opcheck_tests(
+        SparseOpsTest,
+        ["fb", "fbgemm"],
+        failures_dict_path,
+        # pyre-fixme[6]: For 4th argument expected `List[typing.Callable[...,
+        #  typing.Any]]` but got `Dict[str, List[typing.Callable[..., typing.Any]]]`.
+        additional_decorators,
+        [
+            "test_schema",
+            "test_autograd_registration",
+            "test_faketensor",
+            "test_aot_dispatch_static",
+            "test_aot_dispatch_dynamic",
+        ],
+    )
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@
 # pyre-unsafe
 
 import unittest
+from typing import Tuple
 
 import hypothesis.strategies as st
 import torch
@@ -28,6 +29,8 @@ except Exception:
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
     open_source = False
+
+typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
 
 
 @unittest.skipIf(*gpu_unavailable)
@@ -153,6 +156,32 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
             torch.testing.assert_close(
                 cuda_output.cpu(), torch.stack(inputs).sum(dim=0)
             )
+
+    @unittest.skipIf(*typed_gpu_unavailable)
+    def test_merge_pooled_embeddings_meta(self) -> None:
+        """
+        Test that merge_pooled_embeddings works with meta tensor and
+        dynamo export mode
+        """
+        uncat_size = 2
+        cat_dim = 1
+        pooled_embeddings = [torch.ones(uncat_size, 4), torch.ones(uncat_size, 8)]
+
+        def fbgemm_merge_pooled_embeddings(device):
+            pooled_embeddings_device = [
+                pooled_embedding.to(device) for pooled_embedding in pooled_embeddings
+            ]
+            return torch.ops.fbgemm.merge_pooled_embeddings(
+                pooled_embeddings_device, uncat_size, device, cat_dim
+            )
+
+        output_cpu = fbgemm_merge_pooled_embeddings(torch.device("cpu"))
+        output_meta = fbgemm_merge_pooled_embeddings(torch.device("meta"))
+
+        self.assertFalse(output_meta.is_cpu)
+        self.assertTrue(output_meta.is_meta)
+
+        assert output_meta.shape == output_cpu.shape
 
 
 if __name__ == "__main__":

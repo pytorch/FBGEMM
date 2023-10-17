@@ -12,13 +12,17 @@ import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
+import numpy as np
+
 import torch
+from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import (  # noqa: F401
     b_indices,
     generate_requests,  # noqa: F401
     get_device,  # noqa: F401
     round_up,  # noqa: F401
 )
+from torch import nn
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -195,6 +199,7 @@ def benchmark_requests(
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
+            # pyre-fixme[61]: `end_event` is undefined, or not always defined.
             it_time = start_event.elapsed_time(end_event) * 1.0e-3
             times.append(it_time)
         else:
@@ -285,6 +290,7 @@ def benchmark_requests_refer(
         if torch.cuda.is_available():
             end_event.record()
             torch.cuda.synchronize()
+            # pyre-fixme[61]: `end_event` is undefined, or not always defined.
             it_time = start_event.elapsed_time(end_event) * 1.0e-3
             times.append(it_time)
         else:
@@ -453,3 +459,34 @@ def benchmark_vbe(
     return VBEBenchmarkOutput(
         avg, fwd, bwd, compressed_avg, compressed_fwd, reindex, compressed_bwd
     )
+
+
+def fill_random_scale_bias(
+    emb: nn.Module,
+    T: int,
+    weights_precision: SparseType,
+) -> None:
+    for t in range(T):
+        (weights, scale_shift) = emb.split_embedding_weights()[t]
+        if scale_shift is not None:
+            (E, R) = scale_shift.shape
+            assert R == 4
+            scales = None
+            shifts = None
+            if weights_precision == SparseType.INT8:
+                scales = np.random.uniform(0.001, 0.01, size=(E,)).astype(np.float16)
+                shifts = np.random.normal(-2, 2, size=(E,)).astype(np.float16)
+            elif weights_precision == SparseType.INT4:
+                scales = np.random.uniform(0.01, 0.1, size=(E,)).astype(np.float16)
+                shifts = np.random.normal(-2, 2, size=(E,)).astype(np.float16)
+            elif weights_precision == SparseType.INT2:
+                scales = np.random.uniform(0.1, 1, size=(E,)).astype(np.float16)
+                shifts = np.random.normal(-2, 2, size=(E,)).astype(np.float16)
+            scale_shift.copy_(
+                torch.tensor(
+                    np.stack([scales, shifts], axis=1)
+                    .astype(np.float16)
+                    .view(np.uint8),
+                    device=scale_shift.device,
+                )
+            )

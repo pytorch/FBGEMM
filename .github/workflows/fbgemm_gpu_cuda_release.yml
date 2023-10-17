@@ -6,7 +6,7 @@
 name: FBGEMM_GPU-CUDA Release Build
 
 on:
-  # PR Trigger (enabled only for debugging)
+  # PR Trigger (enabled for regression checks and debugging)
   #
   pull_request:
     branches:
@@ -21,6 +21,24 @@ on:
   # Manual Trigger
   #
   workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: Publish Artifact to PyPI
+        type: boolean
+        required: false
+        default: false
+      cuda_version:
+        description: CUDA Version to Use for PyPI Publishing
+        type: choice
+        required: false
+        options: [ "11.8.0", "12.1.1" ]
+        default: "12.1.1"
+      pytorch_channel:
+        description: PyTorch Package Channel
+        type: choice
+        required: false
+        options: [ "test", "release" ]
+        default: "test"
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -82,7 +100,7 @@ jobs:
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cuda ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cuda ${{ matrix.cuda-version }}
 
     - name: Install cuDNN
       run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
@@ -118,8 +136,6 @@ jobs:
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11" ]
         cuda-version: [ "11.8.0", "12.1.1" ]
-        # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "11.8.0" ]
     needs: build_artifact
 
     steps:
@@ -152,20 +168,20 @@ jobs:
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV test cuda ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cuda ${{ matrix.cuda-version }}
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Install FBGEMM_GPU
-      run: . $PRELUDE; install_fbgemm_gpu_package $BUILD_ENV *.whl
+      run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 10
+      timeout-minutes: 15
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV
 
     - name: Push FBGEMM_GPU Binary to PYPI
-      if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && matrix.cuda-version == matrix.cuda-version-publish }}
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == github.event.inputs.cuda_version }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu-*.whl "$PYPI_TOKEN"

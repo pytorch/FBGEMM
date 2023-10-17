@@ -14,14 +14,14 @@ namespace fbgemm_gpu {
 
 template <typename index_t, typename offset_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_index_add_2d_kernel(
-    scalar_t* output,
-    const scalar_t* values,
-    const offset_t* input_offsets,
-    const index_t* indices,
-    const offset_t* output_offsets,
-    const int64_t num_input_rows,
-    const int64_t num_dense_input_rows,
-    const int64_t num_cols) {
+    at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> output,
+    const at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> values,
+    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+        input_offsets,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+        output_offsets,
+    const int64_t num_dense_input_rows) {
   __shared__ int smem[1];
   for (offset_t dense_input_offset = blockIdx.x;
        dense_input_offset < num_dense_input_rows;
@@ -29,8 +29,9 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_index_add_2d_kernel(
     // Binary search
     // TODO: use multiple threads to do bin search to reduce number of steps
     if (threadIdx.x == 0) {
+      const auto num_input_rows = indices.size(0);
       binary_search_range(
-          smem, input_offsets, dense_input_offset, num_input_rows);
+          smem, &input_offsets[0], dense_input_offset, num_input_rows);
     }
     __syncthreads();
 
@@ -46,14 +47,11 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_index_add_2d_kernel(
     const offset_t output_offset =
         (index == 0 ? 0 : output_offsets[index - 1]) + rel_index;
 
-    // Shift buffers
-    const scalar_t* values_ = values + dense_input_offset * num_cols;
-    scalar_t* output_ = output + output_offset * num_cols;
-
     // TODO: Avoid using atoimcAdd (because it could lead to the numerical
     // indeterminism issue)
+    const auto num_cols = output.size(1);
     for (int i = threadIdx.x; i < num_cols; i += blockDim.x) {
-      gpuAtomicAdd(&output_[i], values_[i]);
+      gpuAtomicAdd(&output[output_offset][i], values[dense_input_offset][i]);
     }
   }
 }
@@ -85,7 +83,6 @@ Tensor jagged_index_add_2d_forward_cuda(
   device_guard.set_index(values.get_device());
 
   auto num_cols = values.size(1);
-  const int64_t num_input_rows = indices.numel();
 
   const int64_t max_num_blocks = 1024; // Arbitrarily set to this number of now
   const int64_t max_num_threads = kMaxThreads;
@@ -94,6 +91,9 @@ Tensor jagged_index_add_2d_forward_cuda(
   Tensor output = at::zeros({num_output_rows, num_cols}, values.options());
 
   if (num_blocks > 0) {
+    // input_offsets has to be contiguous since it is passed to
+    // binary_search_range which accepts raw pointers
+    const auto input_offsets_contig = input_offsets.expect_contiguous();
     AT_DISPATCH_ALL_TYPES_AND2(
         at::ScalarType::Half,
         at::ScalarType::BFloat16,
@@ -109,14 +109,23 @@ Tensor jagged_index_add_2d_forward_cuda(
                     dim3(num_cols),
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
-                    output.data_ptr<scalar_t>(),
-                    values.data_ptr<scalar_t>(),
-                    input_offsets.data_ptr<int64_t>(),
-                    indices.data_ptr<index_t>(),
-                    output_offsets.data_ptr<int64_t>(),
-                    num_input_rows,
-                    num_dense_input_rows,
-                    num_cols);
+                    output.packed_accessor64<
+                        scalar_t,
+                        2,
+                        at::RestrictPtrTraits>(),
+                    values.packed_accessor64<
+                        scalar_t,
+                        2,
+                        at::RestrictPtrTraits>(),
+                    input_offsets_contig->packed_accessor32<
+                        int64_t,
+                        1,
+                        at::RestrictPtrTraits>(),
+                    indices
+                        .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                    output_offsets
+                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                    num_dense_input_rows);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });

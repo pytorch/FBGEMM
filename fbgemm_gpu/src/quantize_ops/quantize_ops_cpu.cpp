@@ -446,7 +446,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "MSFPQuantizedToFloat(Tensor input, int ebits, int mbits, int bias) -> Tensor");
   m.def(
-      "PaddedFP8RowwiseQuantizedToFloat(Tensor input, bool forward, int row_dim, int output_last_dim=-1) -> Tensor");
+      "PaddedFP8RowwiseQuantizedToFloat(Tensor input, bool forward, int row_dim, int output_last_dim=-1, int output_dtype=0) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

@@ -13,12 +13,9 @@
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 
 namespace fbgemm_gpu {
 
@@ -370,7 +367,7 @@ void jagged_dense_elementwise_jagged_output_(
 at::Tensor jagged_to_padded_dense_forward(
     const Tensor& values,
     const std::vector<Tensor>& offsets,
-    const at::ArrayRef<at::SymInt>& max_lengths,
+    c10::SymIntArrayRef max_lengths,
     const double padding_value) {
   const size_t num_jagged_dim = offsets.size();
   TORCH_CHECK(
@@ -428,7 +425,7 @@ at::Tensor jagged_to_padded_dense_forward(
 at::Tensor jagged_to_padded_dense_backward(
     const Tensor& grad_output,
     const std::vector<Tensor>& offsets,
-    const at::SymInt& total_L) {
+    const at::SymInt total_L) {
   auto grad_padded_values = grad_output;
 
   // Canonicalize padded_values by unsqueeze the last dim if the inner dense
@@ -463,7 +460,7 @@ at::Tensor jagged_to_padded_dense_backward(
 Tensor dense_to_jagged_forward(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    const c10::optional<at::SymInt>& total_L) {
+    c10::optional<at::SymInt> total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
 
@@ -1151,6 +1148,13 @@ void jagged_index_add_2d_kernel(
   const auto num_cols = input.size(1);
   // Allocate one lock per row
   std::atomic_flag* locks = new std::atomic_flag[output.size(0)];
+  // Initialize all locks since before c++20 std::atomic_flag is initialized to
+  // an unspecified state.
+  // https://en.cppreference.com/w/cpp/atomic/atomic_flag/atomic_flag
+  for (auto i = 0; i < output.size(0); i++) {
+    locks[i].clear();
+  }
+
   at::parallel_for(0, num_dense_input_rows, 0, [&](int64_t start, int64_t end) {
     for (const auto dense_input_offset : c10::irange(start, end)) {
       int index_pos;
@@ -1235,11 +1239,7 @@ void jagged_softmax_kernel(
     const int64_t max_L) {
   const int B = offsets.size(0) - 1;
   const int D = values.size(1);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1276,10 +1276,6 @@ Tensor jagged_softmax_forward(
   const int D = values.size(1);
   auto output = at::empty_like(values);
 
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && D > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_softmax_kernel_1", [&] {
@@ -1309,11 +1305,7 @@ void jagged_softmax_backward_kernel(
     const int64_t max_L) {
   const int B = offsets.size(0) - 1;
   const int D = grad_output.size(1);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1346,10 +1338,6 @@ Tensor jagged_softmax_backward(
   const int D = grad_output.size(1);
   auto grad_input = at::empty_like(grad_output);
 
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && D > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_backward_kernel_1", [&] {
@@ -1381,11 +1369,7 @@ void jagged_jagged_bmm_kernel(
   const int B = offsets.size(0) - 1;
   const int M = x_values.size(1);
   const int N = y_values.size(1);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = offsets[b];
     const int row_end = offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1413,11 +1397,6 @@ Tensor jagged_jagged_bmm_forward(
   const int M = x_values.size(-1);
   const int N = y_values.size(-1);
   auto output = at::zeros({B, M, N}, x_values.options());
-
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && M > 0 && N > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
@@ -1451,11 +1430,7 @@ void jagged_dense_bmm_kernel(
   const int B = x_offsets.size(0) - 1;
   const int K = x_values.size(1);
   const int N = y.size(2);
-
-#ifdef _OPENMP
-#pragma omp parallel for
-#endif
-  for (auto b = 0; b < B; b++) {
+  for (const auto b : c10::irange(B)) {
     const int row_start = x_offsets[b];
     const int row_end = x_offsets[b + 1];
     const int length = std::min(row_end - row_start, (int)max_L);
@@ -1484,11 +1459,6 @@ Tensor jagged_dense_bmm_forward(
   const int N = y.size(-1);
   const int total_L = x_values.size(0);
   auto output = at::zeros({total_L, N}, x_values.options());
-
-#ifdef _OPENMP
-  omp_set_num_threads(10);
-#endif
-
   if (B > 0 && M > 0 && N > 0) {
     AT_DISPATCH_INDEX_TYPES(
         x_offsets.scalar_type(), "jagged_dense_bmm_kernel_1", [&] {
