@@ -88,6 +88,22 @@ __configure_fbgemm_gpu_build_rocm () {
   echo "[BUILD] Setting the following ROCm targets: ${arch_list}"
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
+  ver=$(apt show rocm-libs | grep Version | grep -Po '(\d+\.\d+\.\d+)')
+  if [ "$ver" == "5.6.0" ]; then
+    print_exec conda env config vars set ${env_prefix} \
+    PATH="$PATH:/opt/rocm/llvm/bin:\
+    /opt/rocm/opencl/bin:\
+    /opt/rocm/hip/bin:\
+    /opt/rocm/hcc/bin:\
+    /opt/rocm/bin:\
+    /opt/conda/bin:\
+    /usr/local/sbin:\
+    /usr/local/bin:\
+    /usr/sbin:\
+    /usr/bin:\
+    /sbin:\
+    /bin"
+  fi
 
   echo "[BUILD] Setting ROCm build args ..."
   build_args=(
