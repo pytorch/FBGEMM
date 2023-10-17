@@ -57,6 +57,7 @@ prepare_fbgemm_gpu_build () {
 /sbin:\
 /bin"
   echo "==============$PATH"
+  fi
 
   echo "[BUILD] Installing other build dependencies ..."
   # shellcheck disable=SC2086
