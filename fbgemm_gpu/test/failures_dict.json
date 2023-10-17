@@ -23,6 +23,7 @@
         "status": "xfail"
       }
     },
+    "fbgemm::batched_dense_vec_jagged_2d_mul": {},
     "fbgemm::block_bucketize_sparse_features": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features": {
         "comment": "",
@@ -99,6 +100,70 @@
         "status": "xfail"
       },
       "SparseOpsTest.test_faketensor__test_cat_reorder_batched_ad_indices_cpu": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::dense_to_jagged": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_dense_to_jagged": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_dense_to_jagged_meta_backend": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_dense_to_jagged_opt": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_dense_to_jagged_opt_large_batch": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged_meta_backend": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged_opt": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged_opt_large_batch": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_dense_to_jagged": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_dense_to_jagged_meta_backend": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_dense_to_jagged_opt": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_dense_to_jagged_opt_large_batch": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::expand_into_jagged_permute": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_expand_into_jagged_permute": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_expand_into_jagged_permute": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_expand_into_jagged_permute": {
         "comment": "",
         "status": "xfail"
       }
@@ -181,7 +246,251 @@
         "status": "xfail"
       }
     },
-    "fbgemm::offsets_range": {},
+    "fbgemm::jagged_1d_to_dense": {},
+    "fbgemm::jagged_1d_to_truncated_values": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_1d_to_truncated_values": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_1d_to_truncated_values": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_1d_to_truncated_values": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::jagged_2d_to_dense": {},
+    "fbgemm::jagged_dense_bmm": {},
+    "fbgemm::jagged_dense_dense_elementwise_add_jagged_output": {},
+    "fbgemm::jagged_dense_elementwise_add": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_elementwise_binary": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_autograd_registration__test_jagged_elementwise_binary": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::jagged_dense_elementwise_add_jagged_output": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary_opt": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_elementwise_binary": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_elementwise_binary_opt": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_autograd_registration__test_jagged_elementwise_binary": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_autograd_registration__test_jagged_elementwise_binary_opt": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_elementwise_binary": {
+        "comment": "This is a real failure, it just doesn't fail under all situations",
+        "status": "skip"
+      }
+    },
+    "fbgemm::jagged_dense_elementwise_mul": {},
+    "fbgemm::jagged_hash_size_cumsum": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_unique_indices": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_unique_indices": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::jagged_index_select": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_index_select_2d": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_index_select_2d_in_inference": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_index_select_2d": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_index_select_2d_in_inference": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_keyed_jagged_index_select_dim1": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_index_select_2d": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_index_select_2d_in_inference": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::jagged_jagged_bmm": {},
+    "fbgemm::jagged_slice": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_slice": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_slice": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_slice": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::jagged_softmax": {},
+    "fbgemm::jagged_to_padded_dense": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_to_padded_dense": {
+        "comment": "seems nondeterministic, but error is real",
+        "status": "skip"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_to_padded_dense": {
+        "comment": "seems nondeterministic but error is real",
+        "status": "skip"
+      }
+    },
+    "fbgemm::jagged_unique_indices": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_unique_indices": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_unique_indices_empty": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_unique_indices_multi_keys": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices_empty": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices_multi_keys": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_unique_indices": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_unique_indices_empty": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_jagged_unique_indices_multi_keys": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::keyed_jagged_index_select_dim1": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_keyed_jagged_index_select_dim1": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_autograd_registration__test_keyed_jagged_index_select_dim1": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::masked_select_jagged_1d": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_masked_select_jagged_1d": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_masked_select_jagged_1d": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_masked_select_jagged_1d": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::offsets_range": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_1d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_2d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_2d_to_dense_truncation": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_1d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_2d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_2d_to_dense_truncation": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_stacked_jagged_2d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
     "fbgemm::pack_segments": {},
     "fbgemm::permute102_baddbmm_permute102": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_permute102_baddbmm_permute102": {
@@ -369,6 +678,38 @@
         "status": "xfail"
       },
       "SparseOpsTest.test_faketensor__test_segment_sum_csr": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::stacked_jagged_1d_to_dense": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_1d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_stacked_jagged_1d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_stacked_jagged_1d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::stacked_jagged_2d_to_dense": {
+      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_aot_dispatch_static__test_stacked_jagged_2d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_autograd_registration__test_stacked_jagged_2d_to_dense": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "JaggedTensorOpsTest.test_faketensor__test_stacked_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
       }
