@@ -104,7 +104,7 @@ __configure_fbgemm_gpu_build_rocm () {
 /bin"
     echo $new_path
     print_exec conda env config vars set ${env_prefix} PATH="$new_path"
-    (exec_with_retries 3 conda run ${env_prefix} echo $PATH || return 1
+    (exec_with_retries 3 conda run ${env_prefix} echo $PATH) || return 1
   fi
 
   echo "[BUILD] Setting ROCm build args ..."
