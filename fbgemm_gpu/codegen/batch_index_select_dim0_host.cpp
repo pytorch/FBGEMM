@@ -259,10 +259,6 @@ Tensor batch_index_select_dim0_gpu(
   // Transfer helper tensors to GPU
   const auto device = inputs.device();
   constexpr bool non_blocking = true;
-  D_offsets = D_offsets.to(device, non_blocking);
-  input_offsets = input_offsets.to(device, non_blocking);
-  input_row_offsets = input_row_offsets.to(device, non_blocking);
-  total_L_offsets = total_L_offsets.to(device, non_blocking);
 
   int64_t output_size;
   Tensor output_offsets;
@@ -278,6 +274,11 @@ Tensor batch_index_select_dim0_gpu(
     output_size = output_offsets[-1].item<int64_t>();
     output_offsets = output_offsets.to(device, non_blocking);
   }
+
+  D_offsets = D_offsets.to(device, non_blocking);
+  input_offsets = input_offsets.to(device, non_blocking);
+  input_row_offsets = input_row_offsets.to(device, non_blocking);
+  total_L_offsets = total_L_offsets.to(device, non_blocking);
 
   const auto sparse_type = fbgemm_gpu::getSparseType(inputs.scalar_type());
   TORCH_CHECK(
