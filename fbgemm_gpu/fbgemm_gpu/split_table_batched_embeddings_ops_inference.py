@@ -1192,9 +1192,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     ),
                 ]
                 if (
-                    weight_ty == SparseType.INT8
-                    or weight_ty == SparseType.INT4
-                    or weight_ty == SparseType.INT2
+                    weight_ty.value == SparseType.INT8.value
+                    or weight_ty.value == SparseType.INT4.value
+                    or weight_ty.value == SparseType.INT2.value
                 ):
                     if split_scale_bias_mode == 1:
                         splits.append(
@@ -1220,9 +1220,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                             )
                         )
                 elif (
-                    weight_ty == SparseType.FP8
-                    or weight_ty == SparseType.FP16
-                    or weight_ty == SparseType.FP32
+                    weight_ty.value == SparseType.FP8.value
+                    or weight_ty.value == SparseType.FP16.value
+                    or weight_ty.value == SparseType.FP32.value
                 ):
                     splits.append(
                         (
