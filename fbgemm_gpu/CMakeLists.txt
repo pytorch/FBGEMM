@@ -675,7 +675,9 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
       src/sparse_ops/sparse_zipf.cu
-      src/split_embeddings_cache/lfu_cache.cu
+      src/split_embeddings_cache/lfu_cache_find.cu
+      src/split_embeddings_cache/lfu_cache_populate.cu
+      src/split_embeddings_cache/lfu_cache_populate_byte.cu
       src/split_embeddings_cache/lru_cache_find.cu
       src/split_embeddings_cache/lru_cache_populate.cu
       src/split_embeddings_cache/lru_cache_populate_byte.cu
