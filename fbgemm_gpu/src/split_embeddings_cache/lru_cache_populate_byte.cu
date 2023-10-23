@@ -63,7 +63,7 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lru_cache_find_uncached_kernel
       cache_sets[n] = -1; // sentinel value
     } else {
       // There is no atomicMax for int64_t...
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
       auto addr = reinterpret_cast<unsigned long long*>(
           &lxu_cache_miss_timestamp[cache_set][0]);
       auto val = static_cast<unsigned long long>(time_stamp + 1);
