@@ -43,13 +43,16 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using Tensor = at::Tensor;
-using namespace fbgemm_gpu;
 
 namespace {
 
 constexpr size_t kCacheMaxThreads = 512;
 constexpr int32_t kCacheLocationMissing = -1;
 constexpr int64_t kCacheStateInvalid = -1;
+
+constexpr int32_t kCacheSetBits = 24;
+constexpr int32_t kLFUCounterBits = 40;
+static_assert(kCacheSetBits + kLFUCounterBits == 8 * sizeof(int64_t), "");
 
 // // TODO: do we care about 64-bit indices? Currently we just ignore.
 // __host__ DEVICE_INLINE uint32_t cache_slot(int32_t h_in, int32_t C) {
@@ -88,3 +91,20 @@ int get_max_thread_blocks_for_cache_kernels_() {
 }
 
 } // namespace
+
+namespace fbgemm_gpu {
+
+void lfu_update_counts_cuda(
+    Tensor unique_indices,
+    Tensor unique_indices_length,
+    Tensor unique_indices_count,
+    Tensor lfu_state);
+
+std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
+    Tensor unique_indices,
+    Tensor unique_indices_length,
+    int64_t max_indices,
+    Tensor lxu_cache_state,
+    Tensor lfu_state);
+
+} // namespace fbgemm_gpu
