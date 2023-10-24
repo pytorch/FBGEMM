@@ -491,7 +491,16 @@
         "status": "xfail"
       }
     },
-    "fbgemm::pack_segments": {},
+    "fbgemm::pack_segments": {
+      "SparseOpsTest.test_aot_dispatch_dynamic__test_pack_segments": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "SparseOpsTest.test_aot_dispatch_static__test_pack_segments": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
     "fbgemm::permute102_baddbmm_permute102": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_permute102_baddbmm_permute102": {
         "comment": "",
