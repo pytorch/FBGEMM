@@ -31,11 +31,11 @@
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
 #include <hipblas.h>
 #endif
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
 #define LDG(ptr) (*(ptr))
 #else
 #define LDG(ptr) (__ldg(ptr))

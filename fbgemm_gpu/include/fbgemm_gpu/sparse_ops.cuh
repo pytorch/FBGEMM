@@ -8,7 +8,7 @@
 
 #pragma once
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
 #define HIPCUB_ARCH 1
 #endif
 

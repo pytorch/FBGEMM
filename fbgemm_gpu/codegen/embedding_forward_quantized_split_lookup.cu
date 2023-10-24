@@ -53,7 +53,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
 
   const uint32_t subwarp_id = threadIdx.x / 4;
   const uint32_t subwarp_tid = threadIdx.x % 4;
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
   const uint64_t subwarp_mask = static_cast<uint64_t>(0xF) << (4 * subwarp_id);
 #else
   const uint32_t subwarp_mask = static_cast<uint32_t>(0xF) << (4 * subwarp_id);

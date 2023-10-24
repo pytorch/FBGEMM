@@ -14,7 +14,7 @@
 
 #include "fbgemm_gpu/topology_utils.h"
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
 #include "hip/hip_runtime.h"
 #include "rocm_smi/rocm_smi.h"
 
@@ -184,4 +184,4 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
 }
 } // namespace fbgemm_gpu
 
-#endif // __HIP_PLATFORM_HCC__
+#endif // USE_ROCM

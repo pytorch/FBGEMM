@@ -280,7 +280,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
     n_indices++;
     const bool found =
         (::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx);
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
     // FIXME: __ballot_sync with mask isn't supported by HIP yet.
     // See https://fburl.com/fvy7j0lq for the similar context.
     // assert false here with https://fburl.com/pfm7enw2

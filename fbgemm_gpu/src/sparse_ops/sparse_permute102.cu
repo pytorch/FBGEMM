@@ -15,7 +15,7 @@
     https://www.reddit.com/r/LocalLLaMA/comments/162j9uj/the_final_guide_for_rocm_users/
     https://rocm.docs.amd.com/projects/HIPIFY/en/latest/tables/CUBLAS_API_supported_by_HIP.html
 */
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
 #define rocblas_set_stream hipblasSetStream
 #define rocblas_status_success HIPBLAS_STATUS_SUCCESS
 #endif
@@ -63,7 +63,7 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
   // C (m, b, n) = A (m, b, k) * B (b, k, n) ---> row major
   // C (m, b, n) = (B^T (b, k, n) * A^T (m, b, k))^T ---> column major
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
   float alpha = 1.0f;
   float beta = 1.0f;
 

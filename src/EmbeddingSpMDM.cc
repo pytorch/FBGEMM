@@ -1594,7 +1594,7 @@ void compressed_indices_remap(
 #ifndef NO_AVX512
   const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
-#ifndef __HIP_PLATFORM_HCC__
+#ifndef USE_ROCM
     if (weights == nullptr) {
       internal::compressed_indices_remap_avx512<IndexType, false>(
           offsets_len,
@@ -1618,7 +1618,7 @@ void compressed_indices_remap(
           out_weights);
       return;
     }
-#endif // __HIP_PLATFORM_HCC__
+#endif // USE_ROCM
   }
 #endif // NO_AVX512
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64

@@ -64,7 +64,7 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
   const int output_columns = ncols_aligned + 2 * sizeof(float);
 
   // starting values for future reductions
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
 #define HIPRT_INF_F __int_as_float(0x7f800000)
   float minimum_element = HIPRT_INF_F;
   float maximum_element = -HIPRT_INF_F;
