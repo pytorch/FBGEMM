@@ -225,7 +225,7 @@ IF(HIP_FOUND)
 
   set(CMAKE_HCC_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
   set(CMAKE_HCC_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
-  FIND_LIBRARY(FBGEMM_HIP_HCC_LIBRARIES ${hip_library_name} HINTS ${HIP_PATH}/lib)
+  FIND_LIBRARY(FBGEMM_HIP_LIBRARIES ${hip_library_name} HINTS ${HIP_PATH}/lib)
 
   list(APPEND HIP_CXX_FLAGS -D__HIP_NO_HALF_OPERATORS__=1)
   # list(APPEND HIP_CXX_FLAGS -D__HIP_NO_HALF_CONVERSIONS__=1)
@@ -237,13 +237,13 @@ IF(HIP_FOUND)
   list(APPEND HIP_CXX_FLAGS -mfma)
   list(APPEND HIP_CXX_FLAGS -std=c++17)
 
-  set(HIP_HCC_FLAGS ${HIP_CXX_FLAGS})
+  set(HIP_CLANG_FLAGS ${HIP_CXX_FLAGS})
   # Ask hcc to generate device code during compilation so we can use
   # host linker to link.
-  list(APPEND HIP_HCC_FLAGS -fno-gpu-rdc)
-  list(APPEND HIP_HCC_FLAGS -Wno-defaulted-function-deleted)
+  list(APPEND HIP_CLANG_FLAGS -fno-gpu-rdc)
+  list(APPEND HIP_CLANG_FLAGS -Wno-defaulted-function-deleted)
   foreach(fbgemm_rocm_arch ${FBGEMM_ROCM_ARCH})
-    list(APPEND HIP_HCC_FLAGS --offload-arch=${fbgemm_rocm_arch})
+    list(APPEND HIP_CLANG_FLAGS --offload-arch=${fbgemm_rocm_arch})
   endforeach()
 
   set(FBGEMM_HIP_INCLUDE ${ROCM_PATH}/include ${FBGEMM_HIP_INCLUDE})

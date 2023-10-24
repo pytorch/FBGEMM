@@ -136,7 +136,7 @@ if(USE_ROCM)
   include(Hip)
   include(Hipify)
 
-  list(APPEND HIP_HCC_FLAGS
+  list(APPEND HIP_CLANG_FLAGS
     " \"-Wno-#pragma-messages\" "
     " \"-Wno-#warnings\" "
     -Wno-cuda-compat
@@ -149,7 +149,7 @@ if(USE_ROCM)
     "HIP found: ${HIP_FOUND}"
     "HIPCC compiler flags:"
     ""
-    "${HIP_HCC_FLAGS}"
+    "${HIP_CLANG_FLAGS}"
   )
 endif()
 
@@ -749,9 +749,9 @@ if(USE_ROCM)
   hip_add_library(fbgemm_gpu_py SHARED
     ${asmjit_sources}
     ${fbgemm_gpu_sources_hip}
-    ${FBGEMM_HIP_HCC_LIBRARIES}
+    ${FBGEMM_HIP_LIBRARIES}
     HIPCC_OPTIONS
-    ${HIP_HCC_FLAGS})
+    ${HIP_CLANG_FLAGS})
 
   target_include_directories(fbgemm_gpu_py PUBLIC
     ${FBGEMM_HIP_INCLUDE}
