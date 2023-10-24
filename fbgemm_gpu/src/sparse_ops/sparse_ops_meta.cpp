@@ -81,6 +81,21 @@ Tensor asynchronous_inclusive_cumsum_meta(const Tensor& t_in) {
   return at::empty_symint(t_in.sym_sizes(), t_in.options());
 }
 
+torch::autograd::variable_list group_index_select_dim0_meta(
+    const at::TensorList& input_group,
+    const at::TensorList& indices_group) {
+  int num_groups = input_group.size();
+  TORCH_CHECK(num_groups == (int)indices_group.size())
+  std::vector<Tensor> output_group;
+  for (const auto i : c10::irange(num_groups)) {
+    auto output_size = input_group[i].sym_sizes().vec();
+    output_size[0] = indices_group[i].sym_size(0);
+    output_group.push_back(at::zeros_symint(
+        c10::SymIntArrayRef(output_size), input_group[i].options()));
+  }
+  return output_group;
+}
+
 } // namespace
 
 } // namespace fbgemm_gpu
@@ -103,4 +118,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "batched_unary_embeddings",
       TORCH_FN(fbgemm_gpu::batched_unary_embeddings_forward_meta));
+  m.impl(
+      "group_index_select_dim0",
+      TORCH_FN(fbgemm_gpu::group_index_select_dim0_meta));
 }
