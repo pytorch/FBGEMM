@@ -92,9 +92,10 @@ permute_2D_sparse_data_cuda(
     // When T = 0 or B = 0, permutation will not be performed.  Return the
     // input tensors.
     return {
-        lengths,
-        indices,
-        weights,
+        lengths.clone(),
+        indices.clone(),
+        weights.has_value() ? c10::make_optional(weights->clone())
+                            : c10::nullopt,
     };
   }
 

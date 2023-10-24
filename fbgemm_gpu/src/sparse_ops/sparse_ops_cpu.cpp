@@ -2686,6 +2686,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
       "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+  m.impl_abstract_pystub(
+      "permute_2D_sparse_data",
+      "fbgemm_gpu.operators",
+      "//deeplearning/fbgemm/fbgemm_gpu:operators");
   m.def(
       "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, int? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def("invert_permute(Tensor permute) -> Tensor");
