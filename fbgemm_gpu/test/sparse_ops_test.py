@@ -2415,37 +2415,11 @@ additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],
     "test_autograd_registration__test_index_select_dim0": [unittest.skip("hangs")],
     "test_schema__test_index_select_dim0": [unittest.skip("hangs")],
-    "test_aot_dispatch_dynamic__test_pack_segments": [
-        unittest.skip("ASAN heap buffer overflow")
-    ],
-    "test_aot_dispatch_static__test_pack_segments": [
-        unittest.skip("ASAN heap buffer overflow")
-    ],
-    "test_faketensor__test_pack_segments": [unittest.skip("ASAN heap buffer overflow")],
-    "test_autograd_registration__test_pack_segments": [
-        unittest.skip("ASAN heap buffer overflow")
-    ],
-    "test_schema__test_pack_segments": [unittest.skip("ASAN heap buffer overflow")],
     "test_aot_dispatch_static__test_group_index_select_dim0": [
         unittest.skip("CUDA memory error")
     ],
     "test_aot_dispatch_dynamic__test_group_index_select_dim0": [
         unittest.skip("CUDA memory error")
-    ],
-    "test_aot_dispatch_dynamic__test_pack_segments_smaller_max_len": [
-        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
-    ],
-    "test_aot_dispatch_static__test_pack_segments_smaller_max_len": [
-        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
-    ],
-    "test_faketensor__test_pack_segments_smaller_max_len": [
-        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
-    ],
-    "test_autograd_registration__test_pack_segments_smaller_max_len": [
-        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
-    ],
-    "test_schema__test_pack_segments_smaller_max_len": [
-        unittest.skip("RuntimeError: opcheck can only test operators without overloads")
     ],
 }
 
