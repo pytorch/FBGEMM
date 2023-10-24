@@ -9,7 +9,7 @@
 #include <ATen/TensorIterator.h>
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
-#ifndef __HIP_PLATFORM_HCC__
+#ifndef USE_ROCM
 #include <math_constants.h>
 #endif
 
