@@ -398,7 +398,7 @@ class {{ autograd_func }} :
 
     TORCH_CHECK_EQ(grad_outputs.size(), 1);
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
     constexpr int32_t BT_block_size = 64;
     constexpr int32_t max_segment_length_per_warp = 64;
 #else

@@ -21,7 +21,7 @@
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
 #include <rocm_version.h>
 #endif
 

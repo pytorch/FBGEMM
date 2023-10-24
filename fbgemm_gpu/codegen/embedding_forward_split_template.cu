@@ -78,7 +78,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
 {%- endif %}
 
 {% if not dense %}
-#ifndef __HIP_PLATFORM_HCC__
+#ifndef USE_ROCM
 // Support only the split-pooled TBE case
 template <
     typename emb_t,
@@ -647,7 +647,7 @@ batch_index_select_dim0_codegen_forward_cuda(
         // if (!is_experimental)
         } else {
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef USE_ROCM
             TORCH_CHECK(false, "is_experimental=True is not supported in ROCm");
 #else
             // Allocate num warps per table based on max_D
