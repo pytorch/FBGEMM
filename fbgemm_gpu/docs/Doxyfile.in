@@ -921,7 +921,7 @@ INPUT                  = "../include/fbgemm_gpu" \
                          "../include/fbgemm_gpu/sparse_ops.h" \
                          "../fbgemm_gpu/src/quantize_ops.cu" \
                          "../src/quantize_ops_cpu.cpp" \
-                         "../src/split_table_batched_embeddings.cpp" \
+                         "../src/split_embeddings_cache/split_embeddings_cache_ops.cpp" \
                          "../src/jagged_tensor_ops.cu" \
                          "../src/jagged_tensor_ops_cpu.cpp" \
                          "../src/cumem_utils.h" \
