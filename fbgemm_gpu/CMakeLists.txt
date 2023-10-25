@@ -588,7 +588,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils.cpp
-    src/split_table_batched_embeddings.cpp
+    src/split_embeddings_cache/split_embeddings_cache_ops.cpp
     src/metric_ops_host.cpp
     src/embedding_inplace_update_gpu.cpp
     src/input_combine_gpu.cpp
