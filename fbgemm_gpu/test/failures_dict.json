@@ -516,15 +516,7 @@
       }
     },
     "fbgemm::permute_1D_sparse_data": {
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_permute_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_aot_dispatch_static__test_permute_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_faketensor__test_permute_indices": {
         "comment": "",
         "status": "xfail"
       },
