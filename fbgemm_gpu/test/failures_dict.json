@@ -154,20 +154,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::expand_into_jagged_permute": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_expand_into_jagged_permute": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_expand_into_jagged_permute": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_faketensor__test_expand_into_jagged_permute": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::expand_into_jagged_permute": {},
     "fbgemm::generic_histogram_binning_calibration_by_feature": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_generic_histogram_binning_calibration_by_feature": {
         "comment": "",
