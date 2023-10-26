@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "common.h"
+
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh"
 #include <cub/device/device_radix_sort.cuh>
@@ -17,10 +19,6 @@
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
-#include <ATen/ATen.h>
-#include <ATen/AccumulateType.h>
-#include <ATen/TensorUtils.h>
-#include <ATen/core/TensorAccessor.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/cuda/detail/KernelUtils.h>
@@ -30,15 +28,7 @@
 #include <curand_kernel.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
-#include <limits>
-#include <mutex>
-
-#include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
-#include "fbgemm_gpu/ops_utils.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 

@@ -574,6 +574,11 @@ set(fbgemm_gpu_sources_static_cpu
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     src/embedding_inplace_update_cpu.cpp
+    src/split_embeddings_cache/linearize_cache_indices.cpp
+    src/split_embeddings_cache/lfu_cache_populate_byte.cpp
+    src/split_embeddings_cache/lru_cache_populate_byte.cpp
+    src/split_embeddings_cache/lxu_cache.cpp
+    src/split_embeddings_cache/split_embeddings_cache_ops.cpp
     codegen/batch_index_select_dim0_cpu_host.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
@@ -588,7 +593,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils.cpp
-    src/split_embeddings_cache/split_embeddings_cache_ops.cpp
+    src/split_embeddings_cache/split_embeddings_cache_ops.cu
     src/metric_ops_host.cpp
     src/embedding_inplace_update_gpu.cpp
     src/input_combine_gpu.cpp
