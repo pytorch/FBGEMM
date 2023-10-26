@@ -13,7 +13,7 @@ import pickle
 import random
 import unittest
 from itertools import accumulate
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import fbgemm_gpu
 import hypothesis.strategies as st
@@ -73,11 +73,19 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
+    from test_utils import (
+        gpu_available,
+        gpu_unavailable,
+        gradcheck,
+        optests,
+        TEST_WITH_ROCM,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_unavailable,
+        gradcheck,
+        optests,
         TEST_WITH_ROCM,
     )
 
@@ -86,6 +94,10 @@ MAX_EXAMPLES = 40
 
 # For long running tests reduce the number of iterations to reduce timeout errors.
 MAX_EXAMPLES_LONG_RUNNING = 15
+
+
+settings.register_profile("derandomize", derandomize=True)
+settings.load_profile("derandomize")
 
 
 @composite
@@ -144,6 +156,29 @@ def format_ref_tensors_in_mixed_B_layout(
     return torch.cat(concat_list, dim=0)
 
 
+# pyre-ignore
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_schema__test_backward_none_with_rowwise_adagrad": [
+        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
+    ],
+    "test_faketensor__test_backward_none_with_rowwise_adagrad": [
+        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
+    ],
+    "test_autograd_registration__test_backward_none_with_rowwise_adagrad": [
+        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
+    ],
+    "test_faketensor__test_cache_prefetch_pipeline_stream_2": [unittest.skip("OOM")],
+    "test_faketensor__test_cache_prefetch_pipeline": [unittest.skip("OOM")],
+    "test_faketensor__test_cache_prefetch_pipeline_stream_1": [
+        unittest.skip("IMA on exit")
+    ],
+    "test_faketensor__test_cache_pipeline": [
+        unittest.skip("OOM when run serially"),
+    ],
+}
+
+
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def execute_forward_(  # noqa C901
         self,
@@ -1497,7 +1532,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         offsets.requires_grad = False
         for param in cc.parameters():
             param.requires_grad = False
-        torch.autograd.gradcheck(
+        gradcheck(
             cc, (indices, offsets, per_sample_weights), eps=1e-2, atol=1e-3, rtol=1e-3
         )
 
@@ -2527,7 +2562,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         offsets.requires_grad = False
         for param in cc.parameters():
             param.requires_grad = False
-        torch.autograd.gradcheck(
+        gradcheck(
             cc,
             (
                 indices,
@@ -3956,6 +3991,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skip(
+        "is flaky, see https://www.internalfb.com/intern/test/281475047227145?ref_report_id=0"
+    )
     def test_backward_optimizers_adam(  # noqa C901
         self,
         T: int,

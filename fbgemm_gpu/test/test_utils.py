@@ -223,6 +223,7 @@ class optests:
     def generate_opcheck_tests(
         test_class: Optional[unittest.TestCase] = None,
         *,
+        fast: bool = False,
         # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
         additional_decorators: Optional[Dict[str, Callable]] = None,
     ):
@@ -236,22 +237,31 @@ class optests:
             from torch._utils_internal import get_file_path_2
 
             filename = inspect.getfile(test_class)
+            failures_dict_name = "failures_dict.json"
+            if fast:
+                failures_dict_name = "failures_dict_fast.json"
             failures_dict_path = get_file_path_2(
-                "", os.path.dirname(filename), "failures_dict.json"
+                "", os.path.dirname(filename), failures_dict_name
             )
+            tests_to_run = [
+                "test_schema",
+                "test_autograd_registration",
+                "test_faketensor",
+            ]
+            if not fast:
+                tests_to_run.extend(
+                    [
+                        "test_aot_dispatch_static",
+                        "test_aot_dispatch_dynamic",
+                    ]
+                )
             optests.generate_opcheck_tests(
                 test_class,
                 ["fb", "fbgemm"],
                 failures_dict_path,
                 # pyre-ignore[6]
                 additional_decorators,
-                [
-                    "test_schema",
-                    "test_autograd_registration",
-                    "test_faketensor",
-                    "test_aot_dispatch_static",
-                    "test_aot_dispatch_dynamic",
-                ],
+                tests_to_run,
             )
             return test_class
 
