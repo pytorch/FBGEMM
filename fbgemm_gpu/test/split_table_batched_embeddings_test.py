@@ -88,6 +88,10 @@ MAX_EXAMPLES = 40
 MAX_EXAMPLES_LONG_RUNNING = 15
 
 
+settings.register_profile("derandomize", derandomize=True)
+settings.load_profile("derandomize")
+
+
 @composite
 # pyre-ignore
 def get_nbit_weights_ty(draw) -> Optional[SparseType]:
