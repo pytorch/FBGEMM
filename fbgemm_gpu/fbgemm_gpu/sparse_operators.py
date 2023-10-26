@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -17,7 +17,20 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 
-@torch.library.impl_abstract("fbgemm::permute_2D_sparse_data")
+if hasattr(torch.library, "impl_abstract"):
+    impl_abstract = torch.library.impl_abstract
+else:
+    # pyre-ignore
+    def impl_abstract(schema: str) -> Callable[[Callable], Callable]:
+        # no-op
+        # pyre-ignore
+        def wrapper(f: Callable) -> Callable:
+            return f
+
+        return wrapper
+
+
+@impl_abstract("fbgemm::permute_2D_sparse_data")
 def permute_2D_sparse_data_meta(
     permute: Tensor,
     lengths: Tensor,
@@ -47,7 +60,7 @@ def permute_2D_sparse_data_meta(
     return permuted_lengths, permuted_indices, permuted_weights
 
 
-@torch.library.impl_abstract("fbgemm::permute_1D_sparse_data")
+@impl_abstract("fbgemm::permute_1D_sparse_data")
 def permute_1D_sparse_data_meta(
     permute: Tensor,
     lengths: Tensor,
@@ -73,7 +86,7 @@ def permute_1D_sparse_data_meta(
     return permuted_lengths, permuted_indices, permuted_weights
 
 
-@torch.library.impl_abstract("fbgemm::expand_into_jagged_permute")
+@impl_abstract("fbgemm::expand_into_jagged_permute")
 def expand_into_jagged_permute_meta(
     permute: Tensor,
     input_offsets: Tensor,
