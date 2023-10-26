@@ -71,3 +71,23 @@ def permute_1D_sparse_data_meta(
         # pyre-fixme
         permuted_weights = weights.new_empty(permuted_indices_size)
     return permuted_lengths, permuted_indices, permuted_weights
+
+
+@torch.library.impl_abstract("fbgemm::expand_into_jagged_permute")
+def expand_into_jagged_permute_meta(
+    permute: Tensor,
+    input_offsets: Tensor,
+    output_offsets: Tensor,
+    output_size: Tuple[int, ...],
+) -> Tensor:
+    torch._check(permute.numel() > 0, lambda: "expected {permute.numel} > 0")
+    torch._check(
+        permute.numel() == input_offsets.numel() - 1,
+        lambda: f"expected {permute.numel()} == {input_offsets.numel()} - 1",
+    )
+    torch._check(
+        permute.numel() == output_offsets.numel() - 1,
+        lambda: f"expected {permute.numel()} == {output_offsets.numel()} - 1",
+    )
+    output_permute = input_offsets.new_empty(output_size)
+    return output_permute
