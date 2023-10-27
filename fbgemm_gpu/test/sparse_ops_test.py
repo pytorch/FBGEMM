@@ -17,6 +17,8 @@ import unittest
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
+import fbgemm_gpu
+
 import hypothesis.strategies as st
 import numpy as np
 import torch
@@ -2424,7 +2426,11 @@ additional_decorators: Dict[str, List[Callable]] = {
 }
 
 # only generate tests on nightly pytorch (current release version is 2.1)
-if torch.__version__ >= "2.2.*":
+if (
+    torch.__version__ >= "2.2.*"
+    and hasattr(torch.library, "impl_abstract")
+    and not hasattr(fbgemm_gpu, "open_source")
+):
     generate_opcheck_tests(
         SparseOpsTest,
         ["fb", "fbgemm"],
