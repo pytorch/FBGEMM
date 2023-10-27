@@ -79,6 +79,8 @@ class PackMatrix {
   PackMatrix() = delete; // no default constructor
   PackMatrix(const PackMatrix&) = delete; // no copy
   PackMatrix& operator==(const PackMatrix&) = delete; // no copy
+  PackMatrix(PackMatrix&&) = delete; // no move
+  PackMatrix& operator==(PackMatrix&& rhs) noexcept = delete; //no move
 
   /**
    * @param rows total number of rows in the matrix
@@ -298,7 +300,7 @@ class PackMatrix {
   std::int32_t bcol_; ///< the number of columns in each block
   std::int32_t nbrow_; ///< the number of blocks along rows
   std::int32_t nbcol_; ///< the number of blocks along columns
-  bool bufAllocatedHere_;
+  bool bufAllocatedHere_{false};
   const BlockingFactors*
       blocking_params; ///< MCB, KCB, NCB, MR, NR, NR_MIN, ROW_INTERLEAVE;
 
@@ -509,6 +511,8 @@ class FBGEMM_API PackWeightMatrixForGConv {
   PackWeightMatrixForGConv() = delete; // no default constructor
   PackWeightMatrixForGConv(const PackWeightMatrixForGConv&) = delete; // no copy
   PackWeightMatrixForGConv& operator==(const PackWeightMatrixForGConv&) = delete; // no copy
+  PackWeightMatrixForGConv(PackWeightMatrixForGConv&&) = delete; // no move
+  PackWeightMatrixForGConv& operator==(PackWeightMatrixForGConv&&) = delete; // no move
 
   /**
    * @param pmat if nullptr, a buffer is allocated and owned by this class.
@@ -554,7 +558,7 @@ class FBGEMM_API PackWeightMatrixForGConv {
   const conv_param_t<SPATIAL_DIM> conv_param_;
   const T* sdata_;
   T* pdata_;
-  bool bufAllocatedHere_;
+  bool bufAllocatedHere_{false};
   // Number of groups we work at a time to fill the full simd width
   int GTogether_;
 
@@ -840,8 +844,8 @@ class FBGEMM_API PackAWithRowOffset final
   matrix_op_t trans_;
   const T* smat_;
   std::uint32_t ld_;
-  std::int32_t* row_offset_;
-  bool rowOffsetAllocatedHere;
+  std::int32_t* row_offset_{nullptr};
+  bool rowOffsetAllocatedHere{false};
   std::int32_t row_interleave_B_;
 };
 
@@ -934,8 +938,8 @@ class FBGEMM_API PackAWithQuantRowOffset final
   std::int32_t ld_;
   float scale_;
   std::int32_t zero_pt_;
-  std::int32_t* row_offset_;
-  bool rowOffsetAllocatedHere;
+  std::int32_t* row_offset_{nullptr};
+  bool rowOffsetAllocatedHere{false};
   std::int32_t row_interleave_B_;
 };
 
