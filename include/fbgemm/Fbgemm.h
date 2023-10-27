@@ -77,6 +77,8 @@ template <typename PT, typename inpType, typename accType = std::int32_t>
 class PackMatrix {
  public:
   PackMatrix() = delete; // no default constructor
+  PackMatrix(const PackMatrix&) = delete; // no copy
+  PackMatrix& operator==(const PackMatrix&) = delete; // no copy
 
   /**
    * @param rows total number of rows in the matrix
@@ -505,6 +507,8 @@ class FBGEMM_API PackWeightMatrixForGConv {
   using accType = accT;
 
   PackWeightMatrixForGConv() = delete; // no default constructor
+  PackWeightMatrixForGConv(const PackWeightMatrixForGConv&) = delete; // no copy
+  PackWeightMatrixForGConv& operator==(const PackWeightMatrixForGConv&) = delete; // no copy
 
   /**
    * @param pmat if nullptr, a buffer is allocated and owned by this class.
