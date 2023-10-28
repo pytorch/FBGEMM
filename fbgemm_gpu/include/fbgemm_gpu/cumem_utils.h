@@ -6,12 +6,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#pragma once
+
 #include <ATen/ATen.h>
-#include "fbgemm_gpu/enum_utils.h"
 
 namespace fbgemm_gpu {
 
-using namespace at;
+using Tensor = at::Tensor;
 
 ///@defgroup cumem-utils CUDA Memorty Operators
 ///
@@ -85,7 +86,5 @@ void uvm_mem_advice_dont_fork(const Tensor& t);
 /// Copy a contigious uvm Tensor (uvm_storage(t) is true) into a CPU Tensor
 /// The copy uses single threaded memcpy
 Tensor uvm_to_cpu_clone(const Tensor& t);
-
-FBGEMM_GPU_ENUM_CREATE_TAG(uvm)
 
 } // namespace fbgemm_gpu
