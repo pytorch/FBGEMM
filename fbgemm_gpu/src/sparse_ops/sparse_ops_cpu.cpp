@@ -17,6 +17,7 @@
 
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/csrc/autograd/custom_function.h>
+#include "c10/util/MaybeOwned.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -2542,17 +2543,20 @@ Tensor pack_segments_backward_cpu(
       max_length == data.sizes()[1],
       "max_length should be equal to the second dimension of the packed segments");
 
+  c10::MaybeOwned<Tensor> data_contig = data.expect_contiguous();
+  c10::MaybeOwned<Tensor> lengths_contig = lengths.expect_contiguous();
   Tensor unpacked_tensor; // The output tensor
 
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "unpack_segments_cpu", ([&]() {
-        const auto* const lengths_data = lengths.data_ptr<index_t>();
+        const auto* const lengths_data = lengths_contig->data_ptr<index_t>();
 
         // Create output tensor of appropriate dimensions
         auto shape = data.sizes().vec();
         shape.erase(shape.begin());
         shape[0] = total_length;
         unpacked_tensor = at::empty(shape, data.options());
+        TORCH_CHECK(unpacked_tensor.is_contiguous());
 
         if (!(data.sizes()[0] &&
               data.sizes()[1])) { // TODO: What does this mean?
@@ -2567,7 +2571,7 @@ Tensor pack_segments_backward_cpu(
               const auto sizes = data.sizes().slice(2, data.sizes().size() - 2);
               const auto block_size = c10::multiply_integers(sizes);
               const auto block_bytesize = data.itemsize() * block_size;
-              const auto* const data_ptr = data.data_ptr<scalar_t>();
+              const auto* const data_ptr = data_contig->data_ptr<scalar_t>();
               auto* const out_data = unpacked_tensor.data_ptr<scalar_t>();
 
               int64_t start = 0;
