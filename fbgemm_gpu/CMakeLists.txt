@@ -586,7 +586,8 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host.cpp
-    src/cumem_utils_host.cpp
+    src/memory_utils/memory_utils.cpp
+    src/memory_utils/memory_utils_ops.cpp
     src/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
@@ -628,7 +629,8 @@ if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu
       codegen/embedding_bounds_check.cu
       codegen/embedding_forward_quantized_split_lookup.cu
-      src/cumem_utils.cu
+      src/memory_utils/memory_utils.cu
+      src/memory_utils/memory_utils_ops.cu
       src/embedding_inplace_update.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine.cu

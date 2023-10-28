@@ -924,7 +924,7 @@ INPUT                  = "../include/fbgemm_gpu" \
                          "../src/split_embeddings_cache/split_embeddings_cache_ops.cpp" \
                          "../src/jagged_tensor_ops.cu" \
                          "../src/jagged_tensor_ops_cpu.cpp" \
-                         "../src/cumem_utils.h" \
+                         "../include/fbgemm_gpu/cumem_utils.h" \
                          "../include/fbgemm_gpu/input_combine.h" \
                          "../src/layout_transform_ops.cu" \
                          "../src/layout_transform_ops_cpu.cpp" \
