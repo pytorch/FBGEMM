@@ -481,11 +481,11 @@
     "fbgemm::pack_segments": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_pack_segments": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SparseOpsTest.test_aot_dispatch_static__test_pack_segments": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       }
     },
     "fbgemm::permute102_baddbmm_permute102": {
