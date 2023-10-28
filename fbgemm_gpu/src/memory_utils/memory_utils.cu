@@ -6,19 +6,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/ATen.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAGuard.h>
+#include "common.cuh"
 
-#include <sys/mman.h>
-#include <unistd.h>
-#include <cstring>
-
-#include "cumem_utils.h"
-#include "fbgemm_gpu/enum_utils.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
-
-using Tensor = at::Tensor;
+using namespace at;
 
 namespace fbgemm_gpu {
 
@@ -33,6 +23,7 @@ namespace fbgemm_gpu {
 // and set the correct device in the thread before calling cudaFree[Host]
 
 namespace {
+
 struct CUDAHostMappedContext {
   void* ptr_;
   int cuda_device_;
