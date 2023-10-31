@@ -390,7 +390,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.ssd_stream.wait_event(self.ssd_set_start)
             evicted_rows_cpu = to_pinned_cpu(evicted_rows)
             evicted_indices_cpu = to_pinned_cpu(evicted_indices)
-            # pyre-fixme[6]: For 1st param expected `Stream` but got `Stream`.
             evicted_rows.record_stream(self.ssd_stream)
             evicted_indices.record_stream(self.ssd_stream)
             self.ssd_db.set_cuda(
@@ -901,7 +900,6 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 evicted_indices.shape, pin_memory=True, dtype=evicted_indices.dtype
             )
             evicted_indices_cpu.copy_(evicted_indices, non_blocking=True)
-            # pyre-fixme[6]: For 1st param expected `Stream` but got `Stream`.
             evicted_rows.record_stream(self.ssd_stream)
             evicted_indices.record_stream(self.ssd_stream)
             self.ssd_db.set_cuda(

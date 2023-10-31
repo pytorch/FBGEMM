@@ -1254,10 +1254,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # stream that was used for its corresponding forward op.
 
         for t in self.lxu_cache_locations_list:
-            # pyre-fixme[6]: For 1st param expected `_C.Stream` but got `streams.Stream`
             t.record_stream(forward_stream)
         for t in self.linear_cache_indices_list:
-            # pyre-fixme[6]: For 1st param expected `_C.Stream` but got `streams.Stream`
             t.record_stream(forward_stream)
 
     def _update_cache_miss_counter(
