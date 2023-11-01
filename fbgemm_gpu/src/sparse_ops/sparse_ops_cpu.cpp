@@ -2606,9 +2606,9 @@ Tensor index_select_dim0(
   return at::index_select(input, 0, indices);
 }
 
-std::vector<Tensor> group_index_select_dim0(
-    const std::vector<Tensor>& input_group,
-    const std::vector<Tensor>& indices_group) {
+torch::autograd::variable_list group_index_select_dim0(
+    at::TensorList input_group,
+    at::TensorList indices_group) {
   int num_groups = input_group.size();
   TORCH_CHECK(num_groups == (int)indices_group.size())
   std::vector<Tensor> output_group;
@@ -2842,4 +2842,14 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl("pack_segments", &fbgemm_gpu::pack_segments_autograd);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, AutogradCPU, m) {
+  m.impl("group_index_select_dim0", &fbgemm_gpu::group_index_select_dim0);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  // CPU group_index_select_dim0 is decomposable
+  m.impl(
+      "group_index_select_dim0", TORCH_FN(fbgemm_gpu::group_index_select_dim0));
 }

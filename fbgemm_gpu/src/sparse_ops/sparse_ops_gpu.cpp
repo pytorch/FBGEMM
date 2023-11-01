@@ -8,6 +8,7 @@
 
 #include "ATen/ops/tensor.h"
 #include "c10/core/SymInt.h"
+#include "c10/core/TensorOptions.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -191,26 +192,37 @@ class IndexSelectDim0GPUOp
   }
 };
 
+std::pair<std::vector<Tensor>, std::vector<Tensor>>
+group_index_select_dim0_unpack(
+    at::TensorList all_indices_input,
+    const int64_t group_size) {
+  std::vector<Tensor> indices_group;
+  std::vector<Tensor> input_group;
+
+  indices_group.reserve(group_size);
+  input_group.reserve(group_size);
+
+  for (const auto i : c10::irange(group_size)) {
+    indices_group.push_back(all_indices_input[i]);
+    input_group.push_back(all_indices_input[group_size + i]);
+  }
+
+  TORCH_CHECK(group_size == static_cast<int64_t>(indices_group.size()));
+
+  return std::make_pair(input_group, indices_group);
+}
+
 class GroupIndexSelectDim0GPUOp
     : public torch::autograd::Function<GroupIndexSelectDim0GPUOp> {
  public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      const at::TensorList& all_indices_input,
-      const int group_size) {
+  // need to combine input_group and indices_group into one tensor list
+  // to get this working with autograd.
+  static torch::autograd::variable_list forward_impl(
+      at::TensorList all_indices_input,
+      const int64_t group_size) {
     // Unpack from TensorList
-    std::vector<Tensor> indices_group;
-    std::vector<Tensor> input_group;
-
-    indices_group.reserve(group_size);
-    input_group.reserve(group_size);
-
-    for (const auto i : c10::irange(group_size)) {
-      indices_group.push_back(all_indices_input[i]);
-      input_group.push_back(all_indices_input[group_size + i]);
-    }
-
-    TORCH_CHECK(group_size == static_cast<int32_t>(indices_group.size()));
+    auto [input_group, indices_group] =
+        group_index_select_dim0_unpack(all_indices_input, group_size);
 
     // args_tensor stores kernel arguments:
     //   input_ptrs (group_size int64_t elements)
@@ -280,10 +292,7 @@ class GroupIndexSelectDim0GPUOp
 
     // Allocate memory for output_group
     std::vector<Tensor> output_group;
-    output_group.reserve(group_size);
-
-    std::vector<int64_t> input_shape_group;
-    input_shape_group.reserve(group_size * input_dim);
+    output_group.reserve(group_size + 2);
 
     // We need to store contiguous inputs and indices outside the for-loop to
     // guarantee that the contiguous tensors will outlive the kernel
@@ -322,12 +331,8 @@ class GroupIndexSelectDim0GPUOp
         use_var_cols = true;
       }
 
-      // Copy input shape
-      auto input_shape = input.sizes().vec();
-      input_shape_group.insert(
-          input_shape_group.end(), input_shape.begin(), input_shape.end());
-
       // Create output pointers
+      auto input_shape = input.sizes().vec();
       input_shape[0] = num_output_rows_;
       Tensor output = at::empty(input_shape, input.options());
       // Ensure that the allocated output is contiguous
@@ -357,9 +362,6 @@ class GroupIndexSelectDim0GPUOp
         first_input.device(),
         /*non_blocking=*/true);
 
-    TORCH_CHECK(
-        static_cast<size_t>(group_size * input_dim) == input_shape_group.size())
-
     // Offset raw ptrs in GPU memory
     offset_args(
         &input_ptrs,
@@ -370,18 +372,19 @@ class GroupIndexSelectDim0GPUOp
         reinterpret_cast<int64_t*>(args_tensor.data_ptr()),
         args_ptrs_offsets);
 
-    // Need to store args_tensor for backward to keep indices_ptrs alive
-    ctx->save_for_backward({indices_group[0], input_group[0], args_tensor});
-    ctx->saved_data["input_dim"] = input_dim;
-    ctx->saved_data["input_shape_group"] = input_shape_group;
-    ctx->saved_data["group_size"] = group_size;
-    ctx->saved_data["use_var_cols"] = use_var_cols;
-    ctx->saved_data["indices_ptrs"] = reinterpret_cast<int64_t>(indices_ptrs);
-    ctx->saved_data["warp_offsets_group"] =
-        reinterpret_cast<int64_t>(warp_offsets_group);
-    ctx->saved_data["num_cols_group"] =
-        reinterpret_cast<int64_t>(num_cols_group);
-    ctx->saved_data["total_num_warps"] = warp_offset;
+    int64_t saved_data[] = {
+        static_cast<int64_t>(group_size),
+        use_var_cols,
+        reinterpret_cast<int64_t>(warp_offsets_group),
+        reinterpret_cast<int64_t>(num_cols_group),
+        warp_offset,
+    };
+    auto saved_data_t = at::empty(
+        {sizeof(saved_data) / sizeof(int64_t)},
+        at::TensorOptions().dtype(at::kLong));
+    TORCH_CHECK(saved_data_t.is_contiguous());
+    memcpy(saved_data_t.data_ptr<int64_t>(), saved_data, sizeof(saved_data));
+    saved_data_t = saved_data_t.to(first_input.device(), true);
 
     group_index_select_or_add_cuda(
         input_ptrs,
@@ -398,45 +401,90 @@ class GroupIndexSelectDim0GPUOp
         /*use_index_select=*/true,
         use_var_cols);
 
+    output_group.push_back(args_tensor);
+    output_group.push_back(saved_data_t);
+
+    // return format:
+    // (group_size outputs, 1 args_tensor, 1 saved_data)
     return output_group;
   }
 
-  static torch::autograd::variable_list backward(
+  static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_output_group) {
-    const auto group_size = ctx->saved_data["group_size"].toInt();
+      at::TensorList all_indices_input,
+      const int64_t group_size) {
+    at::AutoDispatchBelowADInplaceOrView guard;
+    static auto forward_op =
+        torch::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::group_index_select_dim0_gpu_impl", "")
+            .typed<decltype(forward_impl)>();
+    auto result = forward_op.call(all_indices_input, group_size);
+    TORCH_CHECK(static_cast<int64_t>(result.size()) == group_size + 2);
 
-    if (group_size == 0) {
-      return torch::autograd::variable_list();
+    auto [input_group, indices_group] =
+        group_index_select_dim0_unpack(all_indices_input, group_size);
+    const auto input_dim = input_group[0].dim();
+    std::vector<c10::SymInt> input_shape_group;
+    input_shape_group.reserve(group_size * input_dim);
+
+    for (const auto i : c10::irange(group_size)) {
+      const auto& input = input_group[i];
+      // Copy input shape
+      auto input_shape = input.sym_sizes().vec();
+      input_shape_group.insert(
+          input_shape_group.end(), input_shape.begin(), input_shape.end());
     }
 
-    // Retrieve saved data
-    const int output_dim = ctx->saved_data["input_dim"].toInt();
-    std::vector<int64_t> output_shape_group =
-        ctx->saved_data["input_shape_group"].toIntVector();
-    const bool use_var_cols = ctx->saved_data["use_var_cols"].toBool();
-    int64_t* indices_ptrs =
-        reinterpret_cast<int64_t*>(ctx->saved_data["indices_ptrs"].toInt());
-    int64_t* warp_offsets_group = reinterpret_cast<int64_t*>(
-        ctx->saved_data["warp_offsets_group"].toInt());
-    int32_t* num_cols_group =
-        reinterpret_cast<int32_t*>(ctx->saved_data["num_cols_group"].toInt());
-    auto total_num_warps = ctx->saved_data["total_num_warps"].toInt();
+    // save indices, args_tensor, saved_data
+    auto saved_tensors = std::vector<Tensor>(indices_group);
+    saved_tensors.insert(
+        saved_tensors.end(), result.cbegin() + group_size, result.cend());
+    saved_tensors.push_back(input_group[0]);
+    ctx->save_for_backward(saved_tensors);
+    ctx->saved_data["input_shape_group"] = input_shape_group;
 
+    return result;
+  }
+
+  static torch::autograd::variable_list backward_impl(
+      at::TensorList all_inputs,
+      c10::SymIntArrayRef output_shape_group_ref) {
+    TORCH_CHECK(all_inputs.size() > 2);
+
+    const int64_t group_size = (all_inputs.size() - 3) / 2;
+
+    Tensor fwd_input = all_inputs[2 * group_size + 2];
+    const int64_t output_dim = fwd_input.dim();
+    Tensor saved_data = all_inputs[2 * group_size + 1];
+    Tensor args_tensor_old = all_inputs[2 * group_size];
+    Tensor first_indices = all_inputs[group_size];
+
+    auto grad_output_group = std::vector<Tensor>(
+        all_inputs.cbegin(), all_inputs.cbegin() + group_size);
+    std::vector<int64_t> output_shape_group;
+    output_shape_group.reserve(output_shape_group_ref.size());
+    for (const auto& i : output_shape_group_ref) {
+      output_shape_group.push_back(i.as_int_unchecked());
+    }
+
+    auto indices_group = std::vector<Tensor>(
+        all_inputs.cbegin() + group_size, all_inputs.cbegin() + 2 * group_size);
+
+    // Retrieve saved data
+    saved_data = saved_data.to(at::kCPU);
+    TORCH_CHECK(saved_data.device() == at::kCPU);
+    TORCH_CHECK(saved_data.is_contiguous());
+    int64_t* saved_data_ptr = saved_data.data_ptr<int64_t>();
     // Check that the size is the same
-    TORCH_CHECK(static_cast<int32_t>(grad_output_group.size()) == group_size);
+    TORCH_CHECK(saved_data_ptr[0] == group_size);
+    const bool use_var_cols = saved_data_ptr[1];
+    int64_t* warp_offsets_group = reinterpret_cast<int64_t*>(saved_data_ptr[2]);
+    int32_t* num_cols_group = reinterpret_cast<int32_t*>(saved_data_ptr[3]);
+    int64_t total_num_warps = saved_data_ptr[4];
 
     // We checked in forward that all output rows are the same for all member
     // in the group
     const int num_input_rows = grad_output_group[0].size(0);
-
-    const auto saved = ctx->get_saved_variables();
-    const auto saved_itr = std::begin(saved);
-
-    // Retrieve first index group
-    Tensor first_indices = *saved_itr;
-    // Retrieve first input group
-    Tensor fwd_input = *(saved_itr + 1);
 
     std::vector<Tensor> outputs;
     // Returning 3 outputs:
@@ -452,14 +500,15 @@ class GroupIndexSelectDim0GPUOp
       outputs.push_back(torch::autograd::Variable());
     }
 
-    // Allocate Tensor for ptrs of grad output and input
+    // Allocate Tensor for ptrs of grad output and input, and indices
     Tensor args_tensor = at::empty(
-        {group_size * 2},
+        {group_size * 3},
         at::TensorOptions().dtype(at::kLong).pinned_memory(true));
     // Ensure that args_tensor is contiguous
     TORCH_CHECK(args_tensor.is_contiguous());
     int64_t* grad_output_ptrs = args_tensor.data_ptr<int64_t>();
     int64_t* grad_input_ptrs = args_tensor.data_ptr<int64_t>() + group_size;
+    int64_t* indices_ptrs = args_tensor.data_ptr<int64_t>() + 2 * group_size;
 
     int64_t group_grad_input_numel = 0;
     std::vector<int64_t> grad_input_numels;
@@ -514,8 +563,14 @@ class GroupIndexSelectDim0GPUOp
       outputs.push_back(output_group[i]);
     }
 
-    // 3) Add 1 Variable() for group_size
-    outputs.push_back(torch::autograd::Variable());
+    // Calculate indices_ptrs
+    std::vector<c10::MaybeOwned<at::Tensor>> index_contigs;
+    index_contigs.reserve(group_size);
+    for (const auto i : c10::irange(group_size)) {
+      const auto& indices = indices_group[i];
+      index_contigs.push_back(indices.expect_contiguous());
+      indices_ptrs[i] = reinterpret_cast<int64_t>(index_contigs[i]->data_ptr());
+    }
 
     // Transfer grad output pointers to GPU
     args_tensor = args_tensor.to(first_indices.device(), /*non_blocking=*/true);
@@ -523,7 +578,7 @@ class GroupIndexSelectDim0GPUOp
     group_index_select_or_add_cuda(
         args_tensor.data_ptr<int64_t>(),
         args_tensor.data_ptr<int64_t>() + group_size,
-        indices_ptrs,
+        args_tensor.data_ptr<int64_t>() + 2 * group_size,
         warp_offsets_group,
         num_cols_group,
         fwd_input.scalar_type(),
@@ -536,6 +591,35 @@ class GroupIndexSelectDim0GPUOp
         use_var_cols);
 
     return outputs;
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output_group) {
+    TORCH_CHECK(grad_output_group.size() >= 2);
+    if (grad_output_group.size() == 2) {
+      // empty outputs
+      return torch::autograd::variable_list(1);
+    }
+    // remove redundant grads
+    auto group_size = grad_output_group.size() - 2;
+    grad_output_group.resize(group_size);
+
+    auto saved_tensors = ctx->get_saved_variables();
+    TORCH_CHECK(saved_tensors.size() == group_size + 3);
+    auto output_shape_group =
+        ctx->saved_data["input_shape_group"].toSymIntVector();
+    grad_output_group.insert(
+        grad_output_group.end(), saved_tensors.begin(), saved_tensors.end());
+    static auto backward_op =
+        torch::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::group_index_select_dim0_gpu_backward", "")
+            .typed<decltype(backward_impl)>();
+    auto res = backward_op.call(grad_output_group, output_shape_group);
+    // 3) Add 1 Variable() for group_size
+    res.push_back({});
+    return res;
   }
 };
 
@@ -563,9 +647,66 @@ Tensor index_select_dim0_gpu(
       user_skip_indices_sorting_fwd && !c10::InferenceMode::is_enabled())[0];
 }
 
-std::vector<Tensor> group_index_select_dim0_gpu(
-    const std::vector<Tensor>& input_group,
-    const std::vector<Tensor>& indices_group) {
+torch::autograd::variable_list group_index_select_dim0_gpu_impl(
+    at::TensorList all_indices_input,
+    const int64_t group_size) {
+  return GroupIndexSelectDim0GPUOp::apply(all_indices_input, group_size);
+}
+
+torch::autograd::variable_list group_index_select_dim0_gpu_impl_meta(
+    at::TensorList all_indices_input,
+    const int64_t group_size) {
+  auto [input_group, indices_group] =
+      group_index_select_dim0_unpack(all_indices_input, group_size);
+
+  int num_groups = input_group.size();
+  TORCH_CHECK(num_groups == (int)indices_group.size())
+  std::vector<Tensor> res;
+  for (const auto i : c10::irange(num_groups)) {
+    auto output_size = input_group[i].sym_sizes().vec();
+    output_size[0] = indices_group[i].sym_size(0);
+    res.push_back(at::zeros_symint(output_size, input_group[i].options()));
+  }
+  int64_t args_tensor_numel =
+      4 * group_size + 1 + compute_num_int64s<int32_t>(group_size);
+  res.push_back(at::zeros_symint(
+      {c10::SymInt(args_tensor_numel * sizeof(int64_t))},
+      at::TensorOptions().dtype(at::kByte).pinned_memory(true).device(
+          input_group[0].device())));
+  res.push_back(at::zeros_symint(
+      {c10::SymInt(5)},
+      at::TensorOptions().dtype(at::kLong).device(input_group[0].device())));
+  return res;
+}
+
+torch::autograd::variable_list group_index_select_dim0_gpu_backward_meta(
+    at::TensorList all_inputs,
+    c10::SymIntArrayRef output_shape_group_ref) {
+  TORCH_CHECK(all_inputs.size() > 3);
+  const auto group_size = (all_inputs.size() - 3) / 2;
+  std::vector<Tensor> outputs;
+  outputs.reserve(group_size * 2 + 1);
+
+  // grad for indices
+  for (int i = 0; i < (int)group_size; i++) {
+    outputs.push_back(
+        at::zeros_symint({c10::SymInt(0)}, all_inputs[0].options()));
+  }
+  // grad for inputs
+  const auto output_dim = output_shape_group_ref.size() / group_size;
+  for (int i = 0; i < (int)group_size; i++) {
+    outputs.push_back(at::zeros_symint(
+        std::vector<c10::SymInt>(
+            output_shape_group_ref.cbegin() + i * output_dim,
+            output_shape_group_ref.cbegin() + (i + 1) * output_dim),
+        all_inputs[0].options()));
+  }
+  return outputs;
+}
+
+torch::autograd::variable_list group_index_select_dim0_gpu(
+    at::TensorList input_group,
+    at::TensorList indices_group) {
   const auto group_size = indices_group.size();
   std::vector<Tensor> output_group;
 
@@ -586,10 +727,24 @@ std::vector<Tensor> group_index_select_dim0_gpu(
 
   at::TensorList all_indices_input_tensor = all_indices_input_vec;
 
-  return output_group = fbgemm_gpu::GroupIndexSelectDim0GPUOp::apply(
-             all_indices_input_tensor, group_size);
+  static auto forward_op =
+      torch::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::group_index_select_dim0_gpu_impl", "")
+          .typed<decltype(group_index_select_dim0_gpu_impl)>();
+  auto res = forward_op.call(all_indices_input_tensor, group_size);
+  TORCH_CHECK(res.size() == group_size + 2);
+  // only return the outputs (the first group_size elements)
+  res.resize(group_size);
+  return res;
 }
 } // namespace fbgemm_gpu
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "group_index_select_dim0_gpu_impl(Tensor[] inputs, int group_size) -> Tensor[]");
+  m.def(
+      "group_index_select_dim0_gpu_backward(Tensor[] inputs, SymInt[] output_shape_group) -> Tensor[]");
+}
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
@@ -613,5 +768,27 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "pack_segments_backward", fbgemm_gpu::pack_segments_backward_cuda);
   DISPATCH_TO_CUDA("index_select_dim0", fbgemm_gpu::index_select_dim0_gpu);
   DISPATCH_TO_CUDA(
+      "group_index_select_dim0_gpu_impl",
+      fbgemm_gpu::GroupIndexSelectDim0GPUOp::forward_impl);
+  DISPATCH_TO_CUDA(
+      "group_index_select_dim0_gpu_backward",
+      fbgemm_gpu::GroupIndexSelectDim0GPUOp::backward_impl);
+  DISPATCH_TO_CUDA(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0_gpu);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl(
+      "group_index_select_dim0_gpu_impl",
+      &fbgemm_gpu::group_index_select_dim0_gpu_impl_meta);
+  m.impl(
+      "group_index_select_dim0_gpu_backward",
+      &fbgemm_gpu::group_index_select_dim0_gpu_backward_meta);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, AutogradCUDA, m) {
+  m.impl("group_index_select_dim0", &fbgemm_gpu::group_index_select_dim0_gpu);
+  m.impl(
+      "group_index_select_dim0_gpu_impl",
+      &fbgemm_gpu::group_index_select_dim0_gpu_impl);
 }
