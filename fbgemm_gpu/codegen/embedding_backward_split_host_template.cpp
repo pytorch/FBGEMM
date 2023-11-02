@@ -767,10 +767,20 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    int max_B_feature_rank=-1, "
           "    int vbe_output_size=-1, "
           "    bool is_experimental=False) -> Tensor");
+    // We're playing a funny trick here: we're using the autograd
+    // implementation of the operator at all the dispatch keys.  This is OK
+    // because autograd.Function works even in a context where there is
+    // no autograd enabled, and all of the internal implementations redispatch
+    // appropriately
     m.impl(
         "split_embedding_codegen_lookup_{{ optimizer }}_function",
         torch::dispatch(
           c10::DispatchKey::Autograd,
+          TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
+    m.impl(
+        "split_embedding_codegen_lookup_{{ optimizer }}_function",
+        torch::dispatch(
+          c10::DispatchKey::Meta,
           TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
     DISPATCH_TO_CUDA(
         "split_embedding_codegen_lookup_{{ optimizer }}_function",

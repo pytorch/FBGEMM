@@ -655,36 +655,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::split_embedding_codegen_lookup_adagrad_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmNONE": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmSUM": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmNONE": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmSUM": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_adagrad": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::split_embedding_codegen_lookup_adagrad_function": {},
     "fbgemm::split_embedding_codegen_lookup_adagrad_function_cpu": {
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_adagrad": {
         "comment": "",
@@ -697,61 +668,17 @@
         "status": "xfail"
       }
     },
-    "fbgemm::split_embedding_codegen_lookup_lamb_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_lamb": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
-    "fbgemm::split_embedding_codegen_lookup_lars_sgd_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_lars": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
-    "fbgemm::split_embedding_codegen_lookup_none_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_none": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_none_with_rowwise_adagrad": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::split_embedding_codegen_lookup_lamb_function": {},
+    "fbgemm::split_embedding_codegen_lookup_lars_sgd_function": {},
+    "fbgemm::split_embedding_codegen_lookup_none_function": {},
     "fbgemm::split_embedding_codegen_lookup_partial_rowwise_adam_function": {},
-    "fbgemm::split_embedding_codegen_lookup_partial_rowwise_lamb_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_lamb": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::split_embedding_codegen_lookup_partial_rowwise_lamb_function": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmNONE": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmSUM": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmNONE": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmSUM": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_none_with_rowwise_adagrad": {
         "comment": "",
         "status": "xfail"
       },
@@ -771,10 +698,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_pipeline": {
         "comment": "",
         "status": "xfail"
@@ -788,14 +711,6 @@
         "status": "xfail"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_2": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_forward_fused_pooled_emb_quant": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_stb_uvm_cache_stats": {
         "comment": "",
         "status": "xfail"
       }
