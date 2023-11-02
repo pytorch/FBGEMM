@@ -254,7 +254,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   // think unsigned as we use 0, 255
 
   if (nrows <= 20) {
-    FBGEMM_DISPATCH_FLOAT_AND_HALF(
+    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
         input.scalar_type(), "_float_to_fused8bitrowwise_cuda_kernel", [&] {
           _float_to_fused8bitrowwise_cuda_kernel<scalar_t>
               <<<num_blocks,
@@ -292,7 +292,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 
-      FBGEMM_DISPATCH_FLOAT_AND_HALF(
+      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
           input.scalar_type(), "_get_8bit_qparam_cuda_kernel", [&] {
             _get_8bit_qparam_cuda_kernel<scalar_t>
                 <<<num_blocks_warp,
@@ -315,7 +315,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
       dim3 gridDim(gridDim_x, gridDim_y);
 
-      FBGEMM_DISPATCH_FLOAT_AND_HALF(
+      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
           input.scalar_type(), "_compute_8bit_quantize_cuda_kernel", [&] {
             _compute_8bit_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -342,9 +342,10 @@ DLL_PUBLIC Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
 }
 
 ///@ingroup quantize-data-cuda
-DLL_PUBLIC Tensor _float_or_half_to_fused8bitrowwise_gpu(const Tensor& input) {
+DLL_PUBLIC Tensor
+_single_or_half_precision_to_fused8bitrowwise_gpu(const Tensor& input) {
   Tensor output;
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
       input.scalar_type(),
       "float_or_half_to_fused8bitrowwise_cuda_kernel",
       [&] { output = _float_to_fused8bitrowwise_gpu_t<scalar_t>(input); });
@@ -379,10 +380,16 @@ Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
     output = at::empty(
         output_dims, // 4 = sizeof(float)
         input.options().dtype(at::kFloat));
-  } else { // T = at::Half
+  } else if constexpr (std::is_same_v<output_t, at::Half>) { // T = at::Half
     output = at::empty(
-        output_dims, // 4 = sizeof(float)
+        output_dims, // 2 = sizeof(half)
         input.options().dtype(at::kHalf));
+  } else if constexpr (std::is_same_v<output_t, at::BFloat16>) {
+    output = at::empty(
+        output_dims, // 2 = sizeof(bfloat16)
+        input.options().dtype(at::kBFloat16));
+  } else {
+    TORCH_CHECK(false);
   }
 
   if (nrows == 0 || output_columns == 0) {
@@ -398,7 +405,7 @@ Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
       output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {
         _fused8bitrowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -421,7 +428,7 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input) {
 }
 
 ///@ingroup quantize-data-cuda
-DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
+DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu(
     const at::Tensor& input,
     const int64_t output_dtype) {
   Tensor output;
@@ -433,6 +440,9 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_or_half_gpu(
       break;
     case SparseType::FP16:
       output = _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
+      break;
+    case SparseType::BF16:
+      output = _fused8bitrowwise_to_float_gpu_t<at::BFloat16>(input);
       break;
     default:
       TORCH_CHECK(false);
@@ -510,7 +520,7 @@ FBGEMM_OP_DISPATCH(
 FBGEMM_OP_DISPATCH(
     CUDA,
     "FloatOrHalfToFused8BitRowwiseQuantized",
-    fbgemm_gpu::_float_or_half_to_fused8bitrowwise_gpu);
+    fbgemm_gpu::_single_or_half_precision_to_fused8bitrowwise_gpu);
 FBGEMM_OP_DISPATCH(
     CUDA,
     "Fused8BitRowwiseQuantizedToFloat",
@@ -522,7 +532,7 @@ FBGEMM_OP_DISPATCH(
 FBGEMM_OP_DISPATCH(
     CUDA,
     "Fused8BitRowwiseQuantizedToFloatOrHalf",
-    fbgemm_gpu::_fused8bitrowwise_to_float_or_half_gpu);
+    fbgemm_gpu::_fused8bitrowwise_to_single_or_half_precision_gpu);
 FBGEMM_OP_DISPATCH(
     CUDA,
     "Fused8BitRowwiseQuantizedToFloatMixedDim",
