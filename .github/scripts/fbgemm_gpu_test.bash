@@ -138,7 +138,7 @@ test_setup_conda_environment () {
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_VERSION PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env 3.8 pip test cuda 11.8.0       # Setup environment with pytorch-test for Python 3.8 + CUDA 11.8.0"
+    echo "    ${FUNCNAME[0]} build_env 3.10 pip test cuda 12.1.0       # Setup environment with pytorch-test for Python 3.10 + CUDA 12.1.0"
     return 1
   else
     echo "################################################################################"
