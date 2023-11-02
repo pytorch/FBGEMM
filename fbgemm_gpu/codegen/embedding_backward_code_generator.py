@@ -238,6 +238,14 @@ def forward_split() -> None:
         vbe_options=[True, False],
     )
 
+    generate_forward_embedding_cuda(
+        "embedding_forward_split_meta_template.cpp",
+        "gen_embedding_forward_{}_codegen_meta.cpp",
+        dense_options=[True, False],
+        nobag_options=[False],  # nobag is not used
+        vbe_options=[True, False],
+    )
+
     # Generate the kernels for the forward splits
     generate_forward_embedding_cuda(
         "embedding_forward_split_kernel_template.cu",
