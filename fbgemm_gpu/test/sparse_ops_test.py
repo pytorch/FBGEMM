@@ -2417,12 +2417,6 @@ additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],
     "test_autograd_registration__test_index_select_dim0": [unittest.skip("hangs")],
     "test_schema__test_index_select_dim0": [unittest.skip("hangs")],
-    "test_aot_dispatch_static__test_group_index_select_dim0": [
-        unittest.skip("CUDA memory error")
-    ],
-    "test_aot_dispatch_dynamic__test_group_index_select_dim0": [
-        unittest.skip("CUDA memory error")
-    ],
 }
 
 # only generate tests on nightly pytorch (current release version is 2.1)

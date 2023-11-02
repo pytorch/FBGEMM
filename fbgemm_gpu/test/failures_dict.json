@@ -184,11 +184,11 @@
     "fbgemm::group_index_select_dim0": {
       "SparseOpsTest.test_autograd_registration__test_group_index_select_dim0": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SparseOpsTest.test_faketensor__test_group_index_select_dim0": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       }
     },
     "fbgemm::histogram_binning_calibration": {
