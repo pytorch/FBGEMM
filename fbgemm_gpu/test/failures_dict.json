@@ -37,18 +37,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_block_bucketize_sparse_features": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_block_bucketize_sparse_features_long_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_block_bucketize_sparse_features_with_variable_batch_sizes": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_block_bucketize_sparse_features": {
         "comment": "",
         "status": "xfail"
