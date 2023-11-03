@@ -10,10 +10,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_batch_index_select_dim0": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_autograd_registration__test_batch_index_select_dim0": {
         "comment": "",
         "status": "xfail"
@@ -37,18 +33,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_block_bucketize_sparse_features": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_block_bucketize_sparse_features_long_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_block_bucketize_sparse_features_with_variable_batch_sizes": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_block_bucketize_sparse_features": {
         "comment": "",
         "status": "xfail"
@@ -67,10 +51,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_bottom_unique_k_per_row": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_bottom_unique_k_per_row": {
         "comment": "",
         "status": "xfail"
@@ -81,10 +61,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_bucketize_sparse_features": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_bucketize_sparse_features": {
         "comment": "",
         "status": "xfail"
@@ -92,10 +68,6 @@
     },
     "fbgemm::cat_reorder_batched_ad_indices": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_cat_reorder_batched_ad_indices_cpu": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_cat_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       },
@@ -118,22 +90,6 @@
         "status": "xfail"
       },
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_dense_to_jagged_opt_large_batch": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged_meta_backend": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged_opt": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_dense_to_jagged_opt_large_batch": {
         "comment": "",
         "status": "xfail"
       },
@@ -164,14 +120,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_generic_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_generic_histogram_binning_calibration_by_feature_cpu_gpu": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_generic_histogram_binning_calibration_by_feature": {
         "comment": "",
         "status": "xfail"
@@ -196,10 +144,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_histogram_binning_calibration": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_histogram_binning_calibration": {
         "comment": "",
         "status": "xfail"
@@ -207,10 +151,6 @@
     },
     "fbgemm::histogram_binning_calibration_by_feature": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_histogram_binning_calibration_by_feature": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_histogram_binning_calibration_by_feature": {
         "comment": "",
         "status": "xfail"
       },
@@ -224,10 +164,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_invert_permute": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_invert_permute": {
         "comment": "",
         "status": "xfail"
@@ -236,10 +172,6 @@
     "fbgemm::jagged_1d_to_dense": {},
     "fbgemm::jagged_1d_to_truncated_values": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_1d_to_truncated_values": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_1d_to_truncated_values": {
         "comment": "",
         "status": "xfail"
       },
@@ -256,10 +188,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_elementwise_binary": {
-        "comment": "",
-        "status": "xfail"
-      },
       "JaggedTensorOpsTest.test_autograd_registration__test_jagged_elementwise_binary": {
         "comment": "",
         "status": "xfail"
@@ -271,14 +199,6 @@
         "status": "xfail"
       },
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary_opt": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_elementwise_binary": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_elementwise_binary_opt": {
         "comment": "",
         "status": "xfail"
       },
@@ -301,10 +221,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
       "JaggedTensorOpsTest.test_faketensor__test_jagged_unique_indices": {
         "comment": "",
         "status": "xfail"
@@ -320,18 +236,6 @@
         "status": "xfail"
       },
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_index_select_2d": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_index_select_2d_in_inference": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_keyed_jagged_index_select_dim1": {
         "comment": "",
         "status": "xfail"
       },
@@ -354,10 +258,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_slice": {
-        "comment": "",
-        "status": "xfail"
-      },
       "JaggedTensorOpsTest.test_faketensor__test_jagged_slice": {
         "comment": "",
         "status": "xfail"
@@ -367,10 +267,6 @@
     "fbgemm::jagged_to_padded_dense": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_to_padded_dense": {
         "comment": "seems nondeterministic, but error is real",
-        "status": "skip"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_to_padded_dense": {
-        "comment": "seems nondeterministic but error is real",
         "status": "skip"
       }
     },
@@ -384,18 +280,6 @@
         "status": "xfail"
       },
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_unique_indices_multi_keys": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices_empty": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_unique_indices_multi_keys": {
         "comment": "",
         "status": "xfail"
       },
@@ -417,10 +301,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xfail"
-      },
       "JaggedTensorOpsTest.test_autograd_registration__test_keyed_jagged_index_select_dim1": {
         "comment": "",
         "status": "xfail"
@@ -432,10 +312,6 @@
     },
     "fbgemm::masked_select_jagged_1d": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_masked_select_jagged_1d": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_masked_select_jagged_1d": {
         "comment": "",
         "status": "xfail"
       },
@@ -460,30 +336,10 @@
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_1d_to_dense": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_2d_to_dense": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_jagged_2d_to_dense_truncation": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_stacked_jagged_2d_to_dense": {
-        "comment": "",
-        "status": "xfail"
       }
     },
     "fbgemm::pack_segments": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_pack_segments": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_pack_segments": {
         "comment": "",
         "status": "xsuccess"
       }
@@ -493,38 +349,18 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_permute102_baddbmm_permute102": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_permute102_baddbmm_permute102": {
         "comment": "",
         "status": "xfail"
       }
     },
     "fbgemm::permute_1D_sparse_data": {
-      "SparseOpsTest.test_aot_dispatch_static__test_permute_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_schema__test_permute_indices": {
         "comment": "flaky",
         "status": "skip"
       }
     },
     "fbgemm::permute_2D_sparse_data": {
-      "SparseOpsTest.test_aot_dispatch_static__test_permute_embeddings": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_permute_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_permute_indices_with_repeats": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_schema__test_permute_indices": {
         "comment": "flaky",
         "status": "skip"
@@ -532,10 +368,6 @@
     },
     "fbgemm::permute_sequence_embeddings": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_permute_embeddings": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_permute_embeddings": {
         "comment": "",
         "status": "xfail"
       },
@@ -550,14 +382,6 @@
         "status": "xfail"
       },
       "SparseOpsTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices_cpu": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_reorder_batched_ad_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       },
@@ -591,26 +415,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_cat_reorder_batched_ad_indices_cpu": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_reorder_batched_ad_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_reorder_batched_ad_indices_cpu": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_reorder_batched_ad_lengths": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SparseOpsTest.test_aot_dispatch_static__test_reorder_batched_ad_lengths_cpu": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_cat_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
@@ -637,10 +441,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_static__test_segment_sum_csr": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SparseOpsTest.test_faketensor__test_segment_sum_csr": {
         "comment": "",
         "status": "xfail"
@@ -651,10 +451,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_stacked_jagged_1d_to_dense": {
-        "comment": "",
-        "status": "xfail"
-      },
       "JaggedTensorOpsTest.test_faketensor__test_stacked_jagged_1d_to_dense": {
         "comment": "",
         "status": "xfail"
@@ -662,10 +458,6 @@
     },
     "fbgemm::stacked_jagged_2d_to_dense": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_static__test_stacked_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
       },
