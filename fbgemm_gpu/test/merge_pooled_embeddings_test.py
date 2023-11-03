@@ -26,6 +26,7 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
     )
+    import fbgemm_gpu.sparse_operators  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
     open_source = False
