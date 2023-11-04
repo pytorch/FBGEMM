@@ -162,17 +162,19 @@ int main(int, char**) {
       // "ctDataIntrin_u8");
       //
       // Compare results
-      for (size_t i = 0; i < ctDataRef.size(); i++) {
+     for (size_t i = 0; i < ctDataRef.size(); i++) {
         if (std::abs(ctDataRef_u8[i] - ctDataIntrin_u8[i]) > 0) {
-          fprintf(
-              stderr,
-              "Error: Results differ ref %d and test %d at %ld\n",
-              ctDataRef_u8[i],
-              ctDataIntrin_u8[i],
-              i);
+          #ifdef __MINGW32__
+            fprintf(stderr, "Error: Results differ ref %hhu and test %hhu at %llu\n",
+                    ctDataRef_u8[i], ctDataIntrin_u8[i], static_cast<unsigned long long>(i));
+          #else
+            fprintf(stderr, "Error: Results differ ref %hhu and test %hhu at %zu\n",
+                    ctDataRef_u8[i], ctDataIntrin_u8[i], i);
+          #endif
           return 1;
         }
       }
+
 
       double effective_gflops_intrin = effective_flop / secs_intrin / 1e9;
       cout << "[" << setw(5) << index << "]" << setw(7) << m << setw(7) << n

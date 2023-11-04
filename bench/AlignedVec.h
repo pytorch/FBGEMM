@@ -108,7 +108,7 @@ class aligned_allocator {
     // Mallocator wraps malloc().
     void* pv = nullptr;
     int ret;
-#ifdef _MSC_VER
+#ifdef _WIN32
     pv = _aligned_malloc(n * sizeof(T), Alignment);
     ret = 0;
 #else
@@ -126,7 +126,7 @@ class aligned_allocator {
   }
 
   void deallocate(T* const p, const std::size_t /*n*/) const {
-#ifdef _MSC_VER
+#ifdef _WIN32
     _aligned_free(p);
 #else
     free(p);

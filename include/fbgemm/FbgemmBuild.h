@@ -10,6 +10,11 @@
 
 // For details about dllexport/dllimport, checkout the following SO question
 // https://stackoverflow.com/questions/57999/what-is-the-difference-between-dllexport-and-dllimport
+#if defined(__MINGW32__)
+#ifndef FBGEMM_STATIC
+#define FBGEMM_STATIC//I failed with cmake, please help me
+#endif
+#endif
 #if !defined(FBGEMM_API)
 #if defined(FBGEMM_STATIC)
 #define FBGEMM_API

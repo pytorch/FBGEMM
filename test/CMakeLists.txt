@@ -47,6 +47,7 @@ if(${OpenMP_FOUND})
 endif()
 
 macro(add_gtest TESTNAME)
+
   add_executable(${TESTNAME} ${ARGN}
     ../bench/BenchUtils.cc
     EmbeddingSpMDMTestUtils.cc
@@ -62,6 +63,11 @@ macro(add_gtest TESTNAME)
       target_compile_definitions(${TESTNAME} PRIVATE FBGEMM_STATIC)
     endif()
   else(MSVC)
+    if(MINGW)
+    #if (FBGEMM_LIBRARY_TYPE STREQUAL "static")
+      target_compile_definitions(${TESTNAME} PRIVATE FBGEMM_STATIC)
+    #endif()
+    endif()
     target_compile_options(${TESTNAME} PRIVATE
      "-m64" "-mavx2" "-mfma" "-masm=intel")
   endif(MSVC)

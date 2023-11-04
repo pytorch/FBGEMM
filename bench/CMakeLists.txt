@@ -65,6 +65,10 @@ macro(add_benchmark BENCHNAME)
   if (${BLAS_FOUND})
     target_compile_options(${BENCHNAME} PRIVATE "-DUSE_BLAS")
     target_link_libraries(${BENCHNAME} "${BLAS_LIBRARIES}")
+    if (DEFINED ENV{MINGW_PREFIX})
+    # Include the directory using the value of the environment variable
+    include_directories("$ENV{MINGW_PREFIX}/include/openblas")
+  endif()
   endif()
 
   set_target_properties(${BENCHNAME} PROPERTIES FOLDER test)
