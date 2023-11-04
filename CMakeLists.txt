@@ -192,6 +192,14 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Werror")
   string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
+  if(MINGW)
+    if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
+    target_compile_definitions(fbgemm_generic PRIVATE ASMJIT_STATIC)
+    target_compile_definitions(fbgemm_avx2 PRIVATE ASMJIT_STATIC)
+    target_compile_definitions(fbgemm_avx512 PRIVATE ASMJIT_STATIC)
+    endif()
+  endif()
+
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
@@ -236,51 +244,31 @@ message(WARNING "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
 message(WARNING "==========")
 
 if(NOT TARGET asmjit)
-  # Check if we are using MinGW and the asmjit header exists in the specified include directory
-  if(MINGW AND EXISTS "$ENV{MINGW_PREFIX}/include/asmjit")
-    message(STATUS "Using system-installed asmjit from $ENV{MINGW_PREFIX}")
-    
-    # Add an imported target for asmjit
-    add_library(asmjit SHARED IMPORTED GLOBAL)
-    
-    # Set the properties for the imported target
-    set_target_properties(asmjit PROPERTIES
-      IMPORTED_LOCATION "$ENV{MINGW_PREFIX}/bin/libasmjit.dll"
-      INTERFACE_INCLUDE_DIRECTORIES "$ENV{MINGW_PREFIX}/include"
-      IMPORTED_IMPLIB "$ENV{MINGW_PREFIX}/lib/libasmjit.dll.a"
-    )
-  else()
-    # ASMJIT_SRC_DIR is not defined, download asmjit from GitHub
-    if(NOT DEFINED ASMJIT_SRC_DIR)
-      set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/third_party/asmjit"
-        CACHE STRING "asmjit source directory from submodules")
-    endif()
-
-    # Add the asmjit subdirectory from the specified source directory
-    add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
+  #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
+  if(NOT DEFINED ASMJIT_SRC_DIR)
+    set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/third_party/asmjit"
+      CACHE STRING "asmjit source directory from submodules")
   endif()
 
-  # Set the common properties for asmjit
-  if(NOT MINGW)
-    set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
-    # add a flag required for mac build
-    if(NOT MSVC)
-      target_compile_options(asmjit PRIVATE "-Wno-sign-conversion")
-    endif()
-  endif()
-
-  # Set additional compile options for Clang, if applicable
-  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
-  # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
-    target_compile_options_if_supported(asmjit -Wno-deprecated-copy)
-    target_compile_options_if_supported(asmjit -Wno-unused-but-set-variable)
-  endif()
-
-  # Determine if asmjit should be built statically or dynamically
-  if ((MSVC OR MINGW) AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+  #build asmjit
+  #For MSVC shared build, asmjit needs to be shared also.
+  if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
     set(ASMJIT_STATIC OFF)
   else()
     set(ASMJIT_STATIC ON)
+  endif()
+
+  add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
+  set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
+  # add a flag required for mac build
+  if(NOT MSVC)
+    target_compile_options(asmjit PRIVATE "-Wno-sign-conversion")
+  endif()
+
+  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
+    # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
+    target_compile_options_if_supported(asmjit -Wno-deprecated-copy)
+    target_compile_options_if_supported(asmjit -Wno-unused-but-set-variable)
   endif()
 endif()
 
