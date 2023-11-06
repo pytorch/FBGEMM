@@ -1114,7 +1114,7 @@ class SparseOpsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         A=st.integers(min_value=1, max_value=20),
-        Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
+        Dtype=st.sampled_from([torch.int32, torch.float, torch.int64, torch.bfloat16]),
         Itype=st.sampled_from([torch.int32, torch.int64]),
         broadcast_indices=st.booleans(),
     )
