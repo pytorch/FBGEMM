@@ -47,7 +47,7 @@ vector<int> prefetch_distances{0, 16, 1000000};
 namespace {
 class SparseAdagradTest
     : public testing::TestWithParam<tuple<bool, int, bool, bool, bool>> {};
-}; // namespace
+} // namespace
 
 constexpr float DEFAULT_TOL = 1.0e-6;
 

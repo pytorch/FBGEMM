@@ -59,4 +59,4 @@ int CreateMappingTableForRowWiseSparsity(
     int num_rows,
     float sparsity);
 
-}; // namespace fbgemm
+} // namespace fbgemm
