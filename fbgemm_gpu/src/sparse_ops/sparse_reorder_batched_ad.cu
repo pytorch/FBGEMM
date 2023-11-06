@@ -243,7 +243,8 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  AT_DISPATCH_ALL_TYPES(
+  AT_DISPATCH_ALL_TYPES_AND(
+      at::ScalarType::BFloat16,
       cat_ad_indices.scalar_type(),
       "reorder_batched_ad_indices_gpu_kernel_1",
       [&] {
