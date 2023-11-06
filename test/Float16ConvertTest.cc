@@ -19,7 +19,7 @@ using namespace fbgemm;
 
 namespace {
 class FBGemmFloat16Test : public testing::TestWithParam<bool> {};
-} // namespace
+}; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,

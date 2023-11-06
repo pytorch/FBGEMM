@@ -47,7 +47,7 @@ class fbgemmGConvAcc32WithQuantGranularityTest
           bool,
           bool>> {};
 class fbgemmGConvPackTest : public testing::TestWithParam<matrix_op_t> {};
-} // namespace
+}; // namespace
 
 // INSTANTIATE_TEST_CASE_P(
 //     InstantiationName,

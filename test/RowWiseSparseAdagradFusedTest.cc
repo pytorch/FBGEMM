@@ -64,7 +64,7 @@ class RowWiseSparseAdagradFusedTest : public testing::TestWithParam<tuple<
                                           bool,
                                           EmbeddingSpMDMCornerCase,
                                           bool>> {};
-} // namespace
+}; // namespace
 
 constexpr float DEFAULT_TOL = 1.0e-6;
 

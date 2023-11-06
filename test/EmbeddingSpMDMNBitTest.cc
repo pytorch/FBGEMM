@@ -59,7 +59,7 @@ class FusedNBitRowwiseEmbeddingLookupTest : public testing::TestWithParam<tuple<
                                                 EmbeddingSpMDMWeightChoice,
                                                 EmbeddingSpMDMCornerCase,
                                                 EmbeddingSpMDMDtypeChoice>> {};
-} // namespace
+}; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,

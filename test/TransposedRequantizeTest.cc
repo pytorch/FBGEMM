@@ -33,7 +33,7 @@ class RequantizeTest
     : public testing::TestWithParam<
           tuple<int, int, bool, bool, QuantizationGranularity>> {};
 
-} // namespace
+}; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,

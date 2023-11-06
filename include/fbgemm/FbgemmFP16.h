@@ -56,4 +56,4 @@ extern template void cblas_gemm_compute<float16>(
     int thread_id,
     int num_threads);
 
-} // namespace fbgemm
+}; // namespace fbgemm

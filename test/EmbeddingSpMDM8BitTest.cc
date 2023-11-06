@@ -56,7 +56,7 @@ class Fused8BitRowwiseEmbeddingLookupTest
           EmbeddingSpMDMWeightChoice,
           EmbeddingSpMDMCornerCase,
           EmbeddingSpMDMOutputDtypeChoice>> {};
-} // namespace
+}; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
