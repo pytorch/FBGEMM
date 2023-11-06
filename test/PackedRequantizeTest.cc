@@ -45,7 +45,7 @@ class fbgemmu8s8acc32Test
     : public testing::TestWithParam<tuple<matrix_op_t, matrix_op_t, bool>> {};
 class fbgemmPackUnpackAcc32Test
     : public testing::TestWithParam<tuple<matrix_op_t, bool>> {};
-} // namespace
+}; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,

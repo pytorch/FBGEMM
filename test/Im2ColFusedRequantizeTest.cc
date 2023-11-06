@@ -34,7 +34,7 @@ vector<QuantizationGranularity> qGranularityVals{
 namespace {
 class fbgemmIm2colTest
     : public testing::TestWithParam<tuple<QuantizationGranularity, bool>> {};
-} // namespace
+}; // namespace
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,

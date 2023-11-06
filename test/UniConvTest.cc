@@ -162,7 +162,7 @@ class UniConvQGranTest
     : public testing::TestWithParam<
           tuple<QuantizationGranularity, bool, bool, bool, bool>> {};
 
-} // namespace
+}; // namespace
 
 // Combine only allows at most 10 generators.
 INSTANTIATE_TEST_CASE_P(
