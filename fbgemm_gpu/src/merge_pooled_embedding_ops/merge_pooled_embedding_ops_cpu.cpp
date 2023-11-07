@@ -10,7 +10,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/core/TensorOptions.h>
 #include <torch/library.h>
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -49,7 +49,16 @@ Tensor merge_pooled_embeddings_cpu(
 
 } // namespace fbgemm_gpu
 
-TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
-  DISPATCH_TO_CPU(
-      "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings_cpu);
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "merge_pooled_embeddings(Tensor[] pooled_embeddings, SymInt uncat_dim_size, Device target_device, SymInt cat_dim=1) -> Tensor");
+  m.def(
+      "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
+  m.def(
+      "sum_reduce_to_one(Tensor[] input_tensors, Device target_device) -> Tensor");
 }
+
+FBGEMM_OP_DISPATCH(
+    CPU,
+    "merge_pooled_embeddings",
+    fbgemm_gpu::merge_pooled_embeddings_cpu);
