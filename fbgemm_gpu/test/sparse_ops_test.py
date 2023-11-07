@@ -2436,7 +2436,6 @@ if (
             "test_schema",
             "test_autograd_registration",
             "test_faketensor",
-            "test_aot_dispatch_static",
             "test_aot_dispatch_dynamic",
         ],
     )

@@ -257,7 +257,6 @@ class optests:
             if not fast:
                 tests_to_run.extend(
                     [
-                        "test_aot_dispatch_static",
                         "test_aot_dispatch_dynamic",
                     ]
                 )
