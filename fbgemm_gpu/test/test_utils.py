@@ -18,6 +18,11 @@ import fbgemm_gpu
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from hypothesis import settings
+
+
+settings.register_profile("derandomize", derandomize=True)
+settings.load_profile("derandomize")
 
 
 TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1"
