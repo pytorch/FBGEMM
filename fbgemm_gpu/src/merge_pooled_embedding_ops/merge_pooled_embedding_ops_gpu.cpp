@@ -11,7 +11,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAEvent.h>
 #include <ATen/cuda/PeerToPeerAccess.h>
-#include <ATen/native/TensorAdvancedIndexing.h>
+
 #include <c10/core/Device.h>
 #include <c10/core/TensorOptions.h>
 #include <c10/cuda/CUDAGuard.h>
@@ -19,8 +19,8 @@
 #include <torch/library.h>
 #include <algorithm>
 #include <tuple>
-
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
+
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/topology_utils.h"
 
@@ -645,14 +645,8 @@ Tensor sum_reduce_to_one_device(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def(
-      "merge_pooled_embeddings(Tensor[] pooled_embeddings, SymInt uncat_dim_size, Device target_device, SymInt cat_dim=1) -> Tensor");
   DISPATCH_TO_CUDA(
       "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings);
-  m.def(
-      "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
   DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
-  m.def(
-      "sum_reduce_to_one(Tensor[] input_tensors, Device target_device) -> Tensor");
   DISPATCH_TO_CUDA("sum_reduce_to_one", fbgemm_gpu::sum_reduce_to_one_device);
 }

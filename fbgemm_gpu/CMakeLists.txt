@@ -561,6 +561,7 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
+    src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_function.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_cpu.cpp
@@ -607,8 +608,7 @@ if(NOT FBGEMM_CPU_ONLY)
   if(NVML_LIB_PATH OR USE_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
     list(APPEND fbgemm_gpu_sources_static_cpu
-      src/merge_pooled_embeddings_cpu.cpp
-      src/merge_pooled_embeddings_gpu.cpp
+      src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_gpu.cpp
       src/topology_utils.cpp)
   else()
     message(STATUS "Skipping merge_pooled_embeddings sources")

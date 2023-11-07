@@ -20,7 +20,7 @@ open_source: bool = True
 
 # Re-export docs
 # Trigger meta registrations
-from . import _fbgemm_gpu_docs, sparse_operators  # noqa: F401, E402  # noqa: F401, E402
+from . import _fbgemm_gpu_docs, sparse_ops  # noqa: F401, E402  # noqa: F401, E402
 
 # Re-export the version string from the auto-generated version file
 from ._fbgemm_gpu_version import __version__  # noqa: F401, E402
