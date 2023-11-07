@@ -50,11 +50,6 @@ Tensor merge_pooled_embeddings_cpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-#ifdef HAS_IMPL_ABSTRACT_PYSTUB
-  m.impl_abstract_pystub(
-      "fbgemm_gpu.sparse_ops",
-      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
-#endif
   m.def(
       "merge_pooled_embeddings(Tensor[] pooled_embeddings, SymInt uncat_dim_size, Device target_device, SymInt cat_dim=1) -> Tensor");
   m.def(
