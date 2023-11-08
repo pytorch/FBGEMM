@@ -228,12 +228,12 @@ def merge_pooled_embeddings(
     if cat_dim == 0:
         return e.new_empty(
             [total_cat_dim_size, e.size(1)],
-            device=torch.device("meta"),
+            device=target_device,
         )
 
     return e.new_empty(
         [e.size(0), total_cat_dim_size],
-        device=torch.device("meta"),
+        device=target_device,
     )
 
 
