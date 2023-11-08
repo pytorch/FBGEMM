@@ -179,18 +179,19 @@ class {{ autograd_func }} :
     const bool is_experimental,
     {{ args.split_function_args | join(", ") }}) {
 
-    const auto T = weights_offsets.numel();
+    const auto T = weights_offsets.sym_numel();
     {%- if vbe %}
     const auto B_offsets_ = B_offsets.value_or(Tensor());
     const auto vbe_output_offsets_feature_rank_ = vbe_output_offsets_feature_rank.value_or(Tensor());
     const auto vbe_B_offsets_rank_per_feature_ = vbe_B_offsets_rank_per_feature.value_or(Tensor());
 
-    const auto max_B_ = max_B;
+    const c10::SymInt max_B_ = max_B;
     {%- else %}
-    const auto max_B_ = offsets.size(0) / T;
+    const auto max_B_ = offsets.sym_size(0) / T;
     {%- endif %}
 
-    auto [info_B_num_bits, info_B_mask] = adjust_info_B_num_bits(max_B_, T);
+    // TODO: don't guard here
+    auto [info_B_num_bits, info_B_mask] = adjust_info_B_num_bits(max_B_.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
 
     {%- if vbe %}
     static auto generate_vbe_metadata_op =
