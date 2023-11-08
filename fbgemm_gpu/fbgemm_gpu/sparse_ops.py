@@ -206,7 +206,8 @@ def block_bucketize_sparse_features_meta(
     )
 
 
-@impl_abstract("fbgemm::merge_pooled_embeddings")
+# TODO: Temporary disable this since it breaks troch.export for an Ads Model
+# @impl_abstract("fbgemm::merge_pooled_embeddings")
 def merge_pooled_embeddings(
     pooled_embeddings: List[torch.Tensor],
     uncat_dim_size: int,
