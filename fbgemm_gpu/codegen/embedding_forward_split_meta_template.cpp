@@ -85,22 +85,20 @@ Tensor
 ) {
     // NB: omitted the device tests TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL
 
-    // TODO: SymIntify
-
     {%- if not nobag %}
-    int32_t T = D_offsets.numel() - 1;
+    auto T = D_offsets.sym_numel() - 1;
     {%- else %}
-    int32_t total_L = indices.numel();
-    int32_t T = weights_offsets.numel();
+    auto total_L = indices.sym_numel();
+    auto T = weights_offsets.sym_numel();
     {%- endif %}
     TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]
     {%- if is_index_select %}
     const auto total_B = num_warps_per_feature * T;
-    const int32_t B = num_warps_per_feature;
+    const auto B = num_warps_per_feature;
     {%- else %}
-    const auto total_B = offsets.size(0) - 1;
-    const int32_t B = total_B / T;
+    const auto total_B = offsets.sym_size(0) - 1;
+    const auto B = total_B / T;
     {%- endif %}
     TORCH_CHECK_GE(B, 0);
     {%- if not nobag or is_index_select %}
@@ -114,7 +112,7 @@ Tensor
     TORCH_CHECK_EQ(D % 4, 0);
     {%- endif %}
     {%- if vbe %}
-    TORCH_CHECK_EQ(vbe_row_output_offsets.numel(), total_B);
+    TORCH_CHECK_EQ(vbe_row_output_offsets.sym_numel(), total_B);
     TENSORS_HAVE_SAME_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
     TORCH_CHECK_GE(vbe_output_size, 0);
 
@@ -133,40 +131,41 @@ Tensor
     TORCH_CHECK_GT(num_warps_per_feature, 0);
     if (!permute_output_dim_0_1) {
         TORCH_CHECK_GE(output_size, 0);
-        TORCH_CHECK_GT(output_offsets.numel(), 0);
+        TORCH_CHECK_GT(output_offsets.sym_numel(), 0);
     }
 
     // If permute_output_dim_0_1 is true, output shape is (batch_size * total_D)
     // Else, output shape is (output_size)
-    output = at::empty({output_size}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    output = at::empty_symint({output_size}, dev_weights.options().dtype(getScalarType(o_dtype)));
     {%- else %}
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
 
-    int64_t adjusted_D = D;
+    c10::SymInt adjusted_D = D;
     if (o_dtype == SparseType::INT8) {
-        adjusted_D += T * kINT8QparamsBytes;
+        adjusted_D += T * int64_t(kINT8QparamsBytes);
     }
 
-    output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    output = at::empty_symint({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
     {%- endif %}
     {%- else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
-    int64_t total_adjusted_D = total_D;
+    c10::SymInt total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
-        total_adjusted_D += T * kINT8QparamsBytes;
+        // TODO: Why is kINT8QparamsBytes a float
+        total_adjusted_D += T * int64_t(kINT8QparamsBytes);
     }
 
     {%- if vbe %}
     // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
-    output = at::empty(
+    output = at::empty_symint(
         {1, vbe_output_size},
         dev_weights.options().dtype(getScalarType(o_dtype))
     );
     {%- else %}
-    output = at::empty(
+    output = at::empty_symint(
         {B, total_adjusted_D},
         dev_weights.options().dtype(getScalarType(o_dtype))
     );
