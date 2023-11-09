@@ -22,7 +22,7 @@
 // clang-format on
 
 #ifdef USE_ROCM
-#include <rocm_version.h>
+#include <rocm-core/rocm_version.h>
 #endif
 
 inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
