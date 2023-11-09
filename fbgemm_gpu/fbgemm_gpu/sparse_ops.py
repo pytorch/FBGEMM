@@ -7,9 +7,9 @@
 from typing import Callable, List, Optional, Tuple
 
 import torch
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from torch import Tensor
 
 try:
     # pyre-ignore
@@ -23,8 +23,6 @@ except Exception:
     )
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
-
-from torch import Tensor
 
 
 if hasattr(torch.library, "impl_abstract"):

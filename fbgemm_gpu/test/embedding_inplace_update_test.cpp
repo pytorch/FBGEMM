@@ -177,10 +177,7 @@ void test_embedding_inplace_update() {
   }
 }
 
-TEST(EmbeddingInplaceUpdateTest, random_update) {
-  // TODO: Skipping test_embedding_inplace_update<int32_t> because it is
-  // unreliable and crashes occasionally.  This should be fixed and re-enabled.
-  //
-  // test_embedding_inplace_update<int32_t>();
+TEST(embedding_inplace_update_test, random_update) {
+  test_embedding_inplace_update<int32_t>();
   test_embedding_inplace_update<int64_t>();
 }
