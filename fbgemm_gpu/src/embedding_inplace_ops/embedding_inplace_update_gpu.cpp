@@ -15,9 +15,6 @@
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "emb_inplace_update", fbgemm_gpu::embedding_inplace_update_cuda);
-}
-
-TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "pruned_array_lookup_from_row_idx",
       fbgemm_gpu::pruned_array_lookup_from_row_idx_cuda);

@@ -574,7 +574,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/quantize_ops/quantize_ops_meta.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
-    src/embedding_inplace_update_cpu.cpp
+    src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
     src/split_embeddings_cache/linearize_cache_indices.cpp
     src/split_embeddings_cache/lfu_cache_populate_byte.cpp
     src/split_embeddings_cache/lru_cache_populate_byte.cpp
@@ -597,7 +597,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/split_embeddings_utils.cpp
     src/split_embeddings_cache/split_embeddings_cache_ops.cu
     src/metric_ops_host.cpp
-    src/embedding_inplace_update_gpu.cpp
+    src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/input_combine_gpu.cpp
     codegen/batch_index_select_dim0_host.cpp)
 
@@ -631,7 +631,7 @@ if(NOT FBGEMM_CPU_ONLY)
       codegen/embedding_forward_quantized_split_lookup.cu
       src/memory_utils/memory_utils.cu
       src/memory_utils/memory_utils_ops.cu
-      src/embedding_inplace_update.cu
+      src/embedding_inplace_ops/embedding_inplace_update.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine.cu
       src/jagged_tensor_ops/batched_dense_vec_jagged_2d_mul_backward.cu
