@@ -13,6 +13,7 @@ from .lookup_args import *
 
 
 {%- if is_fbcode %}
+
 # Provide compatibility to downstream packages for eventual migration to the split training / inference packages
 try:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training")
@@ -28,9 +29,6 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_emb
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_cpu")
 
-{%- else %}
-# import os
-# torch.ops.load_library(os.path.join(os.path.join(os.path.dirname(os.path.dirname(__file__)), "fbgemm_gpu_py.so")))
 {%- endif %}
 
 
