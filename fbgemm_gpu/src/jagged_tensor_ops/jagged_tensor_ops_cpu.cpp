@@ -1574,13 +1574,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // details at https://pytorch.org/get-started/pytorch-2.0/#dynamic-shapes. If
   // you find it doesn't compile, please pull the new PyTorch 2.0 code
   m.def(
-      "dense_to_jagged(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> (Tensor, Tensor[])");
+      "dense_to_jagged(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> (Tensor, Tensor[])",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "dense_to_jagged_forward(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> Tensor");
+      "dense_to_jagged_forward(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_2d_to_dense(Tensor values, Tensor offsets, SymInt max_sequence_length) -> Tensor");
+      "jagged_2d_to_dense(Tensor values, Tensor offsets, SymInt max_sequence_length) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_1d_to_dense(Tensor values, Tensor offsets, SymInt max_sequence_length, int padding_value) -> Tensor");
+      "jagged_1d_to_dense(Tensor values, Tensor offsets, SymInt max_sequence_length, int padding_value) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "stacked_jagged_2d_to_dense_forward(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value = 0) -> (Tensor[], Tensor[])");
   m.def(
@@ -1590,35 +1594,48 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "stacked_jagged_2d_to_dense(Tensor values, Tensor lengths, int[] offset_per_key, int[] max_lengths_per_key, int padding_value = 0) -> Tensor[]");
   m.def(
-      "jagged_to_padded_dense(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor");
+      "jagged_to_padded_dense(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_to_padded_dense_forward(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor");
+      "jagged_to_padded_dense_forward(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_to_padded_dense_backward(Tensor grad_output, Tensor[] offsets, SymInt total_L) -> Tensor");
+      "jagged_to_padded_dense_backward(Tensor grad_output, Tensor[] offsets, SymInt total_L) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   // jagged + dense -> dense
   m.def(
-      "jagged_dense_elementwise_add(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");
+      "jagged_dense_elementwise_add(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   // jagged + dense -> jagged (treat "zeros" in the jagged tensor as unknowns.
   // output offsets is same as x_offsets)
   m.def(
-      "jagged_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
+      "jagged_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_dense_dense_elementwise_add_jagged_output_forward(Tensor x_values, Tensor[] x_offsets, Tensor y_0, Tensor y_1) -> Tensor");
+      "jagged_dense_dense_elementwise_add_jagged_output_forward(Tensor x_values, Tensor[] x_offsets, Tensor y_0, Tensor y_1) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_dense_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y_0, Tensor y_1) -> (Tensor, Tensor[])");
+      "jagged_dense_dense_elementwise_add_jagged_output(Tensor x_values, Tensor[] x_offsets, Tensor y_0, Tensor y_1) -> (Tensor, Tensor[])",
+      {PT2_COMPLIANT_TAG});
   // jagged * dense -> jagged (its offsets is same as x_offsets)
   m.def(
-      "jagged_dense_elementwise_mul(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])");
+      "jagged_dense_elementwise_mul(Tensor x_values, Tensor[] x_offsets, Tensor y) -> (Tensor, Tensor[])",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_dense_elementwise_mul_forward(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor");
+      "jagged_dense_elementwise_mul_forward(Tensor x_values, Tensor[] x_offsets, Tensor y) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_dense_elementwise_mul_backward(Tensor grad_output, Tensor[] x_offsets, Tensor y, Tensor x_values) -> (Tensor, Tensor)");
+      "jagged_dense_elementwise_mul_backward(Tensor grad_output, Tensor[] x_offsets, Tensor y, Tensor x_values) -> (Tensor, Tensor)",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
+      "batched_dense_vec_jagged_2d_mul(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "batched_dense_vec_jagged_2d_mul_forward(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor");
+      "batched_dense_vec_jagged_2d_mul_forward(Tensor v, Tensor a_values, Tensor a_offsets) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "batched_dense_vec_jagged_2d_mul_backward(Tensor grad_output, Tensor v, Tensor a_values, Tensor a_offsets) -> (Tensor, Tensor)");
+      "batched_dense_vec_jagged_2d_mul_backward(Tensor grad_output, Tensor v, Tensor a_values, Tensor a_offsets) -> (Tensor, Tensor)",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
   m.def(
@@ -1630,17 +1647,20 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)");
   m.def(
-      "jagged_softmax(Tensor values, Tensor x_offsets, int max_L) -> (Tensor, Tensor)");
+      "jagged_softmax(Tensor values, Tensor x_offsets, int max_L) -> (Tensor, Tensor)",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_softmax_forward(Tensor values, Tensor x_offsets, int max_L) -> Tensor");
   m.def(
       "jagged_softmax_backward(Tensor grad_output, Tensor output, Tensor x_offsets, int max_L) -> Tensor");
   m.def(
-      "jagged_jagged_bmm(Tensor x_values, Tensor y_values, Tensor x_offsets, int max_L) -> Tensor");
+      "jagged_jagged_bmm(Tensor x_values, Tensor y_values, Tensor x_offsets, int max_L) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_jagged_bmm_forward(Tensor x_values, Tensor y_values, Tensor x_offsets, int max_L) -> Tensor");
   m.def(
-      "jagged_dense_bmm(Tensor x_values, Tensor x_offsets, Tensor y, int max_L) -> (Tensor, Tensor)");
+      "jagged_dense_bmm(Tensor x_values, Tensor x_offsets, Tensor y, int max_L) -> (Tensor, Tensor)",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_dense_bmm_forward(Tensor x_values, Tensor x_offsets, Tensor y, int max_L) -> Tensor");
   // jagged -> jagged

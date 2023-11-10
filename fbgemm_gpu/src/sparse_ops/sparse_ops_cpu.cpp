@@ -18,6 +18,7 @@
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include "c10/util/MaybeOwned.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -2704,9 +2705,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
       "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, SymInt my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
-  m.def("asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor");
-  m.def("asynchronous_inclusive_cumsum(Tensor t_in) -> Tensor");
-  m.def("asynchronous_complete_cumsum(Tensor t_in) -> Tensor");
+  m.def(
+      "asynchronous_exclusive_cumsum(Tensor t_in) -> Tensor",
+      {PT2_COMPLIANT_TAG});
+  m.def(
+      "asynchronous_inclusive_cumsum(Tensor t_in) -> Tensor",
+      {PT2_COMPLIANT_TAG});
+  m.def(
+      "asynchronous_complete_cumsum(Tensor t_in) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor batch_offsets, SymInt num_ads_in_batch, bool broadcast_lengths=False) -> Tensor");
   m.def(
@@ -2715,7 +2722,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "cat_reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor[] cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, SymInt num_ads_in_batch, bool broadcast_indices, SymInt total_num_indices, bool pinned_memory=False) -> Tensor");
   m.def("offsets_range(Tensor offsets, SymInt range_size) -> Tensor");
   m.def(
-      "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor");
+      "batched_unary_embeddings(Tensor weight, Tensor table_offsets, Tensor offsets, Tensor indices) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "histogram_binning_calibration(Tensor logit, Tensor bin_num_examples, Tensor bin_num_positives, float positive_weight, float lower_bound, float upper_bound, SymInt bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
@@ -2738,7 +2746,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_sequence_embeddings(Tensor permute, Tensor lengths, Tensor embeddings) -> (Tensor, Tensor)");
   m.def(
-      "pack_segments(Tensor t_in, Tensor lengths, SymInt max_length) -> Tensor");
+      "pack_segments(Tensor t_in, Tensor lengths, SymInt max_length) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "pack_segments_backward(Tensor data, Tensor lengths, SymInt total_length, SymInt max_length) -> Tensor");
   // A specialization of at::index_select for selecting dim 0

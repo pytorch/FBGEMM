@@ -8,6 +8,7 @@
 
 #include <c10/util/irange.h>
 #include <vector>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
 
 using Tensor = at::Tensor;
@@ -149,7 +150,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_pooled_embs(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
   m.def(
-      "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
+      "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "permute_duplicate_pooled_embs(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
   m.def(
