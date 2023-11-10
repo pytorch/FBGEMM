@@ -62,7 +62,7 @@ jobs:
         mkdir $BUILD_DIR; cd $BUILD_DIR
         cmake --version
         cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DPYTHON_EXECUTABLE=/usr/bin/python3 ..
-        make -j VERBOSE=1
+        make -j 1 VERBOSE=1
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
       run: |
