@@ -10,6 +10,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/core/TensorOptions.h>
 #include <torch/library.h>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/ops_utils.h"
 
 using Tensor = at::Tensor;
@@ -56,7 +57,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
 #endif
   m.def(
-      "merge_pooled_embeddings(Tensor[] pooled_embeddings, SymInt uncat_dim_size, Device target_device, SymInt cat_dim=1) -> Tensor");
+      "merge_pooled_embeddings(Tensor[] pooled_embeddings, SymInt uncat_dim_size, Device target_device, SymInt cat_dim=1) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "all_to_one_device(Tensor[] input_tensors, Device target_device) -> Tensor[]");
   m.def(

@@ -10,7 +10,7 @@
 import itertools
 import random
 import unittest
-from typing import List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -127,7 +127,27 @@ def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
     return hash_size_offsets_list
 
 
-@optests.generate_opcheck_tests
+# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
+# Please avoid putting tests here, you should put operator-specific
+# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
+# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_pt2_compliant_tag_fbgemm_dense_to_jagged": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add_jagged_output": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+}
+
+
+@optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class JaggedTensorOpsTest(unittest.TestCase):
     def setUp(self) -> None:
         if symint_vector_unsupported()[0]:
