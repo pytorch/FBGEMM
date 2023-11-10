@@ -252,7 +252,7 @@ if(NOT TARGET asmjit)
 
   #build asmjit
   #For MSVC shared build, asmjit needs to be shared also.
-  if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+  if ((MSVC OR MINGW) AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
     set(ASMJIT_STATIC OFF)
   else()
     set(ASMJIT_STATIC ON)

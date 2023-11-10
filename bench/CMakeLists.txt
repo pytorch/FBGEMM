@@ -65,16 +65,13 @@ macro(add_benchmark BENCHNAME)
   if (${BLAS_FOUND})
     target_compile_options(${BENCHNAME} PRIVATE "-DUSE_BLAS")
     target_link_libraries(${BENCHNAME} "${BLAS_LIBRARIES}")
-    if (DEFINED ENV{MINGW_PREFIX})
-    # Include the directory using the value of the environment variable
-    include_directories("$ENV{MINGW_PREFIX}/include/openblas")
-  endif()
+    target_include_directories(${BENCHNAME} PRIVATE "${BLAS_INCLUDE_DIRS}")
   endif()
 
   set_target_properties(${BENCHNAME} PROPERTIES FOLDER test)
 endmacro()
 
-if(FBGEMM_BUILD_BENCHMARKS)
+if(FBGEMM_BUILD_BENCHMARKS) 
 
   set(BENCHMARKS "")
 
@@ -84,6 +81,9 @@ if(FBGEMM_BUILD_BENCHMARKS)
     get_filename_component(BENCH_FILE_ONLY "${BENCH_FILE}" NAME)
     add_benchmark("${BENCH_NAME}"
       "${BENCH_FILE_ONLY}")
+    if(FBGEMM_LIBRARY_TYPE STREQUAL "static") #Needed by MSVC and MinGW
+      target_compile_definitions("${BENCH_NAME}" PRIVATE FBGEMM_STATIC)
+    endif()
     list(APPEND BENCHMARKS "${BENCH_NAME}")
   endforeach()
 
