@@ -288,41 +288,44 @@ target_include_directories(fbgemm_generic BEFORE
       PRIVATE "${ASMJIT_SRC_DIR}/src"
       PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
-target_include_directories(fbgemm_avx2 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+# target_include_directories(fbgemm_avx2 BEFORE
+#       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
+#       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+#       PRIVATE "${ASMJIT_SRC_DIR}/src"
+#       PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
-target_include_directories(fbgemm_avx512 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+# target_include_directories(fbgemm_avx512 BEFORE
+#       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
+#       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+#       PRIVATE "${ASMJIT_SRC_DIR}/src"
+#       PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
 if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
   add_library(fbgemm
     $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>)
+    # $<TARGET_OBJECTS:fbgemm_avx2>
+    # $<TARGET_OBJECTS:fbgemm_avx512>
+    )
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
   add_library(fbgemm SHARED
     $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>)
+    # $<TARGET_OBJECTS:fbgemm_avx2>
+    # $<TARGET_OBJECTS:fbgemm_avx512>
+    )
   set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
+  # set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
+  # set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
   add_library(fbgemm STATIC
     $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>)
+    # $<TARGET_OBJECTS:fbgemm_avx2>
+    # $<TARGET_OBJECTS:fbgemm_avx512>
+    )
   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
   #avoid generating _dllimport functions.
   target_compile_definitions(fbgemm_generic PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
+  # target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
+  # target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
   target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
