@@ -123,9 +123,9 @@ else(MSVC)
   CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
   set(MSVC_BOOL False)
 endif(MSVC)
-if(NOT COMPILER_SUPPORTS_AVX512)
-  message(FATAL_ERROR "A compiler with AVX512 support is required.")
-endif()
+# if(NOT COMPILER_SUPPORTS_AVX512)
+#   message(FATAL_ERROR "A compiler with AVX512 support is required.")
+# endif()
 
 # We should default to a Release build
 if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
