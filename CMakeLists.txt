@@ -155,15 +155,15 @@ get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})"
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
-add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
-add_library(fbgemm_avx512 OBJECT
-  ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
+# add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
+# add_library(fbgemm_avx512 OBJECT
+#   ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
 
 # Make libraries depend on defs.bzl
 add_custom_target(defs.bzl DEPENDS defs.bzl)
 add_dependencies(fbgemm_generic defs.bzl)
-add_dependencies(fbgemm_avx2 defs.bzl)
-add_dependencies(fbgemm_avx512 defs.bzl)
+# add_dependencies(fbgemm_avx2 defs.bzl)
+# add_dependencies(fbgemm_avx512 defs.bzl)
 
 # On Windows:
 # 1)  Adding definition of ASMJIT_STATIC to avoid generating asmjit function
@@ -192,21 +192,21 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Werror")
   string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
-  target_compile_options(fbgemm_avx2 PRIVATE
-    "-m64" "-mavx2" "-mf16c" "-mfma")
-  target_compile_options(fbgemm_avx512 PRIVATE
-    "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
-    "-mavx512vl")
-  set_source_files_properties(
-    src/FbgemmFP16UKernelsAvx2.cc
-    src/FbgemmFP16UKernelsAvx512.cc
-    src/FbgemmFP16UKernelsAvx512_256.cc
-    PROPERTIES COMPILE_FLAGS "-masm=intel")
+  # target_compile_options(fbgemm_avx2 PRIVATE
+  #   "-m64" "-mavx2" "-mf16c" "-mfma")
+  # target_compile_options(fbgemm_avx512 PRIVATE
+  #   "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
+  #   "-mavx512vl")
+  # set_source_files_properties(
+  #   src/FbgemmFP16UKernelsAvx2.cc
+  #   src/FbgemmFP16UKernelsAvx512.cc
+  #   src/FbgemmFP16UKernelsAvx512_256.cc
+  #   PROPERTIES COMPILE_FLAGS "-masm=intel")
   set_source_files_properties(
     src/FbgemmI64.cc
-    src/FbgemmI8Depthwise3DAvx2.cc
-    src/FbgemmI8DepthwiseAvx2.cc
-    src/UtilsAvx2.cc
+    # src/FbgemmI8Depthwise3DAvx2.cc
+    # src/FbgemmI8DepthwiseAvx2.cc
+    # src/UtilsAvx2.cc
     PROPERTIES COMPILE_FLAGS "-Wno-uninitialized")
   set_source_files_properties(src/PackMatrix.cc
     PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
