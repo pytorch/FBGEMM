@@ -223,10 +223,10 @@ endif(MSVC)
 if(USE_SANITIZER)
   target_compile_options(fbgemm_generic PRIVATE
     "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-  target_compile_options(fbgemm_avx2 PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-  target_compile_options(fbgemm_avx512 PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+  # target_compile_options(fbgemm_avx2 PRIVATE
+  #   "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+  # target_compile_options(fbgemm_avx512 PRIVATE
+  #   "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
 endif()
 
 message(WARNING "==========")
