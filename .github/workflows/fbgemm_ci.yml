@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   build-linux:
-    runs-on: ${{ matrix.host-machine }}
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: ${{ matrix.container-image }}
       options: --user root
@@ -35,7 +35,8 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          "linux.12xlarge",     # x86 machine
+          { arch: x86, instance: "linux.12xlarge" },
+          { arch: arm, instance: "linux.arm64.2xlarge" },
         ]
         container-image: [ "ubuntu:20.04" ]
         library-type: [ static, shared ]
