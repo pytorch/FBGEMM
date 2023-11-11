@@ -380,7 +380,7 @@ FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
 
 #define DISPATCH_FOR_ARCH(func_avx512, func_avx2, func_default, ...) \
   [&] { \
-  if constexpr isArmInstructionSet() { \
+  if constexpr (isArmInstructionSet()) { \
     return func_default(__VA_ARGS__); \
  \
   } else { \
