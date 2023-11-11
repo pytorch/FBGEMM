@@ -350,7 +350,7 @@ inst_set_t fbgemmInstructionSet() {
   return supported_isa->second.count(forced_isa) ? forced_isa : detected_isa;
 }
 
-constexpr bool isArmInstructionSet() {
+constexpr bool fbgemmIsArmInstructionSet() {
 #if defined(__aarch64__) || defined(__arm__) || \
     (defined(_MSC_VER) && (defined(_M_ARM) || defined(_M_ARM64)))
   return true;

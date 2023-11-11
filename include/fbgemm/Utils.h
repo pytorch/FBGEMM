@@ -151,6 +151,9 @@ FBGEMM_API bool fbgemmHasArmNeonSupport();
  */
 FBGEMM_API inst_set_t fbgemmInstructionSet();
 
+
+FBGEMM_API bool fbgemmIsArmInstructionSet();
+
 /**
  * @brief Is ISA is wide vector ZMM
  */
@@ -377,10 +380,20 @@ FBGEMM_API std::pair<K*, V*> radix_sort_parallel(
  */
 FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
 
+constexpr bool isArmInstructionSet() {
+#if defined(__aarch64__) || defined(__arm__) || \
+    (defined(_MSC_VER) && (defined(_M_ARM) || defined(_M_ARM64)))
+  return true;
+#else
+  return false;
+#endif
+}
+
+
 
 #define DISPATCH_FOR_ARCH(func_avx512, func_avx2, func_default, ...) \
   [&] { \
-  if constexpr (isArmInstructionSet()) { \
+  if constexpr (fbgemmIsArmInstructionSet()) { \
     return func_default(__VA_ARGS__); \
  \
   } else { \
