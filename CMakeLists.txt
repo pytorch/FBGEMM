@@ -50,6 +50,8 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+add_compile_options(-Wno-unused)
+
 # Check if given flag is supported and append it to provided outputvar
 # Also define HAS_UPPER_CASE_FLAG_NAME variable
 # From: https://github.com/pytorch/pytorch/blob/62c8d30f9f6715d0b60d78fb5f5913a2f3bd185b/cmake/public/utils.cmake#L579
@@ -60,7 +62,7 @@ function(append_cxx_flag_if_supported flag outputvar)
     string(REGEX REPLACE "[=-]" "_" _FLAG_NAME "${_FLAG_NAME}")
     # GCC silents unknown -Wno-XXX flags, so we detect the corresponding -WXXX.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      # string(REGEX REPLACE "Wno-" "W" new_flag "${flag}")
+      string(REGEX REPLACE "Wno-" "W" new_flag "${flag}")
     else()
       set(new_flag ${flag})
     endif()
