@@ -152,7 +152,14 @@ FBGEMM_API bool fbgemmHasArmNeonSupport();
 FBGEMM_API inst_set_t fbgemmInstructionSet();
 
 
-FBGEMM_API bool fbgemmIsArmInstructionSet();
+FBGEMM_API constexpr bool fbgemmIsArmInstructionSet() {
+#if defined(__aarch64__) || defined(__arm__) || \
+    (defined(_MSC_VER) && (defined(_M_ARM) || defined(_M_ARM64)))
+  return true;
+#else
+  return false;
+#endif
+}
 
 /**
  * @brief Is ISA is wide vector ZMM
