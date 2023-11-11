@@ -350,6 +350,15 @@ inst_set_t fbgemmInstructionSet() {
   return supported_isa->second.count(forced_isa) ? forced_isa : detected_isa;
 }
 
+constexpr bool isArmInstructionSet() {
+#if defined(__aarch64__) || defined(__arm__) || \
+    (defined(_MSC_VER) && (defined(_M_ARM) || defined(_M_ARM64)))
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool isZmm(inst_set_t isa) {
   return isa == inst_set_t::avx512 || isa == inst_set_t::avx512_vnni;
 }

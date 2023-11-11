@@ -46,15 +46,23 @@ void transpose_simd(
     }
     return;
   }
-  static const auto iset = fbgemmInstructionSet();
-  // Run time CPU detection
-  if (isZmm(iset)) {
-    internal::transpose_avx512<T>(M, N, src, ld_src, dst, ld_dst);
-  } else if (isYmm(iset)) {
-    internal::transpose_avx2<T>(M, N, src, ld_src, dst, ld_dst);
-  } else {
-    transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);
-  }
+
+  DISPATCH_FOR_ARCH(
+    internal::transpose_avx512<T>,
+    internal::transpose_avx2<T>,
+    transpose_ref<T>,
+    M, N, src, ld_src, dst, ld_dst
+  );
+
+  // static const auto iset = fbgemmInstructionSet();
+  // // Run time CPU detection
+  // if (isZmm(iset)) {
+  //   internal::transpose_avx512<T>(M, N, src, ld_src, dst, ld_dst);
+  // } else if (isYmm(iset)) {
+  //   internal::transpose_avx2<T>(M, N, src, ld_src, dst, ld_dst);
+  // } else {
+  //   transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);
+  // }
 }
 
 template void transpose_ref<float>(

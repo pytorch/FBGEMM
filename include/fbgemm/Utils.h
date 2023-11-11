@@ -377,4 +377,25 @@ FBGEMM_API std::pair<K*, V*> radix_sort_parallel(
  */
 FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
 
+
+#define DISPATCH_FOR_ARCH(func_avx512, func_avx2, func_default, ...) \
+  [&] { \
+  if constexpr isArmInstructionSet() { \
+    return func_default(__VA_ARGS__); \
+ \
+  } else { \
+    static const auto iset = fbgemmInstructionSet(); \
+ \
+    if (isZmm(iset)) { \
+      return func_avx512(__VA_ARGS__); \
+ \
+    } else if (isYmm(iset)) { \
+      return func_avx2(__VA_ARGS__); \
+ \
+    } else { \
+      return func_default(__VA_ARGS__); \
+    } \
+  } \
+}()
+
 } // namespace fbgemm
