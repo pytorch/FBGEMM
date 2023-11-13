@@ -68,7 +68,7 @@ NOINLINE float cache_evict(const T& vec) {
   for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
     dummy += data[i] * 1.0f;
     // _mm_mfence();
-    std::atomic_thread_fence(std::memory_order::seq_cst);
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 
 #ifndef _MSC_VER
     asm volatile("" ::: "memory");
