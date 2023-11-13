@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <vector>
@@ -66,10 +67,14 @@ NOINLINE float cache_evict(const T& vec) {
   float dummy = 0.0f;
   for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
     dummy += data[i] * 1.0f;
-    _mm_mfence();
+    // _mm_mfence();
+    std::atomic_thread_fence(std::memory_order::seq_cst);
+
 #ifndef _MSC_VER
     asm volatile("" ::: "memory");
 #endif
+
+
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     _mm_clflush(&data[i]);
