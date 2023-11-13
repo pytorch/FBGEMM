@@ -68,6 +68,8 @@ NOINLINE float cache_evict(const T& vec) {
   for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
     dummy += data[i] * 1.0f;
     // _mm_mfence();
+    // https://stackoverflow.com/questions/38764826/memory-barrier-intrinsics-for-arm-analogous-to-mm-fence
+    // https://github.com/DLTcollab/sse2neon/issues/554#issuecomment-1328652375
     std::atomic_thread_fence(std::memory_order_seq_cst);
 
 #ifndef _MSC_VER

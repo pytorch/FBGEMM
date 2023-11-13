@@ -27,7 +27,7 @@
 #include "./OptimizedKernelsAvx2.h"
 #include "./RefImplementations.h"
 #include "./TransposeUtils.h"
-#include "fbgemm/QuantUtilsAvx512.h"
+// #include "fbgemm/QuantUtilsAvx512.h"
 namespace fbgemm {
 
 PackedDirectConvMatrix::PackedDirectConvMatrix(
