@@ -251,3 +251,27 @@ def bounds_check_indices(
     max_B: int = -1,
 ) -> None:
     pass
+
+
+@impl_abstract("fbgemm::permute_sparse_features")
+def permute_sparse_features_abstract(
+    permute: Tensor, lengths: Tensor, indices: Tensor, weights: Optional[Tensor] = None
+) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+    torch._check(lengths.dtype == indices.dtype)
+    torch._check(permute.device == lengths.device)
+    torch._check(permute.device == indices.device)
+    if weights is not None:
+        torch._check(permute.device == weights.device)
+    num_output_features = permute.numel()
+    B = lengths.size(1)
+    permuted_lengths = lengths.new_empty(num_output_features, B)
+    output_size = torch.library.get_ctx().new_dynamic_size()
+    # pyre-fixme[6]: In call `torch._C.TensorBase.new_empty`, for 1st positional argument,
+    # expected `Sequence[Union[int, types.SymInt]]` but got `Union[int, torch.SymInt]`
+    permuted_indices = indices.new_empty(output_size)
+    permuted_weights = None
+    if weights is not None:
+        # pyre-fixme[6]: In call `torch._C.TensorBase.new_empty`, for 1st positional argument,
+        # expected `Sequence[Union[int, types.SymInt]]` but got `Union[int, torch.SymInt]`
+        permuted_weights = weights.new_empty(output_size)
+    return (permuted_lengths, permuted_indices, permuted_weights)
