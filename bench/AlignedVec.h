@@ -108,7 +108,7 @@ class aligned_allocator {
     // Mallocator wraps malloc().
     void* pv = nullptr;
     int ret;
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__MINGW64__)
     pv = _aligned_malloc(n * sizeof(T), Alignment);
     ret = 0;
 #else
