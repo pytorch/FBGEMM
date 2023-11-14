@@ -2738,7 +2738,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "lengths_range_out(Tensor output, Tensor t_in, SymInt[]? shape=None) -> Tensor");
   m.def(
-      "permute_sparse_features(Tensor permute, Tensor lengths, Tensor indices, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_sparse_features(Tensor permute, Tensor lengths, Tensor indices, Tensor? weights=None) -> (Tensor, Tensor, Tensor?)",
+      {PT2_COMPLIANT_TAG});
   m.def("Bfloat16QuantizedToFloat(Tensor input) -> Tensor");
   m.def("FloatToBfloat16Quantized(Tensor input) -> Tensor");
   m.def(
