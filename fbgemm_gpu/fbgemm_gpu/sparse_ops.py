@@ -277,7 +277,7 @@ def permute_sparse_features_abstract(
     return (permuted_lengths, permuted_indices, permuted_weights)
 
 
-@torch.library.impl_abstract("fbgemm::segment_sum_csr")
+@impl_abstract("fbgemm::segment_sum_csr")
 def segment_sum_csr_abstract(
     batch_size: int, csr_seg: Tensor, values: Tensor
 ) -> Tensor:
