@@ -275,3 +275,12 @@ def permute_sparse_features_abstract(
         # expected `Sequence[Union[int, types.SymInt]]` but got `Union[int, torch.SymInt]`
         permuted_weights = weights.new_empty(output_size)
     return (permuted_lengths, permuted_indices, permuted_weights)
+
+
+@torch.library.impl_abstract("fbgemm::segment_sum_csr")
+def segment_sum_csr_abstract(
+    batch_size: int, csr_seg: Tensor, values: Tensor
+) -> Tensor:
+    output_size = csr_seg.numel() - 1
+    output = values.new_empty(output_size)
+    return output

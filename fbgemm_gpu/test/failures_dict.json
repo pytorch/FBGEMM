@@ -439,11 +439,11 @@
     "fbgemm::segment_sum_csr": {
       "SparseOpsTest.test_aot_dispatch_dynamic__test_segment_sum_csr": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SparseOpsTest.test_faketensor__test_segment_sum_csr": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       }
     },
     "fbgemm::stacked_jagged_1d_to_dense": {
