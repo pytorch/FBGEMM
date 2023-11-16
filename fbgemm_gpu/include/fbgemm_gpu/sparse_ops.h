@@ -149,7 +149,8 @@ block_bucketize_sparse_features_cuda(
     const int64_t my_size,
     const c10::optional<at::Tensor>& weights,
     const c10::optional<at::Tensor>& batch_size_per_feature,
-    const int64_t max_batch_size);
+    const int64_t max_batch_size,
+    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos);
 
 std::tuple<
     at::Tensor,
@@ -168,7 +169,8 @@ block_bucketize_sparse_features_cpu(
     const int64_t my_size,
     const c10::optional<at::Tensor>& weights,
     const c10::optional<at::Tensor>& batch_size_per_feature,
-    const int64_t max_batch_size);
+    const int64_t max_batch_size,
+    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos);
 
 std::tuple<
     at::Tensor,
