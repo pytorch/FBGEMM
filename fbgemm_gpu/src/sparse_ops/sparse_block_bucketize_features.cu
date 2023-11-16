@@ -147,7 +147,10 @@ block_bucketize_sparse_features_cuda(
     const int64_t my_size,
     const c10::optional<Tensor>& weights,
     const c10::optional<Tensor>& batch_size_per_feature,
-    const int64_t max_B) {
+    const int64_t max_B,
+    const c10::optional<std::vector<
+        at::Tensor>>& /*block_bucketize_pos*/ // Only used in CPU variant
+) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
   at::cuda::OptionalCUDAGuard device_guard;
