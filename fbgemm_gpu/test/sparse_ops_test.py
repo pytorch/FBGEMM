@@ -946,6 +946,116 @@ class SparseOpsTest(unittest.TestCase):
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
         bucketize_pos=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_with_block_bucketize_pos(
+        self,
+        index_type: Optional[torch.dtype],
+        has_weight: bool,
+        bucketize_pos: bool,
+        sequence: bool,
+    ) -> None:
+        """
+        Test variable bucket size for block bucketize_sparse features for RW sharding.
+        E.g. Given bucket_sizes_pos as [[0,5,15], [0,10,13]]
+        For batch 0, indices in [0,5) will be assigned to bucket 0, indices in [5,15) will be assigned to bucket 1.
+        For batch 1, indices in [0,10) will be assigned to bucket 0, indices in [10,13) will be assigned to bucket 1.
+        The new index will be original index - bucket_sizes_pos[new_bucket_id-1]
+        i.e. for batch = 0, index = 12, it will be assigned to bucket 1 and the new index is 12 - 5 = 7.
+        """
+        # For the following test case, we have
+        # batch 0: 2 (1,7), 1 (2), 1 (6)
+        # 1: bucket 0, new_idx 1
+        # 7: bucket 1, new_idx 5
+        # 2: bucket 1, new_idx 0
+        # 6: bucket 1, new_idx 4
+
+        # batch 1: 2 (7,8)
+        # 7: bucket 1, new_idx 2
+        # 8: bucket 1, new_idx 3
+
+        # batch 2: 0, 2 (8,4)
+        # 8: bucket 1, new_idx 1
+        # 4: bucket 0, new_idx 4
+
+        # new_lengths for 0: 1, 0, 0, 0, 0, 1
+        # new_indices for 0: 1|  |  |  |  | 4
+        # new_lengths for 1: 1, 1, 1, 2,   0, 1
+        # new_indices for 1: 5| 0| 4| 2,3|   |1
+        lengths = torch.tensor([2, 1, 1, 2, 0, 2], dtype=index_type)
+        indices = torch.tensor(
+            [1, 7, 2, 6, 7, 8, 8, 4],
+            dtype=index_type,
+        )
+        batch_sizes = torch.tensor([3, 1, 2], dtype=index_type)
+        weights = (
+            torch.tensor(
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+                dtype=torch.float,
+            )
+            if has_weight
+            else None
+        )
+
+        block_sizes = torch.tensor([5, 10, 8], dtype=index_type)
+        my_size = 2
+        max_B = batch_sizes.max().item()  # unused
+
+        block_bucketize_pos = [
+            torch.tensor([0, 2, 8], dtype=index_type),
+            torch.tensor([0, 5, 10], dtype=index_type),
+            torch.tensor([0, 7, 12], dtype=index_type),
+        ]
+
+        new_lengths_ref = torch.tensor(
+            [1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 0, 1],
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [1, 4, 5, 0, 4, 2, 3, 1],
+            dtype=index_type,
+        )
+        new_weights_ref = torch.tensor(
+            [
+                1.0,
+                8.0,
+                2.0,
+                3.0,
+                4.0,
+                5.0,
+                6.0,
+                7.0,
+            ],
+            dtype=torch.float,
+        )
+        (
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths,
+            indices,
+            bucketize_pos,
+            sequence,
+            block_sizes,
+            my_size,
+            weights,
+            batch_sizes,
+            max_B,
+            block_bucketize_pos,
+        )
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
+        if has_weight:
+            torch.testing.assert_close(new_weights_cpu, new_weights_ref)
+
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        has_weight=st.booleans(),
+        bucketize_pos=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
     def test_bucketize_sparse_features(
