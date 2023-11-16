@@ -9,7 +9,7 @@ import os
 import random
 import unittest
 from ctypes import c_float, c_int32, cast, POINTER, pointer
-from typing import Dict, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -32,6 +32,7 @@ try:
         fused_rowwise_nbit_quantize_reference,
         gpu_available,
         gpu_unavailable,
+        optests,
         symint_vector_unsupported,
     )
 except Exception:
@@ -45,6 +46,7 @@ except Exception:
         fused_rowwise_nbit_quantize_reference,
         gpu_available,
         gpu_unavailable,
+        optests,
         symint_vector_unsupported,
     )
 
@@ -999,6 +1001,27 @@ class TestBfloat16QuantizationConversion(unittest.TestCase):
             torch.testing.assert_close(dequantized_data_gpu.cpu(), dequantized_data)
 
 
+# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
+# Please avoid putting tests here, you should put operator-specific
+# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
+# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_pt2_compliant_tag_fbgemm_dense_to_jagged": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add_jagged_output": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+}
+
+
+@optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
     enable_logging: bool = False
     max_examples: int = 40
