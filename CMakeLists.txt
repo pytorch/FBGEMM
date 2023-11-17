@@ -152,18 +152,21 @@ get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})"
 get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
 get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})"
   FBGEMM_AVX512_INLINE_SRCS)
+get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
 add_library(fbgemm_avx512 OBJECT
   ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
+add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
 
 # Make libraries depend on defs.bzl
 add_custom_target(defs.bzl DEPENDS defs.bzl)
 add_dependencies(fbgemm_generic defs.bzl)
 add_dependencies(fbgemm_avx2 defs.bzl)
 add_dependencies(fbgemm_avx512 defs.bzl)
+add_dependencies(fbgemm_autovec defs.bzl)
 
 # On Windows:
 # 1)  Adding definition of ASMJIT_STATIC to avoid generating asmjit function
@@ -186,6 +189,9 @@ if(MSVC)
   endif()
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
+  if(OpenMP_FOUND)
+    target_compile_options(fbgemm_autovec PRIVATE "/openmp:experimental")
+  endif()
 else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wall")
   string(APPEND CMAKE_CXX_FLAGS " -Wextra")
@@ -300,29 +306,40 @@ target_include_directories(fbgemm_avx512 BEFORE
       PRIVATE "${ASMJIT_SRC_DIR}/src"
       PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
+target_include_directories(fbgemm_autovec BEFORE
+      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
+      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+      PRIVATE "${ASMJIT_SRC_DIR}/src"
+      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+
 if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
   add_library(fbgemm
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>)
+    $<TARGET_OBJECTS:fbgemm_avx512>
+    $<TARGET_OBJECTS:fbgemm_autovec>)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
   add_library(fbgemm SHARED
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>)
+    $<TARGET_OBJECTS:fbgemm_avx512>
+    $<TARGET_OBJECTS:fbgemm_autovec>)
   set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
+  set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
   add_library(fbgemm STATIC
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>)
+    $<TARGET_OBJECTS:fbgemm_avx512>
+    $<TARGET_OBJECTS:fbgemm_autovec>)
   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
   #avoid generating _dllimport functions.
   target_compile_definitions(fbgemm_generic PRIVATE FBGEMM_STATIC)
   target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
   target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
+  target_compile_definitions(fbgemm_autovec PRIVATE FBGEMM_STATIC)
   target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")

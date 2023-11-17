@@ -147,6 +147,11 @@ FBGEMM_API bool fbgemmHasAvx512VnniSupport();
 FBGEMM_API bool fbgemmHasArmNeonSupport();
 
 /**
+ * @brief Are we running on a ARM SVE2 supported cpu?
+ */
+FBGEMM_API bool fbgemmHasArmSve2Support();
+
+/**
  * @brief Retrieve current CPU instruction set
  */
 FBGEMM_API inst_set_t fbgemmInstructionSet();
