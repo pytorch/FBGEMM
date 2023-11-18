@@ -8,7 +8,7 @@
 # CMake Prelude
 ################################################################################
 
-cmake_minimum_required(VERSION 3.21.0 FATAL_ERROR)
+# cmake_minimum_required(VERSION 3.21.0 FATAL_ERROR)
 
 function(BLOCK_PRINT)
   message("================================================================================")

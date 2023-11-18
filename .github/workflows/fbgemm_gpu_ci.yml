@@ -77,7 +77,9 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install ROCm
-      run: . $PRELUDE; install_rocm_ubuntu $BUILD_ENV ${{ matrix.rocm-version }}
+      run: |
+        . $PRELUDE; install_rocm_ubuntu $BUILD_ENV ${{ matrix.rocm-version }}
+        ls -la /opt/rocm/lib/cmake/
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
@@ -89,7 +91,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU-ROCm Nightly
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_develop $BUILD_ENV rocm gfx90a
+      run: . $PRELUDE; cd fbgemm_gpu; CMAKE_MODULE_PATH=/opt/rocm/lib/cmake/ build_fbgemm_gpu_develop $BUILD_ENV rocm gfx90a
 
     - name: Test FBGEMM_GPU-ROCm Nightly Installation
       timeout-minutes: 15
@@ -149,13 +151,15 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch-ROCm Nightly
-      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
+      run:  |
+        . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
+        ls -la /opt/rocm/lib/cmake/
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU-ROCm Nightly
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_develop $BUILD_ENV rocm
+      run: . $PRELUDE; cd fbgemm_gpu; CMAKE_MODULE_PATH=/opt/rocm/lib/cmake/ build_fbgemm_gpu_develop $BUILD_ENV rocm
 
     - name: Test FBGEMM_GPU-ROCm Nightly Installation
       timeout-minutes: 15

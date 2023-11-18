@@ -93,6 +93,7 @@ __configure_fbgemm_gpu_build_rocm () {
   build_args=(
     --package_variant=rocm
     -DTORCH_USE_HIP_DSA=1
+    -DCMAKE_MODULE_PATH=/opt/rocm/lib/cmake/
   )
 }
 
