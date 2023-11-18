@@ -20,11 +20,14 @@ namespace {
 // FP32/FP16 -> FP8 rowwise kernel
 template <typename input_t>
 __global__ inline void _float_to_FP8rowwise_cuda_kernel(
-    const input_t* __restrict__ input,
+    const at::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
     const int64_t nrows,
     const int64_t ncols,
-    std::uint8_t* __restrict__ output,
+    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
+  // Assert if index is out of bound
+  CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
+
   constexpr float kEpsilon = 1e-20f;
   const int ebit = forward ? 4 : 5;
   const int bias = forward ? 15 : 31;
@@ -36,14 +39,13 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
   const int64_t row = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (row < nrows) {
-    const input_t* input_row = input + row * ncols;
-    std::uint8_t* output_row = output + row * output_columns;
+    const input_t* input_row = &input[row * ncols];
+    std::uint8_t* output_row = &output[row * output_columns];
     float* output_row_scale_bias =
         reinterpret_cast<float*>(output_row + ncols_aligned);
 
     const float minimum_element = fbgemm_gpu::min(input_row, input_row + ncols);
     const float maximum_element = fbgemm_gpu::max(input_row, input_row + ncols);
-
     const auto scale =
         max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
     output_row_scale_bias[0] = scale;
@@ -56,16 +58,18 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
 
 template <typename input_t>
 __global__ inline void _get_FP8_qparam_cuda_kernel(
-    const input_t* __restrict__ input,
+    const at::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
     const int64_t nrows,
     const int64_t ncols,
-    uint8_t* __restrict__ output,
-    float* __restrict__ range_list,
+    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
+  // Assert if index is out of bound
+  CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
   const int64_t row = blockIdx.x * blockDim.y + threadIdx.y;
 
   const int64_t ncols_aligned = (ncols + 4 - 1) / 4 * 4;
   const int64_t output_columns = ncols_aligned + 2 * sizeof(float);
+
   float max_pos;
   if (forward) {
     max_pos = 0.9375;
@@ -82,8 +86,7 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
   // March warp-wise through the row, doing thread local min and max reductions.
   // This loop will only execute once when ncol <= 32
   if (row < nrows) {
-    const input_t* const input_row = input + row * ncols;
-
+    const input_t* input_row = &input[row * ncols];
     for (int64_t col = threadIdx.x; col < ncols; col += lane_width) {
       // Get thread-local minmax. These are the smallest min and max ever seen
       // by this thread.
@@ -106,19 +109,21 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
     return;
   }
   float* const output_row_qparams =
-      reinterpret_cast<float*>(output + row * output_columns + ncols_aligned);
+      reinterpret_cast<float*>(&output[row * output_columns + ncols_aligned]);
 
   output_row_qparams[0] = max_pos / (kEpsilon + maximum_element);
 }
 
 template <typename input_t>
 __global__ inline void _compute_FP8_quantize_cuda_kernel(
-    const input_t* const __restrict__ input,
-    const float* const __restrict__ range_list,
+    const at::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
     const int64_t nrows,
     const int64_t ncols,
-    std::uint8_t* const __restrict__ output,
+    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
+  // Assert if index is out of bound
+  CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
+
   int ebit;
   int bias;
   float max_pos;
@@ -139,42 +144,41 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
   const int64_t col = blockIdx.x * blockDim.x + threadIdx.x;
   const int64_t row_incre = blockDim.y * gridDim.y;
   for (/*row*/; row < nrows; row += row_incre) {
+    std::uint8_t* output_row = &output[row * output_columns];
     if (col < ncols) {
-      float* row_qparams = reinterpret_cast<float*>(
-          output + row * output_columns + ncols_aligned);
+      float* row_qparams = reinterpret_cast<float*>(output_row + ncols_aligned);
       const float scale = row_qparams[0];
-      const auto input_idx = row * ncols + col;
-      uint8_t* output_addr = output + row * output_columns + col;
-      // TODO: lift range_list into shared memory. However, when nrows is large,
-      // it might exceed the size of shared memory.
-      // output_addr[0] = lrintf((input[input_idx] - bias) * inverse_scale);
-      output_addr[0] = float_to_hfp8(
-          to_float(input[input_idx]) * scale, ebit, bias, max_pos);
+      output_row[col] = float_to_hfp8(
+          to_float(input[row * ncols + col]) * scale, ebit, bias, max_pos);
     }
   }
 }
 
 template <typename output_t>
 __global__ inline void _FP8rowwise_to_float_cuda_kernel(
-    const std::uint8_t* const __restrict__ input,
-    const int nrows,
-    const int ncols,
-    output_t* const __restrict__ output,
+    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> input,
+    const int64_t nrows,
+    const int64_t ncols,
+    at::PackedTensorAccessor64<output_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
-  const int output_columns = ncols - 2 * sizeof(float);
+  // Assert if index is out of bound
+  CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
+
+  const int64_t output_columns = ncols - 2 * sizeof(float);
   const int ebit = forward ? 4 : 5;
   const int bias = forward ? 15 : 31;
 
-  int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
-  const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  const int row_incre = blockDim.y * gridDim.y;
+  int64_t row = static_cast<int64_t>(blockIdx.y) * blockDim.y + threadIdx.y;
+  const int64_t col =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t row_incre = blockDim.y * gridDim.y;
+
   for (/*row*/; row < nrows; row += row_incre) {
     if (col < output_columns) {
-      const std::uint8_t* input_row = input + row * ncols;
+      const std::uint8_t* input_row = &input[row * ncols];
+      output_t* output_row = &output[row * output_columns];
       const float* input_row_scale_bias =
           reinterpret_cast<const float*>(input_row + output_columns);
-      output_t* output_row = output + row * output_columns;
-
       const float output_ =
           hfp8_to_float(input_row[col], ebit, bias) / input_row_scale_bias[0];
       quantize_float_store(&output_row[col], output_);
@@ -189,16 +193,15 @@ template <typename input_t>
 Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
-  const int nrows = c10::size_to_dim_(last_dim, input_sizes);
-  const int ncols = input_sizes[last_dim];
-  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  const int output_columns = ncols_aligned + 2 * sizeof(float);
+  const int64_t nrows = c10::size_to_dim_(last_dim, input_sizes);
+  const int64_t ncols = input_sizes[last_dim];
+  const int64_t ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const int64_t output_columns = ncols_aligned + 2 * sizeof(float);
 
   // Global memory instructions support reading or writing words of size equal
   // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
@@ -220,6 +223,9 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
   // think unsigned as we use 0, 255
 
+  const auto input_1D = input.flatten();
+  const auto output_1D = output.flatten();
+
   if (nrows <= 20) {
     FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
         input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
@@ -228,10 +234,12 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
                  threads_per_block,
                  0,
                  at::cuda::getCurrentCUDAStream()>>>(
-                  input.data_ptr<scalar_t>(),
+                  input_1D
+                      .packed_accessor64<scalar_t, 1, at::RestrictPtrTraits>(),
                   nrows,
                   ncols,
-                  output.data_ptr<std::uint8_t>(),
+                  output_1D
+                      .packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
                   forward);
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
@@ -268,18 +276,22 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
                    dim3(blockDim_x, rows_per_block),
                    0,
                    at::cuda::getCurrentCUDAStream()>>>(
-                    input.data_ptr<scalar_t>(),
+                    input_1D.packed_accessor64<
+                        scalar_t,
+                        1,
+                        at::RestrictPtrTraits>(),
                     nrows,
                     ncols,
-                    output.data_ptr<std::uint8_t>(),
-                    range_tensor.data_ptr<float>(),
+                    output_1D
+                        .packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
                     forward);
             C10_CUDA_KERNEL_LAUNCH_CHECK();
           });
     }
 
     {
-      const int blockDim_x = std::min(ncols, threads_per_block);
+      const int blockDim_x =
+          std::min(ncols, static_cast<int64_t>(threads_per_block));
       dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
       const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
       const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
@@ -289,11 +301,14 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
           input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
             _compute_FP8_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    input.data_ptr<scalar_t>(),
-                    range_tensor.data_ptr<float>(),
+                    input_1D.packed_accessor64<
+                        scalar_t,
+                        1,
+                        at::RestrictPtrTraits>(),
                     nrows,
                     ncols,
-                    output.data_ptr<std::uint8_t>(),
+                    output_1D
+                        .packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
                     forward);
             C10_CUDA_KERNEL_LAUNCH_CHECK();
           });
@@ -328,10 +343,10 @@ Tensor _FP8rowwise_to_float_gpu_t(
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
-  const int nrows = c10::size_to_dim_(last_dim, input_sizes);
-  const int ncols = input_sizes[last_dim];
-  const int ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  const int output_columns = ncols_aligned - 2 * sizeof(float);
+  const int64_t nrows = c10::size_to_dim_(last_dim, input_sizes);
+  const int64_t ncols = input_sizes[last_dim];
+  const int64_t ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const int64_t output_columns = ncols_aligned - 2 * sizeof(float);
 
   // Global memory instructions support reading or writing words of size equal
   // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
@@ -356,21 +371,26 @@ Tensor _FP8rowwise_to_float_gpu_t(
 
   constexpr int threads_per_block = 256;
 
-  const int blockDim_x = std::min(threads_per_block, output_columns);
+  const int blockDim_x =
+      std::min(static_cast<int64_t>(threads_per_block), output_columns);
   const dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
 
   const auto gridDim_x = cuda_calc_xblock_count(output_columns, blockDim.x);
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
+  const auto input_1D = input.flatten();
+  const auto output_1D = output.flatten();
+
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
       output.scalar_type(), "FP8rowwise_to_float_cuda_kernel", [&] {
         _FP8rowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                input.data_ptr<std::uint8_t>(),
+                input_1D.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
                 nrows,
                 ncols,
-                output.data_ptr<scalar_t>(),
+                output_1D
+                    .packed_accessor64<scalar_t, 1, at::RestrictPtrTraits>(),
                 forward);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
