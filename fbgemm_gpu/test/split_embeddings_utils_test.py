@@ -13,15 +13,12 @@ from typing import List, Tuple
 
 import hypothesis.strategies as st
 import torch
-
+from fbgemm_gpu import sparse_ops  # noqa: F401
 from hypothesis import given, HealthCheck, settings
 
 try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
     from test_utils import gpu_unavailable  # pyre-ignore[21]
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 

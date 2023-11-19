@@ -595,7 +595,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
-    src/split_embeddings_utils.cpp
+    src/split_embeddings_utils/split_embeddings_utils.cpp
     src/split_embeddings_cache/split_embeddings_cache_ops.cu
     src/metric_ops/metric_ops_host.cpp
     src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
@@ -692,7 +692,10 @@ if(NOT FBGEMM_CPU_ONLY)
       src/split_embeddings_cache/lxu_cache.cu
       src/split_embeddings_cache/linearize_cache_indices.cu
       src/split_embeddings_cache/reset_weight_momentum.cu
-      src/split_embeddings_utils.cu)
+      src/split_embeddings_utils/generate_vbe_metadata.cu
+      src/split_embeddings_utils/get_infos_metadata.cu
+      src/split_embeddings_utils/radix_sort_pairs.cu
+      src/split_embeddings_utils/transpose_embedding_input.cu)
 
   set_source_files_properties(${fbgemm_gpu_sources_static_gpu}
     PROPERTIES COMPILE_OPTIONS
