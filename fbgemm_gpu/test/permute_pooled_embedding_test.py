@@ -46,7 +46,7 @@ INTERN_MODULE = "fbgemm_gpu.permute_pooled_embedding_modules"
 FIXED_EXTERN_API = {
     "PermutePooledEmbeddings": {
         "__init__": ["self", "embs_dims", "permute", "device"],
-        "forward": ["self", "pooled_embs"],
+        "__call__": ["self", "pooled_embs"],
     },
 }
 
