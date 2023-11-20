@@ -14,6 +14,8 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+namespace {
+
 __global__
 __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
@@ -70,6 +72,8 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
       (reinterpret_cast<uint32_t*>(&t)[0] << info_B_num_bits) |
       reinterpret_cast<const uint32_t*>(&b_)[0];
 }
+
+} // namespace
 
 /// Generate VBE metadata namely output_offsets and b_t_map
 ///
