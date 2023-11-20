@@ -41,13 +41,13 @@ def benchmark_torch_function(  # noqa: C901
     copy_f_for_multi_thread_test: bool = False,
 ) -> Tuple[float, torch.Tensor]:
     logging.info(f"Start to benchmark {name}...")
-    if device != "" and device != "cuda":
+    if device != "cpu" and device != "" and device != "cuda":
         torch.cuda.set_device(device)
     for _ in range(num_warmups):
         output = f(*args)
 
     assert num_threads > 0
-    if torch.cuda.is_available() and (num_threads == 1):
+    if device != "cpu" and torch.cuda.is_available() and (num_threads == 1):
         cache = torch.empty(
             int(flush_gpu_cache_size_mb * 1024 * 1024 // 4),
             dtype=torch.float,
@@ -69,7 +69,7 @@ def benchmark_torch_function(  # noqa: C901
             [s.elapsed_time(e) for s, e in zip(start_event, end_event)]
         )
         elapsed_time = torch.mean(times).item() * 1.0e-3
-    elif torch.cuda.is_available() and (num_threads > 1):
+    elif device != "cpu" and torch.cuda.is_available() and (num_threads > 1):
         cache = torch.empty(
             int(flush_gpu_cache_size_mb * 1024 * 1024 // 4),
             dtype=torch.float,
