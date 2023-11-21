@@ -487,7 +487,6 @@ endif()
 
 set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDM.cc"
-  "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
   "${FBGEMM}/src/QuantUtils.cc"
   "${FBGEMM}/src/RefImplementations.cc"
