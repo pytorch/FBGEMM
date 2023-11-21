@@ -20,7 +20,6 @@
 #include <string>
 #include <tuple>
 #include "./CodeCache.h"
-#include "./EmbeddingSpMDMAutovec.h"
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
 #include "fbgemm/SimdUtils.h"
@@ -1125,34 +1124,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
           weights,
           out,
           internal::avx2_ps_or_epi32_combined_mask);
-    };
-  } else if (fbgemmHasArmSve2Support()) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDMNBit_autovec(
-          bit_rate,
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          is_bf16_out);
     };
   } else {
 #ifdef VLOG
