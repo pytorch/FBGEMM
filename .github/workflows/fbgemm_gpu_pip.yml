@@ -116,8 +116,9 @@ jobs:
         cuda-version-publish: [ "11.8.0" ]
 
     steps:
+    # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
     - name: Checkout the Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
 
     - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
       uses: pytorch/test-infra/.github/actions/setup-nvidia@main
