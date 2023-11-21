@@ -74,7 +74,7 @@ jobs:
       run: yum update -y; yum install -y binutils findutils git pciutils sudo tar wget which
 
     - name: Checkout the Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: true
 
