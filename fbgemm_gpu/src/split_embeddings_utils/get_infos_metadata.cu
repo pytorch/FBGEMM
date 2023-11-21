@@ -59,7 +59,7 @@ DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
   return {info_B_num_bits, info_B_mask};
 }
 
-std::tuple<int64_t, int64_t> DLL_PUBLIC
+DLL_PUBLIC std::tuple<int64_t, int64_t>
 get_infos_metadata(Tensor unused, int64_t B, int64_t T) {
   return adjust_info_B_num_bits(B, T);
 }
