@@ -306,8 +306,7 @@ void _block_bucketize_sparse_features_cpu(
   const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
   offset_t* batch_sizes_data = nullptr;
   const auto variable_batch_size = batch_size_per_feature.has_value();
-  const auto variable_bucket_sizes = block_bucketize_pos.has_value() &&
-      block_bucketize_pos.value().size() != 0;
+  const auto variable_bucket_sizes = block_bucketize_pos.has_value();
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
   std::vector<int64_t> lower_bounds(indices.numel(), 0);
