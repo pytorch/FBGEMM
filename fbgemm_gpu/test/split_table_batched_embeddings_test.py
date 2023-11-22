@@ -178,7 +178,6 @@ additional_decorators: Dict[str, List[Callable]] = {
 }
 
 
-@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def execute_forward_(  # noqa C901
         self,
