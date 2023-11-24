@@ -6,9 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+
 #include <c10/cuda/CUDADeviceAssertion.h>
 #include <c10/cuda/CUDAException.h>
-#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
