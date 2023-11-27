@@ -174,7 +174,9 @@ at::Tensor lxu_cache_lookup_cuda(
     at::Tensor lxu_cache_state,
     int64_t invalid_index,
     bool gather_cache_stats,
-    c10::optional<at::Tensor> uvm_cache_stats);
+    c10::optional<at::Tensor> uvm_cache_stats,
+    c10::optional<at::Tensor> num_uniq_cache_indices,
+    c10::optional<at::Tensor> lxu_cache_locations_output);
 
 at::Tensor emulate_cache_miss(
     at::Tensor lxu_cache_locations,
@@ -240,4 +242,5 @@ void lxu_cache_locking_counter_decrement_cuda(
 /// and lxu_cache_locations_new[i] >= 0
 void lxu_cache_locations_update_cuda(
     at::Tensor lxu_cache_locations,
-    at::Tensor lxu_cache_locations_new);
+    at::Tensor lxu_cache_locations_new,
+    c10::optional<at::Tensor> num_uniq_cache_indices);
