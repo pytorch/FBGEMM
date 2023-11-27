@@ -4370,14 +4370,9 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # Initialize and insert Array index remapping based data structure
             index_remappings_array = []
             for t in range(T):
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
                 dense_indice_t = (
-                    (dense_indices.view(T, B, L))[t].view(-1)
-                    # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                    #  str]`.
-                    .to(current_device)
+                    (dense_indices.view(T, B, L))[t].view(-1).to(current_device)
                 )
                 index_remappings_array_t = torch.tensor(
                     [-1] * original_E,
@@ -5143,19 +5138,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         index_remappings_array_offsets = torch.empty(
             T + 1,
             dtype=torch.int64,
-            # pyre-fixme[6]: For 3rd param expected `Union[None, str, device]` but
-            #  got `Union[int, str]`.
             device=current_device,
         )
         index_remappings_array_offsets[0] = 0
         for t in range(T):
-            # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int, str]`.
             indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
             dense_indice_t = (
-                (dense_indices.view(T, B, L))[t].view(-1)
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
-                .to(current_device)
+                (dense_indices.view(T, B, L))[t].view(-1).to(current_device)
             )
             selected_indices = torch.add(indice_t, t * original_E)[:E]
             index_remappings_array[selected_indices] = dense_indice_t
@@ -5174,26 +5163,12 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 index_remappings_array,
                 index_remappings_array_offsets,
             ) = (
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 indices.to(current_device),
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 dense_indices.to(current_device),
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 offsets.to(current_device),
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 hash_table.to(current_device),
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 hash_table_offsets.to(current_device),
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 index_remappings_array.to(current_device),
-                # pyre-fixme[6]: For 1st param expected `dtype` but got `Union[int,
-                #  str]`.
                 index_remappings_array_offsets.to(current_device),
             )
 
