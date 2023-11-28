@@ -560,7 +560,6 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/embedding_forward_split_cpu.cpp
     codegen/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
-    codegen/embedding_bounds_check_host_cpu.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_function.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_cpu.cpp
@@ -580,13 +579,13 @@ set(fbgemm_gpu_sources_static_cpu
     src/split_embeddings_cache/lru_cache_populate_byte.cpp
     src/split_embeddings_cache/lxu_cache.cpp
     src/split_embeddings_cache/split_embeddings_cache_ops.cpp
+    src/split_embeddings_utils/embedding_bounds_check_cpu.cpp
     codegen/batch_index_select_dim0_cpu_host.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
     codegen/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host.cpp
-    codegen/embedding_bounds_check_host.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
@@ -598,6 +597,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/split_embeddings_cache/split_embeddings_cache_ops.cu
     src/metric_ops/metric_ops_host.cpp
     src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
+    src/split_embeddings_utils/embedding_bounds_check_gpu.cpp
     src/input_combine_ops/input_combine_gpu.cpp
     codegen/batch_index_select_dim0_host.cpp)
 
@@ -627,7 +627,6 @@ endif()
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu
-      codegen/embedding_bounds_check.cu
       codegen/embedding_forward_quantized_split_lookup.cu
       src/memory_utils/memory_utils.cu
       src/memory_utils/memory_utils_ops.cu
@@ -691,6 +690,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/split_embeddings_cache/lxu_cache.cu
       src/split_embeddings_cache/linearize_cache_indices.cu
       src/split_embeddings_cache/reset_weight_momentum.cu
+      src/split_embeddings_utils/embedding_bounds_check.cu
       src/split_embeddings_utils/generate_vbe_metadata.cu
       src/split_embeddings_utils/get_infos_metadata.cu
       src/split_embeddings_utils/radix_sort_pairs.cu
