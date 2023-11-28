@@ -71,11 +71,11 @@ void split_{{ optimizer }}_update_kernel(
           stochastic_rounding,
           stochastic_rounding_philox_args,
           run_id,
+          0, // segment_start (not used right now because lxu_cache is not
+             // supported)
           D,
           0, // t
           grad_dev_indices[run_id], // idx
-          0, // segment_start (not used right now because lxu_cache is not
-             // supported)
           shfl_sync_mask,
           0, // shared_weight_offset (not used because shared memory is not
              // needed as uint8_t is not supported)
