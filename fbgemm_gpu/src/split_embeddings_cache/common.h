@@ -89,7 +89,9 @@ Tensor lxu_cache_lookup_cpu(
     Tensor lxu_cache_state,
     int64_t invalid_index,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats);
+    c10::optional<Tensor> uvm_cache_stats,
+    c10::optional<Tensor> num_uniq_cache_indices,
+    c10::optional<Tensor> lxu_cache_locations_output);
 
 Tensor direct_mapped_lxu_cache_lookup_cpu(
     Tensor linear_cache_indices,

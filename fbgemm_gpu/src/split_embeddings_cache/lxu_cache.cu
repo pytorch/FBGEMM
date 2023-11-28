@@ -254,9 +254,11 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
         lxu_cache_locations,
     const bool gather_cache_stats,
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        uvm_cache_stats) {
+        uvm_cache_stats,
+    const int32_t* N_unique) {
   const int32_t C = lxu_cache_state.size(0);
-  const int32_t N = linear_cache_indices.size(0);
+  const int32_t N =
+      N_unique == nullptr ? linear_cache_indices.size(0) : *N_unique;
   const int32_t n0 =
       blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
   if (n0 >= N) {
@@ -368,14 +370,56 @@ __launch_bounds__(kMaxThreads) void direct_mapped_lxu_cache_lookup_kernel(
 
 } // namespace
 
+/// Lookup the cache locations for each linear cache indices in
+/// linear_cache_indices and return lxu_cache_locations
+///
+/// lxu_cache_locations A 1D tensor with the same length as
+///                     linear_cache_indices.  It contains the cache locations
+///                     (the row indices in the cache) of the corresponding
+///                     indices in linear_cache_indices, i.e.,
+///                     lxu_cache_locations[i] is the cache location for
+///                     linear_cache_indices[i], where 0 <= i <
+///                     linear_cache_indices.numel().
+///
+/// @param linear_cache_indices        Linear cache indices tensor (1D)
+/// @param lxu_cache_state             LXU cache state tensor (2D tensor of
+///                                    shape (# of cache sets, # of cache
+///                                    slots per set)).  It contains linear
+///                                    indices of rows that are in the
+///                                    corresponding cache slots. If the cache
+///                                    slot is empty, a sentinel value is
+///                                    stored.
+/// @param invalid_index               A sentinel value for linear cache
+///                                    indices.  A cache index is skipped if it
+///                                    is a sentinel value.
+/// @param gather_cache_stats          A flag to enable/disable cache stats
+///                                    collection.
+/// @param uvm_cache_stats             A tensor for storing cache stats.
+/// @param num_uniq_cache_indices      An optional GPU tensor that contains the
+///                                    number of unique cache indices.  If this
+///                                    tensor is passed, the kernel will only
+///                                    lookup num_uniq_cache_indices number of
+///                                    indices instead of looking up the entire
+///                                    linear_cache_indices.
+/// @param lxu_cache_locations_output  An optional output tensor.  If the
+///                                    tensor is passed, the operator will not
+///                                    allocate a new output tensor and use
+///                                    this tensor as an output tensor.
 DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
-    Tensor linear_cache_indices,
-    Tensor lxu_cache_state,
-    int64_t invalid_index,
-    bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats) {
+    const Tensor linear_cache_indices,
+    const Tensor lxu_cache_state,
+    const int64_t invalid_index,
+    const bool gather_cache_stats,
+    const c10::optional<Tensor> uvm_cache_stats,
+    const c10::optional<Tensor> num_uniq_cache_indices,
+    const c10::optional<Tensor> lxu_cache_locations_output) {
+  const auto uniq_lookup = num_uniq_cache_indices.has_value();
+  // TODO: Support gather_cache_stats=true when uniq_lookup=true
+  TORCH_CHECK(
+      !uniq_lookup || !gather_cache_stats,
+      "Unique lxu_cache_locations generation does not support gather_cache_stats=true");
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      linear_cache_indices, lxu_cache_state);
+      linear_cache_indices, lxu_cache_state, num_uniq_cache_indices);
   Tensor uvm_cache_stats_ =
       at::empty({0}, linear_cache_indices.options().dtype(at::kInt));
   if (gather_cache_stats) {
@@ -386,9 +430,12 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(linear_cache_indices.get_device());
 
+  const auto lxu_cache_locations =
+      lxu_cache_locations_output.value_or(empty_like(
+          linear_cache_indices,
+          linear_cache_indices.options().dtype(at::kInt)));
+
   const auto N = linear_cache_indices.numel();
-  auto lxu_cache_locations = empty_like(
-      linear_cache_indices, linear_cache_indices.options().dtype(at::kInt));
   if (linear_cache_indices.numel() == 0) {
     // nothing to do
     return lxu_cache_locations;
@@ -412,10 +459,12 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
             invalid_index,
             MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
             gather_cache_stats,
-            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats_, int32_t, 1, 32));
+            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats_, int32_t, 1, 32),
+            num_uniq_cache_indices.has_value()
+                ? num_uniq_cache_indices.value().data_ptr<int32_t>()
+                : nullptr);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-
   return lxu_cache_locations;
 }
 
@@ -479,11 +528,13 @@ __launch_bounds__(kMaxThreads) void lxu_cache_locations_update_kernel(
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        lxu_cache_locations_new) {
-  const int32_t N = lxu_cache_locations.size(0);
+        lxu_cache_locations_new,
+    const int32_t* N_unique) {
+  const auto N = N_unique == nullptr ? lxu_cache_locations.size(0) : *N_unique;
   CUDA_KERNEL_LOOP(n, N) {
-    if (lxu_cache_locations[n] == kCacheLocationMissing &&
-        lxu_cache_locations_new[n] >= 0) {
+    if (N_unique != nullptr ||
+        (lxu_cache_locations[n] == kCacheLocationMissing &&
+         lxu_cache_locations_new[n] >= 0)) {
       lxu_cache_locations[n] = lxu_cache_locations_new[n];
     }
   }
@@ -493,9 +544,10 @@ __launch_bounds__(kMaxThreads) void lxu_cache_locations_update_kernel(
 
 DLL_PUBLIC void lxu_cache_locations_update_cuda(
     Tensor lxu_cache_locations,
-    Tensor lxu_cache_locations_new) {
+    Tensor lxu_cache_locations_new,
+    c10::optional<Tensor> num_uniq_cache_indices) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      lxu_cache_locations, lxu_cache_locations_new);
+      lxu_cache_locations, lxu_cache_locations_new, num_uniq_cache_indices);
 
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(lxu_cache_locations.get_device());
@@ -520,7 +572,10 @@ DLL_PUBLIC void lxu_cache_locations_update_cuda(
       0,
       at::cuda::getCurrentCUDAStream()>>>(
       MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations_new, int32_t, 1, 32));
+      MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations_new, int32_t, 1, 32),
+      num_uniq_cache_indices.has_value()
+          ? num_uniq_cache_indices.value().data_ptr<int32_t>()
+          : nullptr);
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return;

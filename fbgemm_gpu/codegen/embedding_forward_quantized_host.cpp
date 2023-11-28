@@ -497,7 +497,10 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         lxu_cache_state.value(),
         total_cache_hash_size.value(),
         gather_uvm_stats,
-        uvm_cache_stats);
+        uvm_cache_stats,
+        c10::optional<Tensor>(), // num_uniq_cache_indices
+        c10::optional<Tensor>() // lxu_cache_locations_output
+    );
 
 #ifdef FBCODE_CAFFE2
     if (FLAGS_tbe_uvm_cache_enforced_misses > 0) {
