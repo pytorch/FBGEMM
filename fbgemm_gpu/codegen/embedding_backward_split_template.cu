@@ -20,6 +20,7 @@
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/sparse_ops.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -67,6 +68,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const bool use_uniq_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
@@ -139,6 +142,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const bool use_uniq_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
@@ -201,6 +206,21 @@ grad_mean{{ vdesc }}_kernel(
     {%- endif %}
 );
 
+template <typename info_pta_t, typename info_t, bool nobag>
+__global__ __launch_bounds__(kMaxThreads) void
+split_embedding_backward_count_unique_indices_kernel(
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_num_runs,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_cumulative_run_lengths,
+    const pta::PackedTensorAccessor32<info_pta_t, 1, at::RestrictPtrTraits>
+        sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        weights_placements,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        dev_or_uvm_unique_indices,
+    const int info_B_num_bits
+);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Utility Macros
@@ -331,6 +351,10 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& B_offsets,
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
+    {%- endif %}
+    {%- if not is_index_select and not dense %}
+    const bool use_uniq_cache_locations,
+    const bool use_homogeneous_placements,
     {%- endif %}
     {%- if is_index_select %}
     const Tensor& grad_offsets,
@@ -511,34 +535,90 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         );
 
     {%- if not dense %}
-    auto lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
+    Tensor lxu_cache_locations_sorted = lxu_cache_locations;
+    Tensor table_unique_indices_offsets;
     if (lxu_cache_locations.size(0) > 0) {
+      if (use_uniq_cache_locations) {
+        if (!use_homogeneous_placements) {
+          // When use_uniq_cache_locations=true, lxu_cache_locations are unique
+          // and sorted in an ascending order based on the linear cache indices.
+          // Linear cache indices of tables that are not placed in cache are set
+          // to a sentinel value (i.e., the sum of hash sizes of all embedding
+          // tables).  Since the sentinel value is larger than the max linear
+          // cache index value, the lxu_cache_locations can be sorted differently
+          // than the sorted_linear_indices.
+          //
+          // For this reason, the run ids of sorted and unique
+          // lxu_cache_locations can be different from those of the
+          // sorted_linear_indices.  We need the following code to compute
+          // table_unique_indices_offsets which contains the differences between
+          // lxu_cache_locations run ids and sorted_linear_indices run ids.
+          auto dev_or_uvm_unique_indices = at::zeros_like(weights_placements);
+
+#ifdef FBGEMM_GPU_MEMCHECK
+          const auto func_name = "split_embedding_backward_count_unique_indices_kernel";
+#endif
+          split_embedding_backward_count_unique_indices_kernel<
+          {{ "int64_t" if nobag else "int32_t" }},
+          {{ "int64_t" if nobag else "uint32_t" }},
+          {{ "true" if nobag else "false" }}
+          ><<<
+            div_round_up(total_unique_indices, kMaxThreads),
+            kMaxThreads,
+            0,
+            at::cuda::getCurrentCUDAStream()
+              >>>(
+                  MAKE_PTA_WITH_NAME(
+                    func_name, sorted_linear_indices_num_runs, int32_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                    func_name, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                    func_name, infos_sorted, {{ "int64_t" if nobag else "int32_t" }}, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                    func_name, weights_placements, int32_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                    func_name, dev_or_uvm_unique_indices, int32_t, 1, 32),
+                  info_B_num_bits
+                 );
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+          table_unique_indices_offsets =
+            fbgemm_gpu::asynchronous_complete_cumsum_gpu(dev_or_uvm_unique_indices).to(at::kInt);
+        }
+      }
+      else {
+        lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
         size_t temp_storage_bytes = 0;
         AT_CUDA_CHECK(radix_sort_pairs(
-            nullptr,
-            temp_storage_bytes,
-            linear_indices.data_ptr<int64_t>(),
-            linear_indices_sorted.data_ptr<int64_t>(),
-            lxu_cache_locations.data_ptr<int32_t>(),
-            lxu_cache_locations_sorted.data_ptr<int32_t>(),
-            linear_indices.numel(),
-            0,
-            total_hash_size_bits,
-            at::cuda::getCurrentCUDAStream()));
+              nullptr,
+              temp_storage_bytes,
+              linear_indices.data_ptr<int64_t>(),
+              linear_indices_sorted.data_ptr<int64_t>(),
+              lxu_cache_locations.data_ptr<int32_t>(),
+              lxu_cache_locations_sorted.data_ptr<int32_t>(),
+              linear_indices.numel(),
+              0,
+              total_hash_size_bits,
+              at::cuda::getCurrentCUDAStream()));
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(at::kByte));
         AT_CUDA_CHECK(radix_sort_pairs(
-            temp_storage.data_ptr(),
-            temp_storage_bytes,
-            linear_indices.data_ptr<int64_t>(),
-            linear_indices_sorted.data_ptr<int64_t>(),
-            lxu_cache_locations.data_ptr<int32_t>(),
-            lxu_cache_locations_sorted.data_ptr<int32_t>(),
-            linear_indices.numel(),
-            0,
-            total_hash_size_bits,
-            at::cuda::getCurrentCUDAStream()));
+              temp_storage.data_ptr(),
+              temp_storage_bytes,
+              linear_indices.data_ptr<int64_t>(),
+              linear_indices_sorted.data_ptr<int64_t>(),
+              lxu_cache_locations.data_ptr<int32_t>(),
+              lxu_cache_locations_sorted.data_ptr<int32_t>(),
+              linear_indices.numel(),
+              0,
+              total_hash_size_bits,
+              at::cuda::getCurrentCUDAStream()));
+      }
+    }
+
+    if (lxu_cache_locations.size(0) == 0 || !use_uniq_cache_locations || use_homogeneous_placements) {
+        table_unique_indices_offsets = at::zeros_like(weights_placements);
     }
     {%- endif %}
 
@@ -788,6 +868,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         {%- endif %}
                         {%- if not dense %}
                         MAKE_PTA_WITH_NAME(func_name3, lxu_cache_locations_sorted, int32_t, 1, 32),
+                        use_uniq_cache_locations,
+                        MAKE_PTA_WITH_NAME(func_name3, table_unique_indices_offsets, int32_t, 1, 32),
                         {%- endif %}
                         {%- if weighted %}
                         MAKE_PTA_ACC_WITH_NAME(func_name3, indice_weights_sorted, cache_t, 1, 32),
@@ -896,6 +978,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         {%- endif %}
                         {%- if not dense %}
                         MAKE_PTA_WITH_NAME(func_name4, lxu_cache_locations_sorted, int32_t, 1, 32),
+                        use_uniq_cache_locations,
+                        MAKE_PTA_WITH_NAME(func_name4, table_unique_indices_offsets, int32_t, 1, 32),
                         {%- endif %}
                         {%- if weighted %}
                         MAKE_PTA_ACC_WITH_NAME(func_name4, indice_weights_sorted, cache_t, 1, 32),
@@ -1001,6 +1085,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    Tensor B_offsets, "
           "    Tensor vbe_row_output_offsets, "
           "    Tensor vbe_b_t_map, "
+          {%- endif %}
+          {%- if not is_index_select and not dense %}
+          "    bool use_uniq_cache_locations, "
+          "    bool use_homogeneous_placements, "
           {%- endif %}
           "    {{ args.split_function_schemas | join(", ") }}"
           ") -> Tensor");

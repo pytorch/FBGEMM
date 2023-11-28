@@ -31,10 +31,10 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     const bool stochastic_rounding,
     const at::PhiloxCudaState& stochastic_rounding_philox_args,
     const uint32_t run_id,
+    const uint32_t cache_loc_run_id,
     const int32_t D,
     const int32_t t,
     const int64_t idx,
-    const int32_t segment_start,
     const uint32_t shfl_sync_mask,
     const int32_t shared_weight_offset,
     {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
@@ -54,7 +54,7 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
         weights = &uvm_weights[weights_offset + idx * D_emb];
     }
     if (weights_placement == PlacementType::MANAGED_CACHING) {
-        const int32_t cache_idx = sorted_lxu_cache_locations[segment_start];
+        const int32_t cache_idx = sorted_lxu_cache_locations[cache_loc_run_id];
         if (cache_idx != kCacheLocationMissing) {
             cache_weights = &lxu_cache_weights[cache_idx][0];
         }
