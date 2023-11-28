@@ -268,7 +268,7 @@ FBGEMM_SPECIALIZED_QUANTIZE(uint8_t, false)
       const TensorQuantizationParams& qparams,                      \
       int thread_id,                                                \
       int num_threads,                                              \
-      float noise_ratio) {                                          \
+      [[maybe_unused]] float noise_ratio) {                         \
     int64_t i_begin, i_end;                                         \
     fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end); \
     for (int64_t i = i_begin; i < i_end; ++i) {                     \
