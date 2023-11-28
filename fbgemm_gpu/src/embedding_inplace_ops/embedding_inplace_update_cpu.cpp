@@ -62,9 +62,7 @@ void embedding_inplace_update_cpu_kernel(
 
     const uint8_t* __restrict__ update_weight_row =
         &update_weights[update_weight_offset];
-    for (const auto d : c10::irange(D_bytes)) {
-      weight_row[d] = update_weight_row[d];
-    }
+    memcpy(weight_row, update_weight_row, D_bytes);
   }
 }
 
