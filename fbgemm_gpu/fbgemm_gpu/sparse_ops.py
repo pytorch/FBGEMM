@@ -96,6 +96,21 @@ def permute_1D_sparse_data_meta(
     return permuted_lengths, permuted_indices, permuted_weights
 
 
+@impl_abstract("fbgemm::masked_select_jagged_1d")
+def masked_select_jagged_1d(
+    values: Tensor, lengths: Tensor, mask: Tensor
+) -> Tuple[Tensor, Tensor]:
+    torch._check(values.dim() == 1)
+    torch._check(lengths.dim() == 1)
+    torch._check(values.device == lengths.device)
+    torch._check(values.device == mask.device)
+
+    s0 = torch.library.get_ctx().new_dynamic_size()
+    masked_values = values.new_empty([s0])
+    masked_lengths = torch.empty_like(lengths)
+    return masked_values, masked_lengths
+
+
 @impl_abstract("fbgemm::expand_into_jagged_permute")
 def expand_into_jagged_permute_meta(
     permute: Tensor,
