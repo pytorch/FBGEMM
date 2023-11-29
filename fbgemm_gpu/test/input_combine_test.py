@@ -8,9 +8,10 @@
 # pyre-unsafe
 
 import unittest
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from fbgemm_gpu import sparse_ops  # noqa: F401
 from hypothesis import given, settings
 
 try:
@@ -127,7 +128,26 @@ class TBEInputPrepareReference(torch.nn.Module):
         return combined_indices, combined_offsets, per_sample_weights
 
 
-@optests.generate_opcheck_tests()
+# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
+# Please avoid putting tests here, you should put operator-specific
+# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_pt2_compliant_tag_fbgemm_dense_to_jagged": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add_jagged_output": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+}
+
+
+@optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class InputCombineTest(unittest.TestCase):
     def _get_inputs(self, dtypes, device=DEFAULT_DEVICE):
         indices_list = [
