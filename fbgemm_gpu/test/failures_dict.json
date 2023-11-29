@@ -268,27 +268,27 @@
     "fbgemm::jagged_index_select": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_index_select_2d": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_index_select_2d_in_inference": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "JaggedTensorOpsTest.test_faketensor__test_jagged_index_select_2d": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "JaggedTensorOpsTest.test_faketensor__test_jagged_index_select_2d_in_inference": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "JaggedTensorOpsTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       }
     },
     "fbgemm::jagged_jagged_bmm": {},
