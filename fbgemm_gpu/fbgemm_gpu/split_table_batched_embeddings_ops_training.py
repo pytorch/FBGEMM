@@ -349,8 +349,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.embedding_specs = embedding_specs
         (rows, dims, locations, compute_devices) = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
-        # pyre-fixme[8]: Attribute has type `List[int]`; used as
-        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
         self.dims: List[int] = dims
         assert T_ > 0
         # mixed D is not supported by no bag kernels
@@ -700,10 +698,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     persistent=False,
                 )
 
-        # pyre-fixme[6]: For 1st argument expected `List[int]` but got
-        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
-        # pyre-fixme[6]: For 2nd argument expected `List[EmbeddingLocation]` but got
-        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
         # Add table-wise cache miss counter
