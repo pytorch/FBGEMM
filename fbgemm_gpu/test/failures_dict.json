@@ -552,32 +552,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::tbe_input_combine": {
-      "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_int32": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_int64": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_aot_dispatch_dynamic__test_input_combined_mix": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_faketensor__test_input_combine_int32": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_faketensor__test_input_combine_int64": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_faketensor__test_input_combined_mix": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::tbe_input_combine": {},
     "fbgemm::tbe_input_combine_with_length": {
       "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_int32_with_length": {
         "comment": "",

@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/input_combine.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
@@ -383,8 +384,14 @@ padding_fused_tbe_input_combine_with_length_cpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
   m.def(
-      "tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets) -> (Tensor, Tensor, Tensor)");
+      "tbe_input_combine(Tensor[] indices_list, Tensor[] offsets_list, Tensor[] per_sample_weights, Tensor include_last_offsets) -> (Tensor, Tensor, Tensor)",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "tbe_input_combine_with_length(Tensor[] indices_list, Tensor[] lengths_list, Tensor[] per_sample_weights) -> (Tensor, Tensor, Tensor)");
   m.def(
