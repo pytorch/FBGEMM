@@ -156,6 +156,10 @@ def benchmark_requests(
 ) -> float:
     times = []
 
+    # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
+    # for the first kernel
+    num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
+
     if num_warmups > 0:
         indices, offsets, weights = requests[0]
         for _ in range(num_warmups):
