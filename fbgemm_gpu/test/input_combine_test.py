@@ -18,11 +18,11 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu
+    from test_utils import cpu_and_maybe_gpu, optests
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu
+    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, optests
 
 DEFAULT_DEVICE = torch.device("cpu")
 
@@ -127,6 +127,7 @@ class TBEInputPrepareReference(torch.nn.Module):
         return combined_indices, combined_offsets, per_sample_weights
 
 
+@optests.generate_opcheck_tests()
 class InputCombineTest(unittest.TestCase):
     def _get_inputs(self, dtypes, device=DEFAULT_DEVICE):
         indices_list = [
