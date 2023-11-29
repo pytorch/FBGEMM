@@ -349,16 +349,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::masked_select_jagged_1d": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_masked_select_jagged_1d": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_faketensor__test_masked_select_jagged_1d": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::masked_select_jagged_1d": {},
     "fbgemm::offsets_range": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_1d_to_dense": {
         "comment": "",

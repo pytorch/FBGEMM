@@ -1569,6 +1569,11 @@ Tensor jagged_slice_forward_cpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
   // (dense, offsets) -> jagged. Offsets output is same as input.
   // SymInt is a new PyTorch 2.0 feature to support dynamic shape. See more
   // details at https://pytorch.org/get-started/pytorch-2.0/#dynamic-shapes. If
@@ -1645,7 +1650,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
   m.def(
-      "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)");
+      "masked_select_jagged_1d(Tensor values, Tensor lengths, Tensor mask) -> (Tensor, Tensor)",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_softmax(Tensor values, Tensor x_offsets, int max_L) -> (Tensor, Tensor)",
       {PT2_COMPLIANT_TAG});
