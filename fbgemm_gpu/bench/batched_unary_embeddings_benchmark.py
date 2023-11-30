@@ -4,7 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
 import functools
 from math import sqrt
 from typing import List, Tuple
@@ -29,7 +28,10 @@ else:
 
 
 def generate_unary_feature(
-    batch_size: int, num_embeddings: int
+    batch_size: int,
+    num_embeddings: int
+    # pyre-fixme[24]: Generic type `list` expects 1 type parameter, use
+    #  `typing.List[<element type>]` to avoid runtime subscripting errors.
 ) -> Tuple[List, List, List]:
     lengths = []
     offsets = []
@@ -90,6 +92,7 @@ class MyModule(torch.nn.Module):
 @click.option("--num-tables", default=2)
 @click.option("--num-tasks", default=3)
 @click.option("--repeats", default=100)
+# pyre-fixme[2]: Parameter must be annotated.
 def main(batch_size, num_tables, num_tasks, repeats) -> None:
     device = torch.device("cuda", 0)
     torch.cuda.set_device(device)

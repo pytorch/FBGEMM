@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
 
 import logging
 import math
@@ -84,9 +83,13 @@ class SparseArch(nn.Module):
 
     def __init__(
         self,
+        # pyre-fixme[2]: Parameter must be annotated.
         emb_dim,
+        # pyre-fixme[2]: Parameter must be annotated.
         num_tables,
+        # pyre-fixme[2]: Parameter must be annotated.
         num_rows,
+        # pyre-fixme[2]: Parameter must be annotated.
         use_cpu,
     ) -> None:
         super().__init__()
@@ -117,11 +120,16 @@ class SparseArch(nn.Module):
             -EMB_WEIGHT_UNIFORM_INIT_BOUND, +EMB_WEIGHT_UNIFORM_INIT_BOUND
         )
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def forward(self, indices, offsets):
         return self.emb_module(indices, offsets)
 
 
 class QuantizedSplitEmbeddingsTest(unittest.TestCase):
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
+    #  10)` to decorator factory `hypothesis.given`.
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -234,6 +242,9 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*on_arm_platform)
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.booleans() if test_utils.gpu_available else
+    #  hypothesis.strategies.just(True)` to decorator factory `hypothesis.given`.
     @given(
         use_cpu=st.booleans() if gpu_available else st.just(True),
         use_array_for_index_remapping=st.booleans(),
@@ -319,6 +330,9 @@ class QuantizedSplitEmbeddingsTest(unittest.TestCase):
                 rtol=1.0e-1,
             )
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
+    #  10)` to decorator factory `hypothesis.given`.
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),

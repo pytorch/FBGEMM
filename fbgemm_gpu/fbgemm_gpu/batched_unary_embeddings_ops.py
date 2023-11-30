@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
 
 from math import sqrt
 from typing import List
@@ -28,6 +27,7 @@ def wrap_weight_to_parameter(weights: List[torch.Tensor]) -> List[torch.Tensor]:
 
 
 class BatchedUnaryEmbeddingBag(torch.nn.Module):
+    # pyre-fixme[3]: Return type must be annotated.
     def __init__(self, num_tasks: int, hash_sizes: List[int], long_index: bool = False):
         super().__init__()
         self.num_tasks = num_tasks
@@ -49,6 +49,7 @@ class BatchedUnaryEmbeddingBag(torch.nn.Module):
         self.register_buffer("table_offsets_tensor", table_offsets_tensor)
         self.init_parameters()
 
+    # pyre-fixme[3]: Return type must be annotated.
     def forward(self, offsets: torch.Tensor, input: torch.Tensor):
         # output is [N][B][T]
         return torch.ops.fbgemm.batched_unary_embeddings(
@@ -59,6 +60,7 @@ class BatchedUnaryEmbeddingBag(torch.nn.Module):
         )
 
     @torch.jit.export
+    # pyre-fixme[3]: Return type must be annotated.
     def split_embedding_weights(self):
         embedding_weights = []
         for n in range(self.num_tasks):
@@ -73,6 +75,7 @@ class BatchedUnaryEmbeddingBag(torch.nn.Module):
         return embedding_weights
 
     @torch.jit.export
+    # pyre-fixme[3]: Return type must be annotated.
     def init_parameters(self):
         for num_emb, param in zip(
             self.hash_sizes * self.num_tasks,
