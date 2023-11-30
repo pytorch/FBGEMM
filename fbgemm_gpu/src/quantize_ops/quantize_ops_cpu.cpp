@@ -408,7 +408,9 @@ at::Tensor _hfp8_to_float_cpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
-  m.def("FloatToFP8RowwiseQuantized(Tensor t, bool forward) -> Tensor");
+  m.def(
+      "FloatToFP8RowwiseQuantized(Tensor t, bool forward) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "FloatToPaddedFP8RowwiseQuantized(Tensor t, bool forward, int row_dim) -> Tensor");
   m.def(
