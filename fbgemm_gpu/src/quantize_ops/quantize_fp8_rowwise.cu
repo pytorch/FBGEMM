@@ -49,6 +49,10 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
     const auto scale =
         max_pos / (kEpsilon + fmaxf(maximum_element, -minimum_element));
     output_row_scale_bias[0] = scale;
+    // 8 bytes are allocated for scale but only 4 bytes are used
+    // value of the unassigned 4 bytes are hence indeterministic
+    // Initialize it to make the output deterministic for PT2 compliance
+    output_row_scale_bias[1] = 0.0;
     for (int64_t col = 0; col < ncols; ++col) {
       output_row[col] =
           float_to_hfp8(to_float(input_row[col]) * scale, ebit, bias, max_pos);
@@ -112,6 +116,8 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
       reinterpret_cast<float*>(&output[row * output_columns + ncols_aligned]);
 
   output_row_qparams[0] = max_pos / (kEpsilon + maximum_element);
+  // Initialize it to make the output deterministic for PT2 compliance
+  output_row_qparams[1] = 0.0;
 }
 
 template <typename input_t>
@@ -211,13 +217,16 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   // that size).
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
+
+  if (nrows == 0 || ncols == 0) {
+    return at::zeros(
+        output_dims, // 4 = sizeof(float)
+        input.options().dtype(at::kByte));
+  }
+
   auto output = at::empty(
       output_dims, // 4 = sizeof(float)
       input.options().dtype(at::kByte));
-
-  if (nrows == 0 || ncols == 0) {
-    return output;
-  }
 
   constexpr int threads_per_block = 256;
   const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
@@ -361,13 +370,15 @@ Tensor _FP8rowwise_to_float_gpu_t(
       output_sdtype == SparseType::FP32 || output_sdtype == SparseType::FP16 ||
       output_sdtype == SparseType::BF16);
 
+  if (nrows == 0 || output_columns == 0) {
+    return at::zeros(
+        output_dims, // 4 = sizeof(float)
+        input.options().dtype(getScalarType(output_sdtype)));
+  }
+
   Tensor output = at::empty(
       output_dims, // 4 = sizeof(float)
       input.options().dtype(getScalarType(output_sdtype)));
-
-  if (nrows == 0 || output_columns == 0) {
-    return output;
-  }
 
   constexpr int threads_per_block = 256;
 
