@@ -2737,7 +2737,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       {PT2_COMPLIANT_TAG});
   m.def("invert_permute(Tensor permute) -> Tensor");
   m.def(
-      "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, SymInt output_size) -> Tensor");
+      "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, SymInt output_size) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
@@ -2808,7 +2809,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "index_select_dim0(Tensor input, Tensor indices, SymInt? consecutive_range_start=0, SymInt? consecutive_range_length=0, bool? skip_indices_sorting_fwd=None) -> Tensor");
   m.def(
-      "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]");
+      "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]",
+      {PT2_COMPLIANT_TAG});
   // This is an one-off op to be used in split_embedding_utils.py for zipf
   // generation w/o replacement along dim=-1. If requires_unique=True, find
   // smallest unique k.  If the number of unique elements is less than k,
