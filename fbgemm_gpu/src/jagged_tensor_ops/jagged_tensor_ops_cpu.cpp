@@ -1136,6 +1136,63 @@ Tensor jagged_index_select_2d_forward_cpu(
   return output;
 }
 
+// v2 supports PT2 Dynamic Shapes.
+// The problem with v1 is that it accepts a redundant num_dense_output_rows arg
+// that we compute by peeking at output_offsets.data.
+// PT2 has problems with data access, so we hide the data access inside
+// the new operator.
+Tensor jagged_index_select_2d_forward_v2_impl(
+    const Tensor& values,
+    const Tensor& indices,
+    const Tensor& input_offsets,
+    const Tensor& output_offsets) {
+  int64_t num_dense_output_rows =
+      output_offsets[output_offsets.numel() - 1].item<int64_t>();
+  static auto v1_op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_index_select_2d_forward", "")
+          .typed<at::Tensor(
+              const Tensor& values,
+              const Tensor& indices,
+              const Tensor& input_offsets,
+              const Tensor& output_offsets,
+              const int64_t num_dense_output_rows)>();
+  return v1_op.call(
+      values, indices, input_offsets, output_offsets, num_dense_output_rows);
+}
+
+// v2 supports PT2 Dynamic Shapes.
+// The problem with v1 is that it accepts a redundant num_dense_output_rows arg
+// that we compute by peeking at input_offsets.data.
+// PT2 has problems with data access, so we hide the data access inside
+// the new operator.
+Tensor jagged_index_add_2d_forward_v2_impl(
+    const Tensor& values,
+    const Tensor& indices,
+    const Tensor& input_offsets,
+    const Tensor& output_offsets,
+    const int64_t num_output_rows) {
+  int64_t num_dense_output_rows =
+      input_offsets[input_offsets.numel() - 1].item<int64_t>();
+  static auto v1_op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("fbgemm::jagged_index_add_2d_forward", "")
+          .typed<at::Tensor(
+              const Tensor& values,
+              const Tensor& indices,
+              const Tensor& input_offsets,
+              const Tensor& output_offsets,
+              const int64_t num_dense_input_rows,
+              const int64_t num_output_rows)>();
+  return v1_op.call(
+      values,
+      indices,
+      input_offsets,
+      output_offsets,
+      num_dense_output_rows,
+      num_output_rows);
+}
+
 template <typename index_t, typename offset_t, typename scalar_t>
 void jagged_index_add_2d_kernel(
     at::TensorAccessor<scalar_t, 2> output,
@@ -1642,11 +1699,18 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "batched_dense_vec_jagged_2d_mul_backward(Tensor grad_output, Tensor v, Tensor a_values, Tensor a_offsets) -> (Tensor, Tensor)",
       {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]");
+      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_index_select_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_output_rows) -> Tensor");
   m.def(
+      "jagged_index_select_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets) -> Tensor",
+      {PT2_COMPLIANT_TAG});
+  m.def(
       "jagged_index_add_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_input_rows, int num_output_rows) -> Tensor");
+  m.def(
+      "jagged_index_add_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, SymInt num_output_rows) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
   m.def(
@@ -1728,7 +1792,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "jagged_index_select_2d_forward",
       fbgemm_gpu::jagged_index_select_2d_forward_cpu);
-  DISPATCH_TO_CPU("jagged_index_select", fbgemm_gpu::jagged_index_select_2d);
   DISPATCH_TO_CPU(
       "jagged_index_add_2d_forward",
       fbgemm_gpu::jagged_index_add_2d_forward_cpu);
@@ -1748,4 +1811,13 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "jagged_dense_bmm_forward", fbgemm_gpu::jagged_dense_bmm_forward);
   DISPATCH_TO_CPU("jagged_slice_forward", fbgemm_gpu::jagged_slice_forward_cpu);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, CompositeExplicitAutograd, m) {
+  m.impl(
+      "jagged_index_select_2d_forward_v2",
+      fbgemm_gpu::jagged_index_select_2d_forward_v2_impl);
+  m.impl(
+      "jagged_index_add_2d_forward_v2",
+      fbgemm_gpu::jagged_index_add_2d_forward_v2_impl);
 }
