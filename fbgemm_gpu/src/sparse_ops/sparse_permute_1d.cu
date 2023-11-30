@@ -85,7 +85,11 @@ permute_1D_sparse_data_cuda(
 
   if (permuted_lengths_size == 0 || lengths_size == 0) {
     // Permutation will not be performed.  Return the input tensors
-    return {lengths.view({-1}), indices, weights};
+    return {
+        lengths.view({-1}).clone(),
+        indices.clone(),
+        weights.has_value() ? c10::make_optional(weights->clone())
+                            : c10::nullopt};
   }
 
   Tensor permuted_lengths;
