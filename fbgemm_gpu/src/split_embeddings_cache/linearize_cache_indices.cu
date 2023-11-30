@@ -13,15 +13,15 @@ using namespace fbgemm_gpu;
 
 namespace {
 
-template <typename index_t>
+template <typename index_t, typename offset_t>
 __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         cache_hash_size_cumsum,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         table_offsets,
-    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         linear_cache_indices) {
   const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= indices.size(0)) {
@@ -72,31 +72,36 @@ DLL_PUBLIC Tensor linearize_cache_indices_cuda(
   const auto B = (offsets.size(0) - 1) / T;
   TORCH_CHECK(B >= 0);
 
-  auto linear_cache_indices = at::empty_like(indices);
+  auto linear_cache_indices =
+      at::empty(indices.sizes(), indices.options().dtype(at::kLong));
   const auto num_indices = indices.numel();
   if (B == 0 || num_indices == 0) {
     return linear_cache_indices;
   }
 
-  auto table_offsets = offsets.slice(0, B, B * T, B);
+  const auto table_offsets = offsets.slice(0, B, B * T, B);
 
   AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "linearize_cache_indices_kernel", [&] {
+      table_offsets.scalar_type(), "linearize_cache_indices_kernel_1", [&] {
+        using offset_t = index_t;
+        AT_DISPATCH_INDEX_TYPES(
+            indices.scalar_type(), "linearize_cache_indices_kernel_2", [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "linearize_cache_indices_kernel";
+              const char* func_name = "linearize_cache_indices_kernel";
 #endif
-        linearize_cache_indices_kernel<<<
-            div_round_up(num_indices, kMaxThreads),
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(
-                func_name, cache_hash_size_cumsum, int64_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, table_offsets, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(
-                func_name, linear_cache_indices, index_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+              linearize_cache_indices_kernel<<<
+                  div_round_up(num_indices, kMaxThreads),
+                  kMaxThreads,
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  MAKE_PTA_WITH_NAME(
+                      func_name, cache_hash_size_cumsum, int64_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(func_name, table_offsets, offset_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                      func_name, linear_cache_indices, int64_t, 1, 32));
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
       });
   return linear_cache_indices;
 }
