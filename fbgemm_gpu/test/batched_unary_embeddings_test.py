@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
 
 import random
 import unittest
@@ -30,6 +29,7 @@ except Exception:
 
 
 # Relative tolerances
+# pyre-fixme[5]: Global expression must be annotated.
 TOLERANCE_REL = {
     torch.float32: 1e-4,
     torch.float16: 1e-2,
@@ -37,6 +37,7 @@ TOLERANCE_REL = {
 }
 
 # Absolute tolerances
+# pyre-fixme[5]: Global expression must be annotated.
 TOLERANCE_ABS = {
     torch.float32: 1e-4,
     torch.float16: 1e-2,
@@ -81,7 +82,11 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             return torch.cat(tt_list).view(self.num_tasks, -1, len(self.hash_sizes))
 
     def _generate_unary_features(
-        self, batch_size: int, num_embeddings: int
+        self,
+        batch_size: int,
+        num_embeddings: int
+        # pyre-fixme[24]: Generic type `list` expects 1 type parameter, use
+        #  `typing.List[<element type>]` to avoid runtime subscripting errors.
     ) -> Tuple[List, List, List]:
         lengths = []
         offsets = []
@@ -212,6 +217,8 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
             output = output[1:]
             output.sum().backward()
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `test_utils.gpu_unavailable` to decorator factory `unittest.skipIf`.
     @unittest.skipIf(*gpu_unavailable)
     def test_gpu(self) -> None:
         self._test_main(gpu_infer=True)

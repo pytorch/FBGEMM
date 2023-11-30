@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
 
 import logging
 import math
@@ -29,6 +28,7 @@ from torch import Tensor  # usort:skip
 # TODO: add per-feature based converter option (based on embedding_specs during inference)
 # TODO: optimize embedding pruning and quantization latency.
 class SplitEmbInferenceConverter:
+    # pyre-fixme[3]: Return type must be annotated.
     def __init__(
         self,
         quantize_type: SparseType,
@@ -46,6 +46,7 @@ class SplitEmbInferenceConverter:
         self._process_split_embs(model)
         return model
 
+    # pyre-fixme[2]: Parameter must be annotated.
     def _prune_by_weights_l2_norm(self, new_num_rows, weights) -> Tuple[Tensor, float]:
         assert new_num_rows > 0
         from numpy.linalg import norm
@@ -83,6 +84,8 @@ class SplitEmbInferenceConverter:
             weights, indicators, threshold, torch.int32
         )
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def _get_quantization_config(self, name):
         quantization_config = self.quantization_config
         if quantization_config is None:
