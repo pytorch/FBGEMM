@@ -66,7 +66,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     }
 
     int32_t t;
-    int32_t b;
+    [[maybe_unused]] int32_t b;
 
     {%- if vbe %}
     const auto info = reinterpret_cast<const uint32_t*>(&b_t_map[b_t])[0];
