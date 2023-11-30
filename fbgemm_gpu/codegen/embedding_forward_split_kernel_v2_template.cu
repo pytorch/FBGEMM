@@ -130,7 +130,7 @@ __inline__ __device__ void process_all_indices_no_pooling(
   const auto total_load_D = static_cast<uint32_t>(smem[params_offset + SAVED_PARAMS::P_total_load_D]);
 
   // Each thread loads a separate weight ptr
-  const auto weight_ptrs = reinterpret_cast<const uintptr_t>(&weights[indices[threadIdx.x] * load_D]);
+  const auto weight_ptrs = reinterpret_cast<uintptr_t>(&weights[indices[threadIdx.x] * load_D]);
 
   // Assuming kWarpSize is a multiple of STEP
   for (uint32_t l_start = 0; l_start < TOTAL_L; l_start += STEP) {
@@ -332,8 +332,8 @@ __noinline__ __device__ void process_all_indices_small_Ls(
           const cache_t* lxu_cache_weights =
             reinterpret_cast<const cache_t*>(smem[params_offset + LXU_CACHE_PARAMS::P_lxu_cache_weights]);
           SMEM_GENERIC_PTR[threadIdx.x] = cache_idx != kCacheLocationMissing ?
-            reinterpret_cast<const uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
-            reinterpret_cast<const uintptr_t>(&weights[indices[l] * load_D]);
+            reinterpret_cast<uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
+            reinterpret_cast<uintptr_t>(&weights[indices[l] * load_D]);
         }
         if (!std::is_same<emb_t, cache_t>::value) {
           cache_look_up_bits = ballot_sync(cache_idx != kCacheLocationMissing);
@@ -558,8 +558,8 @@ __noinline__ __device__ void process_all_indices_large_Ls(
           const auto* lxu_cache_weights =
             reinterpret_cast<const cache_t*>(smem[params_offset + LXU_CACHE_PARAMS::P_lxu_cache_weights]);
           SMEM_GENERIC_PTR[threadIdx.x] = cache_idx != kCacheLocationMissing ?
-            reinterpret_cast<const uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
-            reinterpret_cast<const uintptr_t>(&weights[indices[l] * load_D]);
+            reinterpret_cast<uintptr_t>(&lxu_cache_weights[cache_idx * max_D_cache]) :
+            reinterpret_cast<uintptr_t>(&weights[indices[l] * load_D]);
         }
         if (!std::is_same<emb_t, cache_t>::value) {
           cache_look_up_bits = ballot_sync(cache_idx != kCacheLocationMissing);

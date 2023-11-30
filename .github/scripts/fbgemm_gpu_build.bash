@@ -347,6 +347,7 @@ build_fbgemm_gpu_package () {
       --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${plat_name}" \
+      --verbose \
       "${build_args[@]}"
 
   # Run checks on the built libraries

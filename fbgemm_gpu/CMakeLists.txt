@@ -432,10 +432,22 @@ else()
     DEPENDS "${optimizer_codegen_dependencies}")
 endif()
 
+set(AVX2_FLAGS "-mavx2;-mf16c;-mfma;-fopenmp")
+if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+  # NVCC in WSL complains about unknown -mavx options
+  # https://github.com/pytorch/FBGEMM/issues/2135
+  set(AVX2_FLAGS "-Xcompiler;-mavx;-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-fopenmp")
+endif()
+
+set(AVX512_FLAGS "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl;-fopenmp")
+if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+  set(AVX512_FLAGS "-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-Xcompiler;-mavx512f;-Xcompiler;-mavx512bw;-Xcompiler;-mavx512dq;-Xcompiler;-mavx512vl;-fopenmp")
+endif()
+
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${gen_cpu_source_files}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma;-fopenmp")
+    "${AVX2_FLAGS}")
 else()
   set_source_files_properties(${gen_cpu_source_files}
     PROPERTIES COMPILE_OPTIONS
@@ -504,13 +516,13 @@ set(fbgemm_sources_avx512
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${fbgemm_sources_avx2}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma")
+    "${AVX2_FLAGS}")
 endif()
 
 if(CXX_AVX512_FOUND)
   set_source_files_properties(${fbgemm_sources_avx512}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl")
+    "${AVX512_FLAGS}")
 endif()
 
 set(fbgemm_sources ${fbgemm_sources_normal})
@@ -618,7 +630,7 @@ endif()
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx;-mf16c;-mfma;-mavx2;-fopenmp")
+    "${AVX2_FLAGS}")
 else()
   set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
     PROPERTIES COMPILE_OPTIONS

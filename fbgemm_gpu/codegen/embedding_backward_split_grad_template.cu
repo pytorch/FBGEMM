@@ -151,7 +151,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
 ) {
   int32_t T = D_offsets.size(0) - 1;
   int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t b;
+  [[maybe_unused]] int32_t b;
   int32_t t;
   const auto total_B = offsets.size(0) - 1;
 
