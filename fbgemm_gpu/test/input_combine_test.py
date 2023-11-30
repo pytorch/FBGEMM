@@ -130,6 +130,7 @@ class TBEInputPrepareReference(torch.nn.Module):
 # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
 # Please avoid putting tests here, you should put operator-specific
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
+# pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
 additional_decorators: Dict[str, List[Callable]] = {
     "test_pt2_compliant_tag_fbgemm_dense_to_jagged": [
         # This operator has been grandfathered in. We need to fix this test failure.
