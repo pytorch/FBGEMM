@@ -1052,6 +1052,39 @@ class SparseOpsTest(unittest.TestCase):
         if has_weight:
             torch.testing.assert_close(new_weights_cpu, new_weights_ref)
 
+        if gpu_available:
+            block_bucketize_pos = [
+                torch.tensor([0, 2, 8], dtype=index_type, device="cuda"),
+                torch.tensor([0, 5, 10], dtype=index_type, device="cuda"),
+                torch.tensor([0, 7, 12], dtype=index_type, device="cuda"),
+            ]
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                new_weights_gpu,
+                new_pos_gpu,
+                unbucketize_permute,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+                lengths.cuda(),
+                indices.cuda(),
+                bucketize_pos,
+                sequence,
+                block_sizes.cuda(),
+                my_size,
+                weights.cuda() if weights is not None else None,
+                batch_sizes.cuda(),
+                max_B,
+                block_bucketize_pos,
+            )
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+            torch.testing.assert_close(
+                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+            )
+            if has_weight:
+                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_ref)
+
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
