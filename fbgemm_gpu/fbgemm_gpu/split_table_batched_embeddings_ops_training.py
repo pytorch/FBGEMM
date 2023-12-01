@@ -1158,7 +1158,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.lxu_cache_weights.numel():
             return
 
-        (indices, offsets) = indices.long(), offsets.long()
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             indices,
