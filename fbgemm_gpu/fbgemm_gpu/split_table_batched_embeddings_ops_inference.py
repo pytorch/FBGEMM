@@ -505,10 +505,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.lxu_cache_weights.numel():
             return
 
-        # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
-        # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
-        indices, offsets = indices.long(), offsets.long()
-
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             indices,
