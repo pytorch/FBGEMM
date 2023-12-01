@@ -932,10 +932,10 @@ INPUT                  = "../include/fbgemm_gpu" \
                          "../codegen/embedding_backward_split_host_cpu_template.cpp" \
                          "../codegen/embedding_forward_quantized_host.cpp" \
                          "../codegen/embedding_forward_quantized_host_cpu.cpp" \
+                         "../codegen/embedding_bounds_check_host.cpp" \
+                         "../codegen/embedding_bounds_check_host_cpu.cpp" \
                          "../codegen/embedding_backward_dense_host.cpp" \
                          "../codegen/embedding_forward_template_helpers.cuh " \
-                         "../src/split_embeddings_utils/embedding_bounds_check_cpu.cpp" \
-                         "../src/split_embeddings_utils/embedding_bounds_check_gpu.cpp" \
                          "../src/permute_pooled_embedding_ops_gpu.cpp" \
 
 # This tag can be used to specify the character encoding of the source files
