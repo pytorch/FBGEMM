@@ -9,7 +9,9 @@
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <torch/library.h>
+
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
