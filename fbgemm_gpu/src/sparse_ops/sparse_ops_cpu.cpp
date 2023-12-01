@@ -355,7 +355,7 @@ void _block_bucketize_sparse_features_cpu(
         if (variable_bucket_sizes) {
           int64_t lb = std::upper_bound(
                            bucketize_offset,
-                           bucketize_offset + bucket_size,
+                           bucketize_offset + static_cast<index_t>(bucket_size),
                            indices_data[i]) -
               bucketize_offset - 1;
           lower_bounds[i] = lb;
