@@ -874,9 +874,11 @@ def cat_reorder_batched_ad_indices_bench(
 @click.option("--batch-size", default=4096)
 @click.option("--bucket-num", default=16)
 @click.option("--input-precision", type=str, default="long")
+@click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cpu")
 def block_bucketize_sparse_features_bench(
-    row_size: int, batch_size: int, bucket_num: int, input_precision: str
+    row_size: int, batch_size: int, bucket_num: int, input_precision: str, device: str
 ) -> None:
+
     dtype = torch.int
     if input_precision == "int":
         dtype = torch.int
@@ -900,25 +902,34 @@ def block_bucketize_sparse_features_bench(
     block_sizes = torch.tensor([bucket_size] * lengths.numel(), dtype=dtype)
 
     bucket_pos = [j * bucket_size for j in range(bucket_num + 1)]
-    block_bucketize_pos = [torch.tensor(bucket_pos)] * lengths.numel()
+    block_bucketize_pos = [torch.tensor(bucket_pos, device=device)] * lengths.numel()
     test_param = {"uneven": block_bucketize_pos, "even": None}
+    print("device {device}")
     for name, is_block_bucketize_pos in test_param.items():
         time, output = benchmark_torch_function(
             torch.ops.fbgemm.block_bucketize_sparse_features,
             (
-                lengths,
-                indices,
+                lengths if device == "cpu" else lengths.to(device),
+                indices if device == "cpu" else indices.to(device),
                 False,
                 True,
-                block_sizes,
+                block_sizes if device == "cpu" else block_sizes.to(device),
                 bucket_num,
-                weights,
+                weights
+                if device == "cpu"
+                else (weights.to(device) if weights is not None else None),
                 None,
                 -1,  # unused
-                is_block_bucketize_pos,
+                is_block_bucketize_pos
+                if device == "cpu"
+                else (
+                    [i.to(device) for i in is_block_bucketize_pos]
+                    if is_block_bucketize_pos is not None
+                    else None
+                ),
             ),
             iters=100,
-            device="cpu",
+            device=device,
         )
 
         num_bytes = 0
