@@ -7,9 +7,14 @@
 from typing import Callable, List, Optional, Tuple
 
 import torch
+import torch.library
+from torch._custom_op.functional import register_functional_op
 
-from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.split_embedding_configs import SparseType  # usort: skip
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    PoolingMode,
+)  # usort: skip
+
 
 try:
     # pyre-ignore
@@ -323,6 +328,22 @@ def merge_pooled_embeddings(
     return e.new_empty(
         [e.size(0), total_cat_dim_size],
         device=target_device,
+    )
+
+
+if torch.__version__ >= "2.2.*":
+    fbgemm_lib = torch.library.Library("fbgemm", "FRAGMENT")
+    fb_lib = torch.library.Library("fb", "FRAGMENT")
+
+    register_functional_op(
+        fbgemm_lib,
+        "bounds_check_indices_functional",
+        torch.ops.fbgemm.bounds_check_indices.default,
+    )
+    register_functional_op(
+        fb_lib,
+        "bounds_check_indices_functional",
+        torch.ops.fb.bounds_check_indices.default,
     )
 
 

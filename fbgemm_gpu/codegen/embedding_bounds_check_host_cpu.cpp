@@ -166,6 +166,11 @@ void bounds_check_indices_cpu(
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
   m.def(
@@ -174,6 +179,11 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
   m.def(
