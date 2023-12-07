@@ -371,3 +371,31 @@ def segment_sum_csr_abstract(
     output_size = csr_seg.numel() - 1
     output = values.new_empty(output_size)
     return output
+
+
+@impl_abstract("fbgemm::dense_to_jagged_forward")
+def dense_to_jagged_forward(
+    dense: torch.Tensor,
+    offsets: List[torch.Tensor],
+    total_L: Optional[torch.SymInt] = None,
+) -> torch.Tensor:
+    if not total_L:
+        total_L = torch.library.get_ctx().new_dynamic_size()
+    return dense.new_zeros(
+        total_L,
+        dense.size()[-1],
+        dtype=dense.dtype,
+        device=dense.device,
+        layout=dense.layout,
+    )
+
+
+@impl_abstract("fbgemm::dense_to_jagged")
+def dense_to_jagged(
+    dense: torch.Tensor,
+    offsets: List[torch.Tensor],
+    total_L: Optional[torch.SymInt] = None,
+) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    if not total_L:
+        total_L = torch.library.get_ctx().new_dynamic_size()
+    return (dense_to_jagged_forward(dense, offsets, total_L), offsets)

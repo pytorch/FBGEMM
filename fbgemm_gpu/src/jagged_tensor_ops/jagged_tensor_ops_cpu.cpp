@@ -1635,6 +1635,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // SymInt is a new PyTorch 2.0 feature to support dynamic shape. See more
   // details at https://pytorch.org/get-started/pytorch-2.0/#dynamic-shapes. If
   // you find it doesn't compile, please pull the new PyTorch 2.0 code
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
   m.def(
       "dense_to_jagged(Tensor dense, Tensor[] x_offsets, SymInt? total_L=None) -> (Tensor, Tensor[])",
       {PT2_COMPLIANT_TAG});
