@@ -203,8 +203,10 @@
       TYPE, NAME, FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16_CASE(__VA_ARGS__))
 
 // We can cleanup the following once fbgemm uses PyTorch 2.2 in January 2024.
+#ifndef PT2_COMPLIANT_TAG
 #ifdef HAS_PT2_COMPLIANT_TAG
 #define PT2_COMPLIANT_TAG at::Tag::pt2_compliant_tag
 #else
 #define PT2_COMPLIANT_TAG
+#endif
 #endif

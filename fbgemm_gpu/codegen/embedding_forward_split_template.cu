@@ -15,6 +15,8 @@
 // See https://fburl.com/dw9ljh4h
 #}
 
+#include "fbgemm_gpu/dispatch_macros.h"
+
 {%- set ddesc =  "dense" if dense else "split" %}
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
@@ -739,7 +741,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    int info_B_mask_int64, "
           {%- endif %}
           "    bool is_experimental"
-          ") -> Tensor");
+          ") -> Tensor",
+          {PT2_COMPLIANT_TAG});
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_forward_op }}",
         {{ embedding_codegen_forward_op }}
