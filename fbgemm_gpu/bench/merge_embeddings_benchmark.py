@@ -499,7 +499,6 @@ def main(
         "output size (MB), all-to-one BW (GB/s), link BW (GB/s), t (ms)"
     )
     if sweep:
-
         # pyre-fixme[3]: Return type must be annotated.
         # pyre-fixme[2]: Parameter must be annotated.
         def handler(signum, frame):

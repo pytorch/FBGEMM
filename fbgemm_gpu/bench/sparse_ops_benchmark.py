@@ -878,7 +878,6 @@ def cat_reorder_batched_ad_indices_bench(
 def block_bucketize_sparse_features_bench(
     row_size: int, batch_size: int, bucket_num: int, input_precision: str, device: str
 ) -> None:
-
     dtype = torch.int
     if input_precision == "int":
         dtype = torch.int
