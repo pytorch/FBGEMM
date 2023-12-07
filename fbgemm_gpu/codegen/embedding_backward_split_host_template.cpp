@@ -52,6 +52,7 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
     const Tensor& indice_weights,
     {%- endif %}
     const Tensor& lxu_cache_locations,
+    const Tensor& uvm_cache_stats,
     const int64_t output_dtype,
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
@@ -194,6 +195,12 @@ class {{ autograd_func }} :
     const auto max_B_ = offsets.sym_size(0) / T;
     {%- endif %}
 
+    // NOTE: The `local_uvm_cache_stats` variable held by the nn.Module has dtype int32_t
+    // TODO: Hook up with frontend code
+    // const auto uvm_cache_stats_ = uvm_cache_stats
+    //   .value_or(at::empty({0}, dev_weights.options().dtype(at::kInt)));
+    const auto uvm_cache_stats_ = at::empty({0}, dev_weights.options().dtype(at::kInt));
+
     // TODO: don't guard here
     auto [info_B_num_bits, info_B_mask] = adjust_info_B_num_bits(max_B_.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
 
@@ -315,6 +322,7 @@ class {{ autograd_func }} :
             *indice_weights,
             {%- endif %}
             lxu_cache_locations,
+            uvm_cache_stats_,
             output_dtype,
             {%- if vbe %}
             vbe_row_output_offsets,
@@ -345,6 +353,7 @@ class {{ autograd_func }} :
         indices,
         offsets,
         lxu_cache_locations,
+        uvm_cache_stats_,
         output_dtype,
         /*is_experimental=*/false
       )

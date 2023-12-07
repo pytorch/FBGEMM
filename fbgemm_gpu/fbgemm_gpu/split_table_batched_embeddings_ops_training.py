@@ -281,6 +281,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     uvm_cache_stats: torch.Tensor
     local_uvm_cache_stats: torch.Tensor
 
+    @torch.jit.ignore
     def __init__(  # noqa C901
         self,
         embedding_specs: List[
@@ -828,6 +829,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         return self.table_wise_cache_miss
 
+    @torch.jit.ignore
     def forward(  # noqa: C901
         self,
         indices: Tensor,
@@ -943,7 +945,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets)
 
-        self.timesteps_prefetched.pop(0)
+        if len(self.timesteps_prefetched) > 0:
+            self.timesteps_prefetched.pop(0)
+
         self.lxu_cache_locations = (
             self.lxu_cache_locations_empty
             if len(self.lxu_cache_locations_list) == 0
@@ -1121,7 +1125,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.gather_uvm_cache_stats
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        uvm_cache_stats = self.uvm_cache_stats.tolist()
+        uvm_cache_stats: List[float] = self.uvm_cache_stats.tolist()
         logging.info(
             f"N_called: {uvm_cache_stats[0]}\n"
             f"N_requested_indices: {uvm_cache_stats[1]}\n"
@@ -1152,6 +1156,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if forward_stream is not None:
             self._prefetch_tensors_record_stream(forward_stream)
 
+    @torch.jit.ignore
     def _prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)

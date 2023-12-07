@@ -3548,7 +3548,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             optimizer=optimizer,
             pooling_mode=pooling_mode,
             uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
-            # pyre-fixme[6]: Expected `CacheAlgorithm` for 5th param but got `float`.
             **optimizer_kwargs,
         )
 
