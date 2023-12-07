@@ -92,28 +92,6 @@ Tensor jagged_dense_elementwise_add_meta(
   return at::empty_like(y);
 }
 
-Tensor dense_to_jagged_forward_meta(
-    const Tensor& dense,
-    const std::vector<Tensor>& offsets,
-    c10::optional<at::SymInt> total_L) {
-  auto dense_values = dense;
-  at::SymInt D = dense_values.sym_size(-1);
-  TORCH_CHECK_NOT_IMPLEMENTED(
-      total_L.has_value(), "total_L is required for meta backend");
-  auto& total_L_computed = total_L.value();
-  auto values = at::zeros_symint({total_L_computed, D}, dense_values.options());
-
-  TORCH_CHECK(values.is_meta());
-  return values;
-}
-
-std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged_meta(
-    const Tensor& dense,
-    const std::vector<Tensor>& offsets,
-    c10::optional<at::SymInt> total_L) {
-  return {dense_to_jagged_forward_meta(dense, offsets, total_L), offsets};
-}
-
 std::tuple<Tensor, std::vector<Tensor>> jagged_dense_elementwise_mul_meta(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
@@ -241,10 +219,6 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "jagged_to_padded_dense_backward",
       TORCH_FN(fbgemm_gpu::jagged_to_padded_dense_backward_meta));
-  m.impl(
-      "dense_to_jagged_forward",
-      TORCH_FN(fbgemm_gpu::dense_to_jagged_forward_meta));
-  m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged_meta));
   m.impl(
       "jagged_dense_dense_elementwise_add_jagged_output_forward",
       TORCH_FN(
