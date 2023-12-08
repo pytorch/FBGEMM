@@ -35,10 +35,6 @@
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_cpu_bf16_out": {
-        "comment": "",
-        "status": "xfail"
-      },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_gpu_no_cache": {
         "comment": "",
         "status": "xfail"
@@ -72,10 +68,6 @@
     },
     "fbgemm::HFP8QuantizedToFloat": {
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_cpu": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_cpu_bf16_out": {
         "comment": "",
         "status": "xfail"
       },
