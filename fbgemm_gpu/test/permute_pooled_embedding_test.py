@@ -120,6 +120,7 @@ additional_decorators: Dict[str, List[Callable]] = {
     ],
 }
 
+
 # @parameterized_class([{"device_type": "cpu"}, {"device_type": "cuda"}])
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class PooledEmbeddingModulesTest(unittest.TestCase):

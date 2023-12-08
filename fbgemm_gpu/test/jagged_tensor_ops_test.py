@@ -9,6 +9,7 @@
 
 import itertools
 import random
+import sys
 import unittest
 from typing import Callable, Dict, List, Tuple
 
@@ -125,6 +126,15 @@ def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
             hash_size_offsets_list.append(count)
     hash_size_offsets_list[-1] = count
     return hash_size_offsets_list
+
+
+# pyre-fixme[2]
+# pyre-fixme[24]
+def torch_compiled(model: Callable, **kwargs) -> Callable:
+    if sys.version_info < (3, 12, 0):
+        return torch.compile(model, **kwargs)
+    else:
+        return model
 
 
 # e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
@@ -377,7 +387,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         values = ref_values.clone().to(dtype).detach().requires_grad_(True)
         offsets = offsets.to(device_type)
         ref_output_values = ref_output_values.to(device_type)
-        output_values = torch.compile(
+        output_values = torch_compiled(
             torch.ops.fbgemm.jagged_2d_to_dense, dynamic=True, fullgraph=True
         )(
             values=values,
@@ -593,7 +603,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         values = ref_values.clone().detach().requires_grad_(False)
         offsets = offsets.to(device_type)
         ref_output_values = ref_output_values.to(device_type)
-        output_values = torch.compile(
+        output_values = torch_compiled(
             torch.ops.fbgemm.jagged_1d_to_dense, dynamic=True, fullgraph=True
         )(
             values=values,
@@ -973,9 +983,10 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
         values_2d = values_2d.clone().detach().requires_grad_(True)
 
-        @torch.compile(fullgraph=True, dynamic=True)
         def jagged_to_dense(
-            values: torch.Tensor, offsets: torch.Tensor, max_lengths: List[int]
+            values: torch.Tensor,
+            offsets: List[torch.LongTensor],
+            max_lengths: List[int],
         ) -> torch.Tensor:
             return torch.ops.fbgemm.jagged_to_padded_dense(values, offsets, max_lengths)
 
@@ -989,15 +1000,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(dense, 0)
         torch._dynamo.mark_dynamic(dense, -1)
 
-        @torch.compile(fullgraph=True, dynamic=True)
         def dense_to_jagged_withL(
-            dense: torch.Tensor, offsets: torch.Tensor, total_L: List[int]
+            dense: torch.Tensor, offsets: List[torch.LongTensor], total_L: List[int]
         ) -> Tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.dense_to_jagged(dense, offsets, total_L)
 
-        @torch.compile(fullgraph=False, dynamic=True)
         def dense_to_jagged_noL(
-            dense: torch.Tensor, offsets: torch.Tensor
+            dense: torch.Tensor, offsets: List[torch.LongTensor]
         ) -> Tuple[torch.Tensor, torch.Tensor]:
             return torch.ops.fbgemm.dense_to_jagged(dense, offsets)
 
@@ -1321,24 +1330,21 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         x_padded = self._to_padded_dense(x_values, x_offsets, max_lengths)
 
-        @torch.compile(fullgraph=True, dynamic=True)
         def jagged_dense_elementwise_add(
-            x_values: torch.Tensor, x_offsets: torch.Tensor, y: torch.Tensor
+            x_values: torch.Tensor, x_offsets: List[torch.LongTensor], y: torch.Tensor
         ) -> torch.Tensor:
             return torch.ops.fbgemm.jagged_dense_elementwise_add(x_values, x_offsets, y)
 
-        @torch.compile(fullgraph=True, dynamic=True)
         def jagged_dense_elementwise_add_jagged_output(
-            x_values: torch.Tensor, x_offsets: torch.Tensor, y: torch.Tensor
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            x_values: torch.Tensor, x_offsets: List[torch.LongTensor], y: torch.Tensor
+        ) -> Tuple[torch.Tensor, List[torch.LongTensor]]:
             return torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
                 x_values, x_offsets, y
             )
 
-        @torch.compile(fullgraph=True, dynamic=True)
         def jagged_dense_elementwise_mul(
-            x_values: torch.Tensor, x_offsets: torch.Tensor, y: torch.Tensor
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            x_values: torch.Tensor, x_offsets: List[torch.LongTensor], y: torch.Tensor
+        ) -> Tuple[torch.Tensor, List[torch.LongTensor]]:
             return torch.ops.fbgemm.jagged_dense_elementwise_mul(x_values, x_offsets, y)
 
         if operation == "add":
@@ -1610,7 +1616,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
         output_ref = x_padded + y_0 + y_1
         x_values.to(device_type)
-        (output, output_offsets) = torch.compile(
+        (output, output_offsets) = torch_compiled(
             torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output,
             fullgraph=True,
             dynamic=True,
@@ -1821,7 +1827,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(values, 1)
         torch._dynamo.mark_dynamic(offsets, 0)
 
-        output = torch.compile(
+        output = torch_compiled(
             torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
             fullgraph=True,
             dynamic=True,
@@ -2517,7 +2523,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         torch._dynamo.mark_dynamic(x_values, 1)
         torch._dynamo.mark_dynamic(lengths, 0)  # offsets = lengths + 1
 
-        output, _ = torch.compile(
+        output, _ = torch_compiled(
             torch.ops.fbgemm.jagged_dense_bmm, fullgraph=True, dynamic=True
         )(
             x_values,
