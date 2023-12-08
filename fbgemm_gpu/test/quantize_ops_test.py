@@ -7,6 +7,7 @@
 import logging
 import os
 import random
+import sys
 import unittest
 from ctypes import c_float, c_int32, cast, POINTER, pointer
 from typing import Callable, Dict, List, Tuple
@@ -1084,7 +1085,7 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
                 dynamic=True,
                 fullgraph=True,
             )
-            if test_compile
+            if test_compile and sys.version_info < (3, 12, 0)
             else torch.ops.fbgemm.FP8RowwiseQuantizedToFloat
         )
 

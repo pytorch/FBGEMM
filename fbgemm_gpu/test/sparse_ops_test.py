@@ -13,6 +13,7 @@ import itertools
 import logging
 import os
 import random
+import sys
 import unittest
 from itertools import accumulate
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Type, Union
@@ -101,6 +102,15 @@ def permute_scripted(
         permuted_indices_cpu,
         permuted_weights_cpu,
     )
+
+
+# pyre-fixme[2]
+# pyre-fixme[24]
+def torch_compiled(model: Callable, **kwargs) -> Callable:
+    if sys.version_info < (3, 12, 0):
+        return torch.compile(model, **kwargs)
+    else:
+        return model
 
 
 class SparseOpsTest(unittest.TestCase):
@@ -2018,7 +2028,7 @@ class SparseOpsTest(unittest.TestCase):
             pack_segments_fun = torch.ops.fbgemm.pack_segments
 
             if torch_compile:
-                pack_segments_fun = torch.compile(pack_segments_fun, dynamic=True)
+                pack_segments_fun = torch_compiled(pack_segments_fun, dynamic=True)
 
             packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),
@@ -2114,7 +2124,7 @@ class SparseOpsTest(unittest.TestCase):
         if gpu_available:
             pack_segments_fun = torch.ops.fbgemm.pack_segments
             if torch_compile:
-                pack_segments_fun = torch.compile(pack_segments_fun)
+                pack_segments_fun = torch_compiled(pack_segments_fun)
 
             packed_cuda = pack_segments_fun(
                 t_in=input_data.cuda(),

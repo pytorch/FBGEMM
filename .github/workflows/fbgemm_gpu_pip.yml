@@ -59,7 +59,7 @@ jobs:
           { instance: "linux.4xlarge" },
           { instance: "linux.arm64.2xlarge" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
 
     steps:
     - name: Setup Build Container
@@ -110,7 +110,7 @@ jobs:
         host-machine: [
           { instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1" ]
         # Specify exactly ONE CUDA version for artifact publish
         cuda-version-publish: [ "11.8.0" ]
