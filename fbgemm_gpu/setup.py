@@ -393,18 +393,17 @@ def main(argv: List[str]) -> None:
         cmdclass={
             "install": FbgemmGpuInstaller,
         },
-        # PyPI package information.
+        # PyPI package information
         classifiers=[
             "Development Status :: 4 - Beta",
             "Intended Audience :: Developers",
             "Intended Audience :: Science/Research",
             "License :: OSI Approved :: BSD License",
-            "Programming Language :: Python :: 3",
-            "Programming Language :: Python :: 3.8",
-            "Programming Language :: Python :: 3.9",
-            "Programming Language :: Python :: 3.10",
-            "Programming Language :: Python :: 3.11",
             "Topic :: Scientific/Engineering :: Artificial Intelligence",
+        ]
+        + [
+            f"Programming Language :: Python :: {x}"
+            for x in ["3", "3.8", "3.9", "3.10", "3.11", "3.12"]
         ],
     )
 
