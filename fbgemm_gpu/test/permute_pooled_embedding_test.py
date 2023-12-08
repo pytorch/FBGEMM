@@ -106,10 +106,6 @@ class Net(torch.nn.Module):
 # skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
 # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
 additional_decorators: Dict[str, List[Callable]] = {
-    "test_pt2_compliant_tag_fbgemm_dense_to_jagged": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
     "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
         # This operator has been grandfathered in. We need to fix this test failure.
         unittest.expectedFailure,
@@ -120,6 +116,7 @@ additional_decorators: Dict[str, List[Callable]] = {
     ],
 }
 
+
 # @parameterized_class([{"device_type": "cpu"}, {"device_type": "cuda"}])
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class PooledEmbeddingModulesTest(unittest.TestCase):
@@ -129,6 +126,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
     def setUp(self, device_type: torch.device) -> None:
         self.device = device_type
 
+    @settings(deadline=500)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(fwd_only=st.booleans())
     def test_permutation(self, fwd_only: bool) -> None:
