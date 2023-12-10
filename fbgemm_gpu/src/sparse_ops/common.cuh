@@ -32,7 +32,7 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 #ifdef USE_ROCM
-#include <hipblas.h>
+#include <hipblas/hipblas.h>
 #endif
 
 #ifdef USE_ROCM
