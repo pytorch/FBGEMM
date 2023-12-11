@@ -487,115 +487,17 @@
       }
     },
     "fbgemm::split_embedding_codegen_lookup_adagrad_function": {},
-    "fbgemm::split_embedding_codegen_lookup_adagrad_function_cpu": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_adagrad": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
-    "fbgemm::split_embedding_codegen_lookup_adam_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_adam": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::split_embedding_codegen_lookup_adagrad_function_cpu": {},
+    "fbgemm::split_embedding_codegen_lookup_adam_function": {},
     "fbgemm::split_embedding_codegen_lookup_lamb_function": {},
     "fbgemm::split_embedding_codegen_lookup_lars_sgd_function": {},
     "fbgemm::split_embedding_codegen_lookup_none_function": {},
     "fbgemm::split_embedding_codegen_lookup_partial_rowwise_adam_function": {},
     "fbgemm::split_embedding_codegen_lookup_partial_rowwise_lamb_function": {},
-    "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmNONE": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmSUM": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmNONE": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmSUM": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_adagrad": {
-        "comment": "",
-        "status": "skip"
-      }
-    },
-    "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_cpu": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmNONE": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp16_pmSUM": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmNONE": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_adagrad_fp32_pmSUM": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_optimizers_adagrad": {
-        "comment": "",
-        "status": "skip"
-      }
-    },
+    "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function": {},
+    "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_cpu": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_weighted_adagrad_function": {},
-    "fbgemm::split_embedding_codegen_lookup_sgd_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd_really_long_segments": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_pipeline": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_1": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_2": {
-        "comment": "",
-        "status": "skip"
-      }
-    },
-    "fbgemm::split_embedding_codegen_lookup_sgd_function_cpu": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd": {
-        "comment": "",
-        "status": "xfail"
-      }
-    }
+    "fbgemm::split_embedding_codegen_lookup_sgd_function": {},
+    "fbgemm::split_embedding_codegen_lookup_sgd_function_cpu": {}
   }
 }

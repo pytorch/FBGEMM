@@ -12,6 +12,30 @@
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
+using Tensor = at::Tensor;
+using namespace fbgemm_gpu;
+
+namespace {
+
+std::tuple<Tensor /*row_output_offsets*/, Tensor /*b_t_map*/>
+generate_vbe_metadata_meta(
+    const Tensor& B_offsets,
+    const Tensor& B_offsets_rank_per_feature,
+    const Tensor& output_offsets_feature_rank,
+    const Tensor& D_offsets,
+    const int64_t D,
+    const bool nobag,
+    const int64_t max_B_feature_rank,
+    const int64_t info_B_num_bits,
+    const c10::SymInt total_B) {
+  Tensor row_output_offsets =
+      at::empty_symint({total_B}, output_offsets_feature_rank.options());
+  Tensor b_t_map = at::empty_symint({total_B}, B_offsets.options());
+  return {row_output_offsets, b_t_map};
+}
+
+} // namespace
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "transpose_embedding_input("
@@ -40,9 +64,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    bool nobag, "
       "    int max_B_feature_rank, "
       "    int info_B_num_bits, "
-      "    int total_B"
+      "    SymInt total_B"
       ") -> (Tensor, Tensor)");
   DISPATCH_TO_CUDA("transpose_embedding_input", transpose_embedding_input);
   DISPATCH_TO_CUDA("get_infos_metadata", get_infos_metadata);
   DISPATCH_TO_CUDA("generate_vbe_metadata", generate_vbe_metadata);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("generate_vbe_metadata", &generate_vbe_metadata_meta);
 }
