@@ -234,6 +234,42 @@ Tensor split_embedding_codegen_forward_cpu(
   return output;
 }
 
+Tensor split_embedding_codegen_forward_cpu_meta(
+    Tensor weights,
+    Tensor weights_offsets,
+    Tensor D_offsets,
+    int64_t total_D,
+    Tensor hash_size_cumsum,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    Tensor indice_weights,
+    int64_t output_dtype) {
+  c10::SymInt T = D_offsets.sym_numel() - 1;
+  TORCH_CHECK_GT(T, 0);
+  // offsets = [T x B  + 1]
+  c10::SymInt B = (offsets.sym_size(0) - 1) / T;
+  TORCH_CHECK_GE(B, 0);
+
+  Tensor output;
+  if (output_dtype == static_cast<int64_t>(SparseType::FP32)) {
+    output =
+        at::empty_symint({B, total_D}, weights.options().dtype(at::kFloat));
+  } else if (output_dtype == static_cast<int64_t>(SparseType::FP16)) {
+    output = at::empty_symint({B, total_D}, weights.options().dtype(at::kHalf));
+  } else if (output_dtype == static_cast<int64_t>(SparseType::BF16)) {
+    output =
+        at::empty_symint({B, total_D}, weights.options().dtype(at::kBFloat16));
+  } else {
+    output = at::empty_symint({B, total_D}, weights.options());
+  }
+
+  // It is assumed that the indice_weights will always be float
+  TORCH_CHECK(
+      !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
+  return output;
+}
+
 template <typename weights_t, typename grad_t>
 void split_embedding_grad_indice_weights_cpu_kernel(
     Tensor grad_output,
@@ -630,6 +666,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CPU(
       "split_embedding_codegen_forward_cpu",
       split_embedding_codegen_forward_cpu);
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl(
+      "split_embedding_codegen_forward_cpu",
+      &split_embedding_codegen_forward_cpu_meta);
 }
 
 } // namespace

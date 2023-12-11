@@ -179,6 +179,10 @@ Tensor
         return output;
     }
 
+    {%- if not nobag and vbe %}
+    output = output.reshape({-1});
+    {%- endif %}
+
     return output;
 }
 
