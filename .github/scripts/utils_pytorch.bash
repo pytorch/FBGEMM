@@ -146,3 +146,37 @@ install_pytorch_pip () {
 
   echo "[INSTALL] Successfully installed PyTorch through PyTorch PIP"
 }
+
+################################################################################
+# PyTorch Diagnose Functions
+################################################################################
+
+collect_pytorch_env_info () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env         # Collect PyTorch environment information from Conda environment build_env"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Collect PyTorch Environment Information (for Reporting Issues)"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  test_network_connection || return 1
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # This is the script required for collecting info and reporting to https://github.com/pytorch/pytorch/issues/new
+  echo "[INFO] Downloading the PyTorch environment info collection script ..."
+  print_exec wget -q "https://raw.githubusercontent.com/pytorch/pytorch/main/torch/utils/collect_env.py"
+
+  echo "[INFO] Collecting PyTorch environment info (will be needed for reporting issues to PyTorch) ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run ${env_prefix} python collect_env.py) || return 1
+}
