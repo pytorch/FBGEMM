@@ -2769,7 +2769,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "generic_histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, SymInt num_segments, Tensor bin_num_examples, Tensor bin_num_positives, Tensor bin_boundaries, float positive_weight, SymInt bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
-      "segment_sum_csr(SymInt batch_size, Tensor csr_seg, Tensor values) -> Tensor");
+      "segment_sum_csr(SymInt batch_size, Tensor csr_seg, Tensor values) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "embedding_bag_rowwise_prune(Tensor weight, Tensor indicator, float threshold, ScalarType compressed_indices_dtype, bool abs=True, SymInt min_num_rows=0, float? min_save_ratio=1.0) -> (Tensor, Tensor)");
   m.def("lengths_range(Tensor t_in, SymInt[]? shape=None) -> Tensor");

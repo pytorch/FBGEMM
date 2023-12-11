@@ -326,20 +326,6 @@ def merge_pooled_embeddings(
     )
 
 
-@impl_abstract("fbgemm::bounds_check_indices")
-def bounds_check_indices(
-    rows_per_table: torch.Tensor,
-    indices: torch.Tensor,
-    offsets: torch.Tensor,
-    bounds_check_mode: int,
-    warning: torch.Tensor,
-    weights: Optional[torch.Tensor] = None,
-    B_offsets: Optional[torch.Tensor] = None,
-    max_B: int = -1,
-) -> None:
-    pass
-
-
 @impl_abstract("fbgemm::permute_sparse_features")
 def permute_sparse_features_abstract(
     permute: Tensor, lengths: Tensor, indices: Tensor, weights: Optional[Tensor] = None
