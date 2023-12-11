@@ -33,6 +33,9 @@ install_cxx_compiler "${BUILD_ENV_NAME}"
 # Install Build Tools
 install_build_tools "${BUILD_ENV_NAME}"
 
+# Collect PyTorch environment information
+collect_pytorch_env_info "${BUILD_ENV_NAME}"
+
 if [[ $CU_VERSION = cu* ]]; then
   # Extract the CUDA version number from CU_VERSION
   cuda_version=$(echo "[NOVA] ${CU_VERSION}" | cut -c 3-)

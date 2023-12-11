@@ -85,6 +85,10 @@ jobs:
     - name: Install PyTorch-ROCm Nightly
       run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
 
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
@@ -151,6 +155,10 @@ jobs:
     - name: Install PyTorch-ROCm Nightly
       run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
 
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
@@ -212,6 +220,10 @@ jobs:
 
     - name: Install PyTorch
       run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cpu
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV

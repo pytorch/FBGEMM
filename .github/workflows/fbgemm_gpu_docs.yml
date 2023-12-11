@@ -72,6 +72,10 @@ jobs:
     - name: Install PyTorch-CPU Nightly
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cpu
 
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 

@@ -20,6 +20,10 @@ echo "[NOVA] Current working directory: $(pwd)"
 # shellcheck source=.github/scripts/setup_env.bash
 . "${PRELUDE}";
 
+# Collect PyTorch environment information
+collect_pytorch_env_info "${BUILD_ENV_NAME}"
+
+# Install the wheel
 install_fbgemm_gpu_wheel "${BUILD_ENV_NAME}" fbgemm_gpu/dist/*.whl
 
 # Test with PyTest
