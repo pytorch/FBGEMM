@@ -99,6 +99,10 @@ jobs:
     - name: Install PyTorch Nightly
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda ${{ matrix.cuda-version }}
 
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
     - name: Install cuDNN
       run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
 
@@ -173,6 +177,10 @@ jobs:
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda ${{ matrix.cuda-version }}
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
