@@ -35,3 +35,6 @@ fi
 $CONDA_RUN python3 -c "import torch; print('cuda.is_available() ', torch.cuda.is_available()); print ('device_count() ',torch.cuda.device_count());"
 cd "${FBGEMM_REPO}/fbgemm_gpu/test" || { echo "[NOVA] Failed to cd to fbgemm_gpu/test from $(pwd)"; };
 run_fbgemm_gpu_tests "${BUILD_ENV_NAME}" "${CPU_GPU}"
+
+# Workaround EACCES: permission denied error at checkout step
+chown -R 1000:1000 /__w/FBGEMM/FBGEMM/ || echo "Unable to chown 1000:1000 from $USER, uid: $(id -u)"
