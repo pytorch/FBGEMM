@@ -118,6 +118,12 @@ print_gpu_info () {
       return 1
     fi
   else
+    if which rocminfo; then
+      # If rocminfo is installed on a machine without GPUs, this will return error
+      (print_exec rocminfo) || true
+    else
+      echo "[CHECK] rocminfo not found"
+    fi
     if which rocm-smi; then
       # If rocm-smi is installed on a machine without GPUs, this will return error
       (print_exec rocm-smi) || true

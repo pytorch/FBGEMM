@@ -147,6 +147,7 @@ install_pytorch_pip () {
   echo "[INSTALL] Successfully installed PyTorch through PyTorch PIP"
 }
 
+
 ################################################################################
 # PyTorch Diagnose Functions
 ################################################################################

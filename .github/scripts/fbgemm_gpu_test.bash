@@ -71,9 +71,11 @@ run_fbgemm_gpu_tests () {
 
   # Enable ROCM testing if specified
   if [ "$fbgemm_variant" == "rocm" ]; then
-    echo "[TEST] Set environment variable FBGEMM_TEST_WITH_ROCM to enable ROCm tests ..."
+    echo "[TEST] Set environment variables for ROCm testing ..."
     # shellcheck disable=SC2086
     print_exec conda env config vars set ${env_prefix} FBGEMM_TEST_WITH_ROCM=1
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} HIP_LAUNCH_BLOCKING=1
   fi
 
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
