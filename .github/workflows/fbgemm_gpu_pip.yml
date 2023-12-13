@@ -3,6 +3,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# This workflow is used for testing the download and installation of FBGEMM_GPU
+# nightly releases published to PyTorch PyPI.
 name: FBGEMM_GPU PIP Install + Test
 
 on:
@@ -179,8 +181,8 @@ jobs:
         host-machine: [
           { instance: "rocm" },
         ]
-        # ROCm machines are limited, so we only test against Python 3.10
-        python-version: [ "3.10" ]
+        # ROCm machines are limited, so we only test a subset of Python versions
+        python-version: [ "3.11", "3.12" ]
         rocm-version: [ "5.7" ]
 
     steps:
