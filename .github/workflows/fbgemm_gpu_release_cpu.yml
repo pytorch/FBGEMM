@@ -3,6 +3,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# This workflow is used for building and publishing FBGEMM_GPU-CPU release
+# builds against PyTorch-CPU Release to public PyPI.
 name: FBGEMM_GPU-CPU Release Build
 
 on:
@@ -10,13 +12,13 @@ on:
   #
   pull_request:
     branches:
-      - main
+      - ^v([0-9]+)\.([0-9]+)\.([0-9]+)-release
 
   # Push Trigger (enable to catch errors coming out of multiple merges)
   #
   push:
     branches:
-      - main
+      - ^v([0-9]+)\.([0-9]+)\.([0-9]+)-release
 
   # Manual Trigger
   #
