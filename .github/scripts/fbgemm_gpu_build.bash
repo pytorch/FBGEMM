@@ -93,6 +93,8 @@ __configure_fbgemm_gpu_build_rocm () {
   build_args=(
     --package_variant=rocm
     -DTORCH_USE_HIP_DSA=1
+    # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
+    -DHIP_ROOT_DIR=/opt/rocm
   )
 }
 

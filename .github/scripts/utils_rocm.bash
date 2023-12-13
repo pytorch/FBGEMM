@@ -75,6 +75,8 @@ install_rocm_ubuntu () {
   print_exec rm -f "${package_name}"
 
   echo "[INFO] Check ROCM GPU info ..."
+  # If rocm-smi is installed on a machine without GPUs, this will return error
+  (print_exec rocminfo) || true
   print_exec rocm-smi
 
   echo "[INSTALL] Successfully installed ROCm ${rocm_version}"
