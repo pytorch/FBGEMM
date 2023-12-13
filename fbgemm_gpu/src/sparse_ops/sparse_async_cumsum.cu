@@ -13,9 +13,6 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 DLL_PUBLIC Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
-  if (t_in.numel() == 0) {
-    return at::zeros_like(t_in);
-  }
   TENSOR_ON_CUDA_GPU(t_in);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -57,9 +54,6 @@ DLL_PUBLIC Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
 }
 
 DLL_PUBLIC Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
-  if (t_in.numel() == 0) {
-    return at::zeros_like(t_in);
-  }
   TENSOR_ON_CUDA_GPU(t_in);
 
   at::cuda::OptionalCUDAGuard device_guard;
@@ -101,9 +95,6 @@ DLL_PUBLIC Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
 }
 
 DLL_PUBLIC Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
-  if (t_in.numel() == 0) {
-    return at::zeros({t_in.numel() + 1}, t_in.options());
-  }
   TENSOR_ON_CUDA_GPU(t_in);
 
   at::cuda::OptionalCUDAGuard device_guard;
