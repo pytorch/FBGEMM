@@ -224,4 +224,4 @@ CodeCache<
     typename DirectConvCodeGenBase<TA, TB, TC, accT>::jit_micro_kernel_fp_convT>
     DirectConvCodeGenBase<TA, TB, TC, accT>::codeCacheT_;
 
-}; // namespace fbgemm
+} // namespace fbgemm
