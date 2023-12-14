@@ -28,7 +28,6 @@ try:
         gpu_available,
         gpu_unavailable,
         gradcheck,
-        on_arm_platform,
         optests,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
@@ -41,7 +40,6 @@ except Exception:
         gpu_available,
         gpu_unavailable,
         gradcheck,
-        on_arm_platform,
         optests,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
@@ -2365,7 +2363,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if gpu_available
         else st.just("cpu"),
     )
-    @unittest.skipIf(*on_arm_platform)
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_jagged_bmm(
         self,
@@ -2431,7 +2428,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         if gpu_available
         else st.just("cpu"),
     )
-    @unittest.skipIf(*on_arm_platform)
     @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
     def test_jagged_dense_bmm(
         self,
@@ -2494,7 +2490,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
         dtype=st.sampled_from([torch.float, torch.double]),
         device_type=st.just("cpu"),
     )
-    @unittest.skipIf(*on_arm_platform)
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_dense_bmm_dynamic_shape(
         self,
