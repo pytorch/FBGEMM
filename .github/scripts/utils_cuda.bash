@@ -77,6 +77,14 @@ install_cuda () {
   # Print nvcc version
   # shellcheck disable=SC2086
   print_exec conda run ${env_prefix} nvcc --version
+
+  if which nvidia-smi; then
+    # If nvidia-smi is installed on a machine without GPUs, this will return error
+    (print_exec nvidia-smi) || true
+  else
+    echo "[CHECK] nvidia-smi not found"
+  fi
+
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
 }
 

@@ -77,8 +77,12 @@ __configure_fbgemm_gpu_build_rocm () {
       echo "[BUILD] Architectures list from rocminfo: ${arch_list}"
 
       if [ "$arch_list" == "" ]; then
-        # By default, build for MI250 only to save time
-        local arch_list=gfx90a
+        echo "[BUILD] rocminfo did not return anything valid!"
+
+        # By default, we build just for MI100 and MI250 to save time.  This list
+        # needs to be updated if the CI ROCm machines have different hardware.
+        # Architecture mapping can be found at: https://wiki.gentoo.org/wiki/ROCm
+        local arch_list="gfx908,gfx90a"
       fi
     else
       echo "[BUILD] rocminfo not found in PATH!"
@@ -92,9 +96,12 @@ __configure_fbgemm_gpu_build_rocm () {
   echo "[BUILD] Setting ROCm build args ..."
   build_args=(
     --package_variant=rocm
-    -DTORCH_USE_HIP_DSA=1
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
     -DHIP_ROOT_DIR=/opt/rocm
+    # Enable device-side assertions in HIP
+    # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
+    -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA"
+    -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
   )
 }
 
@@ -142,6 +149,7 @@ __configure_fbgemm_gpu_build_cuda () {
   build_args=(
     --package_variant=cuda
     --nvml_lib_path="${nvml_lib_path}"
+    # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
 }
