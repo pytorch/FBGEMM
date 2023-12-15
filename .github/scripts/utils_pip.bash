@@ -16,20 +16,20 @@
 __extract_pip_arguments () {
   export env_name="$1"
   export package_name_raw="$2"
-  export package_version="$3"
+  export package_channel_version="$3"
   export package_variant_type="$4"
   export package_variant_version="$5"
   if [ "$package_variant_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_CHANNEL_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Install the CPU variant a specific version"
-    echo "    ${FUNCNAME[0]} build_env torch release cpu            # Install the CPU variant of the latest stable version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 12.1.0  # Install the variant for CUDA 12.1"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Install the variant for ROCM 5.3"
+    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Install the CPU variant, specific version from release channel"
+    echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Install the CPU variant, latest version from release channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.6.0rc0 cuda 12.1.0   # Install the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3            # Install the ROCM 5.3 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"
-    echo "# Install ${package_name_raw} (PyTorch PIP)"
+    echo "# Extract PIP Arguments (PyTorch PIP)"
     echo "#"
     echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
@@ -37,6 +37,23 @@ __extract_pip_arguments () {
   fi
 
   test_network_connection || return 1
+
+  # Extract the package channel and version from the tuple-string
+  if [ "$package_channel_version" == "nightly" ] || [ "$package_channel_version" == "test" ] || [ "$package_channel_version" == "release" ]; then
+    export package_channel="$package_channel_version"
+    export package_version=""
+  else
+  # shellcheck disable=SC2207
+    local package_channel_version_arr=($(echo "${package_channel_version}" | tr '/' '\n'))
+    if [ ${#package_channel_version_arr[@]} -lt 2 ]; then
+      export package_channel="release"
+      export package_version="${package_channel_version_arr[0]}"
+    else
+      export package_channel="${package_channel_version_arr[0]}"
+      export package_version="${package_channel_version_arr[1]}"
+    fi
+  fi
+  echo "[INSTALL] Extracted package (channel, version): (${package_channel}, ${package_version})"
 
   # Replace underscores with hyphens to materialize the canonical name of the package
   # shellcheck disable=SC2155
@@ -44,55 +61,66 @@ __extract_pip_arguments () {
 
   # Set the package variant
   if [ "$package_variant_type" == "cuda" ]; then
-    # Extract the CUDA version or default to 11.8.0
-    local cuda_version="${package_variant_version:-11.8.0}"
+    # Extract the CUDA version or default to 12.1.0
+    local cuda_version="${package_variant_version:-12.1.0}"
     # shellcheck disable=SC2206
     local cuda_version_arr=(${cuda_version//./ })
     # Convert, i.e. cuda 12.1.0 => cu121
     export package_variant="cu${cuda_version_arr[0]}${cuda_version_arr[1]}"
   elif [ "$package_variant_type" == "rocm" ]; then
-    # Extract the ROCM version or default to 5.5.1
-    local rocm_version="${package_variant_version:-5.5.1}"
+    # Extract the ROCM version or default to 5.7.0
+    local rocm_version="${package_variant_version:-5.7.0}"
     # shellcheck disable=SC2206
     local rocm_version_arr=(${rocm_version//./ })
     # Convert, i.e. rocm 5.5.1 => rocm5.5
     export package_variant="rocm${rocm_version_arr[0]}.${rocm_version_arr[1]}"
   else
+    echo "[INSTALL] Invalid package variant type $package_variant_type, defaulting to cpu"
     export package_variant_type="cpu"
     export package_variant="cpu"
   fi
   echo "[INSTALL] Extracted package variant: ${package_variant}"
 
-  # Set the package name and installation channel
-  if [ "$package_version" == "nightly" ] || [ "$package_version" == "test" ]; then
-    export pip_package="--pre ${package_name}"
-    export pip_channel="https://download.pytorch.org/whl/${package_version}/${package_variant}/"
-  elif [ "$package_version" == "release" ]; then
-    export pip_package="${package_name}"
+  # Extract the PIP channel
+  if [ "$package_channel" == "release" ]; then
     export pip_channel="https://download.pytorch.org/whl/${package_variant}/"
   else
-    export pip_package="${package_name}==${package_version}+${package_variant}"
-    export pip_channel="https://download.pytorch.org/whl/${package_variant}/"
+    echo "[INSTALL] Using a non-RELEASE channel: ${package_channel} ..."
+    export pip_channel="https://download.pytorch.org/whl/${package_channel}/${package_variant}/"
   fi
+  echo "[INSTALL] Extracted the full PIP channel: ${pip_channel}"
+
+  # Extract the full PIP package
+  # If the channel is non-release, then prepend with `--pre``
+  if [ "$package_channel" != "release" ]; then
+    export pip_package="--pre ${package_name}"
+  else
+    export pip_package="${package_name}"
+  fi
+  # If a specific version is specified, then append with `==<version>`
+  if [ "$package_version" != "" ]; then
+    export pip_package="${pip_package}==${package_version}+${package_variant}"
+  fi
+  echo "[INSTALL] Extracted the full PIP package: ${pip_package}"
 }
 
 install_from_pytorch_pip () {
   local env_name="$1"
   local package_name_raw="$2"
-  local package_version="$3"
+  local package_channel_version="$3"
   local package_variant_type="$4"
   local package_variant_version="$5"
   if [ "$package_variant_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_CHANNEL_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Install the CPU variant for a specific version"
-    echo "    ${FUNCNAME[0]} build_env torch release cpu            # Install the CPU variant, latest release version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 12.1.0  # Install the CUDA 12.1 variant, latest test version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Install the ROCM 5.3 variant, latest nightly version"
+    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Install the CPU variant, specific version from release channel"
+    echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Install the CPU variant, latest version from release channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.6.0rc0 cuda 12.1.0   # Install the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3            # Install the ROCM 5.3 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"
-    echo "# Install ${package_name_raw} (PyTorch PIP)"
+    echo "# Install Package From PyTorch PIP: ${package_name_raw}"
     echo "#"
     echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
@@ -101,7 +129,7 @@ install_from_pytorch_pip () {
 
   test_network_connection || return 1
 
-  __extract_pip_arguments "$env_name" "$package_name_raw" "$package_version" "$package_variant_type" "$package_variant_version"
+  __extract_pip_arguments "$env_name" "$package_name_raw" "$package_channel_version" "$package_variant_type" "$package_variant_version"
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
@@ -132,16 +160,16 @@ install_from_pytorch_pip () {
 download_from_pytorch_pip () {
   local env_name="$1"
   local package_name_raw="$2"
-  local package_version="$3"
+  local package_channel_version="$3"
   local package_variant_type="$4"
   local package_variant_version="$5"
   if [ "$package_variant_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_CHANNEL_VERSION PACKAGE_VARIANT_TYPE [PACKAGE_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu             # Download the CPU variant for a specific version"
-    echo "    ${FUNCNAME[0]} build_env torch release cpu            # Download the CPU variant, latest stable version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test cuda 12.1.0  # Download the CUDA 12.1 variant, latest test version"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3  # Download the ROCM 5.3 variant, latest nightly version"
+    echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Download the CPU variant, specific version from release channel"
+    echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Download the CPU variant, latest version from release channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.6.0rc0 cuda 12.1.0   # Download the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm 5.3            # Download the ROCM 5.3 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"
@@ -154,7 +182,7 @@ download_from_pytorch_pip () {
 
   test_network_connection || return 1
 
-  __extract_pip_arguments "$env_name" "$package_name_raw" "$package_version" "$package_variant_type" "$package_variant_version"
+  __extract_pip_arguments "$env_name" "$package_name_raw" "$package_channel_version" "$package_variant_type" "$package_variant_version"
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
