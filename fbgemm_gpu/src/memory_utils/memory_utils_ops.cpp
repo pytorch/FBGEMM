@@ -23,8 +23,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("uvm_to_cpu(Tensor t) -> Tensor");
   m.def("new_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   m.def("new_host_mapped_tensor(Tensor self, int[] sizes) -> Tensor");
-  m.def(
-      "new_unified_tensor(Tensor self, int[] sizes, bool is_host_mapped) -> Tensor");
   m.def("new_vanilla_managed_tensor(Tensor self, int[] sizes) -> Tensor");
   m.def(
       "cuda_mem_advise(Tensor t, int advice) -> ()",
@@ -41,7 +39,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  DISPATCH_TO_CPU("new_unified_tensor", new_unified_tensor_cpu);
   DISPATCH_TO_META("new_managed_tensor", new_managed_tensor_meta);
 }
 
