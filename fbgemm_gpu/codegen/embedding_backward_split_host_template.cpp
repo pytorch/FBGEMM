@@ -12,6 +12,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
@@ -791,7 +792,8 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    int vbe_output_size=-1, "
           "    bool is_experimental=False, "
           "    bool use_uniq_cache_locations_bwd=False, "
-          "    bool use_homogeneous_placements=False) -> Tensor");
+          "    bool use_homogeneous_placements=False) -> Tensor",
+          {PT2_COMPLIANT_TAG});
     // We're playing a funny trick here: we're using the autograd
     // implementation of the operator at all the dispatch keys.  This is OK
     // because autograd.Function works even in a context where there is
