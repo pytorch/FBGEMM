@@ -68,10 +68,9 @@ install_fbgemm_gpu_wheel () {
 install_fbgemm_gpu_pip () {
   local env_name="$1"
   local fbgemm_gpu_channel_version="$2"
-  local fbgemm_gpu_variant_type="$3"
-  local fbgemm_gpu_variant_version="$4"
-  if [ "$fbgemm_gpu_variant_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME FBGEMM_GPU_VERSION FBGEMM_GPU_VARIANT_TYPE [FBGEMM_GPU_VARIANT_VERSION]"
+  local fbgemm_gpu_variant_type_version="$3"
+  if [ "$fbgemm_gpu_variant_type_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME FBGEMM_GPU_CHANNEL[/VERSION] FBGEMM_GPU_VARIANT_TYPE[/VARIANT_VERSION]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env 0.5.0 cpu                  # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env release cuda 12.1.1        # Install the CUDA variant, latest version from release channel"
@@ -89,7 +88,7 @@ install_fbgemm_gpu_pip () {
 
   # Install the package from PyTorch PIP (not PyPI)
   # The package's canonical name is 'fbgemm-gpu' (hyphen, not underscore)
-  install_from_pytorch_pip "${env_name}" fbgemm_gpu "${fbgemm_gpu_channel_version}" "${fbgemm_gpu_variant_type}" "${fbgemm_gpu_variant_version}" || return 1
+  install_from_pytorch_pip "${env_name}" fbgemm_gpu "${fbgemm_gpu_channel_version}" "${fbgemm_gpu_variant_type_version}" || return 1
 
   # Run post-installation checks
   __fbgemm_gpu_post_install_checks "${env_name}" || return 1

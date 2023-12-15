@@ -182,7 +182,7 @@ test_setup_conda_environment () {
   if [ "$pytorch_installer" == "conda" ]; then
     install_pytorch_conda     "${env_name}" "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
   else
-    install_pytorch_pip       "${env_name}" "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
+    install_pytorch_pip       "${env_name}" "${pytorch_version}" "${pytorch_variant_type}"/"${pytorch_variant_version}" || return 1
   fi
 }
 

@@ -99,7 +99,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -178,7 +178,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
