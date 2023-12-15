@@ -80,6 +80,7 @@
         "status": "xfail"
       }
     },
+    "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::bounds_check_indices": {},
     "fbgemm::dense_embedding_codegen_lookup_function": {
       "SplitTableBatchedEmbeddingsTest.test_autograd_registration__test_backward_dense": {
@@ -486,6 +487,8 @@
         "status": "skip"
       }
     },
+    "fbgemm::split_embedding_codegen_forward_unweighted_cuda": {},
+    "fbgemm::split_embedding_codegen_forward_weighted_cuda": {},
     "fbgemm::split_embedding_codegen_lookup_adagrad_function": {},
     "fbgemm::split_embedding_codegen_lookup_adagrad_function_cpu": {},
     "fbgemm::split_embedding_codegen_lookup_adam_function": {},

@@ -4242,6 +4242,99 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             use_cpu,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_split_embedding_codegen_forward(  # noqa C901
+        self,
+    ) -> None:
+        # Dummy test in order to run generated opcheck tests on
+        # split_embedding_codegen_forward_weighted_cuda and
+        # split_embedding_codegen_forward_unweighted_cuda.
+        # Sizes and values of int tensors were generated from running
+        # one test instance of test_backward_adagrad_fp16_pmSUM and outputting
+        # sizes/dtypes/values.
+        def _do_test(weighted: bool) -> None:
+            flatten_dev_weights = torch.rand(0, dtype=torch.half).cuda()
+            uvm_weights = torch.rand(10456, dtype=torch.half).cuda()
+            lxu_cache_weights = torch.rand(544, 4, dtype=torch.float).cuda()
+            weights_placements = torch.tensor([2, 2, 2]).to(
+                dtype=torch.int, device="cuda"
+            )
+            weights_offsets = torch.tensor([0, 2784, 2784]).to(
+                dtype=torch.long, device="cuda"
+            )
+            D_offsets = torch.tensor([0, 4, 8]).to(dtype=torch.int, device="cuda")
+            total_D = 12
+            max_D = 4
+            indices = torch.tensor(
+                [
+                    680,
+                    213,
+                    293,
+                    439,
+                    1004,
+                    885,
+                    986,
+                    1162,
+                    433,
+                    1327,
+                    187,
+                    89,
+                ]
+            ).to(dtype=torch.long, device="cuda")
+            offsets = torch.tensor([0, 2, 4, 6, 8, 10, 12]).to(
+                dtype=torch.long, device="cuda"
+            )
+            pooling_mode = False
+            indice_weights = torch.rand(12, dtype=torch.float).cuda()
+            lxu_cache_locations = torch.tensor(
+                [
+                    224,
+                    352,
+                    353,
+                    192,
+                    384,
+                    64,
+                    288,
+                    1,
+                    96,
+                    194,
+                    0,
+                    193,
+                ]
+            ).to(dtype=torch.int, device="cuda")
+            output_dtype = 0  # SparseType.FP32
+            is_experimental = False
+
+            op_args = [
+                flatten_dev_weights,
+                uvm_weights,
+                lxu_cache_weights,
+                weights_placements,
+                weights_offsets,
+                D_offsets,
+                total_D,
+                max_D,
+                indices,
+                offsets,
+                pooling_mode,
+            ]
+            if weighted:
+                op_args += [indice_weights]
+            op_args += [
+                lxu_cache_locations,
+                output_dtype,
+                is_experimental,
+            ]
+
+            op_name = "split_embedding_codegen_forward"
+            op_name += "_weighted" if weighted else "_unweighted"
+            op_name += "_cuda"
+
+            getattr(torch.ops.fbgemm, op_name)(*op_args)
+
+        _do_test(True)
+        _do_test(False)
+
     def execute_nbit_forward_(  # noqa C901
         self,
         T: int,

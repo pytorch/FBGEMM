@@ -19,6 +19,10 @@
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
+{%- if not dense and not nobag and not vbe %}
+#include "fbgemm_gpu/dispatch_macros.h"
+{%- endif %}
+
 {%- if not is_index_select %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
@@ -739,7 +743,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    int info_B_mask_int64, "
           {%- endif %}
           "    bool is_experimental"
-          ") -> Tensor");
+          ") -> Tensor"
+          {%- if not dense and not nobag and not vbe %}
+          // only split_embedding_codegen_forward_[un]weighted_cuda
+          // are tested to be PT2 compliant
+          , {PT2_COMPLIANT_TAG}
+          {%- endif %}
+    );
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_forward_op }}",
         {{ embedding_codegen_forward_op }}
