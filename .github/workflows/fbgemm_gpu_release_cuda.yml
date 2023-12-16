@@ -24,23 +24,23 @@ on:
   #
   workflow_dispatch:
     inputs:
+      pytorch_channel:
+        description: Package Channel to Use for PyTorch Installation
+        type: choice
+        required: false
+        options: [ "nightly", "test", "release" ]
+        default: "test"
+      cuda_version:
+        description: CUDA Version to Use for Building Artifact
+        type: choice
+        required: false
+        options: [ "11.8.0", "12.1.1" ]
+        default: "12.1.1"
       publish_to_pypi:
         description: Publish Artifact to PyPI
         type: boolean
         required: false
         default: false
-      cuda_version:
-        description: CUDA Version to Use for PyPI Publishing
-        type: choice
-        required: false
-        options: [ "11.8.0", "12.1.1" ]
-        default: "12.1.1"
-      pytorch_channel:
-        description: PyTorch Package Channel
-        type: choice
-        required: false
-        options: [ "test", "release" ]
-        default: "test"
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -102,7 +102,7 @@ jobs:
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cuda ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -174,7 +174,7 @@ jobs:
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cuda ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}

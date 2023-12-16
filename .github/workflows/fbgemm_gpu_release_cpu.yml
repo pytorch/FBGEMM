@@ -24,17 +24,17 @@ on:
   #
   workflow_dispatch:
     inputs:
+      pytorch_channel:
+        description: Package Channel to Use for PyTorch Installation
+        type: choice
+        required: false
+        options: [ "nightly", "test", "release" ]
+        default: "test"
       publish_to_pypi:
         description: Publish Artifact to PyPI
         type: boolean
         required: false
         default: false
-      pytorch_channel:
-        description: PyTorch Package Channel
-        type: choice
-        required: false
-        options: [ "test", "release" ]
-        default: "test"
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -93,7 +93,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch-CPU Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cpu
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -161,7 +161,7 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install PyTorch Test
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel || 'test' }} cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cpu
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
