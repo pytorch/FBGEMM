@@ -103,7 +103,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch-ROCm Nightly
-      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm/${{ matrix.rocm-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -180,7 +180,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install PyTorch-ROCm Nightly
-      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm ${{ matrix.rocm-version }}
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm/${{ matrix.rocm-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
