@@ -326,6 +326,31 @@ def merge_pooled_embeddings(
     )
 
 
+@impl_abstract("fbgemm::all_to_one_device")
+def all_to_one_device(
+    input_tensors: List[torch.Tensor],
+    target_device: torch.device,
+) -> List[torch.Tensor]:
+    return [
+        e if e.device == target_device else e.new_empty(e.shape, device=target_device)
+        for e in input_tensors
+    ]
+
+
+@impl_abstract("fbgemm::bounds_check_indices")
+def bounds_check_indices(
+    rows_per_table: torch.Tensor,
+    indices: torch.Tensor,
+    offsets: torch.Tensor,
+    bounds_check_mode: int,
+    warning: torch.Tensor,
+    weights: Optional[torch.Tensor] = None,
+    B_offsets: Optional[torch.Tensor] = None,
+    max_B: int = -1,
+) -> None:
+    pass
+
+
 @impl_abstract("fbgemm::permute_sparse_features")
 def permute_sparse_features_abstract(
     permute: Tensor, lengths: Tensor, indices: Tensor, weights: Optional[Tensor] = None
