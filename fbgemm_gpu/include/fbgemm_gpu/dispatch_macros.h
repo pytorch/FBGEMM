@@ -6,6 +6,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// This is NECESSARY for the PT2_COMPLIANT_TAG macro to work.
+#include <torch/library.h>
+
 #define PRIVATE_CASE_TYPE_CACHE(enum_type, type, ...) \
   case enum_type: {                                   \
     using cache_t = type;                             \
