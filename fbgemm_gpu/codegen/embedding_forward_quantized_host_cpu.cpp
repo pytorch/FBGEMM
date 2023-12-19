@@ -24,7 +24,7 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-///@defgroup embedding-cpu Embedding CPU Operators
+/// @defgroup embedding-cpu Embedding CPU Operators
 ///
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(

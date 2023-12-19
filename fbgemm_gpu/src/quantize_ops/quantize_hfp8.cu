@@ -10,11 +10,11 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of `float` values into a tensor of Hybrid 8-bit Floating
+/// Point (`hfp8`) values.
 DLL_PUBLIC at::Tensor _float_to_hfp8_gpu(
     const at::Tensor& input,
     const int64_t ebits,
@@ -42,6 +42,9 @@ DLL_PUBLIC at::Tensor _float_to_hfp8_gpu(
   return output;
 }
 
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of Hybrid 8-bit Floating Point (`hfp8`) values into a
+/// tensor of `float` values.
 DLL_PUBLIC at::Tensor _hfp8_to_float_gpu(
     const at::Tensor& input,
     const int64_t ebits,

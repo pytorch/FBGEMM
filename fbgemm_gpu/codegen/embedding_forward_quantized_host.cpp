@@ -184,7 +184,7 @@ void process_uvm_cache_stats(
 } // namespace
 #endif
 
-///@defgroup embedding-cuda Embedding CUDA Operators
+/// @defgroup embedding-cuda Embedding CUDA Operators
 ///
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(

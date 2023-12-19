@@ -14,8 +14,8 @@
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-///@defgroup permute-pooled-embs-gpu
-///@defgroup permute-pooled-embs-cpu
+/// @defgroup permute-pooled-embs-gpu
+/// @defgroup permute-pooled-embs-cpu
 
 namespace fbgemm_gpu {
 

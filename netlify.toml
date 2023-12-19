@@ -10,7 +10,7 @@
 
     # Set up Conda environment
     setup_miniconda           $HOME/miniconda
-    create_conda_environment  $BUILD_ENV 3.11
+    create_conda_environment  $BUILD_ENV 3.12
 
     # Install tools
     install_cxx_compiler      $BUILD_ENV

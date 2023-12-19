@@ -10,9 +10,6 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
 namespace {
@@ -327,7 +324,7 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC Tensor
 _float_to_FP8rowwise_gpu(const Tensor& input, const bool forward) {
   auto input_type = input.dtype();
