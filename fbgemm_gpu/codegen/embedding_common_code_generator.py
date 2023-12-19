@@ -753,59 +753,77 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
     """
     split_precomputation = """
     at::acc_type<cache_t, true> freq = 1.0;
-    at::acc_type<cache_t, true> l2_wd = 0.0;
     at::acc_type<cache_t, true> tail_id_threshold_val = tail_id_threshold;
-    CUDA_KERNEL_ASSERT(max_counter > 0.0); // avoid divide by zero error
+    CUDA_KERNEL_ASSERT(max_counter != 0.0); // avoid divide by zero error
     if (is_tail_id_thresh_ratio == 1){
         tail_id_threshold_val = floorf(tail_id_threshold * max_counter);
     }
-    if (counter_halflife > 0 && threadIdx.x == 0) {
-        // if id occurs multiple times in a batch, iter_delta=1
-        const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
-        prev_iter[idx] = iter * 1.0;
-        const auto counter_log_rho = logf(2.0) / counter_halflife;
-        row_counter[idx] = 1.0 + expf(-iter_delta * counter_log_rho) * row_counter[idx];
-        freq = counter_halflife / row_counter[idx];
-        if (weight_decay_mode == 1) {
-            // L2 regularization
-            l2_wd = 1.0;
+    if (threadIdx.x == 0) {
+        if (counter_halflife > 0) { // decay based on counter_halflife
+            // if id occurs multiple times in a batch, iter_delta=1
+            const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+            prev_iter[idx] = iter * 1.0;
+            const auto counter_log_rho = logf(2.0) / counter_halflife;
+            row_counter[idx] = 1.0 + expf(-iter_delta * counter_log_rho) * row_counter[idx];
+        } else if (counter_halflife == 0) { // count only 1 (appear or not)
+            row_counter[idx] = 1.0;
+        } else { // count raw appearance without decaying
+            row_counter[idx] += 1.0;
         }
+        freq = counter_halflife / row_counter[idx];
     }
     freq = SHFL_SYNC(freq, 0);
-    l2_wd = SHFL_SYNC(l2_wd, 0);
     tail_id_threshold_val = SHFL_SYNC(tail_id_threshold_val, 0);
 
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
+    at::acc_type<cache_t, true> w_local_sum_square = 0.0;
 
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
+        auto gx = grad_sum[i].acc.x;
+        auto gy = grad_sum[i].acc.y;
+        auto gz = grad_sum[i].acc.z;
+        auto gw = grad_sum[i].acc.w;
+
         int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
         Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
-        auto gx = grad_sum[i].acc.x + l2_wd * freq * weight_decay * weight.acc.x;
-        auto gy = grad_sum[i].acc.y + l2_wd * freq * weight_decay * weight.acc.y;
-        auto gz = grad_sum[i].acc.z + l2_wd * freq * weight_decay * weight.acc.z;
-        auto gw = grad_sum[i].acc.w + l2_wd * freq * weight_decay * weight.acc.w;
+
+        // for L2 regularization (weight_decay_mode=1)
+        // add weight_decay to gradient before other computation
+        if (weight_decay_mode == 1) {
+            gx += weight_decay * weight.acc.x;
+            gy += weight_decay * weight.acc.y;
+            gz += weight_decay * weight.acc.z;
+            gw += weight_decay * weight.acc.w;
+        }
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+
+        // cow_clip (regularization_mode=4) requires weight norm
+        if (regularization_mode == 4) {
+            w_local_sum_square += weight.acc.x * weight.acc.x + weight.acc.y * weight.acc.y + weight.acc.z * weight.acc.z + weight.acc.w * weight.acc.w;
+        }
     }
 
-    const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+    const at::acc_type<cache_t, true> g_sum_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask);
+    const at::acc_type<cache_t, true> g_avg_square = g_sum_square / D;
+    const at::acc_type<cache_t, true> w_sum_square =
+        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(w_local_sum_square, shfl_sync_mask);
 
-    at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> adjusted_multiplier;
     at::acc_type<cache_t, true> exp_reg_correction;
 
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
-        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        const auto multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        const auto adjustment_enabled = adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter);
 
-        adjusted_multiplier = multiplier;
-        if ( learning_rate_mode >=0 ) {
-            if (adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter)) {
-
+        if (regularization_mode == 3) { // counter-based regularization (regularization_mode=3)
+            adjusted_multiplier = multiplier;
+            if (learning_rate_mode >=0 && adjustment_enabled) {
                 if (row_counter[idx] > tail_id_threshold_val) {
                     if ( learning_rate_mode == 0 ) {
                         adjusted_multiplier = multiplier * max(min(powf(max_counter/(row_counter[idx] + 1.0), adjustment_ub), 10.0), 1.0);
@@ -816,20 +834,28 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
                     }
                 }
             }
+        } else if (regularization_mode == 4) { // cow-clip (regularization_mode=4)
+            const auto clip_thresh = row_counter[idx] * max(weight_norm_coefficient * sqrtf(w_sum_square), lower_bound);
+            adjusted_multiplier = min(1.0f, clip_thresh / sqrtf(g_sum_square)) * multiplier;
         }
 
         exp_reg_correction = 1.0;
-        if (adjustment_iter <= 0 || (adjustment_iter > 0 && iter > adjustment_iter)) {
-            if (weight_decay_mode == 2) {
-                // Decoupled weight decay
-                exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
-            } else if (weight_decay_mode == 1) {
-                // L2 regularization (coupled wd)
-                exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
+        if (regularization_mode == 3) { // counter-based regularization (regularization_mode=3)
+            if (adjustment_enabled) {
+                if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
+                    exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
+                } else if (weight_decay_mode == 1) { // L2 regularization (coupled wd)
+                    exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
+                }
+            }
+        } else if (regularization_mode == 4) { // cow-clip (regularization_mode=4)
+            if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
+                exp_reg_correction = 1.0 -  weight_decay * learning_rate;
+            } else if (weight_decay_mode == 1) { // L2 regularization (coupled wd)
+                exp_reg_correction = 1.0 - weight_decay * adjusted_multiplier;
             }
         }
     }
-    multiplier = SHFL_SYNC(multiplier, 0);
     adjusted_multiplier = SHFL_SYNC(adjusted_multiplier, 0);
     exp_reg_correction = SHFL_SYNC(exp_reg_correction, 0);
     """
@@ -874,6 +900,9 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 (FLOAT, "max_counter"),
                 (FLOAT, "tail_id_threshold", 0.0),
                 (INT, "is_tail_id_thresh_ratio", 0),
+                (INT, "regularization_mode", 0),
+                (FLOAT, "weight_norm_coefficient", 0.0),
+                (FLOAT, "lower_bound", 0.0),
             ]
         ),
         "split_precomputation": split_precomputation,
@@ -891,7 +920,7 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
 
     approx_split_weight_update = """
       // dummy computation to avoid unused variable warning
-      weight_new.fma_(grad, -multiplier);
+      weight_new.fma_(grad, -learning_rate);
       assert(false); // approx rowwise AdaGrad is not supported on GPU
     """
 
@@ -915,6 +944,9 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 (FLOAT, "max_counter"),
                 (FLOAT, "tail_id_threshold", 0.0),
                 (INT, "is_tail_id_thresh_ratio", 0),
+                (INT, "regularization_mode", 0),
+                (FLOAT, "weight_norm_coefficient", 0.0),
+                (FLOAT, "lower_bound", 0.0),
             ]
         ),
         "split_precomputation": rowwise_adagrad_with_counter_args[
