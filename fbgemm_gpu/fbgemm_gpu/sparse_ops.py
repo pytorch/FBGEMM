@@ -151,6 +151,42 @@ def tbe_input_combine_abstract(
     return combined_indices, combined_offsets, combined_weights
 
 
+@impl_abstract("fbgemm::tbe_input_combine_with_length")
+def tbe_input_combine_with_length_abstract(
+    indices_list: List[Tensor],
+    offsets_list: List[Tensor],
+    per_sample_weights: List[Tensor],
+) -> Tuple[Tensor, Tensor, Tensor]:
+    torch._check(len(indices_list) > 0)
+    torch._check(len(indices_list) == len(offsets_list))
+    torch._check(len(indices_list) == len(per_sample_weights))
+    total_indices = 0
+    need_weight = False
+    for index, offset, weight in zip(indices_list, offsets_list, per_sample_weights):
+        torch._check(index.dtype == torch.int or index.dtype == torch.long)
+        torch._check(offset.dtype == torch.int or offset.dtype == torch.long)
+        torch._check(index.dim() == 1)
+        torch._check(offset.dim() == 1)
+        torch._check(index.is_contiguous())
+        torch._check(offset.is_contiguous())
+        total_indices = total_indices + index.numel()
+        if weight.numel() > 0:
+            torch._check(weight.dim() == 1)
+            torch._check(weight.numel() == index.numel())
+            torch._check(weight.is_contiguous())
+            need_weight = True
+    total_offsets = torch.library.get_ctx().new_dynamic_size()
+    combined_indices = indices_list[0].new_empty([total_indices], dtype=torch.int)
+    combined_offsets = offsets_list[0].new_empty([total_offsets], dtype=torch.int)
+    if need_weight:
+        combined_weights = per_sample_weights[0].new_empty(
+            [total_indices], dtype=torch.float
+        )
+    else:
+        combined_weights = torch.empty(0)
+    return combined_indices, combined_offsets, combined_weights
+
+
 @impl_abstract("fbgemm::jagged_index_select_2d_forward_v2")
 def jagged_index_select_2d_forward_v2_abstract(
     values: Tensor,
@@ -228,7 +264,7 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
     max_float8_D: Optional[int] = None,
     fp8_exponent_bits: Optional[int] = None,
     fp8_exponent_bias: Optional[int] = None,
-) -> torch.Tensor:
+) -> Tensor:
     T = D_offsets.numel() - 1
     B = (offsets.size(0) - 1) // T
     output_dtype = torch.float32
