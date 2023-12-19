@@ -943,7 +943,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets)
 
-        self.timesteps_prefetched.pop(0)
+        if len(self.timesteps_prefetched) > 0:
+            self.timesteps_prefetched.pop(0)
+
         self.lxu_cache_locations = (
             self.lxu_cache_locations_empty
             if len(self.lxu_cache_locations_list) == 0
@@ -1121,7 +1123,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.gather_uvm_cache_stats
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        uvm_cache_stats = self.uvm_cache_stats.tolist()
+        uvm_cache_stats: List[float] = self.uvm_cache_stats.tolist()
         logging.info(
             f"N_called: {uvm_cache_stats[0]}\n"
             f"N_requested_indices: {uvm_cache_stats[1]}\n"
