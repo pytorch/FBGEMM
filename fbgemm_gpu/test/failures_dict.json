@@ -525,27 +525,27 @@
     "fbgemm::tbe_input_combine_with_length": {
       "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_int32_with_length": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_int64_with_length": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_mix_with_length": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "InputCombineTest.test_faketensor__test_input_combine_int32_with_length": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "InputCombineTest.test_faketensor__test_input_combine_int64_with_length": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "InputCombineTest.test_faketensor__test_input_combine_mix_with_length": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       }
     }
   }
