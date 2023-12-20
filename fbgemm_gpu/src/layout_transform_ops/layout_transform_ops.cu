@@ -26,7 +26,7 @@
 
 using Tensor = at::Tensor;
 
-///@defgroup layout-transform-cuda Layout Transformation CUDA Operators
+/// @defgroup layout-transform-cuda Layout Transformation CUDA Operators
 ///
 
 namespace fbgemm_gpu {

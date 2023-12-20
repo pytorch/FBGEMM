@@ -19,7 +19,7 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-///@ingroup quantize-data-meta
+/// @ingroup quantize-data-meta
 Tensor FP8rowwise_to_float_meta(
     const Tensor& input,
     [[maybe_unused]] bool forward,

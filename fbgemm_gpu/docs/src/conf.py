@@ -37,11 +37,11 @@ for dir_i in os.listdir("../.."):
 subprocess.call("doxygen Doxyfile.in", shell=True)
 
 # -- Project information -----------------------------------------------------
-highlight_language = "c++"
+highlight_language = "C++"
 
 project = "fbgemm"
-copyright = "2022, FBGEMM team"
-author = "FBGEMM team"
+copyright = "2023, FBGEMM Team"
+author = "FBGEMM Team"
 
 # The full version, including alpha/beta/rc tags
 release = "0.1.2"
@@ -53,7 +53,14 @@ release = "0.1.2"
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ["sphinx.ext.napoleon", "sphinx.ext.autodoc"]
+extensions = [
+    "breathe",
+    "myst_parser",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosectionlabel",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.napoleon",
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -62,8 +69,6 @@ templates_path = ["_templates"]
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
-
-extensions = ["sphinx.ext.intersphinx", "breathe", "sphinx.ext.autodoc"]
 
 intersphinx_mapping = {"pytorch": ("https://pytorch.org/docs/master", None)}
 
@@ -75,6 +80,12 @@ breathe_projects = {"fbgemm_gpu": "../build/xml/", "codegen": "../build/xml/code
 
 breathe_default_project = "fbgemm_gpu"
 
+# If true, Sphinx will warn about all references where the target cannot be
+# found.
+nitpicky = True
+
+# Make sure the target is unique
+autosectionlabel_prefix_document = True
 
 # Tell sphinx what the primary language being documented is.
 primary_domain = "cpp"

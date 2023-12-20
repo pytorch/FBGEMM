@@ -16,7 +16,7 @@
 
 using Tensor = at::Tensor;
 
-///@defgroup embedding-cuda Embedding CUDA Operators
+/// @defgroup embedding-cuda Embedding CUDA Operators
 
 ///@ingroup embedding-cuda
 void bounds_check_indices_cuda(

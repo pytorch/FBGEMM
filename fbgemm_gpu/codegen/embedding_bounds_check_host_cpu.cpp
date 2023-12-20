@@ -17,7 +17,7 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-///@defgroup embedding-cpu Embedding CPU Operators
+/// @defgroup embedding-cpu Embedding CPU Operators
 ///
 
 namespace {

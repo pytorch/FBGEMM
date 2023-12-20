@@ -15,7 +15,7 @@
 
 using Tensor = at::Tensor;
 
-///@defgroup layout-transform-cpu Layout Transformation CPU Operators
+/// @defgroup layout-transform-cpu Layout Transformation CPU Operators
 ///
 
 namespace fbgemm_gpu {

@@ -10,9 +10,6 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
 namespace {
@@ -332,7 +329,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC Tensor _float_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<float>(input);
 }
@@ -341,7 +338,7 @@ DLL_PUBLIC Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<at::Half>(input);
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC Tensor
 _single_or_half_precision_to_fused8bitrowwise_gpu(const Tensor& input) {
   Tensor output;
@@ -427,7 +424,7 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input) {
   return _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu(
     const at::Tensor& input,
     const int64_t output_dtype) {
@@ -451,7 +448,7 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu(
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     const at::Tensor& input,
     const at::Tensor& D_offsets,

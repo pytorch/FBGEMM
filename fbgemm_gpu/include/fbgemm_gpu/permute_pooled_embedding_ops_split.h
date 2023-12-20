@@ -9,9 +9,9 @@
 #pragma once
 
 #include <ATen/ATen.h>
-///@defgroup permute-pooled-embs-gpu CUDA Permutation Operators
+/// @defgroup permute-pooled-embs-gpu CUDA Permutation Operators
 
-///@defgroup permute-pooled-embs-cpu CPU Permutation Operators
+/// @defgroup permute-pooled-embs-cpu CPU Permutation Operators
 
 namespace fbgemm_gpu {
 ///@ingroup permute-pooled-embs-cpu

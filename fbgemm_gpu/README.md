@@ -20,15 +20,15 @@ See our [Documentation](docs/README.md) for more information.
 
 The full installation instructions
 for the CUDA, ROCm, and CPU-only variants of FBGEMM_GPU can be found
-[here](docs/InstallationInstructions.md).  In addition, instructions for running
-example tests and benchmarks can be found [here](docs/TestInstructions.md).
+[here](docs/src/general/InstallationInstructions.rst).  In addition, instructions for running
+example tests and benchmarks can be found [here](docs/src/general/TestInstructions.rst).
 
 
 ## Build Instructions
 
 This section is intended for FBGEMM_GPU developers only.  The full build
 instructions for the CUDA, ROCm, and CPU-only variants of FBGEMM_GPU can be
-found [here](docs/BuildInstructions.md).
+found [here](docs/src/general/BuildInstructions.rst).
 
 
 ## Join the FBGEMM_GPU Community

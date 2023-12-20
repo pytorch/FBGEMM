@@ -10,9 +10,6 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
 namespace {
@@ -110,7 +107,7 @@ __global__ inline void _fusednbitrowwise_to_float_cuda_kernel(
 
 } // namespace
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 template <typename input_t>
 Tensor _float_to_fusednbitrowwise_gpu_t(
     const Tensor& input,
@@ -167,20 +164,20 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC Tensor
 _float_to_fusednbitrowwise_gpu(const Tensor& input, const int64_t bit_rate) {
   return _float_to_fusednbitrowwise_gpu_t<float>(input, bit_rate);
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC at::Tensor _half_to_fusednbitrowwise_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
   return _float_to_fusednbitrowwise_gpu_t<at::Half>(input, bit_rate);
 }
 
-///@ingroup sparse-data-cuda
+/// @ingroup sparse-data-cuda
 DLL_PUBLIC Tensor _float_or_half_to_fusednbitrowwise_gpu(
     const Tensor& input,
     const int64_t bit_rate) {
@@ -194,7 +191,7 @@ DLL_PUBLIC Tensor _float_or_half_to_fusednbitrowwise_gpu(
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 template <typename output_t>
 Tensor _fusednbitrowwise_to_float_gpu_t(
     const Tensor& input,
@@ -260,14 +257,14 @@ DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_gpu(
   return _fusednbitrowwise_to_float_gpu_t<float>(input, bit_rate);
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC at::Tensor _fusednbitrowwise_to_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
 DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_or_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate,

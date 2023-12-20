@@ -12,7 +12,7 @@
 
 namespace fbgemm_gpu {
 
-///@defgroup input-combine Combine Input Operators
+/// @defgroup input-combine Combine Input Operators
 ///
 
 ///@ingroup input-combine

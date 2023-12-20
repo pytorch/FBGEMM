@@ -10,10 +10,9 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
+
+namespace {
 
 __host__ __device__ inline float float_to_msfp(
     const float val_fp,
@@ -107,6 +106,11 @@ __global__ inline void _compute_msfp_shared_exponent_cuda_kernel(
   }
 }
 
+} // namespace
+
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of  `float` values into a tensor of Microsoft Floating
+/// Point (`msfp`) values.
 DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
     const at::Tensor& input,
     const int64_t bounding_box_size,
@@ -173,7 +177,9 @@ DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of Microsoft Floating Point (`msfp`) values into a tensor
+/// of `float` values.
 DLL_PUBLIC at::Tensor _msfp_to_float_gpu(
     const at::Tensor& input,
     const int64_t ebits,
