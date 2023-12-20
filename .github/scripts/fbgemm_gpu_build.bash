@@ -77,6 +77,8 @@ __configure_fbgemm_gpu_build_rocm () {
       echo "[BUILD] Architectures list from rocminfo: ${arch_list}"
 
       if [ "$arch_list" == "" ]; then
+        # It is possible to build FBGEMM_GPU-ROCm on a machine without AMD
+        # cards, in which case the arch_list will be empty.
         echo "[BUILD] rocminfo did not return anything valid!"
 
         # By default, we build just for MI100 and MI250 to save time.  This list

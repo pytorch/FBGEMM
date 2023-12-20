@@ -14,7 +14,7 @@ namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
 
-///@defgroup cumem-utils CUDA Memorty Operators
+/// @defgroup cumem-utils CUDA Memorty Operators
 ///
 
 ///@ingroup cumem-utils

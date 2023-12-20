@@ -67,7 +67,7 @@ must be included to the corresponding `.rst` files.
 To publish your docstrings:
 
 1. Add the corresponding module method to
-   [fbgemm_gpu.rst](./source/fbgemm_gpu.rst).
+   [fbgemm_gpu.rst](./src/fbgemm_gpu.rst).
 1. To preview locally, run `make html`.
 1. Submit your PR and verify the Netlify preview.
 
@@ -91,7 +91,7 @@ Follow these instructions to document, generate, and publish a new C++ descripti
    Here is an example of how it can look:
 
    ```
-   ///@defgroup my-group
+   /// @defgroup my-group
    ///Description of my method <br>
    ///**Example:**
    ///```
@@ -121,7 +121,7 @@ Follow these instructions to document, generate, and publish a new C++ descripti
        :content-only:
    ```
 
-1. Make sure your file is included in to the `toctree` in `docs/source/index.rst`.
+1. Make sure your file is included in to the `toctree` in `docs/src/index.rst`.
 
 1. You also need include your source header file to the `INPUT` parameter
    in the `Doxygen.ini` file. Most of the files are already included, but if

@@ -20,7 +20,7 @@
 
 namespace fbgemm_gpu {
 
-///@defgroup jagged-tensor-ops-cpu Jagged Tensor Operators
+/// @defgroup jagged-tensor-ops-cpu Jagged Tensor Operators
 /// The following are Jagged Tensor CPU Operators
 
 using Tensor = at::Tensor;
