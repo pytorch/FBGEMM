@@ -6,7 +6,8 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
   <title>Layout Transformation Operators &mdash; fbgemm 0.1.2 documentation</title>
@@ -251,19 +252,25 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Layout Transformation Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
@@ -343,9 +350,9 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="section" id="layout-transformation-operators">
+  <section id="layout-transformation-operators">
 <h1>Layout Transformation Operators<a class="headerlink" href="#layout-transformation-operators" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="cuda-operators">
+<section id="cuda-operators">
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE">
@@ -362,16 +369,16 @@
 <span id="_CPPv346recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor"></span><span id="_CPPv246recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor"></span><span id="recat_embedding_grad_output_mixed_D_batch_cuda__TensorCR.TensorCR.TensorCR"></span><span class="target" id="group__layout-transform-cuda_1gad5cabc0ba0ee6dfd8a8de4e5825c62e9"></span>Tensor <code class="sig-name descname">recat_embedding_grad_output_mixed_D_batch_cuda</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>grad_output</em>, <em class="property">const</em> Tensor &amp;<em>dim_sum_per_rank</em>, <em class="property">const</em> Tensor &amp;<em>cumsum_dim_sum_per_rank</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
-<div class="section" id="cpu-operators">
+</section>
+<section id="cpu-operators">
 <h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE">
 <span id="_CPPv339recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="_CPPv239recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="recat_embedding_grad_output_mixed_D_cpu__TensorCR.std::vector:int64_t:CR"></span><span class="target" id="group__layout-transform-cpu_1ga8edc2bee42577b7eeb76613b52d62311"></span>Tensor <code class="sig-name descname">recat_embedding_grad_output_mixed_D_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>grad_output</em>, <em class="property">const</em> std::vector&lt;int64_t&gt; &amp;<em>dim_sum_per_rank</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
-</div>
+</section>
+</section>
 
 
              </article>
@@ -397,7 +404,7 @@
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -440,6 +447,7 @@
          <script src="../_static/underscore.js"></script>
          <script src="../_static/doctools.js"></script>
          <script src="../_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   

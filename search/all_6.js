@@ -1,8 +1,5 @@
 var searchData=
 [
-  ['jagged_20tensor_20cuda_20operators_0',['Jagged Tensor CUDA Operators',['../group__jagged-tensor-ops-cuda.html',1,'']]],
-  ['jagged_20tensor_20operators_1',['Jagged Tensor Operators',['../group__jagged-tensor-ops-cpu.html',1,'']]],
-  ['jagged_5fdense_5felementwise_5fadd_2',['jagged_dense_elementwise_add',['../group__jagged-tensor-ops-cpu.html#gaa797caaa08c70857433ae987d9cf30d7',1,'fbgemm_gpu']]],
-  ['jagged_5fdense_5felementwise_5fadd_5fjagged_5foutput_3',['jagged_dense_elementwise_add_jagged_output',['../group__jagged-tensor-ops-cpu.html#ga1290f40c3ba39837dd009c3006353d7c',1,'fbgemm_gpu']]],
-  ['jagged_5fdense_5felementwise_5fadd_5fjagged_5foutput_5fcuda_4',['jagged_dense_elementwise_add_jagged_output_cuda',['../group__jagged-tensor-ops-cuda.html#gad34ac20d2c9be5a6489c8e8befff7938',1,'fbgemm_gpu']]]
+  ['histogram_5fbinning_5fcalibration_5fcpu_0',['histogram_binning_calibration_cpu',['../group__sparse-data-cpu.html#ga201bb2241fc9d582d6c0fe968b0e71ca',1,'fbgemm_gpu']]],
+  ['host_5flxu_5fcache_5fslot_1',['host_lxu_cache_slot',['../group__table-batched-embed-cuda.html#ga920da453c443675fc7fbc9d68e272a61',1,'host_lxu_cache_slot(int64_t h_in, int64_t C):&#160;lxu_cache.cu'],['../group__table-batched-embed-cuda.html#ga920da453c443675fc7fbc9d68e272a61',1,'host_lxu_cache_slot(int64_t h_in, int64_t C):&#160;lxu_cache.cu']]]
 ];

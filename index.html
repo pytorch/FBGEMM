@@ -6,7 +6,8 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
   <title>Welcome to FBGEMM’s documentation! &mdash; fbgemm 0.1.2 documentation</title>
@@ -29,7 +30,7 @@
   <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Table Batched Embedding (TBE) Operators" href="python-api/table_batched_embedding_ops.html" />
+    <link rel="next" title="Build Instructions" href="general/BuildInstructions.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -250,19 +251,25 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cpp-api/cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/input_combine.html">Combine Input Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/embedding_ops.html">Embedding Operators</a></li>
@@ -342,28 +349,56 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="section" id="welcome-to-fbgemm-s-documentation">
+  <section id="welcome-to-fbgemm-s-documentation">
 <h1>Welcome to FBGEMM’s documentation!<a class="headerlink" href="#welcome-to-fbgemm-s-documentation" title="Permalink to this headline">¶</a></h1>
 <p>This documentation provides a comprehensive reference of the <cite>fbgemm_gpu</cite>
 library.</p>
 <div class="toctree-wrapper compound">
+<p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="general/BuildInstructions.html">Build Instructions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#set-up-an-isolated-build-environment">Set Up an Isolated Build Environment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#set-up-for-cpu-only-build">Set Up for CPU-Only Build</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#set-up-for-cuda-build">Set Up for CUDA Build</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#set-up-for-rocm-build">Set Up for ROCm Build</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#install-the-build-tools">Install the Build Tools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#install-pytorch">Install PyTorch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#build-the-fbgemm-gpu-package">Build the FBGEMM_GPU Package</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="general/InstallationInstructions.html">Installation Instructions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="general/InstallationInstructions.html#set-up-cpu-only-environment">Set Up CPU-Only Environment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/InstallationInstructions.html#set-up-cuda-environment">Set Up CUDA Environment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/InstallationInstructions.html#set-up-rocm-environment">Set Up ROCm Environment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/InstallationInstructions.html#install-python-libraries">Install Python Libraries</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/InstallationInstructions.html#install-pytorch">Install PyTorch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/InstallationInstructions.html#install-the-fbgemm-gpu-package">Install the FBGEMM_GPU Package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/InstallationInstructions.html#post-installation-checks">Post-Installation Checks</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="general/TestInstructions.html">Testing FBGEMM_GPU</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="general/TestInstructions.html#fbgemm-gpu-tests">FBGEMM_GPU Tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/TestInstructions.html#fbgemm-gpu-benchmarks">FBGEMM_GPU Benchmarks</a></li>
+</ul>
+</li>
+</ul>
 </div>
 <div class="toctree-wrapper compound">
-<p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
 </div>
 <div class="toctree-wrapper compound">
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/sparse_ops.html">Sparse Data Operators</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="cpp-api/sparse_ops.html#sparse-data-cuda-operators">Sparse Data CUDA Operators</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cpp-api/sparse_ops.html#sparse-data-cpu-operators">Sparse Data CPU Operators</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Data Operators</a><ul>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Operators</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="cpp-api/quantize_ops.html#cuda-operators">CUDA Operators</a></li>
 <li class="toctree-l2"><a class="reference internal" href="cpp-api/quantize_ops.html#cpu-operators">CPU Operators</a></li>
 </ul>
@@ -379,7 +414,7 @@ library.</p>
 <li class="toctree-l2"><a class="reference internal" href="cpp-api/jagged_tensor_ops.html#cpu-operators">CPU Operators</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="cpp-api/cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/input_combine.html">Combine Input Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/layout_transform_ops.html">Layout Transformation Operators</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="cpp-api/layout_transform_ops.html#cuda-operators">CUDA Operators</a></li>
@@ -393,7 +428,7 @@ library.</p>
 </li>
 </ul>
 </div>
-</div>
+</section>
 
 
              </article>
@@ -403,7 +438,7 @@ library.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="python-api/table_batched_embedding_ops.html" class="btn btn-neutral float-right" title="Table Batched Embedding (TBE) Operators" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="general/BuildInstructions.html" class="btn btn-neutral float-right" title="Build Instructions" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
     </div>
@@ -417,7 +452,7 @@ library.</p>
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -458,6 +493,7 @@ library.</p>
          <script src="_static/underscore.js"></script>
          <script src="_static/doctools.js"></script>
          <script src="_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   

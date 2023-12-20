@@ -6,7 +6,8 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
   <title>Jagged Tensor Operators &mdash; fbgemm 0.1.2 documentation</title>
@@ -29,7 +30,7 @@
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="CUDA Memory Operators" href="cumem_utils.html" />
+    <link rel="next" title="CUDA Memory Operators" href="memory_utils.html" />
     <link rel="prev" title="Table Batched Embedding Operators" href="split_table_batched_embeddings.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -251,19 +252,25 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
@@ -343,13 +350,13 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="section" id="jagged-tensor-operators">
+  <section id="jagged-tensor-operators">
 <h1>Jagged Tensor Operators<a class="headerlink" href="#jagged-tensor-operators" title="Permalink to this headline">¶</a></h1>
 <p>Jagged Tensor solves the issue when rows in dimension are of
 different length. This often occurs in sparse feature inputs
 in recommender systems, as well as natural language processing
 system batched inputs.</p>
-<div class="section" id="cuda-operators">
+<section id="cuda-operators">
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv430jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd">
@@ -362,8 +369,8 @@ system batched inputs.</p>
 <dd><p>output = x + y where x is jagged, y is dense, and output is jagged </p>
 </dd></dl>
 
-</div>
-<div class="section" id="cpu-operators">
+</section>
+<section id="cpu-operators">
 <h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv422jagged_to_padded_denseRK6TensorRKNSt6vectorI6TensorEEKN3c1014SymIntArrayRefEKd">
@@ -407,8 +414,8 @@ system batched inputs.</p>
 <span id="_CPPv318jagged_2d_to_dense6Tensor6TensorN3c106SymIntE"></span><span id="_CPPv218jagged_2d_to_dense6Tensor6TensorN3c106SymIntE"></span><span id="jagged_2d_to_dense__Tensor.Tensor.c10::SymInt"></span><span class="target" id="group__jagged-tensor-ops-cpu_1gaaa301b81a22a3d823ba5e65828093113"></span>Tensor <code class="sig-name descname">jagged_2d_to_dense</code><span class="sig-paren">(</span>Tensor <em>values</em>, Tensor <em>offsets</em>, c10::SymInt <em>max_sequence_length</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418jagged_2d_to_dense6Tensor6TensorN3c106SymIntE" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
-</div>
+</section>
+</section>
 
 
              </article>
@@ -418,7 +425,7 @@ system batched inputs.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="cumem_utils.html" class="btn btn-neutral float-right" title="CUDA Memory Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="memory_utils.html" class="btn btn-neutral float-right" title="CUDA Memory Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="split_table_batched_embeddings.html" class="btn btn-neutral" title="Table Batched Embedding Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
@@ -434,7 +441,7 @@ system batched inputs.</p>
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -477,6 +484,7 @@ system batched inputs.</p>
          <script src="../_static/underscore.js"></script>
          <script src="../_static/doctools.js"></script>
          <script src="../_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   

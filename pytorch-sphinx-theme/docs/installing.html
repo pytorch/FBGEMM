@@ -6,10 +6,11 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>CUDA Memory Operators &mdash; fbgemm 0.1.2 documentation</title>
+  <title>Installation &mdash; fbgemm 0.1.2 documentation</title>
   
 
   
@@ -25,12 +26,10 @@
 
   
 
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
-    <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Combine Input Operators" href="input_combine.html" />
-    <link rel="prev" title="Jagged Tensor Operators" href="jagged_tensor_ops.html" />
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" /> -->
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -41,16 +40,16 @@
   
 
   
-  <script src="../_static/js/modernizr.min.js"></script>
+  <script src="../../_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -235,7 +234,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -251,22 +250,28 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">CUDA Memory Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/embedding_ops.html">Embedding Operators</a></li>
 </ul>
 
             
@@ -299,7 +304,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="../index.html">
+        <a href="../../index.html">
           
             Docs
           
@@ -307,13 +312,13 @@
       </li>
 
         
-      <li>CUDA Memory Operators</li>
+      <li>Installation</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/cpp-api/cumem_utils.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../../_sources/pytorch-sphinx-theme/docs/installing.rst.txt" rel="nofollow"><img src="../../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -343,94 +348,25 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="section" id="cuda-memory-operators">
-<h1>CUDA Memory Operators<a class="headerlink" href="#cuda-memory-operators" title="Permalink to this headline">¶</a></h1>
-<dl class="cpp function">
-<dt id="_CPPv418new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">
-<span id="_CPPv318new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv218new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_managed_tensor__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1gab708b23762a11187eb6a32a36f0e34a3"></span>Tensor <code class="sig-name descname">new_managed_tensor</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>self</em>, <em class="property">const</em> std::vector&lt;std::int64_t&gt; &amp;<em>sizes</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Allocate the ATen Tensor with unified managed memory (UVM) and set both UVM storage preference to CPU and access from self.device </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv422new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">
-<span id="_CPPv322new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv222new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_host_mapped_tensor__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1ga5663643a8ac5de83063d0ff51bb9af17"></span>Tensor <code class="sig-name descname">new_host_mapped_tensor</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>self</em>, <em class="property">const</em> std::vector&lt;std::int64_t&gt; &amp;<em>sizes</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv422new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
-<dd></dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv418new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb">
-<span id="_CPPv318new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb"></span><span id="_CPPv218new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb"></span><span id="new_unified_tensor__TensorCR.std::vector:std::int64_t:CR.b"></span><span class="target" id="group__cumem-utils_1ga6f8847537ea9ed13fc7e2e378bc79b1f"></span>Tensor <code class="sig-name descname">new_unified_tensor</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>self</em>, <em class="property">const</em> std::vector&lt;std::int64_t&gt; &amp;<em>sizes</em>, bool <em>is_host_mapped</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb" title="Permalink to this definition">¶</a><br /></dt>
-<dd></dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv426new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">
-<span id="_CPPv326new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv226new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_vanilla_managed_tensor__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1gad5e0d2307667c3db5e73f0c0eec15df5"></span>Tensor <code class="sig-name descname">new_vanilla_managed_tensor</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>self</em>, <em class="property">const</em> std::vector&lt;std::int64_t&gt; &amp;<em>sizes</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv426new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Allocate the ATen Tensor with unified managed memory (UVM) </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv411uvm_storageRK6Tensor">
-<span id="_CPPv311uvm_storageRK6Tensor"></span><span id="_CPPv211uvm_storageRK6Tensor"></span><span id="uvm_storage__TensorCR"></span><span class="target" id="group__cumem-utils_1ga6e119375c731f9e33f4cd81a1f2205e2"></span>bool <code class="sig-name descname">uvm_storage</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv411uvm_storageRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Check if a tensor is allocated with UVM </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv413is_uvm_tensorRK6Tensor">
-<span id="_CPPv313is_uvm_tensorRK6Tensor"></span><span id="_CPPv213is_uvm_tensorRK6Tensor"></span><span id="is_uvm_tensor__TensorCR"></span><span class="target" id="group__cumem-utils_1ga0b9f28b07d3796a732b1fb73b8e10e7e"></span>bool <code class="sig-name descname">is_uvm_tensor</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv413is_uvm_tensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Check if a tensor is allocated with UVM <em>AND</em> is not on a CPU </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv410uvm_to_cpuRK6Tensor">
-<span id="_CPPv310uvm_to_cpuRK6Tensor"></span><span id="_CPPv210uvm_to_cpuRK6Tensor"></span><span id="uvm_to_cpu__TensorCR"></span><span class="target" id="group__cumem-utils_1ga6d4781dfa6a77b895140836f6e6d523b"></span>Tensor <code class="sig-name descname">uvm_to_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv410uvm_to_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Convert a UVM tensor to a CPU tensor </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv413uvm_to_deviceRK6TensorRK6Tensor">
-<span id="_CPPv313uvm_to_deviceRK6TensorRK6Tensor"></span><span id="_CPPv213uvm_to_deviceRK6TensorRK6Tensor"></span><span id="uvm_to_device__TensorCR.TensorCR"></span><span class="target" id="group__cumem-utils_1gaad51bd52cc92230c0e91c5d4f61511c2"></span>Tensor <code class="sig-name descname">uvm_to_device</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em>, <em class="property">const</em> Tensor &amp;<em>prototype</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv413uvm_to_deviceRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Create a UVM tensor on the same device as prototype sharing the same uvm storage as t </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv419uvm_cuda_mem_adviseRK6Tensor7int64_t">
-<span id="_CPPv319uvm_cuda_mem_adviseRK6Tensor7int64_t"></span><span id="_CPPv219uvm_cuda_mem_adviseRK6Tensor7int64_t"></span><span id="uvm_cuda_mem_advise__TensorCR.int64_t"></span><span class="target" id="group__cumem-utils_1ga8a7d93d58bcc9700c3054639973e25b6"></span>void <code class="sig-name descname">uvm_cuda_mem_advise</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em>, int64_t <em>cuda_memory_advise</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv419uvm_cuda_mem_adviseRK6Tensor7int64_t" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Call cudaMemAdvise on UVM Storage. The hint enum is generated in Python (fbgemm,uvm) using data returned from C++ op. </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv427uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE">
-<span id="_CPPv327uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE"></span><span id="_CPPv227uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE"></span><span id="uvm_cuda_mem_prefetch_async__TensorCR.c10::optional:Tensor:"></span><span class="target" id="group__cumem-utils_1ga07e32d271464bafc50cc100cb52ddb85"></span>void <code class="sig-name descname">uvm_cuda_mem_prefetch_async</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em>, c10::optional&lt;Tensor&gt; <em>device_t</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv427uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Call cudaMemPrefetchAsync on UVM Storage </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv424uvm_mem_advice_dont_forkRK6Tensor">
-<span id="_CPPv324uvm_mem_advice_dont_forkRK6Tensor"></span><span id="_CPPv224uvm_mem_advice_dont_forkRK6Tensor"></span><span id="uvm_mem_advice_dont_fork__TensorCR"></span><span class="target" id="group__cumem-utils_1ga723bf5f1a0ca1c7a77e76054d3332a6e"></span>void <code class="sig-name descname">uvm_mem_advice_dont_fork</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv424uvm_mem_advice_dont_forkRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Call madvise(..MADV_DONTFORK) on the UVM storage. This is a workaround for an issue where the UVM kernel driver unmaps UVM storage pages from the page table on fork - causing slowdown on the next access from a CPU. </p>
-</dd></dl>
-
-<dl class="cpp function">
-<dt id="_CPPv416uvm_to_cpu_cloneRK6Tensor">
-<span id="_CPPv316uvm_to_cpu_cloneRK6Tensor"></span><span id="_CPPv216uvm_to_cpu_cloneRK6Tensor"></span><span id="uvm_to_cpu_clone__TensorCR"></span><span class="target" id="group__cumem-utils_1ga98ea4dd0481cc3839cf21e55e003e7af"></span>Tensor <code class="sig-name descname">uvm_to_cpu_clone</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>t</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv416uvm_to_cpu_cloneRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Copy a contigious uvm Tensor (uvm_storage(t) is true) into a CPU Tensor The copy uses single threaded memcpy </p>
-</dd></dl>
-
+  <section id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h1>
+<section id="via-git-or-download">
+<h2>Via Git or Download<a class="headerlink" href="#via-git-or-download" title="Permalink to this headline">¶</a></h2>
+<p>Symlink or subtree the <code class="docutils literal notranslate"><span class="pre">pytorch_sphinx_theme</span></code> repository into your documentation at
+<code class="docutils literal notranslate"><span class="pre">docs/_themes/pytorch_sphinx_theme</span></code> then add the following two settings to your Sphinx
+<code class="docutils literal notranslate"><span class="pre">conf.py</span></code> file:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">html_theme</span> <span class="o">=</span> <span class="s2">&quot;pytorch_sphinx_theme&quot;</span>
+<span class="n">html_theme_path</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;_themes&quot;</span><span class="p">,</span> <span class="p">]</span>
+</pre></div>
 </div>
+</section>
+</section>
 
 
              </article>
              
             </div>
             <footer>
-  
-    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-      
-        <a href="input_combine.html" class="btn btn-neutral float-right" title="Combine Input Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
-      
-      
-        <a href="jagged_tensor_ops.html" class="btn btn-neutral" title="Jagged Tensor Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
-      
-    </div>
   
 
   
@@ -441,7 +377,7 @@
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -460,7 +396,10 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">CUDA Memory Operators</a></li>
+<li><a class="reference internal" href="#">Installation</a><ul>
+<li><a class="reference internal" href="#via-git-or-download">Via Git or Download</a></li>
+</ul>
+</li>
 </ul>
 
             </div>
@@ -475,19 +414,20 @@
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
-         <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+         <script src="../../_static/jquery.js"></script>
+         <script src="../../_static/underscore.js"></script>
+         <script src="../../_static/doctools.js"></script>
+         <script src="../../_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   
 
-  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="../../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../../_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="../_static/js/theme.js"></script>
+  <script type="text/javascript" src="../../_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -592,7 +532,7 @@
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../_static/images/pytorch-x.svg">
+    <img class="close-button" src="../../_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -728,7 +668,7 @@
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="../../_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {

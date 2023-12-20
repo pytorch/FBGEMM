@@ -1,0 +1,1194 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Build Instructions &mdash; fbgemm 0.1.2 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Installation Instructions" href="InstallationInstructions.html" />
+    <link rel="prev" title="Welcome to FBGEMM’s documentation!" href="../index.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','UA-117752657-2');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch">
+                  <span class="dropdown-title">ExecuTorch</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-orange-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/audio/stable/index.html">
+                  <span class="dropdown-title">torchaudio</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/text/stable/index.html">
+                  <span class="dropdown-title">torchtext</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/vision/stable/index.html">
+                  <span class="dropdown-title">torchvision</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torcharrow">
+                  <span class="dropdown-title">torcharrow</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/data">
+                  <span class="dropdown-title">TorchData</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchrec">
+                  <span class="dropdown-title">TorchRec</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/serve/">
+                  <span class="dropdown-title">TorchServe</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchx/">
+                  <span class="dropdown-title">TorchX</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/xla">
+                  <span class="dropdown-title">PyTorch on XLA Devices</span>
+                  <p></p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Resources
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/features">
+                  <span class="dropdown-title">About</span>
+                  <p>Learn about PyTorch’s features and capabilities</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn about the PyTorch foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class="dropdown-title">Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class="dropdown-title">Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/hub">
+                  <span class="dropdown-title">Models (Beta)</span>
+                  <p>Discover, publish, and reuse pre-trained models</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">GitHub</a>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+
+            
+              
+              
+            
+
+            
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+            
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cpp-api/embedding_ops.html">Embedding Operators</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Build Instructions</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/general/BuildInstructions.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=UA-117752657-2"
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="build-instructions">
+<h1>Build Instructions<a class="headerlink" href="#build-instructions" title="Permalink to this headline">¶</a></h1>
+<p><strong>Note:</strong> The most up-to-date instructions are embedded in a set of scripts
+bundled in the FBGEMM_GPU repo under
+<a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash">setup_env.bash</a>.</p>
+<p>The general steps for building FBGEMM_GPU are as follows:</p>
+<ol class="arabic simple">
+<li><p>Set up an isolated build environment.</p></li>
+<li><p>Set up the toolchain for either a CPU-only, CUDA, or ROCm build.</p></li>
+<li><p>Install PyTorch.</p></li>
+<li><p>Run the build script.</p></li>
+</ol>
+<section id="set-up-an-isolated-build-environment">
+<span id="fbgemm-gpu-docs-build-setup-env"></span><h2>Set Up an Isolated Build Environment<a class="headerlink" href="#set-up-an-isolated-build-environment" title="Permalink to this headline">¶</a></h2>
+<section id="install-miniconda">
+<h3>Install Miniconda<a class="headerlink" href="#install-miniconda" title="Permalink to this headline">¶</a></h3>
+<p>Setting up a <a class="reference external" href="https://docs.conda.io/en/latest/miniconda.html">Miniconda</a>
+environment is recommended for reproducible builds:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PLATFORM_NAME</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>uname<span class="w"> </span>-s<span class="k">)</span><span class="s2">-</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span><span class="s2">&quot;</span>
+
+<span class="c1"># Set the Miniconda prefix directory</span>
+<span class="nv">miniconda_prefix</span><span class="o">=</span><span class="nv">$HOME</span>/miniconda
+
+<span class="c1"># Download the Miniconda installer</span>
+wget<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;https://repo.anaconda.com/miniconda/Miniconda3-latest-</span><span class="si">${</span><span class="nv">PLATFORM_NAME</span><span class="si">}</span><span class="s2">.sh&quot;</span><span class="w"> </span>-O<span class="w"> </span>miniconda.sh
+
+<span class="c1"># Run the installer</span>
+bash<span class="w"> </span>miniconda.sh<span class="w"> </span>-b<span class="w"> </span>-p<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$miniconda_prefix</span><span class="s2">&quot;</span><span class="w"> </span>-u
+
+<span class="c1"># Load the shortcuts</span>
+.<span class="w"> </span>~/.bashrc
+
+<span class="c1"># Run updates</span>
+conda<span class="w"> </span>update<span class="w"> </span>-n<span class="w"> </span>base<span class="w"> </span>-c<span class="w"> </span>defaults<span class="w"> </span>-y<span class="w"> </span>conda
+</pre></div>
+</div>
+<p>From here on out, all installation commands will be run against or
+inside a Conda environment.</p>
+</section>
+<section id="set-up-the-conda-environment">
+<h3>Set Up the Conda Environment<a class="headerlink" href="#set-up-the-conda-environment" title="Permalink to this headline">¶</a></h3>
+<p>Create a Conda environment with the specified Python version:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">env_name</span><span class="o">=</span>&lt;ENV<span class="w"> </span>NAME&gt;
+<span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.12
+
+<span class="c1"># Create the environment</span>
+conda<span class="w"> </span>create<span class="w"> </span>-y<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_version</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="c1"># Upgrade PIP and pyOpenSSL package</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>pyOpenSSL&gt;22.1.0
+</pre></div>
+</div>
+</section>
+</section>
+<section id="set-up-for-cpu-only-build">
+<h2>Set Up for CPU-Only Build<a class="headerlink" href="#set-up-for-cpu-only-build" title="Permalink to this headline">¶</a></h2>
+<p>Follow the instructions for setting up the Conda environment at
+<a class="reference internal" href="#fbgemm-gpu-docs-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>, followed by
+<a class="reference internal" href="#fbgemm-gpu-docs-build-setup-tools-install"><span class="std std-ref">Install the Build Tools</span></a>.</p>
+</section>
+<section id="set-up-for-cuda-build">
+<h2>Set Up for CUDA Build<a class="headerlink" href="#set-up-for-cuda-build" title="Permalink to this headline">¶</a></h2>
+<p>The CUDA build of FBGEMM_GPU requires a recent version of <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> <strong>that
+supports compute capability 3.5+</strong>. Setting the machine up for CUDA builds of
+FBGEMM_GPU can be done either through pre-built Docker images or through Conda
+installation on bare metal. Note that neither a GPU nor the NVIDIA drivers need
+to be present for builds, since they are only used at runtime.</p>
+<section id="cuda-docker-image">
+<span id="fbgemm-gpu-docs-build-setup-cuda-image"></span><h3>CUDA Docker Image<a class="headerlink" href="#cuda-docker-image" title="Permalink to this headline">¶</a></h3>
+<p>For setups through Docker, simply pull the pre-installed <a class="reference external" href="https://hub.docker.com/r/nvidia/cuda">Docker image
+for CUDA</a> for the desired Linux
+distribution and CUDA version.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run for Ubuntu 22.04, CUDA 11.8</span>
+docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--entrypoint<span class="w"> </span><span class="s2">&quot;/bin/bash&quot;</span><span class="w"> </span>nvidia/cuda:11.8.0-devel-ubuntu22.04
+</pre></div>
+</div>
+<p>From here, the rest of the build environment may be constructed through Conda,
+as it is still the recommended mechanism for creating an isolated and
+reproducible build environment.</p>
+</section>
+<section id="install-cuda">
+<span id="fbgemm-gpu-docs-build-setup-cuda-install"></span><h3>Install CUDA<a class="headerlink" href="#install-cuda" title="Permalink to this headline">¶</a></h3>
+<p>Install the full CUDA package through Conda, which includes
+<a class="reference external" href="https://developer.nvidia.com/nvidia-management-library-nvml">NVML</a>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">cuda_version</span><span class="o">=</span><span class="m">11</span>.7.1
+
+<span class="c1"># Install the full CUDA package</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>cuda<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;nvidia/label/cuda-</span><span class="si">${</span><span class="nv">cuda_version</span><span class="si">}</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>Verify that <code class="docutils literal notranslate"><span class="pre">cuda_runtime.h</span></code> and <code class="docutils literal notranslate"><span class="pre">libnvidia-ml.so</span></code> are found:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
+find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>cuda_runtime.h
+find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>libnvidia-ml.so
+</pre></div>
+</div>
+</section>
+<section id="install-cudnn">
+<h3>Install cuDNN<a class="headerlink" href="#install-cudnn" title="Permalink to this headline">¶</a></h3>
+<p><a class="reference external" href="https://developer.nvidia.com/cudnn">cuDNN</a> is a build-time
+dependency for the CUDA variant of FBGEMM_GPU. Download and extract the
+cuDNN package for the given CUDA version:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># cuDNN package URLs for each platform and CUDA version can be found in:</span>
+<span class="c1"># https://github.com/pytorch/builder/blob/main/common/install_cuda.sh</span>
+<span class="nv">cudnn_url</span><span class="o">=</span>https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz
+
+<span class="c1"># Download and unpack cuDNN</span>
+wget<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cudnn_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-O<span class="w"> </span>cudnn.tar.xz
+</pre></div>
+</div>
+</section>
+</section>
+<section id="set-up-for-rocm-build">
+<h2>Set Up for ROCm Build<a class="headerlink" href="#set-up-for-rocm-build" title="Permalink to this headline">¶</a></h2>
+<p>FBGEMM_GPU supports running on AMD (ROCm) devices. Setting the machine
+up for ROCm builds of FBGEMM_GPU can be done either through pre-built
+Docker images or through bare metal.</p>
+<section id="rocm-docker-image">
+<span id="fbgemm-gpu-docs-build-setup-rocm-image"></span><h3>ROCm Docker Image<a class="headerlink" href="#rocm-docker-image" title="Permalink to this headline">¶</a></h3>
+<p>For setups through Docker, simply pull the pre-installed <a class="reference external" href="https://hub.docker.com/r/rocm/rocm-terminal">Minimal Docker
+image for ROCm</a> for the
+desired ROCm version:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run for ROCm 5.6.1</span>
+docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--entrypoint<span class="w"> </span><span class="s2">&quot;/bin/bash&quot;</span><span class="w"> </span>rocm/rocm-terminal:5.6.1
+</pre></div>
+</div>
+<p>For both building and running FBGEMM_GPU, The <a class="reference external" href="https://hub.docker.com/r/rocm/dev-ubuntu-20.04">full ROCm Docker
+image</a> is recommended
+over the minimum Docker image.</p>
+<p>From here, the rest of the build environment may be constructed through Conda,
+as it is still the recommended mechanism for creating an isolated and
+reproducible build environment.</p>
+</section>
+<section id="install-rocm">
+<span id="fbgemm-gpu-docs-build-setup-rocm-install"></span><h3>Install ROCm<a class="headerlink" href="#install-rocm" title="Permalink to this headline">¶</a></h3>
+<p>Install the full ROCm package through the operating system package
+manager. The full instructions can be found in the <a class="reference external" href="https://rocm.docs.amd.com/en/latest/">ROCm installation
+guide</a>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># [OPTIONAL] Disable apt installation prompts</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">DEBIAN_FRONTEND</span><span class="o">=</span>noninteractive
+
+<span class="c1"># Update the repo DB</span>
+apt<span class="w"> </span>update
+
+<span class="c1"># Download the installer</span>
+wget<span class="w"> </span>https://repo.radeon.com/amdgpu-install/5.6.1/ubuntu/focal/amdgpu-install_5.4.50403-1_all.deb
+
+<span class="c1"># Run the installer</span>
+apt<span class="w"> </span>install<span class="w"> </span>./amdgpu-install_5.4.50403-1_all.deb
+
+<span class="c1"># Install ROCm</span>
+amdgpu-install<span class="w"> </span>-y<span class="w"> </span>--usecase<span class="o">=</span>hiplibsdk,rocm<span class="w"> </span>--no-dkms
+</pre></div>
+</div>
+</section>
+<section id="install-miopen">
+<h3>Install MIOpen<a class="headerlink" href="#install-miopen" title="Permalink to this headline">¶</a></h3>
+<p><a class="reference external" href="https://github.com/ROCmSoftwarePlatform/MIOpen">MIOpen</a> is a
+dependency for the ROCm variant of FBGEMM_GPU that needs to be
+installed:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>apt<span class="w"> </span>install<span class="w"> </span>hipify-clang<span class="w"> </span>miopen-hip<span class="w"> </span>miopen-hip-dev
+</pre></div>
+</div>
+</section>
+</section>
+<section id="install-the-build-tools">
+<span id="fbgemm-gpu-docs-build-setup-tools-install"></span><h2>Install the Build Tools<a class="headerlink" href="#install-the-build-tools" title="Permalink to this headline">¶</a></h2>
+<p>The instructions in this section apply to builds for all variants of FBGEMM_GPU.</p>
+<section id="c-c-compiler">
+<h3>C/C++ Compiler<a class="headerlink" href="#c-c-compiler" title="Permalink to this headline">¶</a></h3>
+<p>Install a version of the GCC toolchain <strong>that supports C++17</strong>. Note that GCC
+(as opposed to Clang for example) is required for CUDA builds because NVIDIA’s
+<code class="docutils literal notranslate"><span class="pre">nvcc</span></code> relies on <code class="docutils literal notranslate"><span class="pre">gcc</span></code> and <code class="docutils literal notranslate"><span class="pre">g++</span></code> in the path. The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code> package will
+also need to be installed to avoid issues with missing versioned symbols with
+<code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> when compiling FBGEMM_CPU:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="m">10</span>.4.0<span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17<span class="w"> </span>-c<span class="w"> </span>conda-forge
+</pre></div>
+</div>
+<p>While newer versions of GCC can be used, binaries compiled under newer
+versions of GCC will not be compatible with older systems such as Ubuntu
+20.04 or CentOS Stream 8, because the compiled library will reference
+symbols from versions of <code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> that the system’s
+<code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> will not support. To see what versions of GLIBC and
+GLIBCXX the available <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> supports:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">libcxx_path</span><span class="o">=</span>/path/to/libstdc++.so.6
+
+<span class="c1"># Print supported for GLIBC versions</span>
+objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">libcxx_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>GLIBC_<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">&#39;s/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-Vu<span class="w"> </span><span class="p">|</span><span class="w"> </span>cat
+
+<span class="c1"># Print supported for GLIBCXX versions</span>
+objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">libcxx_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>GLIBCXX_<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">&#39;s/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-Vu<span class="w"> </span><span class="p">|</span><span class="w"> </span>cat
+</pre></div>
+</div>
+</section>
+<section id="other-build-tools">
+<h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this headline">¶</a></h3>
+<p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>click<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>jinja2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>ninja<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>numpy<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>scikit-build<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>wheel
+</pre></div>
+</div>
+</section>
+</section>
+<section id="install-pytorch">
+<span id="fbgemm-gpu-docs-build-setup-pytorch-install"></span><h2>Install PyTorch<a class="headerlink" href="#install-pytorch" title="Permalink to this headline">¶</a></h2>
+<p>The official <a class="reference external" href="https://pytorch.org/get-started/locally/">PyTorch
+Homepage</a> contains the most
+authoritative instructions on how to install PyTorch, either through Conda or
+through PIP.</p>
+<section id="installation-through-conda">
+<h3>Installation Through Conda<a class="headerlink" href="#installation-through-conda" title="Permalink to this headline">¶</a></h3>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install the latest nightly</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>pytorch<span class="w"> </span>-c<span class="w"> </span>pytorch-nightly
+
+<span class="c1"># Install the latest test (RC)</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>pytorch<span class="w"> </span>-c<span class="w"> </span>pytorch-test
+
+<span class="c1"># Install a specific version</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="nv">pytorch</span><span class="o">==</span><span class="m">2</span>.0.0<span class="w"> </span>-c<span class="w"> </span>pytorch
+</pre></div>
+</div>
+<p>Note that installing PyTorch through Conda without specifying a version (as in
+the case of nightly builds) may not always be reliable. For example, it is known
+that the GPU builds for PyTorch nightlies arrive in Conda 2 hours later than the
+CPU-only builds. As such, a Conda installation of <code class="docutils literal notranslate"><span class="pre">pytorch-nightly</span></code> in that
+time window will silently fall back to installing the CPU-only variant.</p>
+<p>Also note that, because both the GPU and CPU-only versions of PyTorch are placed
+into the same artifact bucket, the PyTorch variant that is selected during
+installation will depend on whether or not CUDA is installed on the system.
+Thus for GPU builds, it is important to install CUDA / ROCm first prior to
+PyTorch.</p>
+</section>
+<section id="installation-through-pytorch-pip">
+<h3>Installation Through PyTorch PIP<a class="headerlink" href="#installation-through-pytorch-pip" title="Permalink to this headline">¶</a></h3>
+<p>Installing PyTorch through PyTorch PIP is recommended over Conda as it is much
+more deterministic and thus reliable:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install the latest nightly, CPU variant</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cpu/
+
+<span class="c1"># Install the latest test (RC), CUDA variant</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/test/cu121/
+
+<span class="c1"># Install a specific version, CUDA variant</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">torch</span><span class="o">==</span><span class="m">2</span>.1.0+cu121<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
+
+<span class="c1"># Install the latest nightly, ROCm variant</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
+</pre></div>
+</div>
+<p>For installing the ROCm variant of PyTorch, PyTorch PIP is the only available
+channel as of time of writing.</p>
+</section>
+<section id="post-install-checks">
+<h3>Post-Install Checks<a class="headerlink" href="#post-install-checks" title="Permalink to this headline">¶</a></h3>
+<p>Verify the PyTorch installation (both version and variant) with an <code class="docutils literal notranslate"><span class="pre">import</span></code> test:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Ensure that the package loads properly</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch.distributed&quot;</span>
+
+<span class="c1"># Verify the version and variant of the installation</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(torch.__version__)&quot;</span>
+</pre></div>
+</div>
+<p>For the CUDA variant of PyTorch, verify that at the minimum <code class="docutils literal notranslate"><span class="pre">cuda_cmake_macros.h</span></code> is found:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
+find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>cuda_cmake_macros.h
+</pre></div>
+</div>
+</section>
+</section>
+<section id="build-the-fbgemm-gpu-package">
+<h2>Build the FBGEMM_GPU Package<a class="headerlink" href="#build-the-fbgemm-gpu-package" title="Permalink to this headline">¶</a></h2>
+<section id="preparing-the-build">
+<h3>Preparing the Build<a class="headerlink" href="#preparing-the-build" title="Permalink to this headline">¶</a></h3>
+<p>Clone the repo along with its submodules, and install the
+<code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># Select a version tag</span>
+<span class="nv">FBGEMM_VERSION</span><span class="o">=</span>v0.4.0
+
+<span class="c1"># Clone the repo along with its submodules</span>
+git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="w"> </span>-b<span class="w"> </span><span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span><span class="w"> </span>https://github.com/pytorch/FBGEMM.git<span class="w"> </span>fbgemm_<span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span>
+
+<span class="c1"># Install additional required packages for building and testing</span>
+<span class="nb">cd</span><span class="w"> </span>fbgemm_<span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span>/fbgemm_gpu
+pip<span class="w"> </span>install<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+</section>
+<section id="the-build-process">
+<h3>The Build Process<a class="headerlink" href="#the-build-process" title="Permalink to this headline">¶</a></h3>
+<p>The FBGEMM_GPU build process uses a scikit-build CMake-based build flow,
+and it keeps state across install runs. As such, builds can become stale
+and can cause problems when re-runs are attempted after a build failure
+due to missing dependencies, etc. To address this, simply clear the
+build cache:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+python<span class="w"> </span>setup.py<span class="w"> </span>clean
+</pre></div>
+</div>
+</section>
+<section id="cuda-build">
+<h3>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this headline">¶</a></h3>
+<p>Building FBGEMM_GPU for CUDA requires both NVML and cuDNN to be installed and
+made available to the build through environment variables.  The presence of a
+CUDA device, however, is not required for building the package.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+<span class="c1"># Determine the processor architecture</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
+
+<span class="c1"># [OPTIONAL] Specify the CUDA installation paths</span>
+<span class="c1"># This may be required if CMake is unable to find nvcc</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDACXX</span><span class="o">=</span>/path/to/nvcc
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_BIN_PATH</span><span class="o">=</span>/path/to/cuda/installation
+
+<span class="c1"># [OPTIONAL] Provide the CUB installation directory (applicable only to CUDA versions prior to 11.1)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUB_DIR</span><span class="o">=</span>/path/to/cub
+
+<span class="c1"># Specify cuDNN header and library paths</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDNN_INCLUDE_DIR</span><span class="o">=</span>/path/to/cudnn/include
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDNN_LIBRARY</span><span class="o">=</span>/path/to/cudnn/lib
+
+<span class="c1"># Specify NVML path</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">NVML_LIB_PATH</span><span class="o">=</span>/path/to/libnvidia-ml.so
+
+<span class="c1"># Update to reflect the version of Python in the Conda environment</span>
+<span class="nv">python_tag</span><span class="o">=</span>py310
+<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu
+
+<span class="c1"># Build for SM70/80 (V100/A100 GPU); update as needed</span>
+<span class="c1"># If not specified, only the CUDA architecture supported by current system will be targeted</span>
+<span class="c1"># If not specified and no CUDA device is present either, all CUDA architectures will be targeted</span>
+<span class="nv">cuda_arch_list</span><span class="o">=</span><span class="m">7</span>.0<span class="p">;</span><span class="m">8</span>.0
+
+<span class="c1"># Unset TORCH_CUDA_ARCH_LIST if it exists, bc it takes precedence over</span>
+<span class="c1"># -DTORCH_CUDA_ARCH_LIST during the invocation of setup.py</span>
+<span class="nb">unset</span><span class="w"> </span>TORCH_CUDA_ARCH_LIST
+
+<span class="c1"># Build the wheel artifact only</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cuda<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="c1"># Build and install the library into the Conda environment</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cuda<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="rocm-build">
+<h3>ROCm Build<a class="headerlink" href="#rocm-build" title="Permalink to this headline">¶</a></h3>
+<p>For ROCm builds, <code class="docutils literal notranslate"><span class="pre">ROCM_PATH</span></code> and <code class="docutils literal notranslate"><span class="pre">PYTORCH_ROCM_ARCH</span></code> need to be specified.
+The presence of a ROCm device, however, is not required for building
+the package.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">ROCM_PATH</span><span class="o">=</span>/path/to/rocm
+
+<span class="c1"># Build for the target architecture of the ROCm device installed on the machine (e.g. &#39;gfx906;gfx908;gfx90a&#39;)</span>
+<span class="c1"># See https://wiki.gentoo.org/wiki/ROCm for list</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYTORCH_ROCM_ARCH</span><span class="o">=</span><span class="k">$(</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span>/bin/rocminfo<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-o<span class="w"> </span>-m<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="s1">&#39;gfx.*&#39;</span><span class="k">)</span>
+
+<span class="nv">python_tag</span><span class="o">=</span>py310
+<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_rocm
+
+<span class="c1"># Build the wheel artifact only</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>rocm<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span>
+
+<span class="c1"># Build and install the library into the Conda environment</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>rocm<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="cpu-only-build">
+<h3>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this headline">¶</a></h3>
+<p>For CPU-only builds, the <code class="docutils literal notranslate"><span class="pre">--cpu_only</span></code> flag needs to be specified.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
+
+<span class="nv">python_tag</span><span class="o">=</span>py310
+<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_cpu
+
+<span class="c1"># Build the wheel artifact only</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="c1"># Build and install the library into the Conda environment</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span>--package_variant<span class="o">=</span>cpu
+</pre></div>
+</div>
+</section>
+<section id="post-build-checks-for-developers">
+<h3>Post-Build Checks (For Developers)<a class="headerlink" href="#post-build-checks-for-developers" title="Permalink to this headline">¶</a></h3>
+<p>After the build completes, it is useful to run some checks that verify
+that the build is actually correct.</p>
+<section id="undefined-symbols-check">
+<h4>Undefined Symbols Check<a class="headerlink" href="#undefined-symbols-check" title="Permalink to this headline">¶</a></h4>
+<p>Because FBGEMM_GPU contains a lot of Jinja and C++ template instantiations, it
+is important to make sure that there are no undefined symbols that are
+accidentally generated over the course of development:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+<span class="c1"># Locate the built .SO file</span>
+<span class="nv">fbgemm_gpu_lib_path</span><span class="o">=</span><span class="k">$(</span>find<span class="w"> </span>.<span class="w"> </span>-name<span class="w"> </span>fbgemm_gpu_py.so<span class="k">)</span>
+
+<span class="c1"># Check that the undefined symbols don&#39;t include fbgemm_gpu-defined functions</span>
+nm<span class="w"> </span>-gDCu<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">fbgemm_gpu_lib_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort
+</pre></div>
+</div>
+</section>
+<section id="glibc-version-compatibility-check">
+<h4>GLIBC Version Compatibility Check<a class="headerlink" href="#glibc-version-compatibility-check" title="Permalink to this headline">¶</a></h4>
+<p>It is also useful to verify that the version numbers of GLIBCXX
+referenced as well as the availability of certain function symbols:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+<span class="c1"># Locate the built .SO file</span>
+<span class="nv">fbgemm_gpu_lib_path</span><span class="o">=</span><span class="k">$(</span>find<span class="w"> </span>.<span class="w"> </span>-name<span class="w"> </span>fbgemm_gpu_py.so<span class="k">)</span>
+
+<span class="c1"># Note the versions of GLIBCXX referenced by the .SO</span>
+<span class="c1"># The libstdc++.so.6 available on the install target must support these versions</span>
+objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">fbgemm_gpu_lib_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>GLIBCXX<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">&#39;s/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-Vu<span class="w"> </span><span class="p">|</span><span class="w"> </span>cat
+
+<span class="c1"># Test for the existence of a given function symbol in the .SO</span>
+nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">fbgemm_gpu_lib_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">&quot; fbgemm_gpu::merge_pooled_embeddings(&quot;</span>
+nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">fbgemm_gpu_lib_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">&quot; fbgemm_gpu::jagged_2d_to_dense(&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="InstallationInstructions.html" class="btn btn-neutral float-right" title="Installation Instructions" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="../index.html" class="btn btn-neutral" title="Welcome to FBGEMM’s documentation!" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2023, FBGEMM Team.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Build Instructions</a><ul>
+<li><a class="reference internal" href="#set-up-an-isolated-build-environment">Set Up an Isolated Build Environment</a><ul>
+<li><a class="reference internal" href="#install-miniconda">Install Miniconda</a></li>
+<li><a class="reference internal" href="#set-up-the-conda-environment">Set Up the Conda Environment</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#set-up-for-cpu-only-build">Set Up for CPU-Only Build</a></li>
+<li><a class="reference internal" href="#set-up-for-cuda-build">Set Up for CUDA Build</a><ul>
+<li><a class="reference internal" href="#cuda-docker-image">CUDA Docker Image</a></li>
+<li><a class="reference internal" href="#install-cuda">Install CUDA</a></li>
+<li><a class="reference internal" href="#install-cudnn">Install cuDNN</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#set-up-for-rocm-build">Set Up for ROCm Build</a><ul>
+<li><a class="reference internal" href="#rocm-docker-image">ROCm Docker Image</a></li>
+<li><a class="reference internal" href="#install-rocm">Install ROCm</a></li>
+<li><a class="reference internal" href="#install-miopen">Install MIOpen</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#install-the-build-tools">Install the Build Tools</a><ul>
+<li><a class="reference internal" href="#c-c-compiler">C/C++ Compiler</a></li>
+<li><a class="reference internal" href="#other-build-tools">Other Build Tools</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#install-pytorch">Install PyTorch</a><ul>
+<li><a class="reference internal" href="#installation-through-conda">Installation Through Conda</a></li>
+<li><a class="reference internal" href="#installation-through-pytorch-pip">Installation Through PyTorch PIP</a></li>
+<li><a class="reference internal" href="#post-install-checks">Post-Install Checks</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#build-the-fbgemm-gpu-package">Build the FBGEMM_GPU Package</a><ul>
+<li><a class="reference internal" href="#preparing-the-build">Preparing the Build</a></li>
+<li><a class="reference internal" href="#the-build-process">The Build Process</a></li>
+<li><a class="reference internal" href="#cuda-build">CUDA Build</a></li>
+<li><a class="reference internal" href="#rocm-build">ROCm Build</a></li>
+<li><a class="reference internal" href="#cpu-only-build">CPU-Only Build</a></li>
+<li><a class="reference internal" href="#post-build-checks-for-developers">Post-Build Checks (For Developers)</a><ul>
+<li><a class="reference internal" href="#undefined-symbols-check">Undefined Symbols Check</a></li>
+<li><a class="reference internal" href="#glibc-version-compatibility-check">GLIBC Version Compatibility Check</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script src="../_static/jquery.js"></script>
+         <script src="../_static/underscore.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+            
+          <li>
+            <a href="">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li class="resources-mobile-menu-title">
+            Docs
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/audio/stable/index.html">torchaudio</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/text/stable/index.html">torchtext</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/vision/stable/index.html">torchvision</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torcharrow">torcharrow</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/data">TorchData</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchrec">TorchRec</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/serve/">TorchServe</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchx/">TorchX</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/xla">PyTorch on XLA Devices</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            Resources
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+
+            <li>
+              <a href="https://pytorch.org/features">About</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/#community-module">Community</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/resources">Developer Resources</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+
+            <li>
+              <a href="https://discuss.pytorch.org/">Forums</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/hub">Models (Beta)</a>
+            </li>
+          </ul>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">Github</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>

@@ -6,7 +6,8 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
   <title>Pooled Embeddings Operators &mdash; fbgemm 0.1.2 documentation</title>
@@ -30,7 +31,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Table Batched Embedding Operators" href="split_table_batched_embeddings.html" />
-    <link rel="prev" title="Quantization Data Operators" href="quantize_ops.html" />
+    <link rel="prev" title="Quantization Operators" href="quantize_ops.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -251,19 +252,25 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Pooled Embeddings Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
@@ -343,20 +350,20 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="section" id="pooled-embeddings-operators">
+  <section id="pooled-embeddings-operators">
 <h1>Pooled Embeddings Operators<a class="headerlink" href="#pooled-embeddings-operators" title="Permalink to this headline">¶</a></h1>
 <p>This section includes CUDA and CPU operators for various
 operations with pooled embeddings, including merge and
 permutation operators.</p>
-<div class="section" id="merge-operators">
+<section id="merge-operators">
 <h2>Merge Operators<a class="headerlink" href="#merge-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv417all_to_one_deviceNSt6vectorIN2at6TensorEEEN2at6DeviceE">
 <span id="_CPPv317all_to_one_deviceNSt6vectorIN2at6TensorEEEN2at6DeviceE"></span><span id="_CPPv217all_to_one_deviceNSt6vectorIN2at6TensorEEEN2at6DeviceE"></span><span id="all_to_one_device__std::vector:at::Tensor:.at::Device"></span><span class="target" id="group__merge-pooled-emb_1ga3933c7465129b58edd60ffcc1999c223"></span>std::vector&lt;at::Tensor&gt; <code class="sig-name descname">all_to_one_device</code><span class="sig-paren">(</span>std::vector&lt;at::Tensor&gt; <em>inputTensors</em>, at::Device <em>target_device</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv417all_to_one_deviceNSt6vectorIN2at6TensorEEEN2at6DeviceE" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
-<div class="section" id="permutation-operators">
+</section>
+<section id="permutation-operators">
 <h2>Permutation Operators<a class="headerlink" href="#permutation-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv429permute_pooled_embs_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">
@@ -398,8 +405,8 @@ permutation operators.</p>
 <span id="_CPPv333permute_pooled_embs_auto_grad_cpuRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor"></span><span id="_CPPv233permute_pooled_embs_auto_grad_cpuRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor"></span><span id="permute_pooled_embs_auto_grad_cpu__TensorCR.TensorCR.TensorCR.TensorCR.TensorCR"></span><span class="target" id="group__permute-pooled-embs-cpu_1gac050c22198470709b89b4d5b160006b0"></span>at::Tensor <code class="sig-name descname">permute_pooled_embs_auto_grad_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>pooled_embs</em>, <em class="property">const</em> Tensor &amp;<em>offset_dim_list</em>, <em class="property">const</em> Tensor &amp;<em>permute_list</em>, <em class="property">const</em> Tensor &amp;<em>inv_offset_dim_list</em>, <em class="property">const</em> Tensor &amp;<em>inv_permute_list</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv433permute_pooled_embs_auto_grad_cpuRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
-</div>
+</section>
+</section>
 
 
              </article>
@@ -412,7 +419,7 @@ permutation operators.</p>
         <a href="split_table_batched_embeddings.html" class="btn btn-neutral float-right" title="Table Batched Embedding Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="quantize_ops.html" class="btn btn-neutral" title="Quantization Data Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="quantize_ops.html" class="btn btn-neutral" title="Quantization Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -425,7 +432,7 @@ permutation operators.</p>
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -468,6 +475,7 @@ permutation operators.</p>
          <script src="../_static/underscore.js"></script>
          <script src="../_static/doctools.js"></script>
          <script src="../_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   

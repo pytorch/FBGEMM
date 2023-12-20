@@ -6,7 +6,8 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
   <title>Combine Input Operators &mdash; fbgemm 0.1.2 documentation</title>
@@ -30,7 +31,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Layout Transformation Operators" href="layout_transform_ops.html" />
-    <link rel="prev" title="CUDA Memory Operators" href="cumem_utils.html" />
+    <link rel="prev" title="CUDA Memory Operators" href="memory_utils.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -251,19 +252,25 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Combine Input Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
@@ -343,7 +350,7 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="section" id="combine-input-operators">
+  <section id="combine-input-operators">
 <h1>Combine Input Operators<a class="headerlink" href="#combine-input-operators" title="Permalink to this headline">¶</a></h1>
 <dl class="cpp function">
 <dt id="_CPPv421tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE">
@@ -355,7 +362,7 @@
 <span id="_CPPv335padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t"></span><span id="_CPPv235padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t"></span><span id="padding_fused_tbe_input_combine_cpu__std::vector:at::Tensor:CR.std::vector:at::Tensor:CR.std::vector:at::Tensor:CR.at::TensorCR.int64_t"></span><span class="target" id="group__input-combine_1ga9ab60fbe75053c2f31f7d3f16dfa476f"></span>std::tuple&lt;at::Tensor, at::Tensor, at::Tensor&gt; <code class="sig-name descname">padding_fused_tbe_input_combine_cpu</code><span class="sig-paren">(</span><em class="property">const</em> std::vector&lt;at::Tensor&gt; &amp;<em>indices_list</em>, <em class="property">const</em> std::vector&lt;at::Tensor&gt; &amp;<em>offsets_list</em>, <em class="property">const</em> std::vector&lt;at::Tensor&gt; &amp;<em>per_sample_weights</em>, <em class="property">const</em> at::Tensor &amp;<em>include_last_offsets</em>, int64_t <em>batch_size</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv435padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
+</section>
 
 
              </article>
@@ -368,7 +375,7 @@
         <a href="layout_transform_ops.html" class="btn btn-neutral float-right" title="Layout Transformation Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="cumem_utils.html" class="btn btn-neutral" title="CUDA Memory Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="memory_utils.html" class="btn btn-neutral" title="CUDA Memory Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -381,7 +388,7 @@
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -420,6 +427,7 @@
          <script src="../_static/underscore.js"></script>
          <script src="../_static/doctools.js"></script>
          <script src="../_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   

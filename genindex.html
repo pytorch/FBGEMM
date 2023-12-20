@@ -249,19 +249,25 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cpp-api/cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/input_combine.html">Combine Input Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/embedding_ops.html">Embedding Operators</a></li>
@@ -355,12 +361,11 @@
  | <a href="#J"><strong>J</strong></a>
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
- | <a href="#N"><strong>N</strong></a>
  | <a href="#P"><strong>P</strong></a>
  | <a href="#R"><strong>R</strong></a>
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
- | <a href="#U"><strong>U</strong></a>
+ | <a href="#W"><strong>W</strong></a>
  
 </div>
 <h2 id="_">_</h2>
@@ -413,6 +418,8 @@
       <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv442direct_mapped_lru_cache_populate_byte_cudaN2at6TensorEN2at6TensorE7int64_tN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorE7int64_tN2at6TensorEN2at6TensorE7int64_tbN3c108optionalIN2at6TensorEEE">direct_mapped_lru_cache_populate_byte_cuda (C++ function)</a>
 </li>
       <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv435direct_mapped_lxu_cache_lookup_cudaN2at6TensorEN2at6TensorE7int64_tbN3c108optionalIN2at6TensorEEE">direct_mapped_lxu_cache_lookup_cuda (C++ function)</a>
+</li>
+      <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#term-Documentation"><strong>Documentation</strong></a>
 </li>
   </ul></td>
 </tr></table>
@@ -503,8 +510,6 @@
 </li>
       <li><a href="cpp-api/embedding_ops.html#_CPPv464int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI6TensorEE">int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu (C++ function)</a>
 </li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv413is_uvm_tensorRK6Tensor">is_uvm_tensor (C++ function)</a>
-</li>
   </ul></td>
 </tr></table>
 
@@ -589,22 +594,6 @@
   </ul></td>
 </tr></table>
 
-<h2 id="N">N</h2>
-<table style="width: 100%" class="indextable genindextable"><tr>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv422new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">new_host_mapped_tensor (C++ function)</a>
-</li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv418new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">new_managed_tensor (C++ function)</a>
-</li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv418new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb">new_unified_tensor (C++ function)</a>
-</li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv426new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">new_vanilla_managed_tensor (C++ function)</a>
-</li>
-  </ul></td>
-</tr></table>
-
 <h2 id="P">P</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -622,10 +611,10 @@
 </li>
       <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv423permute_pooled_embs_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_cpu (C++ function)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_cpu (C++ function)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_gpu (C++ function)</a>
 </li>
       <li><a href="cpp-api/embedding_ops.html#_CPPv423pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor">pruned_array_lookup_cpu (C++ function)</a>
@@ -638,24 +627,40 @@
 </li>
       <li><a href="cpp-api/embedding_ops.html#_CPPv436pruned_hashmap_lookup_unweighted_cpu6Tensor6Tensor6Tensor6Tensor">pruned_hashmap_lookup_unweighted_cpu (C++ function)</a>
 </li>
+      <li>
+    Python Enhancement Proposals
+
+      <ul>
+        <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#index-0">PEP 287</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#term-Reading"><strong>Reading</strong></a>
+</li>
       <li><a href="cpp-api/layout_transform_ops.html#_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_cuda (C++ function)</a>
 </li>
       <li><a href="cpp-api/layout_transform_ops.html#_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor">recat_embedding_grad_output_mixed_D_batch_cuda (C++ function)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="cpp-api/layout_transform_ops.html#_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_mixed_D_cpu (C++ function)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="cpp-api/layout_transform_ops.html#_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_mixed_D_cuda (C++ function)</a>
 </li>
       <li><a href="cpp-api/split_table_batched_embeddings.html#_CPPv426reset_weight_momentum_cudaN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorE7int64_t">reset_weight_momentum_cuda (C++ function)</a>
 </li>
+      <li>
+    RFC
+
+      <ul>
+        <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#index-1">RFC 2822</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -681,24 +686,10 @@
   </ul></td>
 </tr></table>
 
-<h2 id="U">U</h2>
+<h2 id="W">W</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv419uvm_cuda_mem_adviseRK6Tensor7int64_t">uvm_cuda_mem_advise (C++ function)</a>
-</li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv427uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE">uvm_cuda_mem_prefetch_async (C++ function)</a>
-</li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv424uvm_mem_advice_dont_forkRK6Tensor">uvm_mem_advice_dont_fork (C++ function)</a>
-</li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv411uvm_storageRK6Tensor">uvm_storage (C++ function)</a>
-</li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv410uvm_to_cpuRK6Tensor">uvm_to_cpu (C++ function)</a>
-</li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv416uvm_to_cpu_cloneRK6Tensor">uvm_to_cpu_clone (C++ function)</a>
-</li>
-      <li><a href="cpp-api/cumem_utils.html#_CPPv413uvm_to_deviceRK6TensorRK6Tensor">uvm_to_device (C++ function)</a>
+      <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#term-Writing"><strong>Writing</strong></a>
 </li>
   </ul></td>
 </tr></table>
@@ -719,7 +710,7 @@
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -755,6 +746,7 @@
          <script src="_static/underscore.js"></script>
          <script src="_static/doctools.js"></script>
          <script src="_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   

@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['input_20operators_0',['Combine Input Operators',['../group__input-combine.html',1,'']]]
+  ['for_20cuda_0',['Quantization Operators for CUDA',['../group__quantize-ops-cuda.html',1,'']]]
 ];

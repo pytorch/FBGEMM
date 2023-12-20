@@ -6,7 +6,8 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
   <title>Embedding Operators &mdash; fbgemm 0.1.2 documentation</title>
@@ -250,19 +251,25 @@
               
             
             
-              <p class="caption"><span class="caption-text">FBGEMM_GPU Python API Documentation</span></p>
+              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p class="caption"><span class="caption-text">FBGEMM_GPU CPP API Documentation</span></p>
+<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cumem_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Embedding Operators</a></li>
@@ -342,9 +349,9 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <div class="section" id="embedding-operators">
+  <section id="embedding-operators">
 <h1>Embedding Operators<a class="headerlink" href="#embedding-operators" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="cuda-operators">
+<section id="cuda-operators">
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv425bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorRKN3c108optionalI6TensorEERKN3c108optionalI6TensorEEK7int64_t">
@@ -372,8 +379,8 @@
 <span id="_CPPv324pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv224pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="pruned_array_lookup_cuda__Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-cuda_1gaea1d3ae26d1e893ccf08f8b55b3d6eff"></span>Tensor <code class="sig-name descname">pruned_array_lookup_cuda</code><span class="sig-paren">(</span>Tensor <em>indices</em>, Tensor <em>offsets</em>, Tensor <em>index_remappings</em>, Tensor <em>index_remappings_offsets</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv424pruned_array_lookup_cuda6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
-<div class="section" id="cpu-operators">
+</section>
+<section id="cpu-operators">
 <h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
 <dl class="cpp function">
 <dt id="_CPPv452int_nbit_split_embedding_codegen_lookup_function_cpu6Tensor6Tensor6Tensor6Tensor6Tensor6Tensor7int64_t7int64_t7int64_t7int64_t7int64_t7int64_t6Tensor6Tensor7int64_tN3c108optionalI6TensorEE7int64_tN3c108optionalI6TensorEEN3c108optionalI6TensorEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEEN3c108optionalI7int64_tEE">
@@ -400,8 +407,8 @@
 <span id="_CPPv323pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv223pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor"></span><span id="pruned_array_lookup_cpu__Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-cpu_1ga50d9da3c5bc1fe8b9cabfbda212c2ea5"></span>Tensor <code class="sig-name descname">pruned_array_lookup_cpu</code><span class="sig-paren">(</span>Tensor <em>indices</em>, Tensor <em>offsets</em>, Tensor <em>index_remappings</em>, Tensor <em>index_remappings_offsets</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
-</div>
-</div>
+</section>
+</section>
 
 
              </article>
@@ -425,7 +432,7 @@
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2022, FBGEMM team.
+        &copy; Copyright 2023, FBGEMM Team.
 
     </p>
   </div>
@@ -468,6 +475,7 @@
          <script src="../_static/underscore.js"></script>
          <script src="../_static/doctools.js"></script>
          <script src="../_static/language_data.js"></script>
+         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
      
 
   

@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['operators_0',['operators',['../group__input-combine.html',1,'Combine Input Operators'],['../group__permute-pooled-embs-cpu.html',1,'CPU Permutation Operators'],['../group__cumem-utils.html',1,'CUDA Memorty Operators'],['../group__table-batched-embed-cuda.html',1,'CUDA Operators'],['../group__permute-pooled-embs-gpu.html',1,'CUDA Permutation Operators'],['../group__embedding-cpu.html',1,'Embedding CPU Operators'],['../group__embedding-cuda.html',1,'Embedding CUDA Operators'],['../group__jagged-tensor-ops-cuda.html',1,'Jagged Tensor CUDA Operators'],['../group__jagged-tensor-ops-cpu.html',1,'Jagged Tensor Operators'],['../group__layout-transform-cpu.html',1,'Layout Transformation CPU Operators'],['../group__layout-transform-cuda.html',1,'Layout Transformation CUDA Operators'],['../group__merge-pooled-emb.html',1,'Merge Operators'],['../group__quantize-data-cuda.html',1,'Quantization Data CUDA Operators'],['../group__quantize-data-cpu.html',1,'Quantize Data CPU Operators'],['../group__sparse-data-cpu.html',1,'Sparse Data CPU Operators'],['../group__sparse-data-cuda.html',1,'Sparse Data CUDA Operators']]]
+  ['memorty_20operators_0',['CUDA Memorty Operators',['../group__cumem-utils.html',1,'']]],
+  ['merge_20operators_1',['Merge Operators',['../group__merge-pooled-emb.html',1,'']]]
 ];

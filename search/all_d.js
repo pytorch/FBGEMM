@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['sparse_20data_20cpu_20operators_0',['Sparse Data CPU Operators',['../group__sparse-data-cpu.html',1,'']]],
-  ['sparse_20data_20cuda_20operators_1',['Sparse Data CUDA Operators',['../group__sparse-data-cuda.html',1,'']]]
+  ['permutation_20operators_0',['permutation operators',['../group__permute-pooled-embs-cpu.html',1,'CPU Permutation Operators'],['../group__permute-pooled-embs-gpu.html',1,'CUDA Permutation Operators']]]
 ];
