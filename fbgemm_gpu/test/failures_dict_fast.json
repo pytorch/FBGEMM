@@ -113,27 +113,27 @@
     "fbgemm::int_nbit_split_embedding_codegen_lookup_function": {
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_cache_miss_counter": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_direct_mapped_uvm_cache_stats": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_fused_pooled_emb_quant": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_uvm_cache_stats": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       }
     },
     "fbgemm::int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
