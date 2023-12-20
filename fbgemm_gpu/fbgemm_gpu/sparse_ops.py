@@ -26,6 +26,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
 
+import torch.utils._pytree as pytree
 from torch import Tensor
 
 
@@ -239,6 +240,20 @@ def expand_into_jagged_permute_meta(
     return output_permute
 
 
+def check_all_same_device(*tensors: Optional[Tensor]) -> None:
+    # pyre-ignore[9]
+    tensors, _ = pytree.tree_flatten(tensors)
+    if len(tensors) == 0:
+        return
+    first_tensor: Optional[Tensor] = None
+    for tensor in tensors:
+        if tensor is None:
+            continue
+        if first_tensor is None:
+            first_tensor = tensor
+        torch._check(tensor.device == first_tensor.device)
+
+
 @impl_abstract("fbgemm::int_nbit_split_embedding_codegen_lookup_function")
 def int_nbit_split_embedding_codegen_lookup_function_meta(
     dev_weights: torch.Tensor,
@@ -257,7 +272,7 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
     offsets: torch.Tensor,
     pooling_mode: int,
     indice_weights: Optional[torch.Tensor] = None,
-    output_dtype_int: Optional[int] = None,
+    output_dtype_int: int = 1,
     lxu_cache_weights: Optional[torch.Tensor] = None,
     lxu_cache_locations: Optional[torch.Tensor] = None,
     row_alignment: Optional[int] = None,
@@ -265,39 +280,49 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
     fp8_exponent_bits: Optional[int] = None,
     fp8_exponent_bias: Optional[int] = None,
 ) -> Tensor:
-    T = D_offsets.numel() - 1
-    B = (offsets.size(0) - 1) // T
-    output_dtype = torch.float32
-    torch._check(
-        output_dtype_int in (0, 1, 5),
-        lambda: f"expected output_dtype to be fp32, fp16 or bf16, got {indices.dtype}",
+    check_all_same_device(
+        dev_weights,
+        uvm_weights,
+        weights_placements,
+        weights_offsets,
+        weights_tys,
+        D_offsets,
+        indices,
+        offsets,
+        indice_weights,
     )
-    if output_dtype_int == SparseType.FP32.value:
-        output_dtype = torch.float32
-    elif output_dtype_int == SparseType.FP16.value:
-        output_dtype = torch.float16
-    elif output_dtype_int == SparseType.BF16.value:
-        output_dtype = torch.bfloat16
+    output_dtype = SparseType.from_int(output_dtype_int).as_dtype()
+    kINT8QparamsBytes = 8
 
     if pooling_mode == PoolingMode.NONE:
-        # pyre-ignore
-        offsets_last: int = offsets[-1].item()
-        total_D_T: int = total_D // T
-        torch._check_is_size(offsets[-1].item())
-        torch._check_is_size(total_D_T)
-        torch._check_is_size(B)
-        return dev_weights.new_empty(
-            [offsets_last, total_D_T],
-            dtype=output_dtype,
-            device=torch.device("meta"),
+        D = max(
+            [
+                max_int2_D,
+                max_int4_D,
+                max_int8_D,
+                max_float16_D,
+                max_float32_D,
+                max_float8_D if max_float8_D is not None else 0,
+            ]
         )
-    torch._check_is_size(B)
-    torch._check_is_size(total_D)
-    return dev_weights.new_empty(
-        (B, total_D),
-        dtype=output_dtype,
-        device=torch.device("meta"),
-    )
+        total_L = indices.numel()
+        T = weights_offsets.numel()
+        torch._check(D > 0)
+        adjusted_D = D
+        if SparseType.from_int(output_dtype_int) == SparseType.INT8:
+            adjusted_D += T * kINT8QparamsBytes
+        output = dev_weights.new_empty([total_L, adjusted_D], dtype=output_dtype)
+        return output
+
+    T = D_offsets.numel() - 1
+    torch._check(T > 0)
+    torch._check(total_D > 0)
+    B = (offsets.size(0) - 1) // T
+    total_adjusted_D = total_D
+    if SparseType.from_int(output_dtype_int) == SparseType.INT8:
+        total_adjusted_D += T * kINT8QparamsBytes
+    output = dev_weights.new_empty([B, total_adjusted_D], dtype=output_dtype)
+    return output
 
 
 @impl_abstract("fbgemm::block_bucketize_sparse_features")
@@ -404,8 +429,7 @@ def dense_to_jagged_forward(
     if not total_L:
         total_L = torch.library.get_ctx().new_dynamic_size()
     return dense.new_zeros(
-        total_L,
-        dense.size()[-1],
+        [total_L, dense.size()[-1]],
         dtype=dense.dtype,
         device=dense.device,
         layout=dense.layout,
