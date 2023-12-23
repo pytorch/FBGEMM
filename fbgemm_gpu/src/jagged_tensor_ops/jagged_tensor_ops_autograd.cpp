@@ -322,7 +322,6 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
 #else
     TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
 #endif
-
     return {
         dense_values_grad,
         torch::autograd::Variable(), // offsets

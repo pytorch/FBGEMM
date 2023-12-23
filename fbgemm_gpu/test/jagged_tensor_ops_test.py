@@ -8,6 +8,8 @@
 # pyre-ignore-all-errors[56]
 
 import itertools
+
+import logging
 import random
 import sys
 import unittest
@@ -2405,6 +2407,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             max_lengths=[max_L],
         )
         output_ref = torch.bmm(x_dense_ref.transpose(2, 1), y_dense_ref)
+        logging.info("\noutput_ref.shape: {}".format(output_ref.shape))
 
         # verify forward
         torch.testing.assert_close(output, output_ref)
