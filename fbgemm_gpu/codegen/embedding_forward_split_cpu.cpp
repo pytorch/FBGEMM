@@ -81,6 +81,8 @@ void split_embedding_forward_cpu_kernel(
       const auto D_begin = D_offsets_data[t];
       const auto D = D_offsets_data[t + 1] - D_offsets_data[t];
       const auto table_begin = weights_offsets_data[t];
+      const auto no_bag =
+          static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE;
 
       int64_t hash_size;
       int t_temp = t + 1;
@@ -105,24 +107,34 @@ void split_embedding_forward_cpu_kernel(
             /*prefetch=*/16,
             /*is_weight_positional=*/false,
             /*use_offsets=*/true,
-            output_stride);
+            output_stride,
+            /*input_stride*/ -1,
+            /*scale_bias_last=*/true,
+            /*no_bag=*/no_bag,
+            /*is_bf16_out=*/false);
         auto offsets_begin_ptr = offsets_data + t * B + b_begin;
-        auto indices_size = offsets_data[t * B + b_end] - *offsets_begin_ptr;
+        const auto offset_begin = *offsets_begin_ptr;
+        auto indices_size = offsets_data[t * B + b_end] - offset_begin;
+        const float* index_weight_ptr = indice_weights.defined()
+            ? reinterpret_cast<const float*>(indice_weights_data + offset_begin)
+            : nullptr;
+        float* output_ptr = no_bag
+            ? reinterpret_cast<float*>(
+                  output_data + offset_begin * output_stride)
+            : reinterpret_cast<float*>(
+                  output_data + b_begin * output_stride + D_begin);
         success = kernel(
-            b_end - b_begin,
+            no_bag ? indices_size : (b_end - b_begin),
             indices_size,
             hash_size,
             reinterpret_cast<const fbgemm_weight_t*>(
                 weights_data + table_begin),
-            indices_data + *offsets_begin_ptr,
+            indices_data + offset_begin,
             offsets_begin_ptr,
-            indice_weights.defined()
-                ? reinterpret_cast<const float*>(
-                      indice_weights_data + *offsets_begin_ptr)
-                : nullptr,
-            reinterpret_cast<float*>(
-                output_data + b_begin * output_stride + D_begin));
+            index_weight_ptr,
+            output_ptr);
       } else {
+        TORCH_CHECK(!no_bag, "Sequence embedding is not supported here!");
         at::acc_type<output_t, true> output_buf[D];
         for (const auto b : c10::irange(b_begin, b_end)) {
           const auto pool_begin = offsets_data[t * B + b];
@@ -188,16 +200,22 @@ Tensor split_embedding_codegen_forward_cpu(
   int64_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK_GE(B, 0);
 
-  Tensor output;
+  auto output_options = weights.options();
   if (output_dtype == static_cast<int64_t>(SparseType::FP32)) {
-    output = at::empty({B, total_D}, weights.options().dtype(at::kFloat));
+    output_options = output_options.dtype(at::kFloat);
   } else if (output_dtype == static_cast<int64_t>(SparseType::FP16)) {
-    output = at::empty({B, total_D}, weights.options().dtype(at::kHalf));
+    output_options = output_options.dtype(at::kHalf);
   } else if (output_dtype == static_cast<int64_t>(SparseType::BF16)) {
-    output = at::empty({B, total_D}, weights.options().dtype(at::kBFloat16));
-  } else {
-    output = at::empty({B, total_D}, weights.options());
+    output_options = output_options.dtype(at::kBFloat16);
   }
+  const auto no_bag =
+      static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE;
+  Tensor output = no_bag
+      // All tables have the same D for no_bag
+      ? at::empty(
+            {indices.numel(), static_cast<int64_t>(total_D / T)},
+            output_options)
+      : at::empty({B, total_D}, output_options);
 
   // It is assumed that the indice_weights will always be float
   TORCH_CHECK(

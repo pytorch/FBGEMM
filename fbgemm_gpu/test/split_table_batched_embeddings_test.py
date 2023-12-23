@@ -216,8 +216,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
-        # NOTE: No bag ops only work on GPUs, no mixed
-        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
         assume(not mixed or pooling_mode != PoolingMode.NONE)
         # TODO: Support these cases
         assume(
@@ -481,35 +479,31 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # cache_algorithm is don't care as we don't use cache.
         cache_algorithm = CacheAlgorithm.LRU
 
-        pooling_mode = random.choice(
-            [
-                PoolingMode.SUM,
-                PoolingMode.MEAN,
-            ]
-        )
         mixed = False
         mixed_B = False
-        if pooling_mode == PoolingMode.SUM:
-            weighted = random.choice([True, False])
-        else:
-            weighted = False
-        self.execute_forward_(
-            T,
-            D,
-            B,
-            log_E,
-            L,
-            weights_precision,
-            weighted,
-            mixed,
-            mixed_B,
-            use_cache,
-            cache_algorithm,
-            pooling_mode,
-            use_cpu,
-            SparseType.FP32,
-            False,  # use_experimental_tbe
-        )
+
+        for pooling_mode in [PoolingMode.SUM, PoolingMode.MEAN, PoolingMode.NONE]:
+            if pooling_mode == PoolingMode.SUM:
+                weighted = random.choice([True, False])
+            else:
+                weighted = False
+            self.execute_forward_(
+                T,
+                D,
+                B,
+                log_E,
+                L,
+                weights_precision,
+                weighted,
+                mixed,
+                mixed_B,
+                use_cache,
+                cache_algorithm,
+                pooling_mode,
+                use_cpu,
+                SparseType.FP32,
+                False,  # use_experimental_tbe
+            )
 
     @unittest.skipIf(*gpu_unavailable)
     def test_forward_gpu_no_cache_int8(
