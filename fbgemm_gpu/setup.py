@@ -351,6 +351,7 @@ def main(argv: List[str]) -> None:
 
     # Repair command line args for setup.
     sys.argv = [sys.argv[0]] + unknown
+    print(sys.argv)
 
     # Extract the package name
     package_name = FbgemmGpuInstaller.extract_package_name(args.package_name)
