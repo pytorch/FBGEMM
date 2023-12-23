@@ -642,6 +642,21 @@ Tensor sum_reduce_to_one_device(
   return sum_reduce_to_one(input_tensors, target_device);
 }
 
+Tensor merge_pooled_embeddings_meta(
+    std::vector<Tensor> pooled_embeddings,
+    int64_t uncat_dim_size,
+    at::Device /*target_device*/,
+    int64_t cat_dim) {
+  if (pooled_embeddings.size() == 0) {
+    return at::empty({0}, at::TensorOptions().device("meta"));
+  }
+
+  auto [output_shape, cumulative_dims, total_cat_dim] =
+      cat_dim_2d_output_shape(pooled_embeddings, uncat_dim_size, cat_dim);
+
+  return at::empty(output_shape, pooled_embeddings.front().options());
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -649,4 +664,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings);
   DISPATCH_TO_CUDA("all_to_one_device", fbgemm_gpu::all_to_one_device);
   DISPATCH_TO_CUDA("sum_reduce_to_one", fbgemm_gpu::sum_reduce_to_one_device);
+  DISPATCH_TO_META(
+      "merge_pooled_embeddings", fbgemm_gpu::merge_pooled_embeddings_meta);
 }
