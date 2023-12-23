@@ -36,10 +36,17 @@ def get_device() -> torch.device:
     )
 
 
-def to_device(t: Deviceable, use_cpu: bool) -> Deviceable:
-    # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor,
-    #  torch.nn.EmbeddingBag]`.
-    return t.cpu() if use_cpu else t.cuda()
+def to_device(
+    t: Deviceable, use_cpu: bool, device: Optional[torch.device] = None
+) -> Deviceable:
+    if device is not None:
+        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor,
+        #  torch.nn.EmbeddingBag]`.
+        return t.to(device)
+    else:
+        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor,
+        #  torch.nn.EmbeddingBag]`.
+        return t.cpu() if use_cpu else t.cuda()
 
 
 # Merged indices with shape (T, B, L) -> (flattened indices with shape
@@ -49,16 +56,18 @@ def get_table_batched_offsets_from_dense(
     L: Optional[int] = None,
     total_B: Optional[int] = None,
     use_cpu: bool = False,
+    device: Optional[torch.device] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     if L is None and total_B is None:
         (T, B, L) = merged_indices.size()
         total_B = T * B
     lengths = np.ones(total_B) * L
     return (
-        to_device(merged_indices.contiguous().view(-1), use_cpu),
+        to_device(merged_indices.contiguous().view(-1), use_cpu, device),
         to_device(
             torch.tensor(([0] + np.cumsum(lengths).tolist())).long(),
             use_cpu,
+            device,
         ),
     )
 
@@ -79,16 +88,17 @@ def b_indices(
     per_sample_weights: Optional[torch.Tensor] = None,
     use_cpu: bool = False,
     do_pooling: bool = True,
+    device: Optional[torch.device] = None,
 ) -> torch.Tensor:
     (indices, offsets) = get_offsets_from_dense(x)
     if do_pooling:
         return b(
-            to_device(indices, use_cpu),
-            to_device(offsets, use_cpu),
+            to_device(indices, use_cpu, device),
+            to_device(offsets, use_cpu, device),
             per_sample_weights=per_sample_weights,
         )
     else:
-        return b(to_device(indices, use_cpu))
+        return b(to_device(indices, use_cpu, device))
 
 
 def generate_requests(  # noqa C901

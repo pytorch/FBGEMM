@@ -1942,6 +1942,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
         output_dtype: SparseType = SparseType.FP32,
+        device: Optional[torch.device] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -1951,6 +1952,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         table_embedding_dtype = weights_precision.as_dtype()
 
         self.use_cpu = use_cpu
+        self.device = device
 
         if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
             assert output_dtype in [
@@ -1959,10 +1961,13 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 SparseType.BF16,
             ], "Fused pooled embedding quantization only supported for cuda."
 
-        # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
-        self.current_device: torch.device = (
-            torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
-        )
+        if self.device is not None:
+            self.current_device = self.device
+        else:
+            # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
+            self.current_device: torch.device = (
+                torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
+            )
 
         self.embedding_specs = embedding_specs
         (rows, dims) = zip(*embedding_specs)
