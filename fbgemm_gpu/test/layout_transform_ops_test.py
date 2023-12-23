@@ -122,9 +122,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
             )
             for i in range(W)
         ]
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         dim_sum_per_rank_tensor = torch.cuda.LongTensor(dim_sum_per_rank)
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         cumsum_dim_sum_per_rank_tensor = torch.cuda.LongTensor(
             np.cumsum([0] + dim_sum_per_rank)[:-1]
         )
@@ -162,9 +160,7 @@ class LayoutTransformOpsTest(unittest.TestCase):
             )
             for i in range(W)
         ]
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         dim_sum_per_rank_tensor = torch.cuda.LongTensor(dim_sum_per_rank)
-        # pyre-fixme[16]: Module `cuda` has no attribute `LongTensor`.
         cumsum_dim_sum_per_rank_tensor = torch.cuda.LongTensor(
             np.cumsum([0] + dim_sum_per_rank)[:-1]
         )
