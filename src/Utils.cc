@@ -15,6 +15,7 @@
 #include <cinttypes>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
@@ -429,7 +430,7 @@ void* fbgemmAlignedAlloc(
     bool raiseException /*=false*/) {
   void* aligned_mem = nullptr;
   int ret;
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__MINGW64__)
   aligned_mem = _aligned_malloc(size, align);
   ret = 0;
 #else

@@ -192,3 +192,46 @@ jobs:
         echo %PATH%
         ctest --rerun-failed --output-on-failure
         if errorlevel 1 exit /b 1
+
+
+  build-windows-mingw:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: cmd
+    env:
+      BUILD_DIR: build_${{ matrix.library-type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-2019 ]
+        library-type: [ static, shared ]
+
+    steps:
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+
+    - name: Get CPU info on Windows
+      shell: cmd
+      run: |
+        wmic cpu list full
+
+    - name: Install MinGW
+      shell: cmd
+      run: |
+        choco install -y mingw --version 12.2.0.03042023 --allow-downgrade
+        C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin\gcc.exe --version
+        C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin\g++.exe --version
+
+    - name: Build FBGEMM Library (${{ matrix.library-type }})
+      shell: cmd
+      run: |
+        mkdir %BUILD_DIR%
+        cd %BUILD_DIR%
+        echo "STARTING CMAKE"
+        cmake --version
+        cmake -G "MSYS Makefiles" -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="C:/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin/gcc.exe" -DCMAKE_CXX_COMPILER="C:/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin/g++.exe" -DCMAKE_C_FLAGS="-std=c17 -Wno-maybe-uninitialized -Wno-uninitialized -Wno-restrict -Wno-stringop-overflow" -DCMAKE_CXX_FLAGS="-std=c++17 -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict -Wno-maybe-uninitialized -Wno-uninitialized -Wno-restrict -Wno-stringop-overflow" ..
+        make -j
+        echo "Build Success"
