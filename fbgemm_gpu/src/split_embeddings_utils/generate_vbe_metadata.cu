@@ -95,6 +95,8 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
 ///                                    nobag is true.
 /// @param nobag                       A boolean to indicate if TBE is pooled
 ///                                    (false) or sequence (true).
+/// @param max_B_feature_rank          Maximum number of batches for feature
+///                                    ranking
 /// @param info_B_num_bits             The number of bits used to encode a
 ///                                    sample ID. (Used for populating b_t_map).
 /// @param total_B                     The total number of samples (i.e., the
