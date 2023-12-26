@@ -6,13 +6,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include "fbgemm_gpu/topology_utils.h"
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/core/Device.h>
 #include <c10/cuda/CUDAException.h>
 #include <c10/util/Logging.h>
+#include <inttypes.h>
 #include <algorithm>
-
-#include "fbgemm_gpu/topology_utils.h"
 
 #ifdef USE_ROCM
 #include "hip/hip_runtime.h"
