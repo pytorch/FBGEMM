@@ -20,7 +20,6 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 import os
-import subprocess
 import sys
 
 import pytorch_sphinx_theme
@@ -33,9 +32,6 @@ for dir_i in os.listdir("../.."):
         sys.path.insert(0, possible_dir)
 
 
-# Doxygen
-subprocess.call("doxygen Doxyfile.in", shell=True)
-
 # -- Project information -----------------------------------------------------
 highlight_language = "C++"
 
@@ -46,8 +42,6 @@ author = "FBGEMM Team"
 # The full version, including alpha/beta/rc tags
 release = "0.1.2"
 
-# breathe_projects_source = {"auto": ("../src/", ["auto_function.h", "auto_class.h"])}
-
 # -- General configuration ---------------------------------------------------
 
 # Add any Sphinx extension module names here, as strings. They can be
@@ -55,7 +49,6 @@ release = "0.1.2"
 # ones.
 extensions = [
     "breathe",
-    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.intersphinx",
@@ -70,14 +63,25 @@ templates_path = ["_templates"]
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
 
-intersphinx_mapping = {"pytorch": ("https://pytorch.org/docs/master", None)}
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "pytorch": ("https://pytorch.org/docs/master", None),
+    "numpy": ("https://numpy.org/doc/stable", None),
+}
 
 # Setup absolute paths for communicating with breathe / exhale where
 # items are expected / should be trimmed by.
-# This file is {repo_root}/docs/cpp/source/conf.py
 
-breathe_projects = {"fbgemm_gpu": "../build/xml/", "codegen": "../build/xml/codegen/"}
+# This should be a dictionary in which the keys are project names and the values
+# are paths to the folder containing the doxygen output for that project.
+breathe_projects = {
+    "fbgemm_gpu": "../build/xml/",
+    "codegen": "../build/xml/codegen/",
+}
 
+# This should match one of the keys in the breathe_projects dictionary and
+# indicates which project should be used when the project is not specified on
+# the directive.
 breathe_default_project = "fbgemm_gpu"
 
 # If true, Sphinx will warn about all references where the target cannot be

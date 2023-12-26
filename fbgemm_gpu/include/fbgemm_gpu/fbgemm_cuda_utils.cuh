@@ -924,7 +924,7 @@ DEVICE_INLINE void syncwarp() {
 #endif
 }
 
-/// Warp bitonic K/V sorting code from @jhj
+/// Warp bitonic K/V sorting code
 template <typename T>
 struct Comparator {
   __device__ static inline bool lt(T a, T b) {

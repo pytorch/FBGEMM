@@ -1,5 +1,5 @@
 CUDA Memory Operators
 =====================
 
-.. doxygengroup:: memory-utils
+.. doxygengroup:: cumem-utils
    :content-only:

@@ -10,9 +10,6 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-ops-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
 namespace {

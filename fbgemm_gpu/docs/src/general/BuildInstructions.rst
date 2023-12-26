@@ -1,8 +1,8 @@
 Build Instructions
 ==================
 
-**Note:** The most up-to-date instructions are embedded in a set of scripts
-bundled in the FBGEMM_GPU repo under
+**Note:** The most up-to-date build instructions are embedded in a set of
+scripts bundled in the FBGEMM_GPU repo under
 `setup_env.bash <https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash>`_.
 
 The general steps for building FBGEMM_GPU are as follows:
@@ -255,6 +255,7 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
       cmake \
       hypothesis \
       jinja2 \
+      make \
       ninja \
       numpy \
       scikit-build \
@@ -379,6 +380,8 @@ build cache:
 
   python setup.py clean
 
+.. _fbgemm-gpu.docs.build.process.cuda:
+
 CUDA Build
 ~~~~~~~~~~
 
@@ -436,6 +439,8 @@ CUDA device, however, is not required for building the package.
       --nvml_lib_path=${NVML_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
+.. _fbgemm-gpu.docs.build.process.rocm:
+
 ROCm Build
 ~~~~~~~~~~
 
@@ -473,6 +478,8 @@ the package.
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
+
+.. _fbgemm-gpu.docs.build.process.cpu:
 
 CPU-Only Build
 ~~~~~~~~~~~~~~

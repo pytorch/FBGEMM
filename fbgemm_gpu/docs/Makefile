@@ -18,3 +18,11 @@ help:
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+
+# Build the C++ Doxygen documentation
+doxygen:
+	doxygen Doxyfile.in
+
+# Clean out the build directory
+clean:
+	rm -rf build/*

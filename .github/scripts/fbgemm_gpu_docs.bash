@@ -34,13 +34,20 @@ install_docs_tools () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Installing docs tools ..."
+  echo "[INSTALL] Installing Doxygen ..."
+
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
-    doxygen) || return 1
+    doxygen \
+    make) || return 1
 
   # Check binaries are visible in the PATH
   (test_binpath "${env_name}" doxygen) || return 1
+  (test_binpath "${env_name}" make) || return 1
+
+  echo "[BUILD] Installing docs-build dependencies ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
   echo "[INSTALL] Successfully installed all the docs tools"
 }
@@ -68,10 +75,6 @@ build_fbgemm_gpu_docs () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  echo "[BUILD] Installing docs-build dependencies ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
   echo "[BUILD] Running Doxygen build ..."
   # shellcheck disable=SC2086
