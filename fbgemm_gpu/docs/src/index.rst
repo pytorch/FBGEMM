@@ -9,6 +9,8 @@ Welcome to FBGEMM's documentation!
 This documentation provides a comprehensive reference of the `fbgemm_gpu`
 library.
 
+.. _fbgemm-gpu.docs.toc.general:
+
 .. toctree::
    :maxdepth: 2
    :caption: FBGEMM_GPU General Info
@@ -16,7 +18,9 @@ library.
    general/BuildInstructions.rst
    general/InstallationInstructions.rst
    general/TestInstructions.rst
+   general/DocsInstructions.rst
 
+.. _fbgemm-gpu.docs.toc.python:
 
 .. toctree::
    :maxdepth: 2
@@ -25,6 +29,7 @@ library.
    python-api/table_batched_embedding_ops.rst
    python-api/jagged_tensor_ops.rst
 
+.. _fbgemm-gpu.docs.toc.cpp:
 
 .. toctree::
    :maxdepth: 2

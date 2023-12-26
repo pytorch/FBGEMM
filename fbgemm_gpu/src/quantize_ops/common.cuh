@@ -32,4 +32,4 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-ops-cuda Quantization Operators for CUDA
+/// @defgroup quantize-ops-cuda Quantization Operators (CUDA)

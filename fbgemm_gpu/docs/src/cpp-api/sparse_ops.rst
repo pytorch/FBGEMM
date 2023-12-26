@@ -1,13 +1,13 @@
 Sparse Data Operators
 =====================
 
-Sparse Data CUDA Operators
+CUDA Operators
 --------------------------
 
 .. doxygengroup:: sparse-data-cuda
    :content-only:
 
-Sparse Data CPU Operators
+CPU Operators
 --------------------------
 
 .. doxygengroup:: sparse-data-cpu

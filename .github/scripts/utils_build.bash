@@ -166,12 +166,14 @@ install_build_tools () {
     cmake \
     hypothesis \
     jinja2 \
+    make \
     ninja \
     numpy \
     scikit-build \
     wheel) || return 1
 
   # Check binaries are visible in the PAATH
+  (test_binpath "${env_name}" make) || return 1
   (test_binpath "${env_name}" cmake) || return 1
   (test_binpath "${env_name}" ninja) || return 1
 

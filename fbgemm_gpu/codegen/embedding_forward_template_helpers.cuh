@@ -130,7 +130,7 @@ __device__ __forceinline__ void cp_async_fence() {
 
 /// Partial specialization
 
-/// Blocks until all but <N> previous cp.async.commit_group operations have
+/// Blocks until all but N previous cp.async.commit_group operations have
 /// committed.
 
 template <int N>

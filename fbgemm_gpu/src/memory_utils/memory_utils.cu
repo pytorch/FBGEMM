@@ -147,9 +147,6 @@ std::tuple<void*, size_t> adjust_to_page_boundaries(void* ptr, size_t size) {
 
 } // namespace
 
-// Allocate a cuda Tensor with unified managed memory (UVM)
-// Then set the preferred data location to CPU (host memory)
-// And establish mappings on the cuda device to the host memory
 Tensor new_managed_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
@@ -196,7 +193,6 @@ Tensor new_vanilla_managed_tensor(
   return new_managed_tensor_internal(self, sizes);
 }
 
-// Allocate the ATen Tensor with host-mapped memory
 Tensor new_host_mapped_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
@@ -243,7 +239,6 @@ Tensor new_host_mapped_tensor(
       .set_(std::move(storage), 0, sizes, strides);
 }
 
-// Allocate the ATen Tensor with UVM or host-mapped memory
 Tensor new_unified_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes,
@@ -257,14 +252,12 @@ Tensor new_unified_tensor(
   }
 }
 
-// Check if a tensor is allocated with UVM (CPU or GPU Tensor)
 bool uvm_storage(const Tensor& t) {
   auto deleter = t.storage().data_ptr().get_deleter();
   return deleter == &CUDAManagedIndirectContext::release ||
       deleter == &CUDAHostMappedContext::release;
 }
 
-// Check if a tensor is allocated with UVM but is not a CPU Tensor
 bool is_uvm_tensor(const Tensor& t) {
   if (t.device().is_cpu()) {
     return false;
@@ -272,7 +265,6 @@ bool is_uvm_tensor(const Tensor& t) {
   return uvm_storage(t);
 }
 
-// Convert a UVM tensor to a CPU tensor
 Tensor uvm_to_cpu(const Tensor& t) {
   TORCH_CHECK(is_uvm_tensor(t));
   // Don't copy the storage - just keep a reference to the original storage
@@ -297,8 +289,6 @@ Tensor uvm_to_cpu(const Tensor& t) {
       .set_(std::move(storage), t.storage_offset(), t.sizes(), t.strides());
 }
 
-// Create a new UVM tensor sharing storage with t on the same device as
-// prototype
 Tensor uvm_to_device(const Tensor& t, const Tensor& prototype) {
   TORCH_CHECK(is_uvm_tensor(t));
   // Don't copy the storage - just keep a reference to the original storage
@@ -348,9 +338,6 @@ int64_t uvm_get_guard_index(const Tensor& t) {
 } // namespace
 
 void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
-  // Call cudaMemAdvise on vm tensor
-  // See cudaMemoryAdvise enum (automatically exported to python fbgemm_gpu.uvm
-  // namespace) for valid values and interface stub.
   at::cuda::OptionalCUDAGuard device_guard;
   int64_t cuda_device_index = uvm_get_guard_index(t);
   int hint_device;

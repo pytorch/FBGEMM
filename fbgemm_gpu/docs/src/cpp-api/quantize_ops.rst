@@ -2,7 +2,8 @@ Quantization Operators
 ===========================
 
 Quantization is a model optimization technique to reduce the size of a large
-model in order to achieve better storage performance with a small loss in accuracy.
+model in order to achieve better storage performance with a small loss in
+accuracy.
 
 CUDA Operators
 --------------
