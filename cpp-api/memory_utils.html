@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Combine Input Operators" href="input_combine.html" />
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
@@ -351,11 +354,220 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="cuda-memory-operators">
-<h1>CUDA Memory Operators<a class="headerlink" href="#cuda-memory-operators" title="Permalink to this headline">¶</a></h1>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>doxygengroup: Cannot find group “memory-utils” in doxygen xml output for project “fbgemm_gpu” from directory: ../build/xml/</p>
+<h1>CUDA Memory Operators<a class="headerlink" href="#cuda-memory-operators" title="Permalink to this heading">¶</a></h1>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">
+<span id="_CPPv318new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv218new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_managed_tensor__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1gab708b23762a11187eb6a32a36f0e34a3"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">new_managed_tensor</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">sizes</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418new_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Allocate an <code class="docutils literal notranslate"><span class="pre">at::Tensor</span></code> with unified managed memory (UVM). Then set its preferred storage location to CPU (host memory) and establish mappings on the CUDA device to the host memory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>sizes</strong> – The target tensor dimensions</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor backed by UVM </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv423new_managed_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEE">
+<span id="_CPPv323new_managed_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv223new_managed_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_managed_tensor_meta__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1ga5351c6ec3de203476cf09df330455d91"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">new_managed_tensor_meta</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">sizes</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423new_managed_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Placeholder operator for the <code class="docutils literal notranslate"><span class="pre">Meta</span></code> dispatch key.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>sizes</strong> – The target tensor dimensions</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new empty tensor </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv422new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">
+<span id="_CPPv322new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv222new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_host_mapped_tensor__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1ga5663643a8ac5de83063d0ff51bb9af17"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">new_host_mapped_tensor</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">sizes</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv422new_host_mapped_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Allocate the <code class="docutils literal notranslate"><span class="pre">at::Tensor</span></code> with host-mapped memory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>sizes</strong> – The target tensor dimensions</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor backed by host-mapped memory </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb">
+<span id="_CPPv318new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb"></span><span id="_CPPv218new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb"></span><span id="new_unified_tensor__TensorCR.std::vector:std::int64_t:CR.b"></span><span class="target" id="group__cumem-utils_1ga6f8847537ea9ed13fc7e2e378bc79b1f"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">new_unified_tensor</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">sizes</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">is_host_mapped</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418new_unified_tensorRK6TensorRKNSt6vectorINSt7int64_tEEEb" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Allocate the <code class="docutils literal notranslate"><span class="pre">at::Tensor</span></code> with either unified managed memory (UVM) or host-mapped memory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>sizes</strong> – The target tensor dimensions </p></li>
+<li><p><strong>is_host_mapped</strong> – Whether to allocate UVM or host-mapped memory</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor backed by UVM or host-mapped memory, depending on the value of <code class="docutils literal notranslate"><span class="pre">is_host_mapped</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv426new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">
+<span id="_CPPv326new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv226new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_vanilla_managed_tensor__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1gad5e0d2307667c3db5e73f0c0eec15df5"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">new_vanilla_managed_tensor</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">sizes</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv426new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Allocate an <code class="docutils literal notranslate"><span class="pre">at::Tensor</span></code> with unified managed memory (UVM), but allow for its preferred storage location to be automatically managed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>sizes</strong> – The target tensor dimensions</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor backed by UVM </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv411uvm_storageRK6Tensor">
+<span id="_CPPv311uvm_storageRK6Tensor"></span><span id="_CPPv211uvm_storageRK6Tensor"></span><span id="uvm_storage__TensorCR"></span><span class="target" id="group__cumem-utils_1ga05bf2c435c434904ca454c6992861cb6"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_storage</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv411uvm_storageRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Check if a tensor is allocated with UVM (either CPU or GPU tensor).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">true</span></code> if the tensor is allocated with UVM, otherwise <code class="docutils literal notranslate"><span class="pre">false</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv413is_uvm_tensorRK6Tensor">
+<span id="_CPPv313is_uvm_tensorRK6Tensor"></span><span id="_CPPv213is_uvm_tensorRK6Tensor"></span><span id="is_uvm_tensor__TensorCR"></span><span class="target" id="group__cumem-utils_1gacba28ed334d071e79c1ead1792391e9d"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">is_uvm_tensor</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv413is_uvm_tensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Check if a tensor is allocated with UVM, BUT is not a CPU tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">true</span></code> if the tensor is a non-CPU tensor allocated with UVM, otherwise <code class="docutils literal notranslate"><span class="pre">false</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv410uvm_to_cpuRK6Tensor">
+<span id="_CPPv310uvm_to_cpuRK6Tensor"></span><span id="_CPPv210uvm_to_cpuRK6Tensor"></span><span id="uvm_to_cpu__TensorCR"></span><span class="target" id="group__cumem-utils_1gab5a3dab831988b1ce368ccc545b75b48"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_to_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv410uvm_to_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Convert a UVM tensor to a CPU tensor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor that is effectively the input moved from UVM to CPU </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv413uvm_to_deviceRK6TensorRK6Tensor">
+<span id="_CPPv313uvm_to_deviceRK6TensorRK6Tensor"></span><span id="_CPPv213uvm_to_deviceRK6TensorRK6Tensor"></span><span id="uvm_to_device__TensorCR.TensorCR"></span><span class="target" id="group__cumem-utils_1gaebfedcf8e6017a6d4f6fb16b52c4c04e"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_to_device</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">prototype</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv413uvm_to_deviceRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Create a new UVM tensor that shares the same device and UVM storage with <code class="docutils literal notranslate"><span class="pre">prototype</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>prototype</strong> – The target tensor whose device and and UVM storage will be shared with the new tensor</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor that shares the same device and UVM storage with <code class="docutils literal notranslate"><span class="pre">prototype</span></code>. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv419uvm_cuda_mem_adviseRK6Tensor7int64_t">
+<span id="_CPPv319uvm_cuda_mem_adviseRK6Tensor7int64_t"></span><span id="_CPPv219uvm_cuda_mem_adviseRK6Tensor7int64_t"></span><span id="uvm_cuda_mem_advise__TensorCR.int64_t"></span><span class="target" id="group__cumem-utils_1gae8c724e90d31245756fc4b0d975f9370"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_cuda_mem_advise</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">cuda_memory_advise</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv419uvm_cuda_mem_adviseRK6Tensor7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Call <code class="docutils literal notranslate"><span class="pre">cudaMemAdvise()</span></code> on a UVM tensor’s storage. The <code class="docutils literal notranslate"><span class="pre">cudaMemoryAdvise</span></code> enum is available on the Python side in the <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu.uvm</span></code> namespace; see the documentation over there for valid values.</p>
+<p><div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>See <a class="reference external" href="https://nvidia.github.io/cuda-python/module/cudart.html#cuda.cudart.cudaMemAdvise">here</a> For more information on the <code class="docutils literal notranslate"><span class="pre">cudaMemoryAdvise</span></code> enum. </p>
 </div>
+</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>cuda_memory_advise</strong> – The <code class="docutils literal notranslate"><span class="pre">cudaMemoryAdvise</span></code> enum value, as integer</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv427uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE">
+<span id="_CPPv327uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE"></span><span id="_CPPv227uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE"></span><span id="uvm_cuda_mem_prefetch_async__TensorCR.c10::optional:Tensor:"></span><span class="target" id="group__cumem-utils_1gaf060db44e71e3419df6e596614ef2081"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_cuda_mem_prefetch_async</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="n"><span class="pre">c10</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">optional</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">device_t</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv427uvm_cuda_mem_prefetch_asyncRK6TensorN3c108optionalI6TensorEE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Call <code class="docutils literal notranslate"><span class="pre">cudaMemPrefetchAsync()</span></code> on a UVM tensor’s storage to prefetch memory to a destination device.</p>
+<p><div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>See <a class="reference external" href="https://nvidia.github.io/cuda-python/module/cudart.html#cuda.cudart.cudaMemPrefetchAsync">here</a> For more information on <code class="docutils literal notranslate"><span class="pre">cudaMemPrefetchAsync()</span></code>. </p>
+</div>
+</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>device_t</strong> – <strong>[OPTIONAL]</strong> The tensor whose device will be the prefetch destination</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv424uvm_mem_advice_dont_forkRK6Tensor">
+<span id="_CPPv324uvm_mem_advice_dont_forkRK6Tensor"></span><span id="_CPPv224uvm_mem_advice_dont_forkRK6Tensor"></span><span id="uvm_mem_advice_dont_fork__TensorCR"></span><span class="target" id="group__cumem-utils_1ga01301ad686f7570c21e81c122d2c7af8"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_mem_advice_dont_fork</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv424uvm_mem_advice_dont_forkRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Call <code class="docutils literal notranslate"><span class="pre">madvise(...MADV_DONTFORK)</span></code> on a UVM tensor’s storage. This is a workaround for an issue where the UVM kernel driver un-maps UVM storage pages from the page table on fork, causing slowdown on the next access from a CPU.</p>
+<p><div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>See <a class="reference external" href="https://man7.org/linux/man-pages/man2/madvise.2.html">here</a> For more information on <code class="docutils literal notranslate"><span class="pre">madvise()</span></code>. </p>
+</div>
+</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv416uvm_to_cpu_cloneRK6Tensor">
+<span id="_CPPv316uvm_to_cpu_cloneRK6Tensor"></span><span id="_CPPv216uvm_to_cpu_cloneRK6Tensor"></span><span id="uvm_to_cpu_clone__TensorCR"></span><span class="target" id="group__cumem-utils_1ga161495e682d9eac3701dca87469930db"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">uvm_to_cpu_clone</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv416uvm_to_cpu_cloneRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Copy a UVM tensor’s contiguous storage (uvm_storage(t) is true) into a new CPU Tensor. The copy operation uses single-threaded <code class="docutils literal notranslate"><span class="pre">memcpy()</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new CPU tensor containing the data copied from the UVM tensor </p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 
 
@@ -417,11 +629,9 @@
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

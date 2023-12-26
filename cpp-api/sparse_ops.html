@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Quantization Operators" href="quantize_ops.html" />
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
@@ -351,87 +354,91 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="sparse-data-operators">
-<h1>Sparse Data Operators<a class="headerlink" href="#sparse-data-operators" title="Permalink to this headline">¶</a></h1>
-<section id="sparse-data-cuda-operators">
-<h2>Sparse Data CUDA Operators<a class="headerlink" href="#sparse-data-cuda-operators" title="Permalink to this headline">¶</a></h2>
+<h1>Sparse Data Operators<a class="headerlink" href="#sparse-data-operators" title="Permalink to this heading">¶</a></h1>
+<section id="cuda-operators">
+<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
-<dt id="_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t">
-<span id="_CPPv331expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t"></span><span id="_CPPv231expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t"></span><span id="expand_into_jagged_permute_cuda__at::TensorCR.at::TensorCR.at::TensorCR.int64_t"></span><span class="target" id="group__sparse-data-cuda_1ga2402de1c0102b21af5f2bd5a50d30309"></span>at::Tensor <code class="sig-name descname">expand_into_jagged_permute_cuda</code><span class="sig-paren">(</span><em class="property">const</em> at::Tensor &amp;<em>permute</em>, <em class="property">const</em> at::Tensor &amp;<em>input_offsets</em>, <em class="property">const</em> at::Tensor &amp;<em>output_offsets</em>, int64_t <em>output_size</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t">
+<span id="_CPPv331expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t"></span><span id="_CPPv231expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t"></span><span id="expand_into_jagged_permute_cuda__at::TensorCR.at::TensorCR.at::TensorCR.int64_t"></span><span class="target" id="group__sparse-data-cuda_1ga2402de1c0102b21af5f2bd5a50d30309"></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">expand_into_jagged_permute_cuda</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">permute</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input_offsets</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">output_offsets</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_size</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>expand_into_jagged_permute expand the sparse data permute index from table dimension to batch dimension, for cases where the sparse features has different batch sizes across ranks.</p>
-<p><dl class="simple">
-<dt><strong>Return</strong></dt><dd><p>The output follows the following formula: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">output_permute</span><span class="p">[</span><span class="n">table_offset</span><span class="p">[</span><span class="n">permute</span><span class="p">[</span><span class="n">table</span><span class="p">]]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">batch</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">bag_offset</span><span class="p">[</span><span class="n">batch</span><span class="p">]</span>
-</pre></div>
-</div>
- </p>
-</dd>
-<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">permute</span></code>: the table level permute index. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">input_offsets</span></code>: the exclusive offsets of table-level length. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">output_offsets</span></code>: the exclusive offsets of table-level permuted length. The op expands the permute from table level to batch level by contiguously mapping each bag of its corresponding tables to the position the batch sits on after feature permute. We will derive offset array of table and batch to compute the output permute. </p></li>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>permute</strong> – the table level permute index. </p></li>
+<li><p><strong>input_offsets</strong> – the exclusive offsets of table-level length. </p></li>
+<li><p><strong>output_offsets</strong> – the exclusive offsets of table-level permuted length. The op expands the permute from table level to batch level by contiguously mapping each bag of its corresponding tables to the position the batch sits on after feature permute. We will derive offset array of table and batch to compute the output permute. </p></li>
 </ul>
 </dd>
-</dl>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The output follows the following formula: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">output_permute</span><span class="p">[</span><span class="n">table_offset</span><span class="p">[</span><span class="n">permute</span><span class="p">[</span><span class="n">table</span><span class="p">]]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">batch</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;-</span><span class="w"> </span><span class="n">bag_offset</span><span class="p">[</span><span class="n">batch</span><span class="p">]</span>
+</pre></div>
+</div>
 </p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__sparse-data-cuda_1ga3b963d0e45c2bc0060aaa974efe64b8a"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_or_half_to_fusednbitrowwise_gpu (const Tensor &amp;input, const int64_t bit_rate)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__sparse-data-cuda_1ga3b963d0e45c2bc0060aaa974efe64b8a"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_or_half_to_fusednbitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
 <dd></dd></dl>
 
 </section>
-<section id="sparse-data-cpu-operators">
-<h2>Sparse Data CPU Operators<a class="headerlink" href="#sparse-data-cpu-operators" title="Permalink to this headline">¶</a></h2>
+<section id="cpu-operators">
+<h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
-<dt id="_CPPv433histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td">
-<span id="_CPPv333histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td"></span><span id="_CPPv233histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td"></span><span id="histogram_binning_calibration_cpu__at::TensorCR.at::TensorCR.at::TensorCR.double.double.double.int64_t.double"></span><span class="target" id="group__sparse-data-cpu_1ga201bb2241fc9d582d6c0fe968b0e71ca"></span>std::tuple&lt;at::Tensor, at::Tensor&gt; <code class="sig-name descname">histogram_binning_calibration_cpu</code><span class="sig-paren">(</span><em class="property">const</em> at::Tensor &amp;<em>logit</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_examples</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_positives</em>, double <em>positive_weight</em>, double <em>lower_bound</em> = 0.0, double <em>upper_bound</em> = 1.0, int64_t <em>bin_ctr_in_use_after</em> = 0, double <em>bin_ctr_weight_value</em> = 1.0<span class="sig-paren">)</span><a class="headerlink" href="#_CPPv433histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Divide the prediction range (e.g., [0, 1]) into B bins. In each bin, use two parameters to store the number of positive examples and the number of examples that fall into this bucket. So we basically have a histogram for the model prediction. As a result, for each bin, we have a statistical value for the real CTR (<code class="docutils literal notranslate"><span class="pre">num_pos</span> <span class="pre">/</span> <span class="pre">num_example</span></code>). We use this statistical value as the final calibrated prediction if the pre-cali prediction falls into the corresponding bin. In this way, the predictions within each bin should be well-calibrated if we have sufficient examples. That is, we have a fine-grained calibrated model by this calibration module. Theoretically, this calibration layer can fix any uncalibrated model or prediction if we have sufficient bins and examples. <dl class="simple">
-<dt><strong>Return</strong></dt><dd><p><code class="docutils literal notranslate"><span class="pre">[calibrated_prediction,</span> <span class="pre">bin_ids]</span></code> </p>
-</dd>
-<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">logit</span></code>: is input tensor before applying Sigmoid. Assumes positive weight calibration is used for calibartion target, and </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">positive_weight</span></code>: is passed as input argument. The number of bins is automatically derived from <code class="docutils literal notranslate"><span class="pre">bin_num_examples</span></code>, and <code class="docutils literal notranslate"><span class="pre">bin_num_positives</span></code>, all of which should be the same size. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lower/upper_bound</span></code>: Bounds of the bins. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code>: We will use the calibration_target for the final calibrated prediction if we don’t have sufficient examples. Only use the statistical value of bin CTR after we observe <code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code> examples that fall in this bin. Default value: 0. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">bin_ctr_weight_value</span></code>: Weight for statistical value of bin CTR. When this is specified, we perform a weighted sum for the statisctical bin CTR and the calibration_target: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">final_calibrated_prediction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bin_ctr_weight</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bin_ctr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span>
+<dt class="sig sig-object cpp" id="_CPPv433histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td">
+<span id="_CPPv333histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td"></span><span id="_CPPv233histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td"></span><span id="histogram_binning_calibration_cpu__at::TensorCR.at::TensorCR.at::TensorCR.double.double.double.int64_t.double"></span><span class="target" id="group__sparse-data-cpu_1ga201bb2241fc9d582d6c0fe968b0e71ca"></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">tuple</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">histogram_binning_calibration_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">logit</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">bin_num_examples</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">bin_num_positives</span></span>, <span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">positive_weight</span></span>, <span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">lower_bound</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="m"><span class="pre">0.0</span></span>, <span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">upper_bound</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="m"><span class="pre">1.0</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bin_ctr_in_use_after</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="m"><span class="pre">0</span></span>, <span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bin_ctr_weight_value</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="m"><span class="pre">1.0</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv433histogram_binning_calibration_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorEddd7int64_td" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Divide the prediction range (e.g., [0, 1]) into B bins. In each bin, use two parameters to store the number of positive examples and the number of examples that fall into this bucket. So we basically have a histogram for the model prediction. As a result, for each bin, we have a statistical value for the real CTR (<code class="docutils literal notranslate"><span class="pre">num_pos</span> <span class="pre">/</span> <span class="pre">num_example</span></code>). We use this statistical value as the final calibrated prediction if the pre-cali prediction falls into the corresponding bin. In this way, the predictions within each bin should be well-calibrated if we have sufficient examples. That is, we have a fine-grained calibrated model by this calibration module. Theoretically, this calibration layer can fix any uncalibrated model or prediction if we have sufficient bins and examples. </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>logit</strong> – is input tensor before applying Sigmoid. Assumes positive weight calibration is used for calibartion target, and </p></li>
+<li><p><strong>positive_weight</strong> – is passed as input argument. The number of bins is automatically derived from <code class="docutils literal notranslate"><span class="pre">bin_num_examples</span></code>, and <code class="docutils literal notranslate"><span class="pre">bin_num_positives</span></code>, all of which should be the same size. </p></li>
+<li><p><strong>lower/upper_bound</strong> – Bounds of the bins. </p></li>
+<li><p><strong>bin_ctr_in_use_after</strong> – We will use the calibration_target for the final calibrated prediction if we don’t have sufficient examples. Only use the statistical value of bin CTR after we observe <code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code> examples that fall in this bin. Default value: 0. </p></li>
+<li><p><strong>bin_ctr_weight_value</strong> – Weight for statistical value of bin CTR. When this is specified, we perform a weighted sum for the statisctical bin CTR and the calibration_target: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">final_calibrated_prediction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bin_ctr_weight</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bin_ctr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span>
 <span class="n">bin_ctr_weight</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">calibration_target</span>
 </pre></div>
 </div>
  Default value: 1.0 </p></li>
 </ul>
 </dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[calibrated_prediction,</span> <span class="pre">bin_ids]</span></code></p>
+</dd>
 </dl>
-</p>
 </dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td">
-<span id="_CPPv352generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td"></span><span id="_CPPv252generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td"></span><span id="generic_histogram_binning_calibration_by_feature_cpu__at::TensorCR.at::TensorCR.at::TensorCR.int64_t.at::TensorCR.at::TensorCR.at::TensorCR.double.int64_t.double"></span><span class="target" id="group__sparse-data-cpu_1gaef2a0a8c27e3b8b2d72be5c95ba7539e"></span>std::tuple&lt;at::Tensor, at::Tensor&gt; <code class="sig-name descname">generic_histogram_binning_calibration_by_feature_cpu</code><span class="sig-paren">(</span><em class="property">const</em> at::Tensor &amp;<em>logit</em>, <em class="property">const</em> at::Tensor &amp;<em>segment_value</em>, <em class="property">const</em> at::Tensor &amp;<em>segment_lengths</em>, int64_t <em>num_segments</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_examples</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_num_positives</em>, <em class="property">const</em> at::Tensor &amp;<em>bin_boundaries</em>, double <em>positive_weight</em>, int64_t <em>bin_ctr_in_use_after</em> = 0, double <em>bin_ctr_weight_value</em> = 1.0<span class="sig-paren">)</span><a class="headerlink" href="#_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td">
+<span id="_CPPv352generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td"></span><span id="_CPPv252generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td"></span><span id="generic_histogram_binning_calibration_by_feature_cpu__at::TensorCR.at::TensorCR.at::TensorCR.int64_t.at::TensorCR.at::TensorCR.at::TensorCR.double.int64_t.double"></span><span class="target" id="group__sparse-data-cpu_1gaef2a0a8c27e3b8b2d72be5c95ba7539e"></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">tuple</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">generic_histogram_binning_calibration_by_feature_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">logit</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">segment_value</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">segment_lengths</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">num_segments</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">bin_num_examples</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">bin_num_positives</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">bin_boundaries</span></span>, <span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">positive_weight</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bin_ctr_in_use_after</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="m"><span class="pre">0</span></span>, <span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bin_ctr_weight_value</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="m"><span class="pre">1.0</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>An extension of histogram binning calibration model which divides data into bins based on one specific feature and prediction/ECTR range. In each bin, use two parameters to store the number of positive examples and the number of examples that fall into this bucket. So we basically have a histogram for the model prediction. As a result, for each bin, we have a statistical value for the real CTR (num_pos / num_example). We use this statistical value as the final calibrated prediction if the pre-cali prediction falls into the corresponding bin. In this way, the predictions within each bin should be well-calibrated if we have sufficient examples. That is, we have a fine-grained calibrated model by this calibration module. Theoretically, this calibration layer can fix any uncalibrated model or prediction if we have sufficient bins and examples.</p>
-<p><p>Assumes positive weight calibration is used for calibartion target, and </p>
-<code class="docutils literal notranslate"><span class="pre">positive_weight</span></code> is passed as input argument. <p>Same as above, but accepts generic “bin_boundaries”, which is assumed to be sorted. </p>
-<dl class="simple">
-<dt><strong>Return</strong></dt><dd><p><code class="docutils literal notranslate"><span class="pre">[calibrated_prediction,</span> <span class="pre">bin_ids]</span></code> </p>
-</dd>
-<dt><strong>Return</strong></dt><dd><p>calibrated_prediction. </p>
-</dd>
-<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">logit</span></code>: is input tensor before applying Sigmoid.</p></li>
-</ul>
-</dd>
-<dt><strong>Parameters</strong></dt><dd><ul class="breatheparameterlist simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">segment_value/lengths</span></code>: Values and lengths in KeyJaggedTensor. Assumes value of length is either 0 or 1. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">num_bins</span></code>: # of bins is no longer the same as <code class="docutils literal notranslate"><span class="pre">bin_num_examples</span></code>, and <code class="docutils literal notranslate"><span class="pre">bin_num_positives</span></code>, all of which should be still the same size. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lower/upper_bound</span></code>: Bounds of the bins. </p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code>: We will use the calibration_target for the final calibrated prediction if we don’t have sufficient examples. Only use the statistical value of bin CTR after we observe <code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code> examples that fall in this bin. Default value is <code class="docutils literal notranslate"><span class="pre">0</span></code>. &#64;parambin_ctr_weight_value Weight for statistical value of bin CTR. When this is specified, we perform a weighted sum for the statisctical bin CTR and the calibration_target: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">final_calibrated_prediction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bin_ctr_weight</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bin_ctr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span>
+<p>
+Assumes positive weight calibration is used for calibartion target, and <code class="docutils literal notranslate"><span class="pre">positive_weight</span></code><p>is passed as input argument.</p>
+<p>Same as above, but accepts generic “bin_boundaries”, which is assumed to be sorted.</p>
+</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>logit</strong> – is input tensor before applying Sigmoid.</p></li>
+<li><p><strong>segment_value/lengths</strong> – Values and lengths in KeyJaggedTensor. Assumes value of length is either 0 or 1. </p></li>
+<li><p><strong>num_bins</strong> – # of bins is no longer the same as <code class="docutils literal notranslate"><span class="pre">bin_num_examples</span></code>, and <code class="docutils literal notranslate"><span class="pre">bin_num_positives</span></code>, all of which should be still the same size. </p></li>
+<li><p><strong>lower/upper_bound</strong> – Bounds of the bins. </p></li>
+<li><p><strong>bin_ctr_in_use_after</strong> – We will use the calibration_target for the final calibrated prediction if we don’t have sufficient examples. Only use the statistical value of bin CTR after we observe <code class="docutils literal notranslate"><span class="pre">bin_ctr_in_use_after</span></code> examples that fall in this bin. Default value is <code class="docutils literal notranslate"><span class="pre">0</span></code>. &#64;parambin_ctr_weight_value Weight for statistical value of bin CTR. When this is specified, we perform a weighted sum for the statisctical bin CTR and the calibration_target: <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">final_calibrated_prediction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bin_ctr_weight</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">bin_ctr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">-</span>
 <span class="n">bin_ctr_weight</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">calibration_target</span><span class="p">.</span>
 </pre></div>
 </div>
  Default value: <code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></li>
 </ul>
 </dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">[calibrated_prediction,</span> <span class="pre">bin_ids]</span></code></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>calibrated_prediction. </p>
+</dd>
 </dl>
-</p>
 </dd></dl>
 
 </section>
@@ -481,8 +488,8 @@
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">Sparse Data Operators</a><ul>
-<li><a class="reference internal" href="#sparse-data-cuda-operators">Sparse Data CUDA Operators</a></li>
-<li><a class="reference internal" href="#sparse-data-cpu-operators">Sparse Data CPU Operators</a></li>
+<li><a class="reference internal" href="#cuda-operators">CUDA Operators</a></li>
+<li><a class="reference internal" href="#cpu-operators">CPU Operators</a></li>
 </ul>
 </li>
 </ul>
@@ -500,11 +507,9 @@
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

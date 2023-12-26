@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Pooled Embeddings Operators" href="merge_pooled_embeddings.html" />
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Quantization Operators</a></li>
@@ -351,183 +354,184 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="quantization-operators">
-<h1>Quantization Operators<a class="headerlink" href="#quantization-operators" title="Permalink to this headline">¶</a></h1>
+<h1>Quantization Operators<a class="headerlink" href="#quantization-operators" title="Permalink to this heading">¶</a></h1>
 <p>Quantization is a model optimization technique to reduce the size of a large
-model in order to achieve better storage performance with a small loss in accuracy.</p>
+model in order to achieve better storage performance with a small loss in
+accuracy.</p>
 <section id="cuda-operators">
-<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
+<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga2f1cc4b6dc6f708324855f94d558cfc1"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu (const at::Tensor &amp;input)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga2f1cc4b6dc6f708324855f94d558cfc1"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_float_to_bfloat16_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input)</span></span></dt>
 <dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Brain Floating Point (<code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>) values. </p>
 </dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga2076a59fd190690f67c1eddb79b6acc4"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _bfloat16_to_float_gpu (const at::Tensor &amp;input)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga2076a59fd190690f67c1eddb79b6acc4"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_bfloat16_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input)</span></span></dt>
 <dd><p>Converts a tensor of Brain Floating Point (<code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. </p>
 </dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga31b9029d43a60ad1fc90dc6ec54af9db"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_to_FP8rowwise_gpu (const Tensor &amp;input, const bool forward)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga31b9029d43a60ad1fc90dc6ec54af9db"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_FP8rowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">forward)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga8c11c8dc06cae57b3afba79358c00e99"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_to_fused8bitrowwise_gpu (const Tensor &amp;input)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga8c11c8dc06cae57b3afba79358c00e99"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_fused8bitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1gaff285349cb9c51a56fc418b628772b16"></span><code class="sig-name descname">DLL_PUBLIC Tensor _single_or_half_precision_to_fused8bitrowwise_gpu (const Tensor &amp;input)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gaff285349cb9c51a56fc418b628772b16"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_single_or_half_precision_to_fused8bitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1gafacdb4ec7d8f5b969c75d2127537ab16"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu (const at::Tensor &amp;input, const int64_t output_dtype)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gafacdb4ec7d8f5b969c75d2127537ab16"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fused8bitrowwise_to_single_or_half_precision_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga4c2c033e940095d20e76e9e00fe925d3"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu (const at::Tensor &amp;input, const at::Tensor &amp;D_offsets, const int64_t output_dtype)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga4c2c033e940095d20e76e9e00fe925d3"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fused8bitrowwise_to_float_mixed_dim_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;D_offsets,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv4I0E32_float_to_fusednbitrowwise_gpu_t6TensorRK6TensorK7int64_t">
-<span id="_CPPv3I0E32_float_to_fusednbitrowwise_gpu_tRK6TensorK7int64_t"></span><span id="_CPPv2I0E32_float_to_fusednbitrowwise_gpu_tRK6TensorK7int64_t"></span>template&lt;typename <code class="sig-name descname">input_t</code>&gt;<br /><span class="target" id="group__quantize-ops-cuda_1ga02c8f9158646d9b16efbd3853711f56a"></span>Tensor <code class="sig-name descname">_float_to_fusednbitrowwise_gpu_t</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, <em class="property">const</em> int64_t <em>bit_rate</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0E32_float_to_fusednbitrowwise_gpu_t6TensorRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv4I0E32_float_to_fusednbitrowwise_gpu_t6TensorRK6TensorK7int64_t">
+<span id="_CPPv3I0E32_float_to_fusednbitrowwise_gpu_tRK6TensorK7int64_t"></span><span id="_CPPv2I0E32_float_to_fusednbitrowwise_gpu_tRK6TensorK7int64_t"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">input_t</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__quantize-ops-cuda_1ga02c8f9158646d9b16efbd3853711f56a"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">_float_to_fusednbitrowwise_gpu_t</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0E32_float_to_fusednbitrowwise_gpu_t6TensorRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1gaa3e8fd136e9bfa0e4d0c0016659bf708"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_to_fusednbitrowwise_gpu (const Tensor &amp;input, const int64_t bit_rate)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gaa3e8fd136e9bfa0e4d0c0016659bf708"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_fusednbitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga6e2bd64f3f9e3b36493ec955680771af"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _half_to_fusednbitrowwise_gpu (const at::Tensor &amp;input, const int64_t bit_rate)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga6e2bd64f3f9e3b36493ec955680771af"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_half_to_fusednbitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv4I0E32_fusednbitrowwise_to_float_gpu_t6TensorRK6TensorK7int64_t">
-<span id="_CPPv3I0E32_fusednbitrowwise_to_float_gpu_tRK6TensorK7int64_t"></span><span id="_CPPv2I0E32_fusednbitrowwise_to_float_gpu_tRK6TensorK7int64_t"></span>template&lt;typename <code class="sig-name descname">output_t</code>&gt;<br /><span class="target" id="group__quantize-ops-cuda_1gae1e827b74f0825dc4135e68c10e443b3"></span>Tensor <code class="sig-name descname">_fusednbitrowwise_to_float_gpu_t</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, <em class="property">const</em> int64_t <em>bit_rate</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0E32_fusednbitrowwise_to_float_gpu_t6TensorRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv4I0E32_fusednbitrowwise_to_float_gpu_t6TensorRK6TensorK7int64_t">
+<span id="_CPPv3I0E32_fusednbitrowwise_to_float_gpu_tRK6TensorK7int64_t"></span><span id="_CPPv2I0E32_fusednbitrowwise_to_float_gpu_tRK6TensorK7int64_t"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">output_t</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__quantize-ops-cuda_1gae1e827b74f0825dc4135e68c10e443b3"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">_fusednbitrowwise_to_float_gpu_t</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0E32_fusednbitrowwise_to_float_gpu_t6TensorRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga6152517943258bd3adc42b7c103a9277"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _fusednbitrowwise_to_half_gpu (const at::Tensor &amp;input, const int64_t bit_rate)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga6152517943258bd3adc42b7c103a9277"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fusednbitrowwise_to_half_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga07f4c02c95710472b815bdc1d7bfff19"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_or_half_gpu (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga07f4c02c95710472b815bdc1d7bfff19"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fusednbitrowwise_to_float_or_half_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1gab2837424e3774fe34ba255658554a75a"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _float_to_hfp8_gpu (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias, const double max_pos)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gab2837424e3774fe34ba255658554a75a"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_float_to_hfp8_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">exponent_bias,</span> <span class="pre">const</span> <span class="pre">double</span> <span class="pre">max_pos)</span></span></dt>
 <dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Hybrid 8-bit Floating Point (<code class="docutils literal notranslate"><span class="pre">hfp8</span></code>) values. </p>
 </dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga03a8f8825a16c6235b699886fa46e1f6"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _hfp8_to_float_gpu (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga03a8f8825a16c6235b699886fa46e1f6"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_hfp8_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">exponent_bias)</span></span></dt>
 <dd><p>Converts a tensor of Hybrid 8-bit Floating Point (<code class="docutils literal notranslate"><span class="pre">hfp8</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. </p>
 </dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga427f81e1d8901e2fafc9611860fbd4d5"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _float_to_msfp_gpu (const at::Tensor &amp;input, const int64_t bounding_box_size, const int64_t ebits, const int64_t mbits, const int64_t bias, const double min_pos, const double max_pos)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga427f81e1d8901e2fafc9611860fbd4d5"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_float_to_msfp_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bounding_box_size,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">mbits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bias,</span> <span class="pre">const</span> <span class="pre">double</span> <span class="pre">min_pos,</span> <span class="pre">const</span> <span class="pre">double</span> <span class="pre">max_pos)</span></span></dt>
 <dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Microsoft Floating Point (<code class="docutils literal notranslate"><span class="pre">msfp</span></code>) values. </p>
 </dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1gac0c20377454dbfafcc5ac245fe6427ce"></span><code class="sig-name descname">DLL_PUBLIC at::Tensor _msfp_to_float_gpu (const at::Tensor &amp;input, const int64_t ebits, const int64_t mbits, const int64_t bias)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gac0c20377454dbfafcc5ac245fe6427ce"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_msfp_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">mbits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bias)</span></span></dt>
 <dd><p>Converts a tensor of Microsoft Floating Point (<code class="docutils literal notranslate"><span class="pre">msfp</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. </p>
 </dd></dl>
 
 <dl class="cpp function">
-<dt>
-<span class="target" id="group__quantize-ops-cuda_1ga5043927653e4d50462b79b7f3df33223"></span><code class="sig-name descname">DLL_PUBLIC Tensor _float_to_paddedFP8rowwise_gpu (const Tensor &amp;input, const bool forward, const int64_t row_dim)</code></dt>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga5043927653e4d50462b79b7f3df33223"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_paddedFP8rowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">forward,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">row_dim)</span></span></dt>
 <dd></dd></dl>
 
 </section>
 <section id="cpu-operators">
-<h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
+<h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
-<dt id="_CPPv434_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor">
-<span id="_CPPv334_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor"></span><span id="_CPPv234_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor"></span><span id="_fused8bitrowwise_to_float_cpu_out__TensorR.TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gabeb6675833a5b14e0a0d01385770a771"></span>Tensor &amp;<code class="sig-name descname">_fused8bitrowwise_to_float_cpu_out</code><span class="sig-paren">(</span>Tensor &amp;<em>output</em>, <em class="property">const</em> Tensor &amp;<em>input</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv434_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv434_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor">
+<span id="_CPPv334_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor"></span><span id="_CPPv234_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor"></span><span id="_fused8bitrowwise_to_float_cpu_out__TensorR.TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gabeb6675833a5b14e0a0d01385770a771"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="sig-name descname"><span class="n"><span class="pre">_fused8bitrowwise_to_float_cpu_out</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv434_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv434_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor">
-<span id="_CPPv334_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor"></span><span id="_CPPv234_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor"></span><span id="_float_to_fused8bitrowwise_cpu_out__TensorR.TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gad38a9310258acccab8a017c1616034d0"></span>Tensor &amp;<code class="sig-name descname">_float_to_fused8bitrowwise_cpu_out</code><span class="sig-paren">(</span>Tensor &amp;<em>output</em>, <em class="property">const</em> Tensor &amp;<em>input</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv434_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv434_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor">
+<span id="_CPPv334_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor"></span><span id="_CPPv234_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor"></span><span id="_float_to_fused8bitrowwise_cpu_out__TensorR.TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gad38a9310258acccab8a017c1616034d0"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="sig-name descname"><span class="n"><span class="pre">_float_to_fused8bitrowwise_cpu_out</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv434_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor">
-<span id="_CPPv329float_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="_CPPv229float_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="float_to_fused8bitrowwise_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gacf598456fd7aced63b96e8a725f4c418"></span>Tensor <code class="sig-name descname">float_to_fused8bitrowwise_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor">
+<span id="_CPPv329float_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="_CPPv229float_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="float_to_fused8bitrowwise_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gacf598456fd7aced63b96e8a725f4c418"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">float_to_fused8bitrowwise_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv428half_to_fused8bitrowwise_cpuRK6Tensor">
-<span id="_CPPv328half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="_CPPv228half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="half_to_fused8bitrowwise_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gaa9daf4f3dc64238a5de8f82bbae656cf"></span>Tensor <code class="sig-name descname">half_to_fused8bitrowwise_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv428half_to_fused8bitrowwise_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv428half_to_fused8bitrowwise_cpuRK6Tensor">
+<span id="_CPPv328half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="_CPPv228half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="half_to_fused8bitrowwise_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gaa9daf4f3dc64238a5de8f82bbae656cf"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">half_to_fused8bitrowwise_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv428half_to_fused8bitrowwise_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor">
-<span id="_CPPv337float_or_half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="_CPPv237float_or_half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="float_or_half_to_fused8bitrowwise_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1ga06b7d2bf3fadaa9869555a64a6752ef7"></span>Tensor <code class="sig-name descname">float_or_half_to_fused8bitrowwise_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor">
+<span id="_CPPv337float_or_half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="_CPPv237float_or_half_to_fused8bitrowwise_cpuRK6Tensor"></span><span id="float_or_half_to_fused8bitrowwise_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1ga06b7d2bf3fadaa9869555a64a6752ef7"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">float_or_half_to_fused8bitrowwise_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor">
-<span id="_CPPv329fused8bitrowwise_to_float_cpuRK6Tensor"></span><span id="_CPPv229fused8bitrowwise_to_float_cpuRK6Tensor"></span><span id="fused8bitrowwise_to_float_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gab86a824fed15fab1c318359d069a5180"></span>Tensor <code class="sig-name descname">fused8bitrowwise_to_float_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor">
+<span id="_CPPv329fused8bitrowwise_to_float_cpuRK6Tensor"></span><span id="_CPPv229fused8bitrowwise_to_float_cpuRK6Tensor"></span><span id="fused8bitrowwise_to_float_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1gab86a824fed15fab1c318359d069a5180"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fused8bitrowwise_to_float_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv428fused8bitrowwise_to_half_cpuRK6Tensor">
-<span id="_CPPv328fused8bitrowwise_to_half_cpuRK6Tensor"></span><span id="_CPPv228fused8bitrowwise_to_half_cpuRK6Tensor"></span><span id="fused8bitrowwise_to_half_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1ga9284d774f5d4087da98453e96e64d00a"></span>Tensor <code class="sig-name descname">fused8bitrowwise_to_half_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv428fused8bitrowwise_to_half_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv428fused8bitrowwise_to_half_cpuRK6Tensor">
+<span id="_CPPv328fused8bitrowwise_to_half_cpuRK6Tensor"></span><span id="_CPPv228fused8bitrowwise_to_half_cpuRK6Tensor"></span><span id="fused8bitrowwise_to_half_cpu__TensorCR"></span><span class="target" id="group__quantize-data-cpu_1ga9284d774f5d4087da98453e96e64d00a"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fused8bitrowwise_to_half_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv428fused8bitrowwise_to_half_cpuRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv437fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t">
-<span id="_CPPv337fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t"></span><span id="_CPPv237fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t"></span><span id="fused8bitrowwise_to_float_or_half_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1gad219617d0aa308f97fad8dfc6af20213"></span>Tensor <code class="sig-name descname">fused8bitrowwise_to_float_or_half_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, <em class="property">const</em> int64_t <em>output_dtype</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv437fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t">
+<span id="_CPPv337fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t"></span><span id="_CPPv237fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t"></span><span id="fused8bitrowwise_to_float_or_half_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1gad219617d0aa308f97fad8dfc6af20213"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fused8bitrowwise_to_float_or_half_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_dtype</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437fused8bitrowwise_to_float_or_half_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv423float_to_FP8rowwise_cpuRK6Tensorb">
-<span id="_CPPv323float_to_FP8rowwise_cpuRK6Tensorb"></span><span id="_CPPv223float_to_FP8rowwise_cpuRK6Tensorb"></span><span id="float_to_FP8rowwise_cpu__TensorCR.b"></span><span class="target" id="group__quantize-data-cpu_1gad540dd7f8ad7601b3d9591114e4ef718"></span>Tensor <code class="sig-name descname">float_to_FP8rowwise_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, bool <em>forward</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423float_to_FP8rowwise_cpuRK6Tensorb" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv423float_to_FP8rowwise_cpuRK6Tensorb">
+<span id="_CPPv323float_to_FP8rowwise_cpuRK6Tensorb"></span><span id="_CPPv223float_to_FP8rowwise_cpuRK6Tensorb"></span><span id="float_to_FP8rowwise_cpu__TensorCR.b"></span><span class="target" id="group__quantize-data-cpu_1gad540dd7f8ad7601b3d9591114e4ef718"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">float_to_FP8rowwise_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">forward</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423float_to_FP8rowwise_cpuRK6Tensorb" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv423FP8rowwise_to_float_cpuRK6TensorbK7int64_t">
-<span id="_CPPv323FP8rowwise_to_float_cpuRK6TensorbK7int64_t"></span><span id="_CPPv223FP8rowwise_to_float_cpuRK6TensorbK7int64_t"></span><span id="FP8rowwise_to_float_cpu__TensorCR.b.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga1d3b2f7c37e8755516ff8a4c504017e1"></span>Tensor <code class="sig-name descname">FP8rowwise_to_float_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, bool <em>forward</em>, <em class="property">const</em> int64_t <em>output_dtype</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423FP8rowwise_to_float_cpuRK6TensorbK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv423FP8rowwise_to_float_cpuRK6TensorbK7int64_t">
+<span id="_CPPv323FP8rowwise_to_float_cpuRK6TensorbK7int64_t"></span><span id="_CPPv223FP8rowwise_to_float_cpuRK6TensorbK7int64_t"></span><span id="FP8rowwise_to_float_cpu__TensorCR.b.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga1d3b2f7c37e8755516ff8a4c504017e1"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FP8rowwise_to_float_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">forward</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_dtype</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423FP8rowwise_to_float_cpuRK6TensorbK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv429fusednbitrowwise_to_float_cpuRK6TensorK7int64_t">
-<span id="_CPPv329fusednbitrowwise_to_float_cpuRK6TensorK7int64_t"></span><span id="_CPPv229fusednbitrowwise_to_float_cpuRK6TensorK7int64_t"></span><span id="fusednbitrowwise_to_float_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga61c494baf4e410652ed897534d14aa29"></span>Tensor <code class="sig-name descname">fusednbitrowwise_to_float_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, <em class="property">const</em> int64_t <em>bit_rate</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv429fusednbitrowwise_to_float_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv429fusednbitrowwise_to_float_cpuRK6TensorK7int64_t">
+<span id="_CPPv329fusednbitrowwise_to_float_cpuRK6TensorK7int64_t"></span><span id="_CPPv229fusednbitrowwise_to_float_cpuRK6TensorK7int64_t"></span><span id="fusednbitrowwise_to_float_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga61c494baf4e410652ed897534d14aa29"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fusednbitrowwise_to_float_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv429fusednbitrowwise_to_float_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t">
-<span id="_CPPv328fusednbitrowwise_to_half_cpuRK6TensorK7int64_t"></span><span id="_CPPv228fusednbitrowwise_to_half_cpuRK6TensorK7int64_t"></span><span id="fusednbitrowwise_to_half_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga1c32bf52a02928dbc573b4ac67065788"></span>Tensor <code class="sig-name descname">fusednbitrowwise_to_half_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, <em class="property">const</em> int64_t <em>bit_rate</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t">
+<span id="_CPPv328fusednbitrowwise_to_half_cpuRK6TensorK7int64_t"></span><span id="_CPPv228fusednbitrowwise_to_half_cpuRK6TensorK7int64_t"></span><span id="fusednbitrowwise_to_half_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga1c32bf52a02928dbc573b4ac67065788"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fusednbitrowwise_to_half_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv437fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t">
-<span id="_CPPv337fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t"></span><span id="_CPPv237fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t"></span><span id="fusednbitrowwise_to_float_or_half_cpu__TensorCR.int64_tC.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga5bd66d69876ef2493a6ebb4346c31bb9"></span>Tensor <code class="sig-name descname">fusednbitrowwise_to_float_or_half_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>input</em>, <em class="property">const</em> int64_t <em>bit_rate</em>, <em class="property">const</em> int64_t <em>output_dtype</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv437fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t">
+<span id="_CPPv337fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t"></span><span id="_CPPv237fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t"></span><span id="fusednbitrowwise_to_float_or_half_cpu__TensorCR.int64_tC.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga5bd66d69876ef2493a6ebb4346c31bb9"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fusednbitrowwise_to_float_or_half_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_dtype</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd">
-<span id="_CPPv323FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd"></span><span id="_CPPv223FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd"></span><span id="FloatToFP8Quantized_ref__floatCPC.sC.sC.uint8_tPC.iC.iC.doubleC"></span><span class="target" id="group__quantize-data-cpu_1gad14f49d191c7960681206b7103d781c4"></span>void <code class="sig-name descname">FloatToFP8Quantized_ref</code><span class="sig-paren">(</span><em class="property">const</em> float *<em class="property">const</em> <em>input</em>, <em class="property">const</em> size_t <em>nrows</em>, <em class="property">const</em> size_t <em>ncols</em>, uint8_t *<em class="property">const</em> <em>output</em>, <em class="property">const</em> int <em>ebits</em>, <em class="property">const</em> int <em>exponent_bias</em>, <em class="property">const</em> double <em>max_pos</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd">
+<span id="_CPPv323FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd"></span><span id="_CPPv223FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd"></span><span id="FloatToFP8Quantized_ref__floatCPC.sC.sC.uint8_tPC.iC.iC.doubleC"></span><span class="target" id="group__quantize-data-cpu_1gad14f49d191c7960681206b7103d781c4"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FloatToFP8Quantized_ref</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">float</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">nrows</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">ncols</span></span>, <span class="n"><span class="pre">uint8_t</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">ebits</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">exponent_bias</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">max_pos</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">
-<span id="_CPPv323FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi"></span><span id="_CPPv223FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi"></span><span id="FP8QuantizedToFloat_ref__uint8_tCPC.sC.sC.floatPC.iC.iC"></span><span class="target" id="group__quantize-data-cpu_1ga4c49e527f364bfa224ed34f4fe9f13e7"></span>void <code class="sig-name descname">FP8QuantizedToFloat_ref</code><span class="sig-paren">(</span><em class="property">const</em> uint8_t *<em class="property">const</em> <em>input</em>, <em class="property">const</em> size_t <em>nrows</em>, <em class="property">const</em> size_t <em>ncols</em>, float *<em class="property">const</em> <em>output</em>, <em class="property">const</em> int <em>ebits</em>, <em class="property">const</em> int <em>exponent_bias</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">
+<span id="_CPPv323FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi"></span><span id="_CPPv223FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi"></span><span id="FP8QuantizedToFloat_ref__uint8_tCPC.sC.sC.floatPC.iC.iC"></span><span class="target" id="group__quantize-data-cpu_1ga4c49e527f364bfa224ed34f4fe9f13e7"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FP8QuantizedToFloat_ref</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">uint8_t</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">nrows</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">ncols</span></span>, <span class="kt"><span class="pre">float</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">ebits</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">exponent_bias</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 </section>
@@ -596,11 +600,9 @@ model in order to achieve better storage performance with a small loss in accura
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

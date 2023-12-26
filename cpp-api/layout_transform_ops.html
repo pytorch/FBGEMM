@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Embedding Operators" href="embedding_ops.html" />
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
@@ -351,30 +354,30 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="layout-transformation-operators">
-<h1>Layout Transformation Operators<a class="headerlink" href="#layout-transformation-operators" title="Permalink to this headline">¶</a></h1>
+<h1>Layout Transformation Operators<a class="headerlink" href="#layout-transformation-operators" title="Permalink to this heading">¶</a></h1>
 <section id="cuda-operators">
-<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this headline">¶</a></h2>
+<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
-<dt id="_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE">
-<span id="_CPPv332recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE"></span><span id="_CPPv232recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE"></span><span id="recat_embedding_grad_output_cuda__Tensor.std::vector:int64_t:CR"></span><span class="target" id="group__layout-transform-cuda_1ga09438223bb710af7f55fb6d25fc9d99f"></span>Tensor <code class="sig-name descname">recat_embedding_grad_output_cuda</code><span class="sig-paren">(</span>Tensor <em>grad_output</em>, <em class="property">const</em> std::vector&lt;int64_t&gt; &amp;<em>num_features_per_rank</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE">
+<span id="_CPPv332recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE"></span><span id="_CPPv232recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE"></span><span id="recat_embedding_grad_output_cuda__Tensor.std::vector:int64_t:CR"></span><span class="target" id="group__layout-transform-cuda_1ga09438223bb710af7f55fb6d25fc9d99f"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">recat_embedding_grad_output_cuda</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">grad_output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">num_features_per_rank</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE">
-<span id="_CPPv340recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="_CPPv240recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="recat_embedding_grad_output_mixed_D_cuda__TensorCR.std::vector:int64_t:CR"></span><span class="target" id="group__layout-transform-cuda_1gaf753887183c2603a01978463228a0343"></span>Tensor <code class="sig-name descname">recat_embedding_grad_output_mixed_D_cuda</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>grad_output</em>, <em class="property">const</em> std::vector&lt;int64_t&gt; &amp;<em>dim_sum_per_rank</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE">
+<span id="_CPPv340recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="_CPPv240recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="recat_embedding_grad_output_mixed_D_cuda__TensorCR.std::vector:int64_t:CR"></span><span class="target" id="group__layout-transform-cuda_1gaf753887183c2603a01978463228a0343"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">recat_embedding_grad_output_mixed_D_cuda</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">grad_output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">dim_sum_per_rank</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
-<dt id="_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor">
-<span id="_CPPv346recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor"></span><span id="_CPPv246recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor"></span><span id="recat_embedding_grad_output_mixed_D_batch_cuda__TensorCR.TensorCR.TensorCR"></span><span class="target" id="group__layout-transform-cuda_1gad5cabc0ba0ee6dfd8a8de4e5825c62e9"></span>Tensor <code class="sig-name descname">recat_embedding_grad_output_mixed_D_batch_cuda</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>grad_output</em>, <em class="property">const</em> Tensor &amp;<em>dim_sum_per_rank</em>, <em class="property">const</em> Tensor &amp;<em>cumsum_dim_sum_per_rank</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor">
+<span id="_CPPv346recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor"></span><span id="_CPPv246recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor"></span><span id="recat_embedding_grad_output_mixed_D_batch_cuda__TensorCR.TensorCR.TensorCR"></span><span class="target" id="group__layout-transform-cuda_1gad5cabc0ba0ee6dfd8a8de4e5825c62e9"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">recat_embedding_grad_output_mixed_D_batch_cuda</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">grad_output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">dim_sum_per_rank</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cumsum_dim_sum_per_rank</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 </section>
 <section id="cpu-operators">
-<h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this headline">¶</a></h2>
+<h2>CPU Operators<a class="headerlink" href="#cpu-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
-<dt id="_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE">
-<span id="_CPPv339recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="_CPPv239recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="recat_embedding_grad_output_mixed_D_cpu__TensorCR.std::vector:int64_t:CR"></span><span class="target" id="group__layout-transform-cpu_1ga8edc2bee42577b7eeb76613b52d62311"></span>Tensor <code class="sig-name descname">recat_embedding_grad_output_mixed_D_cpu</code><span class="sig-paren">(</span><em class="property">const</em> Tensor &amp;<em>grad_output</em>, <em class="property">const</em> std::vector&lt;int64_t&gt; &amp;<em>dim_sum_per_rank</em><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
+<dt class="sig sig-object cpp" id="_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE">
+<span id="_CPPv339recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="_CPPv239recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE"></span><span id="recat_embedding_grad_output_mixed_D_cpu__TensorCR.std::vector:int64_t:CR"></span><span class="target" id="group__layout-transform-cpu_1ga8edc2bee42577b7eeb76613b52d62311"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">recat_embedding_grad_output_mixed_D_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">grad_output</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">dim_sum_per_rank</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv439recat_embedding_grad_output_mixed_D_cpuRK6TensorRKNSt6vectorI7int64_tEE" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 </section>
@@ -443,11 +446,9 @@
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

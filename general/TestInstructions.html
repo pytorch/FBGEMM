@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,9 +28,11 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Table Batched Embedding (TBE) Operators" href="../python-api/table_batched_embedding_ops.html" />
+    <link rel="next" title="Contributing Documentation" href="DocsInstructions.html" />
     <link rel="prev" title="Installation Instructions" href="InstallationInstructions.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -351,11 +354,11 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="testing-fbgemm-gpu">
-<h1>Testing FBGEMM_GPU<a class="headerlink" href="#testing-fbgemm-gpu" title="Permalink to this headline">¶</a></h1>
+<h1>Testing FBGEMM_GPU<a class="headerlink" href="#testing-fbgemm-gpu" title="Permalink to this heading">¶</a></h1>
 <p>The tests (in the <code class="docutils literal notranslate"><span class="pre">test/</span></code> directoy) and benchmarks (in the <code class="docutils literal notranslate"><span class="pre">bench/</span></code>
 directory) provide good examples on how to use FBGEMM_GPU.</p>
 <section id="fbgemm-gpu-tests">
-<h2>FBGEMM_GPU Tests<a class="headerlink" href="#fbgemm-gpu-tests" title="Permalink to this headline">¶</a></h2>
+<h2>FBGEMM_GPU Tests<a class="headerlink" href="#fbgemm-gpu-tests" title="Permalink to this heading">¶</a></h2>
 <p>To run the tests after building / installing the FBGEMM_GPU package:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
 <span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
@@ -367,7 +370,7 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 </pre></div>
 </div>
 <section id="testing-with-the-cuda-variant">
-<h3>Testing with the CUDA Variant<a class="headerlink" href="#testing-with-the-cuda-variant" title="Permalink to this headline">¶</a></h3>
+<h3>Testing with the CUDA Variant<a class="headerlink" href="#testing-with-the-cuda-variant" title="Permalink to this heading">¶</a></h3>
 <p>For the FBGEMM_GPU CUDA package, GPUs will be automatically detected and
 used for testing. To run the tests and benchmarks on a GPU-capable
 device in CPU-only mode, <code class="docutils literal notranslate"><span class="pre">CUDA_VISIBLE_DEVICES=-1</span></code> must be set in the
@@ -381,7 +384,7 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 </div>
 </section>
 <section id="testing-with-the-rocm-variant">
-<h3>Testing with the ROCm Variant<a class="headerlink" href="#testing-with-the-rocm-variant" title="Permalink to this headline">¶</a></h3>
+<h3>Testing with the ROCm Variant<a class="headerlink" href="#testing-with-the-rocm-variant" title="Permalink to this heading">¶</a></h3>
 <p>For ROCm machines, testing against a ROCm GPU needs to be enabled with
 <code class="docutils literal notranslate"><span class="pre">FBGEMM_TEST_WITH_ROCM=1</span></code> set in the environment:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
@@ -397,7 +400,7 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 </section>
 </section>
 <section id="fbgemm-gpu-benchmarks">
-<h2>FBGEMM_GPU Benchmarks<a class="headerlink" href="#fbgemm-gpu-benchmarks" title="Permalink to this headline">¶</a></h2>
+<h2>FBGEMM_GPU Benchmarks<a class="headerlink" href="#fbgemm-gpu-benchmarks" title="Permalink to this heading">¶</a></h2>
 <p>To run the benchmarks:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
 <span class="nb">cd</span><span class="w"> </span>bench
@@ -416,7 +419,7 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../python-api/table_batched_embedding_ops.html" class="btn btn-neutral float-right" title="Table Batched Embedding (TBE) Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="DocsInstructions.html" class="btn btn-neutral float-right" title="Contributing Documentation" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="InstallationInstructions.html" class="btn btn-neutral" title="Installation Instructions" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
@@ -475,11 +478,9 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

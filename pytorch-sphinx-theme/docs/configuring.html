@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
   <!-- Google Tag Manager -->
@@ -250,18 +252,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -349,12 +352,12 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="configuration">
-<h1>Configuration<a class="headerlink" href="#configuration" title="Permalink to this headline">¶</a></h1>
+<h1>Configuration<a class="headerlink" href="#configuration" title="Permalink to this heading">¶</a></h1>
 <p>You can configure different parts of the theme.</p>
 <section id="project-wide-configuration">
-<h2>Project-wide Configuration<a class="headerlink" href="#project-wide-configuration" title="Permalink to this headline">¶</a></h2>
+<h2>Project-wide Configuration<a class="headerlink" href="#project-wide-configuration" title="Permalink to this heading">¶</a></h2>
 <section id="html-theme-options">
-<h3>HTML Theme Options<a class="headerlink" href="#html-theme-options" title="Permalink to this headline">¶</a></h3>
+<h3>HTML Theme Options<a class="headerlink" href="#html-theme-options" title="Permalink to this heading">¶</a></h3>
 <p>The theme’s project-wide options are defined in the <code class="docutils literal notranslate"><span class="pre">pytorch_sphinx_theme/theme.conf</span></code>
 file of this repository, and can be defined in your project’s <code class="docutils literal notranslate"><span class="pre">conf.py</span></code> via
 <code class="docutils literal notranslate"><span class="pre">html_theme_options</span></code>. For example:</p>
@@ -377,7 +380,7 @@ file of this repository, and can be defined in your project’s <code class="doc
 </div>
 <p>The following options are available:</p>
 <section id="base-options">
-<h4>Base options<a class="headerlink" href="#base-options" title="Permalink to this headline">¶</a></h4>
+<h4>Base options<a class="headerlink" href="#base-options" title="Permalink to this heading">¶</a></h4>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">canonical_url</span></code> String. This will specify a <a class="reference external" href="https://en.wikipedia.org/wiki/Canonical_link_element">canonical url</a>
 to let search engines know they should give higher ranking to latest version of the docs.
@@ -393,7 +396,7 @@ on Bitbucket, this can be either: <cite>view</cite> (default) or <cite>edit</cit
 </ul>
 </section>
 <section id="toc-options">
-<h4>TOC Options<a class="headerlink" href="#toc-options" title="Permalink to this headline">¶</a></h4>
+<h4>TOC Options<a class="headerlink" href="#toc-options" title="Permalink to this heading">¶</a></h4>
 <p>These effect how we display the Table of Contents in the side bar. You can read more about them here: <a class="reference external" href="http://www.sphinx-doc.org/en/stable/templating.html#toctree">http://www.sphinx-doc.org/en/stable/templating.html#toctree</a></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">collapse_navigation</span></code> Bool. With this enabled, you will lose the <code class="docutils literal notranslate"><span class="pre">[+]</span></code> drop downs next to each section in the sidebar.</p></li>
@@ -412,12 +415,12 @@ that are significantly larger in file size and much longer compilation times.</p
 </section>
 </section>
 <section id="html-context-options">
-<h3>HTML Context Options<a class="headerlink" href="#html-context-options" title="Permalink to this headline">¶</a></h3>
+<h3>HTML Context Options<a class="headerlink" href="#html-context-options" title="Permalink to this heading">¶</a></h3>
 <p>TODO.</p>
 </section>
 </section>
 <section id="page-level-configuration">
-<h2>Page-level Configuration<a class="headerlink" href="#page-level-configuration" title="Permalink to this headline">¶</a></h2>
+<h2>Page-level Configuration<a class="headerlink" href="#page-level-configuration" title="Permalink to this heading">¶</a></h2>
 <p>Pages support metadata that changes how the theme renders.
 You can currently add the following:</p>
 <ul class="simple">
@@ -427,7 +430,7 @@ You can currently add the following:</p>
 </ul>
 </section>
 <section id="how-the-table-of-contents-builds">
-<h2>How the Table of Contents builds<a class="headerlink" href="#how-the-table-of-contents-builds" title="Permalink to this headline">¶</a></h2>
+<h2>How the Table of Contents builds<a class="headerlink" href="#how-the-table-of-contents-builds" title="Permalink to this heading">¶</a></h2>
 <p>Currently the left menu will build based upon any <code class="docutils literal notranslate"><span class="pre">toctree(s)</span></code> defined in your <code class="docutils literal notranslate"><span class="pre">index.rst</span></code> file.
 It outputs 2 levels of depth, which should give your visitors a high level of access to your
 docs. If no toctrees are set the theme reverts to sphinx’s usual local toctree.</p>
@@ -506,11 +509,9 @@ altogether change the setting in <code class="docutils literal notranslate"><spa
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
-         <script src="../../_static/jquery.js"></script>
-         <script src="../../_static/underscore.js"></script>
+         <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
          <script src="../../_static/doctools.js"></script>
-         <script src="../../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../../_static/sphinx_highlight.js"></script>
      
 
   

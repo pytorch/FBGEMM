@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Sparse Data Operators" href="../cpp-api/sparse_ops.html" />
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -351,23 +354,23 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="module-fbgemm_gpu">
-<span id="jagged-tensor-operators"></span><h1>Jagged Tensor Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this headline">¶</a></h1>
+<span id="jagged-tensor-operators"></span><h1>Jagged Tensor Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
 <dl class="py function">
-<dt id="torch.ops.fbgemm.jagged_2d_to_dense">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_2d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">values</span></em>, <em class="sig-param"><span class="n">x_offsets</span></em>, <em class="sig-param"><span class="n">max_sequence_length</span></em><span class="sig-paren">)</span> &#x2192; Tensor<a class="headerlink" href="#torch.ops.fbgemm.jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.jagged_2d_to_dense">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">jagged_2d_to_dense</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_sequence_length</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
 <dd><p>Converts a jagged tensor, with a 2D values array into a dense tensor, padding with zeros.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>values</strong> (<em>Tensor</em>) – 2D tensor containing the values of the jagged tensor.</p></li>
 <li><p><strong>x_offsets</strong> (<em>Tensor</em>) – 1D tensor containing the starting point of each jagged row in the values tensor.</p></li>
-<li><p><strong>max_sequence_length</strong> (<em>int</em>) – Maximum length of any row in the jagged dimension.</p></li>
+<li><p><strong>max_sequence_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – Maximum length of any row in the jagged dimension.</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The padded dense tensor</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Tensor</p>
 </dd>
 </dl>
@@ -386,22 +389,22 @@
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.jagged_1d_to_dense">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_1d_to_dense</code><span class="sig-paren">(</span><em class="sig-param">values</em>, <em class="sig-param">offsets</em>, <em class="sig-param">max_sequence_length</em>, <em class="sig-param">padding_value) -&gt; Tensor</em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.jagged_1d_to_dense">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">jagged_1d_to_dense</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_sequence_length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">padding_value)</span> <span class="pre">-&gt;</span> <span class="pre">Tensor</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
 <dd><p>Converts a jagged tensor, with a 1D values array, into a dense tensor, padding with a specified padding value.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>values</strong> (<em>Tensor</em>) – 1D tensor containing the values of the jagged tensor.</p></li>
 <li><p><strong>offsets</strong> (<em>Tensor</em>) – 1D tensor containing the starting point of each jagged row in the values tensor.</p></li>
-<li><p><strong>max_sequence_length</strong> (<em>int</em>) – Maximum length of any row in the jagged dimension.</p></li>
-<li><p><strong>padding_value</strong> (<em>int</em>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
+<li><p><strong>max_sequence_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – Maximum length of any row in the jagged dimension.</p></li>
+<li><p><strong>padding_value</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>the padded dense tensor</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Tensor</p>
 </dd>
 </dl>
@@ -416,21 +419,21 @@
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.dense_to_jagged">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">dense_to_jagged</code><span class="sig-paren">(</span><em class="sig-param">dense</em>, <em class="sig-param">x_offsets</em>, <em class="sig-param">total_L) -&gt; (Tensor</em>, <em class="sig-param">Tensor[]</em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.dense_to_jagged" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.dense_to_jagged">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">dense_to_jagged</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dense</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_L)</span> <span class="pre">-&gt;</span> <span class="pre">(Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Tensor[]</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.dense_to_jagged" title="Permalink to this definition">¶</a></dt>
 <dd><p>Converts a dense tensor into a jagged tensor, given the desired offsets of the resulting dense tensor.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>dense</strong> (<em>Tensor</em>) – A dense input tensor to be converted</p></li>
 <li><p><strong>x_offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
-<li><p><strong>total_L</strong> (<em>int</em><em>, </em><em>Optional</em>) – Total number of values in the resulting jagged tensor.</p></li>
+<li><p><strong>total_L</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>, </em><em>Optional</em>) – Total number of values in the resulting jagged tensor.</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Values and offsets of the resulting jagged tensor. Offsets are identital to those that were input.</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>(Tensor, Tensor[])</p>
 </dd>
 </dl>
@@ -446,22 +449,22 @@
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.jagged_to_padded_dense">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_to_padded_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">values</span></em>, <em class="sig-param"><span class="n">offsets</span></em>, <em class="sig-param"><span class="n">max_lengths</span></em>, <em class="sig-param"><span class="n">padding_value</span><span class="o">=</span><span class="default_value">0</span></em><span class="sig-paren">)</span> &#x2192; Tensor<a class="headerlink" href="#torch.ops.fbgemm.jagged_to_padded_dense" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.jagged_to_padded_dense">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">jagged_to_padded_dense</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_lengths</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">padding_value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.jagged_to_padded_dense" title="Permalink to this definition">¶</a></dt>
 <dd><p>Converts a jagged tensor into a dense tensor, padding with a specified padding value.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>values</strong> (<em>Tensor</em>) – Jagged tensor values</p></li>
 <li><p><strong>offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
-<li><p><strong>max_lengths</strong> (<em>int</em><em>[</em><em>]</em>) – A list with max_length for each jagged dimension.</p></li>
-<li><p><strong>padding_value</strong> (<em>float</em>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
+<li><p><strong>max_lengths</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>[</em><em>]</em>) – A list with max_length for each jagged dimension.</p></li>
+<li><p><strong>padding_value</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>the padded dense tensor</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Tensor</p>
 </dd>
 </dl>
@@ -480,54 +483,54 @@
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.jagged_dense_elementwise_add">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_add</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">x_values</span></em>, <em class="sig-param"><span class="n">x_offsets</span></em>, <em class="sig-param"><span class="n">y</span></em><span class="sig-paren">)</span> &#x2192; Tensor<a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.jagged_dense_elementwise_add">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">jagged_dense_elementwise_add</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add" title="Permalink to this definition">¶</a></dt>
 <dd><p>Adds a jagged tensor to a dense tensor, resulting in dense tensor. Jagged
 tensor input will be padded with zeros for the purposes of the addition.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>x_values</strong> (<em>Tensor</em>) – Jagged tensor values</p></li>
 <li><p><strong>offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
 <li><p><strong>y</strong> (<em>Tensor</em>) – A dense tensor</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>The sum of jagged input tensor + y</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Tensor</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_add_jagged_output</code><span class="sig-paren">(</span><em class="sig-param">x_values</em>, <em class="sig-param">x_offsets</em>, <em class="sig-param">y) -&gt; (Tensor</em>, <em class="sig-param">Tensor[]</em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">jagged_dense_elementwise_add_jagged_output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y)</span> <span class="pre">-&gt;</span> <span class="pre">(Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Tensor[]</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
 <dd><p>Adds a jagged tensor to a dense tensor and, resulting in a jagged tensor with the same structure as the input jagged tensor.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>x_values</strong> (<em>Tensor</em>) – Jagged tensor values</p></li>
 <li><p><strong>x_offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
 <li><p><strong>y</strong> (<em>Tensor</em>) – A dense tensor</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Values and offsets of the resulting jagged tensor. Offsets are identital to those that were input.</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>(Tensor, Tensor[])</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_dense_elementwise_add_jagged_output</code><span class="sig-paren">(</span><em class="sig-param">x_values</em>, <em class="sig-param">x_offsets</em>, <em class="sig-param">y_0</em>, <em class="sig-param">y_1) -&gt; (Tensor</em>, <em class="sig-param">Tensor[]</em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">jagged_dense_dense_elementwise_add_jagged_output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_1)</span> <span class="pre">-&gt;</span> <span class="pre">(Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Tensor[]</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output" title="Permalink to this definition">¶</a></dt>
 <dd><p>Adds a jagged tensor to the sum of two dense tensors, resulting in a jagged tensor with the same structure as the input jagged tensor.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>x_values</strong> (<em>Tensor</em>) – Jagged tensor values</p></li>
 <li><p><strong>x_offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
@@ -535,67 +538,67 @@ tensor input will be padded with zeros for the purposes of the addition.</p>
 <li><p><strong>y_1</strong> (<em>Tensor</em>) – A dense tensor</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Values and offsets of the resulting jagged tensor. Offsets are identital to those that were input.</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>(Tensor, Tensor[])</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.jagged_dense_elementwise_mul">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">jagged_dense_elementwise_mul</code><span class="sig-paren">(</span><em class="sig-param">x_values</em>, <em class="sig-param">x_offsets</em>, <em class="sig-param">y) -&gt; (Tensor</em>, <em class="sig-param">Tensor[]</em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_mul" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.jagged_dense_elementwise_mul">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">jagged_dense_elementwise_mul</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y)</span> <span class="pre">-&gt;</span> <span class="pre">(Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Tensor[]</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.jagged_dense_elementwise_mul" title="Permalink to this definition">¶</a></dt>
 <dd><p>Elementwise-multiplies a jagged tensor a dense tensor and, resulting in a jagged tensor with the same structure as the input jagged tensor.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>x_values</strong> (<em>Tensor</em>) – Jagged tensor values</p></li>
 <li><p><strong>x_offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
 <li><p><strong>y</strong> (<em>Tensor</em>) – A dense tensor</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Values and offsets of the resulting jagged tensor. Offsets are identital to those that were input.</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>(Tensor, Tensor[])</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">batched_dense_vec_jagged_2d_mul</code><span class="sig-paren">(</span><em class="sig-param">Tensor v</em>, <em class="sig-param">Tensor a_values</em>, <em class="sig-param">Tensor a_offsets</em><span class="sig-paren">)</span> &#x2192; Tensor<a class="headerlink" href="#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">batched_dense_vec_jagged_2d_mul</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Tensor</span> <span class="pre">v</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Tensor</span> <span class="pre">a_values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Tensor</span> <span class="pre">a_offsets</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul" title="Permalink to this definition">¶</a></dt>
 <dd><p>Batched vector matrix multiplication of a batched dense vector with a jagged tensor, dense vector is in
 size (B * H, max_N) and jagged tensor is in size (B, max_N, H * D) where max_N is the maximum size of
 jagged dimension. B * H is the batch size and each multiplies is max_N with [max_N, D]</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>v</strong> (<em>Tensor</em>) – dense vector tensor</p></li>
 <li><p><strong>a_values</strong> (<em>Tensor</em>) – Jagged tensor values</p></li>
 <li><p><strong>a_offsets</strong> (<em>Tensor</em><em> [</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>output of batch matmul in size (B * H, D)</p>
 </dd>
-<dt class="field-odd">Return type</dt>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Tensor</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.stacked_jagged_1d_to_dense">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">stacked_jagged_1d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.stacked_jagged_1d_to_dense">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">stacked_jagged_1d_to_dense</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_1d_to_dense" title="Permalink to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
-<dt id="torch.ops.fbgemm.stacked_jagged_2d_to_dense">
-<code class="sig-prename descclassname">torch.ops.fbgemm.</code><code class="sig-name descname">stacked_jagged_2d_to_dense</code><span class="sig-paren">(</span><em class="sig-param"><span class="o">*</span><span class="n">args</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">kwargs</span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="torch.ops.fbgemm.stacked_jagged_2d_to_dense">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">stacked_jagged_2d_to_dense</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.stacked_jagged_2d_to_dense" title="Permalink to this definition">¶</a></dt>
 <dd></dd></dl>
 
 </section>
@@ -643,7 +646,20 @@ jagged dimension. B * H is the batch size and each multiplies is max_N with [max
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Jagged Tensor Operators</a></li>
+<li><a class="reference internal" href="#">Jagged Tensor Operators</a><ul>
+<li><a class="reference internal" href="#torch.ops.fbgemm.jagged_2d_to_dense"><code class="docutils literal notranslate"><span class="pre">jagged_2d_to_dense()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.jagged_1d_to_dense"><code class="docutils literal notranslate"><span class="pre">jagged_1d_to_dense()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.dense_to_jagged"><code class="docutils literal notranslate"><span class="pre">dense_to_jagged()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.jagged_to_padded_dense"><code class="docutils literal notranslate"><span class="pre">jagged_to_padded_dense()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.jagged_dense_elementwise_add"><code class="docutils literal notranslate"><span class="pre">jagged_dense_elementwise_add()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output"><code class="docutils literal notranslate"><span class="pre">jagged_dense_elementwise_add_jagged_output()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output"><code class="docutils literal notranslate"><span class="pre">jagged_dense_dense_elementwise_add_jagged_output()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.jagged_dense_elementwise_mul"><code class="docutils literal notranslate"><span class="pre">jagged_dense_elementwise_mul()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul"><code class="docutils literal notranslate"><span class="pre">batched_dense_vec_jagged_2d_mul()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.stacked_jagged_1d_to_dense"><code class="docutils literal notranslate"><span class="pre">stacked_jagged_1d_to_dense()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.stacked_jagged_2d_to_dense"><code class="docutils literal notranslate"><span class="pre">stacked_jagged_2d_to_dense()</span></code></a></li>
+</ul>
+</li>
 </ul>
 
             </div>
@@ -659,11 +675,9 @@ jagged dimension. B * H is the batch size and each multiplies is max_N with [max
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

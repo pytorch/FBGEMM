@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../../../genindex.html" />
     <link rel="search" title="Search" href="../../../search.html" />
   <!-- Google Tag Manager -->
@@ -250,18 +252,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -349,8 +352,8 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="mod-test-py-module">
-<h1><a class="toc-backref" href="#id5"><span class="section-number">5. </span><a href="#id1"><span class="problematic" id="id2">:mod:`test_py_module`</span></a></a><a class="headerlink" href="#mod-test-py-module" title="Permalink to this headline">¶</a></h1>
-<div class="contents topic" id="table-of-contents">
+<h1><a class="toc-backref" href="#id5" role="doc-backlink"><span class="section-number">5. </span><a href="#id1"><span class="problematic" id="id2">:mod:`test_py_module`</span></a></a><a class="headerlink" href="#mod-test-py-module" title="Permalink to this heading">¶</a></h1>
+<nav class="contents" id="table-of-contents">
 <p class="topic-title">Table of Contents</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="#mod-test-py-module" id="id5">:mod:`test_py_module`</a></p>
@@ -361,37 +364,43 @@
 </ul>
 </li>
 </ul>
-</div>
+</nav>
 <section id="generated-index">
-<h2><a class="toc-backref" href="#id6"><span class="section-number">5.1. </span>Generated Index</a><a class="headerlink" href="#generated-index" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id6" role="doc-backlink"><span class="section-number">5.1. </span>Generated Index</a><a class="headerlink" href="#generated-index" title="Permalink to this heading">¶</a></h2>
 <p>Part of the sphinx build process in generate and index file: <a class="reference internal" href="../../../genindex.html"><span class="std std-ref">Index</span></a>.</p>
 </section>
 <section id="optional-parameter-args">
-<h2><a class="toc-backref" href="#id7"><span class="section-number">5.2. </span>Optional parameter args</a><a class="headerlink" href="#optional-parameter-args" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id7" role="doc-backlink"><span class="section-number">5.2. </span>Optional parameter args</a><a class="headerlink" href="#optional-parameter-args" title="Permalink to this heading">¶</a></h2>
 <p>At this point optional parameters <a class="reference external" href="https://groups.google.com/forum/#!topic/sphinx-users/_qfsVT5Vxpw">cannot be generated from code</a>.
 However, some projects will manually do it, like so:</p>
 <p>This example comes from <a class="reference external" href="http://django-payments.readthedocs.org/en/latest/modules.html#payments.authorizenet.AuthorizeNetProvide">django-payments module docs</a>.</p>
 <dl class="cpp class">
-<dt>
-<code class="sig-name descname">payments.dotpay.DotpayProvider(seller_id, pin[, channel=0[, lock=False], lang='pl'])</code></dt>
+<dt class="sig sig-object cpp">
+<span class="sig-name descname"><span class="pre">payments.dotpay.DotpayProvider(seller_id,</span> <span class="pre">pin[,</span> <span class="pre">channel=0[,</span> <span class="pre">lock=False],</span> <span class="pre">lang='pl'])</span></span></dt>
 <dd><p>This backend implements payments using a popular Polish gateway, <a class="reference external" href="http://www.dotpay.pl">Dotpay.pl</a>.</p>
 <p>Due to API limitations there is no support for transferring purchased items.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>seller_id</strong> – Seller ID assigned by Dotpay</p></li>
-<li><p><strong>pin</strong> – PIN assigned by Dotpay</p></li>
-<li><p><strong>channel</strong> – Default payment channel (consult reference guide)</p></li>
-<li><p><strong>lang</strong> – UI language</p></li>
-<li><p><strong>lock</strong> – Whether to disable channels other than the default selected above</p></li>
-</ul>
+<dt class="field-odd">Param seller_id<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Seller ID assigned by Dotpay</p>
+</dd>
+<dt class="field-even">Param pin<span class="colon">:</span></dt>
+<dd class="field-even"><p>PIN assigned by Dotpay</p>
+</dd>
+<dt class="field-odd">Param channel<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Default payment channel (consult reference guide)</p>
+</dd>
+<dt class="field-even">Param lang<span class="colon">:</span></dt>
+<dd class="field-even"><p>UI language</p>
+</dd>
+<dt class="field-odd">Param lock<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Whether to disable channels other than the default selected above</p>
 </dd>
 </dl>
 </dd></dl>
 
 </section>
 <section id="data">
-<h2><a class="toc-backref" href="#id8"><span class="section-number">5.3. </span>Data</a><a class="headerlink" href="#data" title="Permalink to this headline">¶</a></h2>
+<h2><a class="toc-backref" href="#id8" role="doc-backlink"><span class="section-number">5.3. </span>Data</a><a class="headerlink" href="#data" title="Permalink to this heading">¶</a></h2>
 <p>Some data link <a href="#id3"><span class="problematic" id="id4">:data:`Data_item_1`</span></a>.</p>
 </section>
 </section>
@@ -451,11 +460,9 @@ However, some projects will manually do it, like so:</p>
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../../../" src="../../../_static/documentation_options.js"></script>
-         <script src="../../../_static/jquery.js"></script>
-         <script src="../../../_static/underscore.js"></script>
+         <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
          <script src="../../../_static/doctools.js"></script>
-         <script src="../../../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../../../_static/sphinx_highlight.js"></script>
      
 
   

@@ -1,5 +1,29 @@
 var searchData=
 [
-  ['generic_5fhistogram_5fbinning_5fcalibration_5fby_5ffeature_5fcpu_0',['generic_histogram_binning_calibration_by_feature_cpu',['../group__sparse-data-cpu.html#gaef2a0a8c27e3b8b2d72be5c95ba7539e',1,'fbgemm_gpu']]],
-  ['get_5funique_5findices_5fcuda_1',['get_unique_indices_cuda',['../group__table-batched-embed-cuda.html#ga4887151424a90cfd0abef174a4e91f3f',1,'get_unique_indices_cuda(at::Tensor linear_indices, int64_t max_indices, bool compute_count):&#160;linearize_cache_indices.cu'],['../group__table-batched-embed-cuda.html#ga4887151424a90cfd0abef174a4e91f3f',1,'get_unique_indices_cuda(Tensor linear_indices, int64_t max_indices, bool compute_count):&#160;linearize_cache_indices.cu']]]
+  ['calc_5foffsets_5frange_5fthread_5fblock_0',['calc_offsets_range_thread_block',['../namespacefbgemm__gpu.html#ae0656dd690bcffdd8b470d894e25b2d8',1,'fbgemm_gpu']]],
+  ['cat_5freorder_5fbatched_5fad_5findices_5fcpu_1',['cat_reorder_batched_ad_indices_cpu',['../namespacefbgemm__gpu.html#a1ed236113fa360c41a2eb0507c3fc2c7',1,'fbgemm_gpu']]],
+  ['cat_5freorder_5fbatched_5fad_5findices_5fcpu_5f_2',['cat_reorder_batched_ad_indices_cpu_',['../namespacefbgemm__gpu.html#a6b5e65a3f532db97f093037c9dcb3902',1,'fbgemm_gpu']]],
+  ['compact_3',['compact',['../classssd_1_1_embedding_rocks_d_b.html#a043cdfc194924194e381a986c229569e',1,'ssd::EmbeddingRocksDB']]],
+  ['compact_5fif_5fnecessary_4',['compact_if_necessary',['../classssd_1_1_embedding_rocks_d_b.html#a92b07dcd61720ad3a72dbbad89c26514',1,'ssd::EmbeddingRocksDB']]],
+  ['compute_5ffrequency_5fsequence_5',['compute_frequency_sequence',['../namespacefbgemm__gpu.html#a6b41d7b032eb1abe61eee0bd903d8dfb',1,'fbgemm_gpu']]],
+  ['compute_5fnum_5fuint64s_6',['compute_num_uint64s',['../namespacefbgemm__gpu.html#af861e4a8f7b669619744fe59ca2f73a3',1,'fbgemm_gpu']]],
+  ['convert_5ffloat_5fto_5fhalf_5fassemblefloat_7',['convert_float_to_half_assemblefloat',['../verify__fp16__stochastic__benchmark_8cu.html#abbb1b78a4249b42b116429258ac56174',1,'verify_fp16_stochastic_benchmark.cu']]],
+  ['convert_5ffloat_5fto_5fhalf_5fbitcarry_8',['convert_float_to_half_bitcarry',['../verify__fp16__stochastic__benchmark_8cu.html#a46898a808f7408d99e7ad4c7fc0fea2a',1,'verify_fp16_stochastic_benchmark.cu']]],
+  ['convert_5ffloat_5fto_5fhalf_5fdirect_9',['convert_float_to_half_direct',['../verify__fp16__stochastic__benchmark_8cu.html#a169a7087c41e8efae2d09cfc78fa802e',1,'verify_fp16_stochastic_benchmark.cu']]],
+  ['convert_5ffloat_5fto_5fhalf_5fshortrand_10',['convert_float_to_half_shortrand',['../verify__fp16__stochastic__benchmark_8cu.html#ab109332ca0fae3f39a7d000348a1401c',1,'verify_fp16_stochastic_benchmark.cu']]],
+  ['copy_11',['copy',['../structfbgemm__gpu_1_1_vec4_t_3_01float_01_4.html#aa3322732b0a44cf924b89a066f4503d4',1,'fbgemm_gpu::Vec4T&lt; float &gt;::copy()'],['../structfbgemm__gpu_1_1_vec4_t_3_01at_1_1_half_01_4.html#ad6a7665bbc9596b7b9123c9a0605fe1c',1,'fbgemm_gpu::Vec4T&lt; at::Half &gt;::copy()'],['../structfbgemm__gpu_1_1_vec4_t_3_01at_1_1_b_float16_01_4.html#a140a9bcb80dcfae69a427d885d148952',1,'fbgemm_gpu::Vec4T&lt; at::BFloat16 &gt;::copy()'],['../structfbgemm__gpu_1_1_vec4_t_3_01double_01_4.html#a8af22674533453883301576ae485699c',1,'fbgemm_gpu::Vec4T&lt; double &gt;::copy()']]],
+  ['copy_5fstr_12',['copy_str',['../classfbgemm__gpu_1_1_generic_packed_tensor_accessor_base.html#a7c56e8e49eb26679b9cf3a65c3bd38a9',1,'fbgemm_gpu::GenericPackedTensorAccessorBase']]],
+  ['cp_5fasync_5ffence_13',['cp_async_fence',['../namespacenbit.html#a9d3f5c31c0728bd8031522979f9fd236',1,'nbit']]],
+  ['cp_5fasync_5fwait_14',['cp_async_wait',['../namespacenbit.html#ab71806d51c0bb2fbc0b08fb3ed2b442e',1,'nbit']]],
+  ['cp_5fasync_5fwait_3c_200_20_3e_15',['cp_async_wait&lt; 0 &gt;',['../namespacenbit.html#a869b22b83f81fa2ed2302ceb80d9b9ca',1,'nbit']]],
+  ['cp_5fasync_5fzfill_16',['cp_async_zfill',['../namespacenbit.html#ac46112b67b5de646034bc1d35d44c8fe',1,'nbit']]],
+  ['cp_5fasync_5fzfill_5fcg_17',['cp_async_zfill_cg',['../namespacenbit.html#a7f38bc64db06ad5e5ee1b4efa55c349d',1,'nbit']]],
+  ['csr2csc_18',['csr2csc',['../namespaceinternal.html#adff2ce52cb6a5e84b57614a452aa77d5',1,'internal']]],
+  ['csr2csc_3c_20double_20_3e_19',['csr2csc&lt; double &gt;',['../namespaceinternal.html#ab8f896e4d2c97b1369a8e5fb7d9408b7',1,'internal']]],
+  ['csr2csc_3c_20float_20_3e_20',['csr2csc&lt; float &gt;',['../namespaceinternal.html#a3715c6c222855aa1b842c358fe2a6420',1,'internal']]],
+  ['cuda_5fcalc_5fblock_5fcount_21',['cuda_calc_block_count',['../sparse__ops__utils_8h.html#ab702f2479ba0bedf91c18e0b644b210a',1,'sparse_ops_utils.h']]],
+  ['cuda_5fcalc_5fxblock_5fcount_22',['cuda_calc_xblock_count',['../sparse__ops__utils_8h.html#a2eba06f69b5b34fe6ca0eafb0240d369',1,'sparse_ops_utils.h']]],
+  ['cuda_5fcalc_5fxblock_5fcount_5fbase_23',['cuda_calc_xblock_count_base',['../sparse__ops__utils_8h.html#a885f787cafec301665604303ae43a2e3',1,'sparse_ops_utils.h']]],
+  ['cuda_5fkernel_5floop_24',['CUDA_KERNEL_LOOP',['../namespacefbgemm__gpu.html#a14c0f0b2b6107f2b17eb472d9be9fb03',1,'fbgemm_gpu::CUDA_KERNEL_LOOP(b_t, lengths_size)'],['../namespacefbgemm__gpu.html#ab331d23c5119efeb513b36fed74c53b0',1,'fbgemm_gpu::CUDA_KERNEL_LOOP(r, lengths_size)']]],
+  ['cutlass_5fget_5fsmem_5fpointer_25',['cutlass_get_smem_pointer',['../namespacenbit.html#a64cf76bab7c5be6cb2b0c7d1b77443a5',1,'nbit::cutlass_get_smem_pointer(void *ptr)'],['../namespacenbit.html#a250008d643379010295dede0b64068c6',1,'nbit::cutlass_get_smem_pointer(void const *ptr)']]]
 ];

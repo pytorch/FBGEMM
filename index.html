@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Build Instructions" href="general/BuildInstructions.html" />
@@ -251,18 +253,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -350,11 +353,11 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="welcome-to-fbgemm-s-documentation">
-<h1>Welcome to FBGEMM’s documentation!<a class="headerlink" href="#welcome-to-fbgemm-s-documentation" title="Permalink to this headline">¶</a></h1>
+<h1>Welcome to FBGEMM’s documentation!<a class="headerlink" href="#welcome-to-fbgemm-s-documentation" title="Permalink to this heading">¶</a></h1>
 <p>This documentation provides a comprehensive reference of the <cite>fbgemm_gpu</cite>
 library.</p>
-<div class="toctree-wrapper compound">
-<p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<div class="toctree-wrapper compound" id="fbgemm-gpu-docs-toc-general">
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="general/BuildInstructions.html">Build Instructions</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="general/BuildInstructions.html#set-up-an-isolated-build-environment">Set Up an Isolated Build Environment</a></li>
@@ -381,21 +384,44 @@ library.</p>
 <li class="toctree-l2"><a class="reference internal" href="general/TestInstructions.html#fbgemm-gpu-benchmarks">FBGEMM_GPU Benchmarks</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="general/DocsInstructions.html">Contributing Documentation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="general/DocsInstructions.html#building-the-api-documentation">Building the API Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/DocsInstructions.html#general-documentation-guidelines">General Documentation Guidelines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/DocsInstructions.html#adding-documentation-to-python-code">Adding Documentation to Python Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="general/DocsInstructions.html#adding-documentation-to-c-code">Adding Documentation to C++ Code</a></li>
+</ul>
+</li>
 </ul>
 </div>
-<div class="toctree-wrapper compound">
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<div class="toctree-wrapper compound" id="fbgemm-gpu-docs-toc-python">
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen"><code class="docutils literal notranslate"><span class="pre">SplitTableBatchedEmbeddingBagsCodegen()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_2d_to_dense"><code class="docutils literal notranslate"><span class="pre">jagged_2d_to_dense()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_1d_to_dense"><code class="docutils literal notranslate"><span class="pre">jagged_1d_to_dense()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.dense_to_jagged"><code class="docutils literal notranslate"><span class="pre">dense_to_jagged()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_to_padded_dense"><code class="docutils literal notranslate"><span class="pre">jagged_to_padded_dense()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_elementwise_add"><code class="docutils literal notranslate"><span class="pre">jagged_dense_elementwise_add()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output"><code class="docutils literal notranslate"><span class="pre">jagged_dense_elementwise_add_jagged_output()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output"><code class="docutils literal notranslate"><span class="pre">jagged_dense_dense_elementwise_add_jagged_output()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_elementwise_mul"><code class="docutils literal notranslate"><span class="pre">jagged_dense_elementwise_mul()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul"><code class="docutils literal notranslate"><span class="pre">batched_dense_vec_jagged_2d_mul()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.stacked_jagged_1d_to_dense"><code class="docutils literal notranslate"><span class="pre">stacked_jagged_1d_to_dense()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-api/jagged_tensor_ops.html#torch.ops.fbgemm.stacked_jagged_2d_to_dense"><code class="docutils literal notranslate"><span class="pre">stacked_jagged_2d_to_dense()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </div>
-<div class="toctree-wrapper compound">
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<div class="toctree-wrapper compound" id="fbgemm-gpu-docs-toc-cpp">
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/sparse_ops.html">Sparse Data Operators</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="cpp-api/sparse_ops.html#sparse-data-cuda-operators">Sparse Data CUDA Operators</a></li>
-<li class="toctree-l2"><a class="reference internal" href="cpp-api/sparse_ops.html#sparse-data-cpu-operators">Sparse Data CPU Operators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cpp-api/sparse_ops.html#cuda-operators">CUDA Operators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cpp-api/sparse_ops.html#cpu-operators">CPU Operators</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="cpp-api/quantize_ops.html">Quantization Operators</a><ul>
@@ -489,11 +515,9 @@ library.</p>
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
-         <script src="_static/jquery.js"></script>
-         <script src="_static/underscore.js"></script>
+         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
          <script src="_static/doctools.js"></script>
-         <script src="_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="_static/sphinx_highlight.js"></script>
      
 
   

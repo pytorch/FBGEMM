@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Testing FBGEMM_GPU" href="TestInstructions.html" />
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -351,9 +354,9 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="installation-instructions">
-<h1>Installation Instructions<a class="headerlink" href="#installation-instructions" title="Permalink to this headline">¶</a></h1>
-<p><strong>Note:</strong> The most up-to-date instructions are embedded in a set of scripts
-bundled in the FBGEMM_GPU repo under
+<h1>Installation Instructions<a class="headerlink" href="#installation-instructions" title="Permalink to this heading">¶</a></h1>
+<p><strong>Note:</strong> The most up-to-date installation instructions are embedded in a set
+of scripts bundled in the FBGEMM_GPU repo under
 <a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash">setup_env.bash</a>.</p>
 <p>The general steps for installing FBGEMM_GPU are as follows:</p>
 <ol class="arabic simple">
@@ -364,13 +367,13 @@ bundled in the FBGEMM_GPU repo under
 <li><p>Run post-installation checks.</p></li>
 </ol>
 <section id="set-up-cpu-only-environment">
-<h2>Set Up CPU-Only Environment<a class="headerlink" href="#set-up-cpu-only-environment" title="Permalink to this headline">¶</a></h2>
+<h2>Set Up CPU-Only Environment<a class="headerlink" href="#set-up-cpu-only-environment" title="Permalink to this heading">¶</a></h2>
 <p>Follow the instructions for setting up the Conda environment at
 <a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-docs-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>, followed by
 <a class="reference internal" href="#fbgemm-gpu-docs-install-libraries"><span class="std std-ref">Install Python Libraries</span></a>.</p>
 </section>
 <section id="set-up-cuda-environment">
-<h2>Set Up CUDA Environment<a class="headerlink" href="#set-up-cuda-environment" title="Permalink to this headline">¶</a></h2>
+<h2>Set Up CUDA Environment<a class="headerlink" href="#set-up-cuda-environment" title="Permalink to this heading">¶</a></h2>
 <p>The CUDA variant of FBGEMM_GPU requires an NVIDIA GPU installed to the machine,
 along with working NVIDIA drivers installed; otherwise or the library will fall
 back to running the CPU version of the operators.</p>
@@ -379,7 +382,7 @@ architectures (V100 and A100 GPUs respectively). Support for other architectures
 can be achieved by building the package from scratch, but is not guaranteed to
 work (especially for older architectures).</p>
 <section id="install-nvidia-drivers">
-<h3>Install NVIDIA Drivers<a class="headerlink" href="#install-nvidia-drivers" title="Permalink to this headline">¶</a></h3>
+<h3>Install NVIDIA Drivers<a class="headerlink" href="#install-nvidia-drivers" title="Permalink to this heading">¶</a></h3>
 <p>The NVIDIA display drivers must be installed on the system prior to all other
 environment setup. The steps provided by
 <a class="reference external" href="https://docs.nvidia.com/datacenter/tesla/tesla-installation-notes/index.html">NVIDIA</a>
@@ -412,7 +415,7 @@ be verified with the <code class="docutils literal notranslate"><span class="pre
 </div>
 </section>
 <section id="set-up-the-docker-container-and-conda-environment">
-<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#set-up-the-docker-container-and-conda-environment" title="Permalink to this headline">¶</a></h3>
+<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#set-up-the-docker-container-and-conda-environment" title="Permalink to this heading">¶</a></h3>
 <p>It is recommended, though not required, to install and run FBGEMM_GPU through a
 Docker setup for isolation and reproducibility of the CUDA environment.</p>
 <p>The NVIDIA-Docker runtime needs to be installed to expose the driver to the
@@ -428,19 +431,19 @@ Conda. Follow the instructions for setting up the Conda environment at
 <a class="reference internal" href="#fbgemm-gpu-docs-install-libraries"><span class="std std-ref">Install Python Libraries</span></a>.</p>
 </section>
 <section id="install-the-cuda-runtime">
-<h3>Install the CUDA Runtime<a class="headerlink" href="#install-the-cuda-runtime" title="Permalink to this headline">¶</a></h3>
+<h3>Install the CUDA Runtime<a class="headerlink" href="#install-the-cuda-runtime" title="Permalink to this heading">¶</a></h3>
 <p>If the OS / Docker environment does not already contain the full CUDA runtime,
 follow the instructions in <a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-docs-build-setup-cuda-install"><span class="std std-ref">Install CUDA</span></a> for
 installing the CUDA toolkit inside a Conda environment.</p>
 </section>
 </section>
 <section id="set-up-rocm-environment">
-<h2>Set Up ROCm Environment<a class="headerlink" href="#set-up-rocm-environment" title="Permalink to this headline">¶</a></h2>
+<h2>Set Up ROCm Environment<a class="headerlink" href="#set-up-rocm-environment" title="Permalink to this heading">¶</a></h2>
 <p>The ROCm variant of FBGEMM_GPU requires an AMD GPU installed to the machine,
 along with working AMDGPU drivers installed; otherwise or the library will fall
 back to running the CPU version of the operators.</p>
 <section id="install-amdgpu-drivers">
-<h3>Install AMDGPU Drivers<a class="headerlink" href="#install-amdgpu-drivers" title="Permalink to this headline">¶</a></h3>
+<h3>Install AMDGPU Drivers<a class="headerlink" href="#install-amdgpu-drivers" title="Permalink to this heading">¶</a></h3>
 <p>The AMDGPU display drivers must be installed on the system prior to all other
 environment setup. The steps provided by
 <a class="reference external" href="https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.5/page/How_to_Install_ROCm.html">AMD</a>
@@ -460,7 +463,7 @@ GPU<span class="w">  </span>Temp<span class="w"> </span><span class="o">(</span>
 </div>
 </section>
 <section id="id1">
-<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
+<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#id1" title="Permalink to this heading">¶</a></h3>
 <p>It is recommended, though not required, to install and run FBGEMM_GPU through a
 Docker setup for isolation and reproducibility of the ROCm environment, which
 can be difficult to set up.</p>
@@ -473,7 +476,7 @@ Conda. Follow the instructions for setting up the Conda environment at
 </section>
 </section>
 <section id="install-python-libraries">
-<span id="fbgemm-gpu-docs-install-libraries"></span><h2>Install Python Libraries<a class="headerlink" href="#install-python-libraries" title="Permalink to this headline">¶</a></h2>
+<span id="fbgemm-gpu-docs-install-libraries"></span><h2>Install Python Libraries<a class="headerlink" href="#install-python-libraries" title="Permalink to this heading">¶</a></h2>
 <p>Install the relevant Python libraries for working with FBGEMM_GPU:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
@@ -483,14 +486,14 @@ Conda. Follow the instructions for setting up the Conda environment at
 </div>
 </section>
 <section id="install-pytorch">
-<h2>Install PyTorch<a class="headerlink" href="#install-pytorch" title="Permalink to this headline">¶</a></h2>
+<h2>Install PyTorch<a class="headerlink" href="#install-pytorch" title="Permalink to this heading">¶</a></h2>
 <p>Follow the instructions in <a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-docs-build-setup-pytorch-install"><span class="std std-ref">Install PyTorch</span></a>
 for installing PyTorch inside a Conda environment.</p>
 </section>
 <section id="install-the-fbgemm-gpu-package">
-<h2>Install the FBGEMM_GPU Package<a class="headerlink" href="#install-the-fbgemm-gpu-package" title="Permalink to this headline">¶</a></h2>
+<h2>Install the FBGEMM_GPU Package<a class="headerlink" href="#install-the-fbgemm-gpu-package" title="Permalink to this heading">¶</a></h2>
 <section id="install-through-pytorch-pip">
-<h3>Install through PyTorch PIP<a class="headerlink" href="#install-through-pytorch-pip" title="Permalink to this headline">¶</a></h3>
+<h3>Install through PyTorch PIP<a class="headerlink" href="#install-through-pytorch-pip" title="Permalink to this heading">¶</a></h3>
 <p>PyTorch PIP is the preferred channel for installing FBGEMM_GPU:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
@@ -520,7 +523,7 @@ python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;i
 </div>
 </section>
 <section id="install-through-public-pypi">
-<h3>Install through Public PyPI<a class="headerlink" href="#install-through-public-pypi" title="Permalink to this headline">¶</a></h3>
+<h3>Install through Public PyPI<a class="headerlink" href="#install-through-public-pypi" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
 <span class="c1"># CPU-Only Nightly</span>
@@ -541,7 +544,7 @@ released to public PyPI.</p>
 </section>
 </section>
 <section id="post-installation-checks">
-<h2>Post-Installation Checks<a class="headerlink" href="#post-installation-checks" title="Permalink to this headline">¶</a></h2>
+<h2>Post-Installation Checks<a class="headerlink" href="#post-installation-checks" title="Permalink to this heading">¶</a></h2>
 <p>After installation, run an import test to ensure that the library is correctly
 linked and set up.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
@@ -550,7 +553,7 @@ python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;i
 </pre></div>
 </div>
 <section id="undefined-symbols">
-<h3>Undefined Symbols<a class="headerlink" href="#undefined-symbols" title="Permalink to this headline">¶</a></h3>
+<h3>Undefined Symbols<a class="headerlink" href="#undefined-symbols" title="Permalink to this heading">¶</a></h3>
 <p>A common error that is encountered is the failure to import FBGEMM_GPU in
 Python, which has the following error signature:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>Traceback<span class="w"> </span><span class="o">(</span>most<span class="w"> </span>recent<span class="w"> </span>call<span class="w"> </span>last<span class="o">)</span>:
@@ -673,11 +676,9 @@ be reported to the FBGEMM developers.</p>
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

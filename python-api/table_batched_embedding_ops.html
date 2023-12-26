@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,10 +28,12 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Jagged Tensor Operators" href="jagged_tensor_ops.html" />
-    <link rel="prev" title="Testing FBGEMM_GPU" href="../general/TestInstructions.html" />
+    <link rel="prev" title="Contributing Documentation" href="../general/DocsInstructions.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../general/BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -351,37 +354,37 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="module-fbgemm_gpu">
-<span id="table-batched-embedding-tbe-operators"></span><h1>Table Batched Embedding (TBE) Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this headline">¶</a></h1>
+<span id="table-batched-embedding-tbe-operators"></span><h1>Table Batched Embedding (TBE) Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
 <dl class="py function">
-<dt id="fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen">
-<code class="sig-prename descclassname">fbgemm_gpu.split_table_batched_embeddings_ops.</code><code class="sig-name descname">SplitTableBatchedEmbeddingBagsCodegen</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">embedding_specs</span></em>, <em class="sig-param"><span class="n">feature_table_map</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">cache_algorithm</span><span class="o">=</span><span class="default_value">CacheAlgorithm.LRU</span></em>, <em class="sig-param"><span class="n">cache_load_factor</span><span class="o">=</span><span class="default_value">0.2</span></em>, <em class="sig-param"><span class="n">cache_sets</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">cache_reserved_memory</span><span class="o">=</span><span class="default_value">0.0</span></em>, <em class="sig-param"><span class="n">cache_precision</span><span class="o">=</span><span class="default_value">SparseType.FP32</span></em>, <em class="sig-param"><span class="n">weights_precision</span><span class="o">=</span><span class="default_value">SparseType.FP32</span></em>, <em class="sig-param"><span class="n">output_dtype</span><span class="o">=</span><span class="default_value">SparseType.FP32</span></em>, <em class="sig-param"><span class="n">enforce_hbm</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="n">optimizer</span><span class="o">=</span><span class="default_value">OptimType.EXACT_SGD</span></em>, <em class="sig-param"><span class="n">record_cache_metrics</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">stochastic_rounding</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">gradient_clipping</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="n">max_gradient</span><span class="o">=</span><span class="default_value">1.0</span></em>, <em class="sig-param"><span class="n">learning_rate</span><span class="o">=</span><span class="default_value">0.01</span></em>, <em class="sig-param"><span class="n">eps</span><span class="o">=</span><span class="default_value">1.0e-8</span></em>, <em class="sig-param"><span class="n">momentum</span><span class="o">=</span><span class="default_value">0.9</span></em>, <em class="sig-param"><span class="n">weight_decay</span><span class="o">=</span><span class="default_value">0.0</span></em>, <em class="sig-param"><span class="n">weight_decay_mode</span><span class="o">=</span><span class="default_value">WeightDecayMode.NONE</span></em>, <em class="sig-param"><span class="n">eta</span><span class="o">=</span><span class="default_value">0.001</span></em>, <em class="sig-param"><span class="n">beta1</span><span class="o">=</span><span class="default_value">0.9</span></em>, <em class="sig-param"><span class="n">beta2</span><span class="o">=</span><span class="default_value">0.999</span></em>, <em class="sig-param"><span class="n">pooling_mode</span><span class="o">=</span><span class="default_value">PoolingMode.SUM</span></em>, <em class="sig-param"><span class="n">device</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">bounds_check_mode</span><span class="o">=</span><span class="default_value">BoundsCheckMode.WARNING</span></em><span class="sig-paren">)</span> &#x2192; None<a class="headerlink" href="#fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen">
+<span class="sig-prename descclassname"><span class="pre">fbgemm_gpu.split_table_batched_embeddings_ops.</span></span><span class="sig-name descname"><span class="pre">SplitTableBatchedEmbeddingBagsCodegen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">embedding_specs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">feature_table_map</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_algorithm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">CacheAlgorithm.LRU</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_load_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_sets</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_reserved_memory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_precision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">SparseType.FP32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights_precision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">SparseType.FP32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">SparseType.FP32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enforce_hbm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">optimizer</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">OptimType.EXACT_SGD</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">record_cache_metrics</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stochastic_rounding</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gradient_clipping</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_gradient</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">learning_rate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0e-8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">momentum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.9</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_decay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_decay_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">WeightDecayMode.NONE</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.001</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">beta1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.9</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">beta2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.999</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pooling_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">PoolingMode.SUM</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds_check_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">BoundsCheckMode.WARNING</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen" title="Permalink to this definition">¶</a></dt>
 <dd><p>Table batched Embedding operator.  Looks up one or more embedding tables. The module is application for training. The backward operator is fused with optimizer. Thus, the embedding tables are updated during backward.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>embedding_specs</strong> (<em>List</em><em>[</em><em>Tuple</em><em>[</em><em>int</em><em>, </em><em>int</em><em>, </em><em>EmbeddingLocation</em><em>, </em><em>ComputeDevice</em><em>]</em><em>]</em>) – A list of embedding specifications. Each spec is a tuple of (number of embedding rows, embedding dimension; must be a multiple of 4, table placement, compute device).</p></li>
-<li><p><strong>feature_table_map</strong> (<em>List</em><em>[</em><em>int</em><em>]</em><em>, </em><em>optional</em>) – An optional list that specifies feature-table mapping.</p></li>
+<li><p><strong>embedding_specs</strong> (<em>List</em><em>[</em><em>Tuple</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>, </em><em>EmbeddingLocation</em><em>, </em><em>ComputeDevice</em><em>]</em><em>]</em>) – A list of embedding specifications. Each spec is a tuple of (number of embedding rows, embedding dimension; must be a multiple of 4, table placement, compute device).</p></li>
+<li><p><strong>feature_table_map</strong> (<em>List</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>]</em><em>, </em><em>optional</em>) – An optional list that specifies feature-table mapping.</p></li>
 <li><p><strong>cache_algorithm</strong> (<em>CacheAlgorithm</em><em>, </em><em>optional</em>) – LXU cache algorithm (<cite>CacheAlgorithm.LRU</cite>, <cite>CacheAlgorithm.LFU</cite>)</p></li>
-<li><p><strong>cache_load_factor</strong> (<em>float</em><em>, </em><em>optional</em>) – The LXU cache capacity which is <cite>cache_load_factor</cite> * the total number of rows in all embedding tables</p></li>
-<li><p><strong>cache_sets</strong> (<em>int</em><em>, </em><em>optional</em>) – The number of cache sets</p></li>
-<li><p><strong>cache_reserved_memory</strong> (<em>float</em><em>, </em><em>optional</em>) – Amount of memory reserved in HBM for non-cache purpose.</p></li>
+<li><p><strong>cache_load_factor</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – The LXU cache capacity which is <cite>cache_load_factor</cite> * the total number of rows in all embedding tables</p></li>
+<li><p><strong>cache_sets</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>, </em><em>optional</em>) – The number of cache sets</p></li>
+<li><p><strong>cache_reserved_memory</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – Amount of memory reserved in HBM for non-cache purpose.</p></li>
 <li><p><strong>cache_precision</strong> (<em>SparseType</em><em>, </em><em>optional</em>) – Data type of LXU cache (<cite>SparseType.FP32</cite>, <cite>SparseType.FP16</cite>)</p></li>
 <li><p><strong>weights_precision</strong> (<em>SparseType</em><em>, </em><em>optional</em>) – Data type of embedding tables (also known as weights) (<cite>SparseType.FP32</cite>, <cite>SparseType.FP16</cite>, <cite>SparseType.INT8</cite>)</p></li>
 <li><p><strong>output_dtype</strong> (<em>SparseType</em><em>, </em><em>optional</em>) – Data type of an output tensor (<cite>SparseType.FP32</cite>, <cite>SparseType.FP16</cite>, <cite>SparseType.INT8</cite>)</p></li>
-<li><p><strong>enforce_hbm</strong> (<em>bool</em><em>, </em><em>optional</em>) – If True, place all weights/momentums in HBM when using cache</p></li>
+<li><p><strong>enforce_hbm</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><em>bool</em></a><em>, </em><em>optional</em>) – If True, place all weights/momentums in HBM when using cache</p></li>
 <li><p><strong>optimizer</strong> (<em>OptimType</em><em>, </em><em>optional</em>) – An optimizer to use for embedding table update in the backward pass. (<cite>OptimType.ADAM</cite>, <cite>OptimType.EXACT_ADAGRAD</cite>, <cite>OptimType.EXACT_ROWWISE_ADAGRAD</cite>, <cite>OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD</cite>, <cite>OptimType.EXACT_SGD</cite>, <cite>OptimType.LAMB</cite>, <cite>OptimType.LARS_SGD</cite>, <cite>OptimType.PARTIAL_ROWWISE_ADAM</cite>, <cite>OptimType.PARTIAL_ROWWISE_LAMB</cite>, <cite>OptimType.SGD</cite>)</p></li>
 <li><p><strong>record_cache_metrics</strong> (<em>RecordCacheMetrics</em><em>, </em><em>optional</em>) – Record number of hits, number of requests, etc if RecordCacheMetrics.record_cache_miss_counter is True and record the similar metrics table-wise if RecordCacheMetrics.record_tablewise_cache_miss is True (default is None).</p></li>
-<li><p><strong>stochastic_rounding</strong> (<em>bool</em><em>, </em><em>optional</em>) – If True, apply stochastic rounding for weight type that is not <cite>SparseType.FP32</cite></p></li>
-<li><p><strong>gradient_clipping</strong> (<em>bool</em><em>, </em><em>optional</em>) – If True, apply gradient clipping</p></li>
-<li><p><strong>max_gradient</strong> (<em>float</em><em>, </em><em>optional</em>) – The value for gradient clipping</p></li>
-<li><p><strong>learning_rate</strong> (<em>float</em><em>, </em><em>optional</em>) – The learning rate</p></li>
-<li><p><strong>eps</strong> (<em>float</em><em>, </em><em>optional</em>) – The epsilon value used by Adagrad, LAMB, and Adam</p></li>
-<li><p><strong>momentum</strong> (<em>float</em><em>, </em><em>optional</em>) – Momentum used by LARS-SGD</p></li>
-<li><p><strong>weight_decay</strong> (<em>float</em><em>, </em><em>optional</em>) – Weight decay used by LARS-SGD, LAMB, ADAM, and Rowwise Adagrad</p></li>
+<li><p><strong>stochastic_rounding</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><em>bool</em></a><em>, </em><em>optional</em>) – If True, apply stochastic rounding for weight type that is not <cite>SparseType.FP32</cite></p></li>
+<li><p><strong>gradient_clipping</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><em>bool</em></a><em>, </em><em>optional</em>) – If True, apply gradient clipping</p></li>
+<li><p><strong>max_gradient</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – The value for gradient clipping</p></li>
+<li><p><strong>learning_rate</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – The learning rate</p></li>
+<li><p><strong>eps</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – The epsilon value used by Adagrad, LAMB, and Adam</p></li>
+<li><p><strong>momentum</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – Momentum used by LARS-SGD</p></li>
+<li><p><strong>weight_decay</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – Weight decay used by LARS-SGD, LAMB, ADAM, and Rowwise Adagrad</p></li>
 <li><p><strong>weight_decay_mode</strong> (<em>WeightDecayMode</em><em>, </em><em>optional</em>) – Weight decay mode (<cite>WeightDecayMode.NONE</cite>, <cite>WeightDecayMode.L2</cite>, <cite>WeightDecayMode.DECOUPLE</cite>)</p></li>
-<li><p><strong>eta</strong> (<em>float</em><em>, </em><em>optional</em>) – The eta value used by LARS-SGD</p></li>
-<li><p><strong>beta1</strong> (<em>float</em><em>, </em><em>optional</em>) – The beta1 value used by LAMB and ADAM</p></li>
-<li><p><strong>beta2</strong> (<em>float</em><em>, </em><em>optional</em>) – The beta2 value used by LAMB and ADAM</p></li>
+<li><p><strong>eta</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – The eta value used by LARS-SGD</p></li>
+<li><p><strong>beta1</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – The beta1 value used by LAMB and ADAM</p></li>
+<li><p><strong>beta2</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a><em>, </em><em>optional</em>) – The beta2 value used by LAMB and ADAM</p></li>
 <li><p><strong>pooling_mode</strong> (<em>PoolingMode</em><em>, </em><em>optional</em>) – Pooling mode (<cite>PoolingMode.SUM</cite>, <cite>PoolingMode.MEAN</cite>, <cite>PoolingMode.NONE</cite>)</p></li>
 <li><p><strong>device</strong> (<a class="reference external" href="https://pytorch.org/docs/master/tensor_attributes.html#torch.device" title="(in PyTorch vmaster (2.1.0a0+gitbe0b12e ))"><em>torch.device</em></a><em>, </em><em>optional</em>) – The current device to place tensors on</p></li>
 <li><p><strong>bounds_check_mode</strong> (<em>BoundsCheckMode</em><em>, </em><em>optional</em>) – If not set to <cite>BoundsCheckMode.NONE</cite>, apply boundary check for indices (<cite>BoundsCheckMode.NONE</cite>, <cite>BoundsCheckMode.FATAL</cite>, <cite>BoundsCheckMode.WARNING</cite>, <cite>BoundsCheckMode.IGNORE</cite>)</p></li>
@@ -396,7 +399,7 @@
 </dd>
 </dl>
 <dl class="field-list simple">
-<dt class="field-odd">Returns</dt>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
 <dd class="field-odd"><p>A 2D-tensor containing looked up data. Shape <cite>(B, total_D)</cite> where <cite>B</cite> = batch size and <cite>total_D</cite> = the sum of all embedding dimensions in the table</p>
 </dd>
 </dl>
@@ -471,7 +474,7 @@
         <a href="jagged_tensor_ops.html" class="btn btn-neutral float-right" title="Jagged Tensor Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="../general/TestInstructions.html" class="btn btn-neutral" title="Testing FBGEMM_GPU" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="../general/DocsInstructions.html" class="btn btn-neutral" title="Contributing Documentation" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -503,7 +506,10 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Table Batched Embedding (TBE) Operators</a></li>
+<li><a class="reference internal" href="#">Table Batched Embedding (TBE) Operators</a><ul>
+<li><a class="reference internal" href="#fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen"><code class="docutils literal notranslate"><span class="pre">SplitTableBatchedEmbeddingBagsCodegen()</span></code></a></li>
+</ul>
+</li>
 </ul>
 
             </div>
@@ -519,11 +525,9 @@
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   

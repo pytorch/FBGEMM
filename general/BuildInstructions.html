@@ -6,7 +6,7 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
@@ -28,6 +28,8 @@
 
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Installation Instructions" href="InstallationInstructions.html" />
@@ -252,18 +254,19 @@
               
             
             
-              <p><span class="caption-text">FBGEMM_GPU General Info</span></p>
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
-<p><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cpp-api/quantize_ops.html">Quantization Operators</a></li>
@@ -351,9 +354,9 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <section id="build-instructions">
-<h1>Build Instructions<a class="headerlink" href="#build-instructions" title="Permalink to this headline">¶</a></h1>
-<p><strong>Note:</strong> The most up-to-date instructions are embedded in a set of scripts
-bundled in the FBGEMM_GPU repo under
+<h1>Build Instructions<a class="headerlink" href="#build-instructions" title="Permalink to this heading">¶</a></h1>
+<p><strong>Note:</strong> The most up-to-date build instructions are embedded in a set of
+scripts bundled in the FBGEMM_GPU repo under
 <a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash">setup_env.bash</a>.</p>
 <p>The general steps for building FBGEMM_GPU are as follows:</p>
 <ol class="arabic simple">
@@ -363,9 +366,9 @@ bundled in the FBGEMM_GPU repo under
 <li><p>Run the build script.</p></li>
 </ol>
 <section id="set-up-an-isolated-build-environment">
-<span id="fbgemm-gpu-docs-build-setup-env"></span><h2>Set Up an Isolated Build Environment<a class="headerlink" href="#set-up-an-isolated-build-environment" title="Permalink to this headline">¶</a></h2>
+<span id="fbgemm-gpu-docs-build-setup-env"></span><h2>Set Up an Isolated Build Environment<a class="headerlink" href="#set-up-an-isolated-build-environment" title="Permalink to this heading">¶</a></h2>
 <section id="install-miniconda">
-<h3>Install Miniconda<a class="headerlink" href="#install-miniconda" title="Permalink to this headline">¶</a></h3>
+<h3>Install Miniconda<a class="headerlink" href="#install-miniconda" title="Permalink to this heading">¶</a></h3>
 <p>Setting up a <a class="reference external" href="https://docs.conda.io/en/latest/miniconda.html">Miniconda</a>
 environment is recommended for reproducible builds:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PLATFORM_NAME</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>uname<span class="w"> </span>-s<span class="k">)</span><span class="s2">-</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span><span class="s2">&quot;</span>
@@ -390,7 +393,7 @@ conda<span class="w"> </span>update<span class="w"> </span>-n<span class="w"> </
 inside a Conda environment.</p>
 </section>
 <section id="set-up-the-conda-environment">
-<h3>Set Up the Conda Environment<a class="headerlink" href="#set-up-the-conda-environment" title="Permalink to this headline">¶</a></h3>
+<h3>Set Up the Conda Environment<a class="headerlink" href="#set-up-the-conda-environment" title="Permalink to this heading">¶</a></h3>
 <p>Create a Conda environment with the specified Python version:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">env_name</span><span class="o">=</span>&lt;ENV<span class="w"> </span>NAME&gt;
 <span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.12
@@ -406,20 +409,20 @@ conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </spa
 </section>
 </section>
 <section id="set-up-for-cpu-only-build">
-<h2>Set Up for CPU-Only Build<a class="headerlink" href="#set-up-for-cpu-only-build" title="Permalink to this headline">¶</a></h2>
+<h2>Set Up for CPU-Only Build<a class="headerlink" href="#set-up-for-cpu-only-build" title="Permalink to this heading">¶</a></h2>
 <p>Follow the instructions for setting up the Conda environment at
 <a class="reference internal" href="#fbgemm-gpu-docs-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>, followed by
 <a class="reference internal" href="#fbgemm-gpu-docs-build-setup-tools-install"><span class="std std-ref">Install the Build Tools</span></a>.</p>
 </section>
 <section id="set-up-for-cuda-build">
-<h2>Set Up for CUDA Build<a class="headerlink" href="#set-up-for-cuda-build" title="Permalink to this headline">¶</a></h2>
+<h2>Set Up for CUDA Build<a class="headerlink" href="#set-up-for-cuda-build" title="Permalink to this heading">¶</a></h2>
 <p>The CUDA build of FBGEMM_GPU requires a recent version of <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> <strong>that
 supports compute capability 3.5+</strong>. Setting the machine up for CUDA builds of
 FBGEMM_GPU can be done either through pre-built Docker images or through Conda
 installation on bare metal. Note that neither a GPU nor the NVIDIA drivers need
 to be present for builds, since they are only used at runtime.</p>
 <section id="cuda-docker-image">
-<span id="fbgemm-gpu-docs-build-setup-cuda-image"></span><h3>CUDA Docker Image<a class="headerlink" href="#cuda-docker-image" title="Permalink to this headline">¶</a></h3>
+<span id="fbgemm-gpu-docs-build-setup-cuda-image"></span><h3>CUDA Docker Image<a class="headerlink" href="#cuda-docker-image" title="Permalink to this heading">¶</a></h3>
 <p>For setups through Docker, simply pull the pre-installed <a class="reference external" href="https://hub.docker.com/r/nvidia/cuda">Docker image
 for CUDA</a> for the desired Linux
 distribution and CUDA version.</p>
@@ -432,7 +435,7 @@ as it is still the recommended mechanism for creating an isolated and
 reproducible build environment.</p>
 </section>
 <section id="install-cuda">
-<span id="fbgemm-gpu-docs-build-setup-cuda-install"></span><h3>Install CUDA<a class="headerlink" href="#install-cuda" title="Permalink to this headline">¶</a></h3>
+<span id="fbgemm-gpu-docs-build-setup-cuda-install"></span><h3>Install CUDA<a class="headerlink" href="#install-cuda" title="Permalink to this heading">¶</a></h3>
 <p>Install the full CUDA package through Conda, which includes
 <a class="reference external" href="https://developer.nvidia.com/nvidia-management-library-nvml">NVML</a>:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">cuda_version</span><span class="o">=</span><span class="m">11</span>.7.1
@@ -449,7 +452,7 @@ find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</s
 </div>
 </section>
 <section id="install-cudnn">
-<h3>Install cuDNN<a class="headerlink" href="#install-cudnn" title="Permalink to this headline">¶</a></h3>
+<h3>Install cuDNN<a class="headerlink" href="#install-cudnn" title="Permalink to this heading">¶</a></h3>
 <p><a class="reference external" href="https://developer.nvidia.com/cudnn">cuDNN</a> is a build-time
 dependency for the CUDA variant of FBGEMM_GPU. Download and extract the
 cuDNN package for the given CUDA version:</p>
@@ -464,12 +467,12 @@ wget<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;</s
 </section>
 </section>
 <section id="set-up-for-rocm-build">
-<h2>Set Up for ROCm Build<a class="headerlink" href="#set-up-for-rocm-build" title="Permalink to this headline">¶</a></h2>
+<h2>Set Up for ROCm Build<a class="headerlink" href="#set-up-for-rocm-build" title="Permalink to this heading">¶</a></h2>
 <p>FBGEMM_GPU supports running on AMD (ROCm) devices. Setting the machine
 up for ROCm builds of FBGEMM_GPU can be done either through pre-built
 Docker images or through bare metal.</p>
 <section id="rocm-docker-image">
-<span id="fbgemm-gpu-docs-build-setup-rocm-image"></span><h3>ROCm Docker Image<a class="headerlink" href="#rocm-docker-image" title="Permalink to this headline">¶</a></h3>
+<span id="fbgemm-gpu-docs-build-setup-rocm-image"></span><h3>ROCm Docker Image<a class="headerlink" href="#rocm-docker-image" title="Permalink to this heading">¶</a></h3>
 <p>For setups through Docker, simply pull the pre-installed <a class="reference external" href="https://hub.docker.com/r/rocm/rocm-terminal">Minimal Docker
 image for ROCm</a> for the
 desired ROCm version:</p>
@@ -485,7 +488,7 @@ as it is still the recommended mechanism for creating an isolated and
 reproducible build environment.</p>
 </section>
 <section id="install-rocm">
-<span id="fbgemm-gpu-docs-build-setup-rocm-install"></span><h3>Install ROCm<a class="headerlink" href="#install-rocm" title="Permalink to this headline">¶</a></h3>
+<span id="fbgemm-gpu-docs-build-setup-rocm-install"></span><h3>Install ROCm<a class="headerlink" href="#install-rocm" title="Permalink to this heading">¶</a></h3>
 <p>Install the full ROCm package through the operating system package
 manager. The full instructions can be found in the <a class="reference external" href="https://rocm.docs.amd.com/en/latest/">ROCm installation
 guide</a>:</p>
@@ -507,7 +510,7 @@ amdgpu-install<span class="w"> </span>-y<span class="w"> </span>--usecase<span c
 </div>
 </section>
 <section id="install-miopen">
-<h3>Install MIOpen<a class="headerlink" href="#install-miopen" title="Permalink to this headline">¶</a></h3>
+<h3>Install MIOpen<a class="headerlink" href="#install-miopen" title="Permalink to this heading">¶</a></h3>
 <p><a class="reference external" href="https://github.com/ROCmSoftwarePlatform/MIOpen">MIOpen</a> is a
 dependency for the ROCm variant of FBGEMM_GPU that needs to be
 installed:</p>
@@ -517,10 +520,10 @@ installed:</p>
 </section>
 </section>
 <section id="install-the-build-tools">
-<span id="fbgemm-gpu-docs-build-setup-tools-install"></span><h2>Install the Build Tools<a class="headerlink" href="#install-the-build-tools" title="Permalink to this headline">¶</a></h2>
+<span id="fbgemm-gpu-docs-build-setup-tools-install"></span><h2>Install the Build Tools<a class="headerlink" href="#install-the-build-tools" title="Permalink to this heading">¶</a></h2>
 <p>The instructions in this section apply to builds for all variants of FBGEMM_GPU.</p>
 <section id="c-c-compiler">
-<h3>C/C++ Compiler<a class="headerlink" href="#c-c-compiler" title="Permalink to this headline">¶</a></h3>
+<h3>C/C++ Compiler<a class="headerlink" href="#c-c-compiler" title="Permalink to this heading">¶</a></h3>
 <p>Install a version of the GCC toolchain <strong>that supports C++17</strong>. Note that GCC
 (as opposed to Clang for example) is required for CUDA builds because NVIDIA’s
 <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> relies on <code class="docutils literal notranslate"><span class="pre">gcc</span></code> and <code class="docutils literal notranslate"><span class="pre">g++</span></code> in the path. The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code> package will
@@ -546,13 +549,14 @@ objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot
 </div>
 </section>
 <section id="other-build-tools">
-<h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this headline">¶</a></h3>
+<h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this heading">¶</a></h3>
 <p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>click<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>jinja2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>make<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>ninja<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>numpy<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>scikit-build<span class="w"> </span><span class="se">\</span>
@@ -562,13 +566,13 @@ objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot
 </section>
 </section>
 <section id="install-pytorch">
-<span id="fbgemm-gpu-docs-build-setup-pytorch-install"></span><h2>Install PyTorch<a class="headerlink" href="#install-pytorch" title="Permalink to this headline">¶</a></h2>
+<span id="fbgemm-gpu-docs-build-setup-pytorch-install"></span><h2>Install PyTorch<a class="headerlink" href="#install-pytorch" title="Permalink to this heading">¶</a></h2>
 <p>The official <a class="reference external" href="https://pytorch.org/get-started/locally/">PyTorch
 Homepage</a> contains the most
 authoritative instructions on how to install PyTorch, either through Conda or
 through PIP.</p>
 <section id="installation-through-conda">
-<h3>Installation Through Conda<a class="headerlink" href="#installation-through-conda" title="Permalink to this headline">¶</a></h3>
+<h3>Installation Through Conda<a class="headerlink" href="#installation-through-conda" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install the latest nightly</span>
 conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>pytorch<span class="w"> </span>-c<span class="w"> </span>pytorch-nightly
 
@@ -591,7 +595,7 @@ Thus for GPU builds, it is important to install CUDA / ROCm first prior to
 PyTorch.</p>
 </section>
 <section id="installation-through-pytorch-pip">
-<h3>Installation Through PyTorch PIP<a class="headerlink" href="#installation-through-pytorch-pip" title="Permalink to this headline">¶</a></h3>
+<h3>Installation Through PyTorch PIP<a class="headerlink" href="#installation-through-pytorch-pip" title="Permalink to this heading">¶</a></h3>
 <p>Installing PyTorch through PyTorch PIP is recommended over Conda as it is much
 more deterministic and thus reliable:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install the latest nightly, CPU variant</span>
@@ -611,7 +615,7 @@ conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </spa
 channel as of time of writing.</p>
 </section>
 <section id="post-install-checks">
-<h3>Post-Install Checks<a class="headerlink" href="#post-install-checks" title="Permalink to this headline">¶</a></h3>
+<h3>Post-Install Checks<a class="headerlink" href="#post-install-checks" title="Permalink to this heading">¶</a></h3>
 <p>Verify the PyTorch installation (both version and variant) with an <code class="docutils literal notranslate"><span class="pre">import</span></code> test:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Ensure that the package loads properly</span>
 conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch.distributed&quot;</span>
@@ -628,9 +632,9 @@ find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</s
 </section>
 </section>
 <section id="build-the-fbgemm-gpu-package">
-<h2>Build the FBGEMM_GPU Package<a class="headerlink" href="#build-the-fbgemm-gpu-package" title="Permalink to this headline">¶</a></h2>
+<h2>Build the FBGEMM_GPU Package<a class="headerlink" href="#build-the-fbgemm-gpu-package" title="Permalink to this heading">¶</a></h2>
 <section id="preparing-the-build">
-<h3>Preparing the Build<a class="headerlink" href="#preparing-the-build" title="Permalink to this headline">¶</a></h3>
+<h3>Preparing the Build<a class="headerlink" href="#preparing-the-build" title="Permalink to this heading">¶</a></h3>
 <p>Clone the repo along with its submodules, and install the
 <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
@@ -648,7 +652,7 @@ pip<span class="w"> </span>install<span class="w"> </span>requirements.txt
 </div>
 </section>
 <section id="the-build-process">
-<h3>The Build Process<a class="headerlink" href="#the-build-process" title="Permalink to this headline">¶</a></h3>
+<h3>The Build Process<a class="headerlink" href="#the-build-process" title="Permalink to this heading">¶</a></h3>
 <p>The FBGEMM_GPU build process uses a scikit-build CMake-based build flow,
 and it keeps state across install runs. As such, builds can become stale
 and can cause problems when re-runs are attempted after a build failure
@@ -661,7 +665,7 @@ python<span class="w"> </span>setup.py<span class="w"> </span>clean
 </div>
 </section>
 <section id="cuda-build">
-<h3>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this headline">¶</a></h3>
+<span id="fbgemm-gpu-docs-build-process-cuda"></span><h3>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this heading">¶</a></h3>
 <p>Building FBGEMM_GPU for CUDA requires both NVML and cuDNN to be installed and
 made available to the build through environment variables.  The presence of a
 CUDA device, however, is not required for building the package.</p>
@@ -716,7 +720,7 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 </div>
 </section>
 <section id="rocm-build">
-<h3>ROCm Build<a class="headerlink" href="#rocm-build" title="Permalink to this headline">¶</a></h3>
+<span id="fbgemm-gpu-docs-build-process-rocm"></span><h3>ROCm Build<a class="headerlink" href="#rocm-build" title="Permalink to this heading">¶</a></h3>
 <p>For ROCm builds, <code class="docutils literal notranslate"><span class="pre">ROCM_PATH</span></code> and <code class="docutils literal notranslate"><span class="pre">PYTORCH_ROCM_ARCH</span></code> need to be specified.
 The presence of a ROCm device, however, is not required for building
 the package.</p>
@@ -752,7 +756,7 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 </div>
 </section>
 <section id="cpu-only-build">
-<h3>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this headline">¶</a></h3>
+<span id="fbgemm-gpu-docs-build-process-cpu"></span><h3>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this heading">¶</a></h3>
 <p>For CPU-only builds, the <code class="docutils literal notranslate"><span class="pre">--cpu_only</span></code> flag needs to be specified.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
@@ -774,11 +778,11 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 </div>
 </section>
 <section id="post-build-checks-for-developers">
-<h3>Post-Build Checks (For Developers)<a class="headerlink" href="#post-build-checks-for-developers" title="Permalink to this headline">¶</a></h3>
+<h3>Post-Build Checks (For Developers)<a class="headerlink" href="#post-build-checks-for-developers" title="Permalink to this heading">¶</a></h3>
 <p>After the build completes, it is useful to run some checks that verify
 that the build is actually correct.</p>
 <section id="undefined-symbols-check">
-<h4>Undefined Symbols Check<a class="headerlink" href="#undefined-symbols-check" title="Permalink to this headline">¶</a></h4>
+<h4>Undefined Symbols Check<a class="headerlink" href="#undefined-symbols-check" title="Permalink to this heading">¶</a></h4>
 <p>Because FBGEMM_GPU contains a lot of Jinja and C++ template instantiations, it
 is important to make sure that there are no undefined symbols that are
 accidentally generated over the course of development:</p>
@@ -793,7 +797,7 @@ nm<span class="w"> </span>-gDCu<span class="w"> </span><span class="s2">&quot;</
 </div>
 </section>
 <section id="glibc-version-compatibility-check">
-<h4>GLIBC Version Compatibility Check<a class="headerlink" href="#glibc-version-compatibility-check" title="Permalink to this headline">¶</a></h4>
+<h4>GLIBC Version Compatibility Check<a class="headerlink" href="#glibc-version-compatibility-check" title="Permalink to this heading">¶</a></h4>
 <p>It is also useful to verify that the version numbers of GLIBCXX
 referenced as well as the availability of certain function symbols:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
@@ -918,11 +922,9 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 
      
        <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script src="../_static/jquery.js"></script>
-         <script src="../_static/underscore.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
          <script src="../_static/doctools.js"></script>
-         <script src="../_static/language_data.js"></script>
-         <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   
