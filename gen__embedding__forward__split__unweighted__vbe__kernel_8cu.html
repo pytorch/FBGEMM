@@ -79,6 +79,7 @@ $(function() {
 </div><!--header-->
 <div class="contents">
 <div class="textblock"><code>#include &quot;<a class="el" href="embedding__forward__template__helpers_8cuh.html">codegen/embedding_forward_template_helpers.cuh</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="split__embeddings__cache__cuda_8cuh.html">fbgemm_gpu/split_embeddings_cache_cuda.cuh</a>&quot;</code><br />
 </div><h2 class="groupheader">Typedef Documentation</h2>
 <a id="abc1167888f441327c12e300780ee568a" name="abc1167888f441327c12e300780ee568a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#abc1167888f441327c12e300780ee568a">&#9670;&#160;</a></span>Tensor</h2>
@@ -131,8 +132,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="abdcfee895dc0dbe60f3899820e3faef6" name="abdcfee895dc0dbe60f3899820e3faef6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abdcfee895dc0dbe60f3899820e3faef6">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[1/12]</span></h2>
+<a id="a99efe31d946ffe1b9881281859e80fc3" name="a99efe31d946ffe1b9881281859e80fc3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a99efe31d946ffe1b9881281859e80fc3">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[1/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -206,6 +207,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -217,8 +223,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="afdce4c5ff535f039b96169a5441d66f6" name="afdce4c5ff535f039b96169a5441d66f6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afdce4c5ff535f039b96169a5441d66f6">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[2/12]</span></h2>
+<a id="abab3ff6095f1ca7965f141d46d725348" name="abab3ff6095f1ca7965f141d46d725348"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abab3ff6095f1ca7965f141d46d725348">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[2/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -292,6 +298,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -303,8 +314,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a2463ea08e2eade6932bdc3b08dbf3f4b" name="a2463ea08e2eade6932bdc3b08dbf3f4b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a2463ea08e2eade6932bdc3b08dbf3f4b">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[3/12]</span></h2>
+<a id="abbfa6e32a50f7887723dee9aca9db541" name="abbfa6e32a50f7887723dee9aca9db541"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abbfa6e32a50f7887723dee9aca9db541">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[3/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -378,6 +389,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -389,8 +405,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a8835d1cabbeed24c96e827473542eea4" name="a8835d1cabbeed24c96e827473542eea4"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8835d1cabbeed24c96e827473542eea4">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[4/12]</span></h2>
+<a id="aca4d5f409ed123fc19726b8d42233b69" name="aca4d5f409ed123fc19726b8d42233b69"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aca4d5f409ed123fc19726b8d42233b69">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[4/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -464,6 +480,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -475,8 +496,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a931774f9fe3e608ee4b30ec8e200049b" name="a931774f9fe3e608ee4b30ec8e200049b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a931774f9fe3e608ee4b30ec8e200049b">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[5/12]</span></h2>
+<a id="af874f96cc5a25544d69a0fe5b3eb01bf" name="af874f96cc5a25544d69a0fe5b3eb01bf"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af874f96cc5a25544d69a0fe5b3eb01bf">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[5/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -550,6 +571,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -561,8 +587,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="aaf16de5ee78d9de99a703cdbe61255c0" name="aaf16de5ee78d9de99a703cdbe61255c0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aaf16de5ee78d9de99a703cdbe61255c0">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[6/12]</span></h2>
+<a id="a92e55b3602651a09e7fc3b4967650273" name="a92e55b3602651a09e7fc3b4967650273"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a92e55b3602651a09e7fc3b4967650273">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[6/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -636,6 +662,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -647,8 +678,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="aea632259492fcd4ba0011382bee2beea" name="aea632259492fcd4ba0011382bee2beea"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aea632259492fcd4ba0011382bee2beea">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[7/12]</span></h2>
+<a id="a8888415aa3d5e92f88ef7636eb74fb5b" name="a8888415aa3d5e92f88ef7636eb74fb5b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8888415aa3d5e92f88ef7636eb74fb5b">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[7/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -722,6 +753,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -733,8 +769,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a4458fec1221cc0c7df2c1ef8bef422db" name="a4458fec1221cc0c7df2c1ef8bef422db"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4458fec1221cc0c7df2c1ef8bef422db">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[8/12]</span></h2>
+<a id="ac46f48ab94f7f48287fe5cadeb0f56fc" name="ac46f48ab94f7f48287fe5cadeb0f56fc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac46f48ab94f7f48287fe5cadeb0f56fc">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[8/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -808,6 +844,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -819,8 +860,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a17466673ca73e70a4887999d2955aaf0" name="a17466673ca73e70a4887999d2955aaf0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a17466673ca73e70a4887999d2955aaf0">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[9/12]</span></h2>
+<a id="a390a1ffedf08b2a538fe98b9c2b0deb0" name="a390a1ffedf08b2a538fe98b9c2b0deb0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a390a1ffedf08b2a538fe98b9c2b0deb0">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[9/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -894,6 +935,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -905,8 +951,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a3d0b2d3bd9c920851a41c71817e28378" name="a3d0b2d3bd9c920851a41c71817e28378"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3d0b2d3bd9c920851a41c71817e28378">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[10/12]</span></h2>
+<a id="ad41b617c701263491700dacf8f68a43e" name="ad41b617c701263491700dacf8f68a43e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad41b617c701263491700dacf8f68a43e">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[10/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -980,6 +1026,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -991,8 +1042,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a436f00b93c571aa3159b822122e4e781" name="a436f00b93c571aa3159b822122e4e781"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a436f00b93c571aa3159b822122e4e781">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[11/12]</span></h2>
+<a id="aa27e6a67d90c786482f231de9f8b08d9" name="aa27e6a67d90c786482f231de9f8b08d9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa27e6a67d90c786482f231de9f8b08d9">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[11/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1066,6 +1117,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -1077,8 +1133,8 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
 
 </div>
 </div>
-<a id="a8bd2c5adf9e33805340e4717cd9f0617" name="a8bd2c5adf9e33805340e4717cd9f0617"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8bd2c5adf9e33805340e4717cd9f0617">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[12/12]</span></h2>
+<a id="a838974a5725cdd8e8757e9972f4cd35c" name="a838974a5725cdd8e8757e9972f4cd35c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a838974a5725cdd8e8757e9972f4cd35c">&#9670;&#160;</a></span>kWarpSize() <span class="overload">[12/12]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1152,6 +1208,11 @@ template&lt;typename emb_t , typename cache_t , typename output_t , bool use_lxu
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t *</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_conflict_misses</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>

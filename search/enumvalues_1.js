@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['device_0',['DEVICE',['../namespacefbgemm__gpu.html#a8f04cbe33fa88d1e420c06b1f8879194ae10b6ab6a278644ce40631f62f360b6d',1,'fbgemm_gpu']]]
+  ['bf_0',['BF',['../namespacefbgemm__gpu.html#aa7e45742197542f659233c21b883ba60a7b8d2f92148f52cad46e331936922e80',1,'fbgemm_gpu']]],
+  ['bf16_1',['BF16',['../namespacefbgemm__gpu.html#a47b4476e5f749d63e15d2f8e55be833eaf656bbf613964dcf710b771b0918ab30',1,'fbgemm_gpu']]]
 ];

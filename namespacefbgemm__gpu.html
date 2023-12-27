@@ -162,6 +162,8 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structfbgemm__gpu_1_1_weight_row.html">WeightRow</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structfbgemm__gpu_1_1_weight_row_accessor.html">WeightRowAccessor</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -429,6 +431,25 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
 <tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a70433200cf584e2429434a33d45111eaa19da7170bea36556dde582519795f3fc" name="a70433200cf584e2429434a33d45111eaa19da7170bea36556dde582519795f3fc"></a>FATAL&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a70433200cf584e2429434a33d45111eaa059e9861e0400dfbe05c98a841f3f96b" name="a70433200cf584e2429434a33d45111eaa059e9861e0400dfbe05c98a841f3f96b"></a>WARNING&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a70433200cf584e2429434a33d45111eaaa2e843feab94ef623fea888f07c28696" name="a70433200cf584e2429434a33d45111eaaa2e843feab94ef623fea888f07c28696"></a>IGNORE&#160;</td><td class="fielddoc"></td></tr>
+</table>
+
+</div>
+</div>
+<a id="a020b3d9d49f1ff2257534a002d8ebf62" name="a020b3d9d49f1ff2257534a002d8ebf62"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a020b3d9d49f1ff2257534a002d8ebf62">&#9670;&#160;</a></span>cache_conflict_miss_rate</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">enum</a> <a class="el" href="#a020b3d9d49f1ff2257534a002d8ebf62">cache_conflict_miss_rate</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a020b3d9d49f1ff2257534a002d8ebf62ab164032fff82a847826b4887d9e7be58" name="a020b3d9d49f1ff2257534a002d8ebf62ab164032fff82a847826b4887d9e7be58"></a>mixed&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a020b3d9d49f1ff2257534a002d8ebf62a8701c301e7c87ec4d4f3aee33c6128d7" name="a020b3d9d49f1ff2257534a002d8ebf62a8701c301e7c87ec4d4f3aee33c6128d7"></a>all&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a020b3d9d49f1ff2257534a002d8ebf62a7b3ef6ceb30a5b0c69691a9574a1b6db" name="a020b3d9d49f1ff2257534a002d8ebf62a7b3ef6ceb30a5b0c69691a9574a1b6db"></a>zero&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -3464,7 +3485,7 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
         <tr>
           <td class="memname">CUDA_KERNEL_LOOP </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">b_t</a></td>          <td class="paramname"><span class="paramname">, </span></td>
+          <td class="paramtype"><a class="el" href="embedding__forward__split__kernel__template_8cu.html#a1a5ea7b1f265584db8df7ef65698c2dd">b_t</a></td>          <td class="paramname"><span class="paramname">, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -12353,8 +12374,8 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
 <b>Initial value:</b><div class="fragment"><div class="line">=</div>
 <div class="line">      <a class="code hl_variable" href="#a2f93c0df9186a239cfd59505a464fc36">dense_segment_value_data</a>[index] &gt; <a class="code hl_variable" href="#a13adcdfa105d3fe5d68bfeae4df5f017">num_segments</a></div>
 <div class="line">      ? 0</div>
-<div class="line">      : std::max(0<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a67824ecf84f5816f07b74fa956bdbcd2">L</a>, dense_segment_value_data[index] * num_bins)</div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a67824ecf84f5816f07b74fa956bdbcd2"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a67824ecf84f5816f07b74fa956bdbcd2">L</a></div><div class="ttdeci">uint32_t L</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:744</div></div>
+<div class="line">      : std::max(0<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a>, dense_segment_value_data[index] * num_bins)</div>
+<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a71a77dfc9561ca59031082dfd57dd5ca"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a></div><div class="ttdeci">uint32_t L</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:744</div></div>
 <div class="ttc" id="anamespacefbgemm__gpu_html_a13adcdfa105d3fe5d68bfeae4df5f017"><div class="ttname"><a href="#a13adcdfa105d3fe5d68bfeae4df5f017">fbgemm_gpu::num_segments</a></div><div class="ttdeci">__global__ const int64_t const int64_t num_segments</div><div class="ttdef"><b>Definition</b> histogram_binning_calibration_ops.cu:135</div></div>
 <div class="ttc" id="anamespacefbgemm__gpu_html_a2f93c0df9186a239cfd59505a464fc36"><div class="ttname"><a href="#a2f93c0df9186a239cfd59505a464fc36">fbgemm_gpu::dense_segment_value_data</a></div><div class="ttdeci">__global__ const ValueType *const const OffsetType *const ValueType *const dense_segment_value_data</div><div class="ttdef"><b>Definition</b> histogram_binning_calibration_ops.cu:113</div></div>
 </div><!-- fragment -->
@@ -12889,7 +12910,8 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
       </table>
 </div><div class="memdoc">
 <b>Initial value:</b><div class="fragment"><div class="line">{</div>
-<div class="line">  <span class="keyword">const</span> <span class="keyword">auto</span> b_t = blockIdx.x * blockDim.x + threadIdx.x</div>
+<div class="line">  <span class="keyword">const</span> <span class="keyword">auto</span> <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a1a5ea7b1f265584db8df7ef65698c2dd">b_t</a> = blockIdx.x * blockDim.x + threadIdx.x</div>
+<div class="ttc" id="aembedding__forward__split__kernel__template_8cu_html_a1a5ea7b1f265584db8df7ef65698c2dd"><div class="ttname"><a href="embedding__forward__split__kernel__template_8cu.html#a1a5ea7b1f265584db8df7ef65698c2dd">b_t</a></div><div class="ttdeci">int32_t b_t</div><div class="ttdef"><b>Definition</b> embedding_forward_split_kernel_template.cu:153</div></div>
 </div><!-- fragment -->
 </div>
 </div>
@@ -13290,7 +13312,7 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
 </div><div class="memdoc">
 <b>Initial value:</b><div class="fragment"><div class="line">{</div>
 <div class="line">  index_t <a class="code hl_variable" href="#aba761028ac72c20c7defaef09de61d95">sum_E</a> = <a class="code hl_variable" href="#a114a2ddecfbdbb209bc791977fcb1c0e">table_offsets</a>[<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a>]</div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a2ee4b3e799d56c4d34c87190c37a7a64"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const const uint32_t const uint32_t T</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:61</div></div>
+<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a2ee4b3e799d56c4d34c87190c37a7a64"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const const uint32_t const uint32_t T</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:62</div></div>
 <div class="ttc" id="anamespacefbgemm__gpu_html_a114a2ddecfbdbb209bc791977fcb1c0e"><div class="ttname"><a href="#a114a2ddecfbdbb209bc791977fcb1c0e">fbgemm_gpu::table_offsets</a></div><div class="ttdeci">__global__ const int32_t const int32_t const scalar_t *__restrict__ const index_t *__restrict__ table_offsets</div><div class="ttdef"><b>Definition</b> sparse_batched_unary_embeddings.cu:24</div></div>
 <div class="ttc" id="anamespacefbgemm__gpu_html_aba761028ac72c20c7defaef09de61d95"><div class="ttname"><a href="#aba761028ac72c20c7defaef09de61d95">fbgemm_gpu::sum_E</a></div><div class="ttdeci">index_t sum_E</div><div class="ttdef"><b>Definition</b> sparse_batched_unary_embeddings.cu:166</div></div>
 </div><!-- fragment -->

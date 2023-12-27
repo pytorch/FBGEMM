@@ -79,7 +79,355 @@ $(function() {
 </div><!--header-->
 <div class="contents">
 <div class="textblock"><code>#include &quot;<a class="el" href="embedding__forward__template__helpers_8cuh.html">codegen/embedding_forward_template_helpers.cuh</a>&quot;</code><br />
-</div></div><!-- contents -->
+<code>#include &quot;<a class="el" href="split__embeddings__cache__cuda_8cuh.html">fbgemm_gpu/split_embeddings_cache_cuda.cuh</a>&quot;</code><br />
+</div><h2 class="groupheader">Function Documentation</h2>
+<a id="a288c568f35f2d6125c1871741f798cb4" name="a288c568f35f2d6125c1871741f798cb4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a288c568f35f2d6125c1871741f798cb4">&#9670;&#160;</a></span>if() <span class="overload">[1/4]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">if </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="#a80bf165f08583eb18182db93063b5dbe">L_start</a> &gt;=</td>          <td class="paramname"><span class="paramname"><em>total_L</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a946347cfca172ca4f9800aba40b36d4d" name="a946347cfca172ca4f9800aba40b36d4d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a946347cfca172ca4f9800aba40b36d4d">&#9670;&#160;</a></span>if() <span class="overload">[2/4]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">if </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">placement</a></td>          <td class="paramname"><span class="paramname"><span class="paramdefsep"> = </span><span class="paramdefval">=&#160;PlacementType::DEVICE</span></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a588542a2de5e72f841bf2db031b396bb" name="a588542a2de5e72f841bf2db031b396bb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a588542a2de5e72f841bf2db031b396bb">&#9670;&#160;</a></span>if() <span class="overload">[3/4]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">if </td>
+          <td>(</td>
+          <td class="paramtype">std::is_same&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">emb_t</a>, <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a> &gt;::value</td>          <td class="paramname"><span class="paramname"></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a618af795eb1829b78b342e084130e1f4" name="a618af795eb1829b78b342e084130e1f4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a618af795eb1829b78b342e084130e1f4">&#9670;&#160;</a></span>if() <span class="overload">[4/4]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">if </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a886f5e3baf03935340ae10c910916eb9">t</a> &gt;=</td>          <td class="paramname"><span class="paramname"><em>T</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5a450aa171f7c8d0e33775e2414981ee" name="a5a450aa171f7c8d0e33775e2414981ee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5a450aa171f7c8d0e33775e2414981ee">&#9670;&#160;</a></span>reinterpret_cast&lt; uint32_t * &gt;()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">reinterpret_cast</a>&lt; <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> * &gt; </td>
+          <td>(</td>
+          <td class="paramtype">&amp;</td>          <td class="paramname"><span class="paramname"><em>t</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<h2 class="groupheader">Variable Documentation</h2>
+<a id="a6c28c5e48affb1443ea7859f71695265" name="a6c28c5e48affb1443ea7859f71695265"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6c28c5e48affb1443ea7859f71695265">&#9670;&#160;</a></span>accumulators</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structfbgemm__gpu_1_1_vec4_t.html">Vec4T</a>&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">cache_t</a>&gt; accumulators[<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">kMaxVecsPerThread</a>]</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a71e11d82b1a068fbf587c2092a79b4c3" name="a71e11d82b1a068fbf587c2092a79b4c3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a71e11d82b1a068fbf587c2092a79b4c3">&#9670;&#160;</a></span>b</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int32_t b</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">{%- <span class="keywordflow">if</span> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">not</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">is_index_select</a> %}</div>
+<div class="line">    <span class="keywordflow">if</span> (<a class="code hl_variable" href="#a1a5ea7b1f265584db8df7ef65698c2dd">b_t</a> &gt;= <a class="code hl_variable" href="namespacefbgemm__gpu.html#aad33dfd216d9ea27b505a304ca3e32da">offsets</a>.<a class="code hl_function" href="classfbgemm__gpu_1_1_tensor_accessor_base.html#a53408e729e4cd52d06e5c577afbfcf9d">size</a>(0) - 1) {</div>
+<div class="line">        <span class="keywordflow">return</span>;</div>
+<div class="line">    }</div>
+<div class="line">    {%- <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">endif</a> %}</div>
+<div class="line"> </div>
+<div class="line">    </div>
+<div class="line">    <a class="code hl_variable" href="namespacefbgemm__gpu.html#a112ef14feafbe22a3b70fd5ddcefcf99">int32_t</a> <a class="code hl_variable" href="namespacefbgemm__gpu.html#aa80cbea4714c980d14626fd87c9287a4">t</a></div>
+<div class="ttc" id="aclassfbgemm__gpu_1_1_tensor_accessor_base_html_a53408e729e4cd52d06e5c577afbfcf9d"><div class="ttname"><a href="classfbgemm__gpu_1_1_tensor_accessor_base.html#a53408e729e4cd52d06e5c577afbfcf9d">fbgemm_gpu::TensorAccessorBase::size</a></div><div class="ttdeci">C10_HOST_DEVICE index_t size(index_t i) const</div><div class="ttdef"><b>Definition</b> fbgemm_tensor_accessor.h:81</div></div>
+<div class="ttc" id="aclassfbgemm__gpu_1_1_tensor_accessor_html"><div class="ttname"><a href="classfbgemm__gpu_1_1_tensor_accessor.html">fbgemm_gpu::TensorAccessor</a></div><div class="ttdef"><b>Definition</b> fbgemm_tensor_accessor.h:128</div></div>
+<div class="ttc" id="aembedding__forward__split__kernel__template_8cu_html_a1a5ea7b1f265584db8df7ef65698c2dd"><div class="ttname"><a href="#a1a5ea7b1f265584db8df7ef65698c2dd">b_t</a></div><div class="ttdeci">int32_t b_t</div><div class="ttdef"><b>Definition</b> embedding_forward_split_kernel_template.cu:153</div></div>
+<div class="ttc" id="anamespacefbgemm__gpu_html_a112ef14feafbe22a3b70fd5ddcefcf99"><div class="ttname"><a href="namespacefbgemm__gpu.html#a112ef14feafbe22a3b70fd5ddcefcf99">fbgemm_gpu::int32_t</a></div><div class="ttdeci">indices_is_long &amp;[is_long_idx] is_long_mask int32_t</div><div class="ttdef"><b>Definition</b> input_combine.cu:73</div></div>
+<div class="ttc" id="anamespacefbgemm__gpu_html_aa80cbea4714c980d14626fd87c9287a4"><div class="ttname"><a href="namespacefbgemm__gpu.html#aa80cbea4714c980d14626fd87c9287a4">fbgemm_gpu::t</a></div><div class="ttdeci">int32_t t</div><div class="ttdef"><b>Definition</b> sparse_batched_unary_embeddings.cu:34</div></div>
+<div class="ttc" id="anamespacefbgemm__gpu_html_aad33dfd216d9ea27b505a304ca3e32da"><div class="ttname"><a href="namespacefbgemm__gpu.html#aad33dfd216d9ea27b505a304ca3e32da">fbgemm_gpu::offsets</a></div><div class="ttdeci">__global__ const int32_t const int32_t const scalar_t *__restrict__ const index_t *__restrict__ const index_t *__restrict__ offsets</div><div class="ttdef"><b>Definition</b> sparse_batched_unary_embeddings.cu:25</div></div>
+</div><!-- fragment -->
+</div>
+</div>
+<a id="a1a5ea7b1f265584db8df7ef65698c2dd" name="a1a5ea7b1f265584db8df7ef65698c2dd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1a5ea7b1f265584db8df7ef65698c2dd">&#9670;&#160;</a></span>b_t</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3ba475d30d23d2b8afc22ea4eb06e5d0" name="a3ba475d30d23d2b8afc22ea4eb06e5d0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3ba475d30d23d2b8afc22ea4eb06e5d0">&#9670;&#160;</a></span>D</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">auto</a> D = <a class="el" href="#ab11b22c41866358a30524c7a7ceba185">D_end</a> - <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aede9588b11147ebb6a17d9672563737c">D_start</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ab11b22c41866358a30524c7a7ceba185" name="ab11b22c41866358a30524c7a7ceba185"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab11b22c41866358a30524c7a7ceba185">&#9670;&#160;</a></span>D_end</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">auto</a> D_end = <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>[<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a886f5e3baf03935340ae10c910916eb9">t</a> + 1]</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0544c3fe466e421738dae463968b70ba" name="a0544c3fe466e421738dae463968b70ba"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0544c3fe466e421738dae463968b70ba">&#9670;&#160;</a></span>else</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">else</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">{</div>
+<div class="line">        <a class="code hl_variable" href="#a16203f75c5aadab0aae838bbc6708339">weights</a> = &amp;<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a>[<a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">weights_offset</a>]</div>
+<div class="ttc" id="aembedding__forward__split__kernel__template_8cu_html_a16203f75c5aadab0aae838bbc6708339"><div class="ttname"><a href="#a16203f75c5aadab0aae838bbc6708339">weights</a></div><div class="ttdeci">const emb_t *__restrict__ weights</div><div class="ttdef"><b>Definition</b> embedding_forward_split_kernel_template.cu:212</div></div>
+<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a17f61eb7bf7a7e4089982fbf69116da5"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const uvm_weights</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:58</div></div>
+</div><!-- fragment -->
+</div>
+</div>
+<a id="ac57aa86b8307437bffc00d99a9af7ce0" name="ac57aa86b8307437bffc00d99a9af7ce0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac57aa86b8307437bffc00d99a9af7ce0">&#9670;&#160;</a></span>indices_start</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">indices_start = <a class="el" href="#a14fc09894e022d17fac96f72a8805dba">total_L_start</a> + <a class="el" href="#a80bf165f08583eb18182db93063b5dbe">L_start</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aecafc04771743e2c6d10fa66f9821ea4" name="aecafc04771743e2c6d10fa66f9821ea4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aecafc04771743e2c6d10fa66f9821ea4">&#9670;&#160;</a></span>inv_L</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__backward__kernel__cta_8cu.html#a6df94b891e47f19e9fa76b529e49cdda">float</a> inv_L = (<a class="el" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#aa7749446d7c1da86adc5b7c06dcc7817">mean_pooling</a> &amp;&amp; <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a> != 0) ? <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">static_cast</a>&lt;<a class="el" href="gen__batch__index__select__dim0__backward__kernel__cta_8cu.html#a6df94b891e47f19e9fa76b529e49cdda">float</a>&gt;(1.0) / <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">L:</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">static_cast</a>&lt;<a class="el" href="gen__batch__index__select__dim0__backward__kernel__cta_8cu.html#a6df94b891e47f19e9fa76b529e49cdda">float</a>&gt;(1.0)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a71a77dfc9561ca59031082dfd57dd5ca" name="a71a77dfc9561ca59031082dfd57dd5ca"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a71a77dfc9561ca59031082dfd57dd5ca">&#9670;&#160;</a></span>L</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">int32_t L</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">{%- <span class="keywordflow">if</span> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">is_index_select</a> %}</div>
+<div class="line">    <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">index_t</a> <a class="code hl_variable" href="#ac57aa86b8307437bffc00d99a9af7ce0">indices_start</a></div>
+<div class="ttc" id="aembedding__forward__split__kernel__template_8cu_html_ac57aa86b8307437bffc00d99a9af7ce0"><div class="ttname"><a href="#ac57aa86b8307437bffc00d99a9af7ce0">indices_start</a></div><div class="ttdeci">indices_start</div><div class="ttdef"><b>Definition</b> embedding_forward_split_kernel_template.cu:187</div></div>
+</div><!-- fragment -->
+</div>
+</div>
+<a id="a80bf165f08583eb18182db93063b5dbe" name="a80bf165f08583eb18182db93063b5dbe"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a80bf165f08583eb18182db93063b5dbe">&#9670;&#160;</a></span>L_start</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">L_start = <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#accb572634460f69de2be065a6c927e49">b</a> * <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acac1f3391492ec3c4a8942ec48197027">fixed_L_per_warp</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4f20b597750c96d52a0baf14e049f553" name="a4f20b597750c96d52a0baf14e049f553"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4f20b597750c96d52a0baf14e049f553">&#9670;&#160;</a></span>output_offset</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">auto</a> output_offset = <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a5bd1879ce15d52289f55eb10253c8e8e">permute_output_dim_0_1</a> ? <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aede9588b11147ebb6a17d9672563737c">D_start</a> : <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a48df3803c4f164ff153d5348c6f8f10f">output_offsets</a>[<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a886f5e3baf03935340ae10c910916eb9">t</a>]</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="addd47af0124f3f0a8b4d3151694f9d3a" name="addd47af0124f3f0a8b4d3151694f9d3a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#addd47af0124f3f0a8b4d3151694f9d3a">&#9670;&#160;</a></span>output_stride</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">auto</a> output_stride = <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a5bd1879ce15d52289f55eb10253c8e8e">permute_output_dim_0_1</a> ? <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>[<a class="el" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a>] : <a class="el" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aecbb8e032512c651d4a4d6c76c201528" name="aecbb8e032512c651d4a4d6c76c201528"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aecbb8e032512c651d4a4d6c76c201528">&#9670;&#160;</a></span>total_L</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">auto</a> total_L = <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#aa162b310777fc83fbde6ed5d0d35df4c">total_L_offsets</a>[<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a886f5e3baf03935340ae10c910916eb9">t</a> + 1] - <a class="el" href="#a14fc09894e022d17fac96f72a8805dba">total_L_start</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a14fc09894e022d17fac96f72a8805dba" name="a14fc09894e022d17fac96f72a8805dba"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a14fc09894e022d17fac96f72a8805dba">&#9670;&#160;</a></span>total_L_start</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">auto</a> total_L_start = <a class="el" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#aa162b310777fc83fbde6ed5d0d35df4c">total_L_offsets</a>[<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a886f5e3baf03935340ae10c910916eb9">t</a>]</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6859e61a669540174b965f5ae22fb875" name="a6859e61a669540174b965f5ae22fb875"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6859e61a669540174b965f5ae22fb875">&#9670;&#160;</a></span>VEC_WIDTH</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">constexpr</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int</a> VEC_WIDTH = 4</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a16203f75c5aadab0aae838bbc6708339" name="a16203f75c5aadab0aae838bbc6708339"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a16203f75c5aadab0aae838bbc6708339">&#9670;&#160;</a></span>weights</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">emb_t</a>* <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">__restrict__</a> weights</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">{%- <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">endif</a> %}</div>
+<div class="line"> </div>
+<div class="line">    </div>
+<div class="line">    </div>
+<div class="line">    <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">weights_offset</a> = <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a>[<a class="code hl_variable" href="namespacefbgemm__gpu.html#aa80cbea4714c980d14626fd87c9287a4">t</a>]</div>
+<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel_8cu_html_ac4ebc0de2e60165af8333b6f4eab3e70"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></div><div class="ttdeci">template int64_t</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel.cu:1250</div></div>
+<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_a764f8ae801cd000c2a5cb4bb23f14299"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; weights_offsets</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:120</div></div>
+</div><!-- fragment -->
+</div>
+</div>
+</div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
 Generated by&#160;<a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.10.0

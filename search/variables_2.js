@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['cache_5frow_5f_0',['cache_row_',['../structfbgemm__gpu_1_1_weight_row.html#a8ba350d1da8749a0975ab4c1f645de70',1,'fbgemm_gpu::WeightRow']]],
+  ['cache_5frow_5f_0',['cache_row_',['../structfbgemm__gpu_1_1_weight_row.html#a8ba350d1da8749a0975ab4c1f645de70',1,'fbgemm_gpu::WeightRow::cache_row_'],['../structfbgemm__gpu_1_1_weight_row_accessor.html#a8ba350d1da8749a0975ab4c1f645de70',1,'fbgemm_gpu::WeightRowAccessor::cache_row_']]],
   ['calibrated_5fprediction_5fdata_1',['calibrated_prediction_data',['../namespacefbgemm__gpu.html#a5a04eca282d6278fd065294a91065404',1,'fbgemm_gpu']]],
   ['column_5fsegment_5fids_2',['column_segment_ids',['../structinternal_1_1_hyper_compressed_sparse_column.html#a1e60e73bdb48b0daa00b9f6caa8c6728',1,'internal::HyperCompressedSparseColumn']]],
   ['column_5fsegment_5findices_3',['column_segment_indices',['../structinternal_1_1_hyper_compressed_sparse_column.html#ad90d05e46d82122e7688be758b7cb43a',1,'internal::HyperCompressedSparseColumn']]],
