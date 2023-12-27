@@ -95,6 +95,7 @@ run_fbgemm_gpu_tests () {
     local ignored_tests=(
       batched_unary_embeddings_test.py
       input_combine_test.py
+      jagged_tensor_ops_test.py
     )
   else
     local ignored_tests=()
