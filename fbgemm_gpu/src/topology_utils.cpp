@@ -6,15 +6,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/core/Device.h>
+#include "fbgemm_gpu/topology_utils.h"
+#include <ATen/cuda/CUDAContext.h> // IWYU pragma: keep
+#include <c10/core/Device.h> // IWYU pragma: keep
 #include <c10/cuda/CUDAException.h>
-#include <c10/util/Logging.h>
+#include <c10/util/Logging.h> // IWYU pragma: keep
 #include <algorithm>
 
-#include "fbgemm_gpu/topology_utils.h"
-
 #ifdef USE_ROCM
+#include <inttypes.h>
 #include "hip/hip_runtime.h"
 #include "rocm_smi/rocm_smi.h"
 
