@@ -72,6 +72,7 @@ Tensor
     {%- endif %}
     {%- if not dense %}
     const Tensor& lxu_cache_locations,
+    const Tensor& uvm_cache_stats,
     {%- endif %}
     const int64_t output_dtype,
     {%- if vbe %}
