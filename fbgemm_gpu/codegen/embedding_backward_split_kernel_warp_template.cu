@@ -8,7 +8,9 @@
 
 // clang-format off
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
-{%- set vbe_desc = "_vbe" if vbe else "" %}
+{%- set ndesc = "_nobag" if nobag else "" %}
+{%- set vdesc = "_vbe" if vbe else "" %}
+
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
@@ -33,7 +35,7 @@ __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
 {%- else %}
-split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1(
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -270,7 +272,7 @@ template __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 {%- else %}
-split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1
 {%- endif %}
 < {{ emb_type }},
   {{ grad_type }},

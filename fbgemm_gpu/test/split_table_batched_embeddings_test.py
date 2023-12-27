@@ -4304,6 +4304,17 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     193,
                 ]
             ).to(dtype=torch.int, device="cuda")
+            uvm_cache_stats = torch.tensor(
+                [
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
+                ]
+            ).to(dtype=torch.int, device="cuda")
+
             output_dtype = 0  # SparseType.FP32
             is_experimental = False
 
@@ -4324,6 +4335,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 op_args += [indice_weights]
             op_args += [
                 lxu_cache_locations,
+                uvm_cache_stats,
                 output_dtype,
                 is_experimental,
             ]
