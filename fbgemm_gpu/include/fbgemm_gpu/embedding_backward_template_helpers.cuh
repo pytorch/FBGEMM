@@ -23,10 +23,10 @@
 #include <curand_kernel.h>
 #include <mutex>
 
-#include "dispatch_macros.h"
-#include "embedding_common.h"
-#include "fbgemm_cuda_utils.cuh"
-#include "sparse_ops_utils.h"
+#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 #define SHFL_SYNC(val, srcLane) \
   shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)

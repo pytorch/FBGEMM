@@ -26,7 +26,7 @@
 {%- if not is_index_select %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "codegen/embedding_op_registration.h"
+#include "fbgemm_gpu/embedding_op_registration.h"
 ////////////////////////////////////////////////////////////////////////////////
 {%- endif %}
 #include "codegen/embedding_forward_template_helpers.cuh"

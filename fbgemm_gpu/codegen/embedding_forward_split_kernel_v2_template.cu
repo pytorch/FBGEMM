@@ -135,7 +135,7 @@ __inline__ __device__ void process_all_indices_no_pooling(
   // Assuming kWarpSize is a multiple of STEP
   for (uint32_t l_start = 0; l_start < TOTAL_L; l_start += STEP) {
     Vec4StepT<STEP, emb_t> vecs;
-    #pragma loop unroll
+    #pragma unroll
     for (uint32_t j = 0; j < STEP; ++j) {
       // Get weight pointer
       const auto* ptr = reinterpret_cast<const emb_vec_t*>(
@@ -151,7 +151,7 @@ __inline__ __device__ void process_all_indices_no_pooling(
 
     if (process_d) {
       // Write to output (not pooling)
-      #pragma loop unroll
+      #pragma unroll
       for (uint32_t j = 0; j < STEP; ++j) {
         {%- if weighted %}
         const auto index_weight = index_weights[l_start + j];
@@ -354,7 +354,7 @@ __noinline__ __device__ void process_all_indices_small_Ls(
     const auto cache_look_up_bits_step = cache_look_up_bits & STEP_MASK;
     if (USE_MIXED_TYPE_CACHE && cache_look_up_bits_step != 0) {
       if (cache_look_up_bits_step == STEP_MASK) {
-        #pragma loop unroll
+        #pragma unroll
         for (uint32_t j = 0; j < STEP; ++j) {
           const auto smem_offset = (l_start % kWarpSize) + j;
           if (process_d) {
@@ -383,7 +383,7 @@ __noinline__ __device__ void process_all_indices_small_Ls(
         cache_look_up_bits >>= STEP;
       }
       else {
-        #pragma loop unroll
+        #pragma unroll
         for (uint32_t j = 0; j < STEP; ++j) {
           const auto smem_offset = (l_start % kWarpSize) + j;
           if (process_d) {
@@ -425,14 +425,14 @@ __noinline__ __device__ void process_all_indices_small_Ls(
     else {
       if (process_d) {
         // Load STEP rows
-        #pragma loop unroll
+        #pragma unroll
         for (uint32_t j = 0; j < STEP; ++j) {
           const auto smem_offset = (l_start % kWarpSize) + j;
           accumulator.load(&SMEM_EMB_WEIGHT_DATA(smem_offset, threadIdx.x), j);
         }
       }
 
-      #pragma loop unroll
+      #pragma unroll
       for (uint32_t j = 0; j < STEP; ++j) {
         // Accumulate rows
         if (process_d) {
@@ -588,20 +588,21 @@ __noinline__ __device__ void process_all_indices_large_Ls(
         {%- endif %}
         if (cache_look_up_bits_step == STEP_MASK) {
           // Load STEP rows from lxu_cache_weights
-          #pragma loop unroll
+          #pragma unroll
           for (uint32_t j = 0; j < STEP; ++j) {
             const auto* weight =
               &SMEM_CACHE_WEIGHT_DATA((l_start % kWarpSize) + SMEM_OFFSET, WEIGHT_OFFSET);
             ACC_ADD_OR_FMA(weight, index_weights[SMEM_OFFSET])
           }
-          cache_look_up_bits >>= STEP * NUM_LOAD_GROUPS;
+          // Bypass the hip clang error of "shift count >= width of type"
+          cache_look_up_bits >>= std::min(STEP * NUM_LOAD_GROUPS, 31u);
         }
         else {
           // Load and accumulate STEP rows for UVM caching that emb_t and cache_t
           // are not the same and rows within STEPS are read from different
           // locations. It is unlikely that the compiler will be able to unroll
           // the loop below because of the runtime conditionals
-          #pragma loop unroll
+          #pragma unroll
           for (uint32_t j = 0; j < STEP; ++j) {
             if (cache_look_up_bits & 1u) {
               // Look up from lxu_cache_weights
@@ -621,7 +622,7 @@ __noinline__ __device__ void process_all_indices_large_Ls(
       }
       else {
         // Load STEP rows from dev_weights
-        #pragma loop unroll
+        #pragma unroll
         for (uint32_t j = 0; j < STEP; ++j) {
           accumulator.load(
               &SMEM_EMB_WEIGHT_DATA(
@@ -641,7 +642,8 @@ __noinline__ __device__ void process_all_indices_large_Ls(
         {%- endif %}
 
         if (USE_MIXED_TYPE_CACHE) {
-          cache_look_up_bits >>= STEP * NUM_LOAD_GROUPS;
+          // Bypass the hip clang error of "shift count >= width of type"
+          cache_look_up_bits >>= std::min(STEP * NUM_LOAD_GROUPS, 31u);
         }
       }
     }
