@@ -30,9 +30,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 
 try:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
-    )
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
+        )
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
     )

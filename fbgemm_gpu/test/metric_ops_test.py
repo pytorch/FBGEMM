@@ -16,7 +16,10 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:metric_ops")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:metric_ops_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:metric_ops")
 
 
 class MetricOpsTest(unittest.TestCase):

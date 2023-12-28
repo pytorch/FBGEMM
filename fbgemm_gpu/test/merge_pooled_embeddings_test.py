@@ -21,7 +21,15 @@ try:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
+        )
+
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
     )

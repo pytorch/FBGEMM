@@ -15,15 +15,28 @@ try:
     # pyre-ignore
     from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
+        )
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip"
+        )
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
+        )
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
+
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
     )
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
 
 import torch.utils._pytree as pytree
