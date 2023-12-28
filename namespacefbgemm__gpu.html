@@ -12375,7 +12375,7 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
 <div class="line">      <a class="code hl_variable" href="#a2f93c0df9186a239cfd59505a464fc36">dense_segment_value_data</a>[index] &gt; <a class="code hl_variable" href="#a13adcdfa105d3fe5d68bfeae4df5f017">num_segments</a></div>
 <div class="line">      ? 0</div>
 <div class="line">      : std::max(0<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a>, dense_segment_value_data[index] * num_bins)</div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a71a77dfc9561ca59031082dfd57dd5ca"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a></div><div class="ttdeci">uint32_t L</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:744</div></div>
+<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a71a77dfc9561ca59031082dfd57dd5ca"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a></div><div class="ttdeci">uint32_t L</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:746</div></div>
 <div class="ttc" id="anamespacefbgemm__gpu_html_a13adcdfa105d3fe5d68bfeae4df5f017"><div class="ttname"><a href="#a13adcdfa105d3fe5d68bfeae4df5f017">fbgemm_gpu::num_segments</a></div><div class="ttdeci">__global__ const int64_t const int64_t num_segments</div><div class="ttdef"><b>Definition</b> histogram_binning_calibration_ops.cu:135</div></div>
 <div class="ttc" id="anamespacefbgemm__gpu_html_a2f93c0df9186a239cfd59505a464fc36"><div class="ttname"><a href="#a2f93c0df9186a239cfd59505a464fc36">fbgemm_gpu::dense_segment_value_data</a></div><div class="ttdeci">__global__ const ValueType *const const OffsetType *const ValueType *const dense_segment_value_data</div><div class="ttdef"><b>Definition</b> histogram_binning_calibration_ops.cu:113</div></div>
 </div><!-- fragment -->
@@ -12428,7 +12428,7 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
 </div><div class="memdoc">
 <b>Initial value:</b><div class="fragment"><div class="line">{</div>
 <div class="line">  <span class="keyword">const</span> <span class="keyword">auto</span> <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a53d1bd761ca2346d5b9bcc60d1c43be6">global_warp_id</a> = blockIdx.x * blockDim.y + threadIdx.y</div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a53d1bd761ca2346d5b9bcc60d1c43be6"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a53d1bd761ca2346d5b9bcc60d1c43be6">global_warp_id</a></div><div class="ttdeci">const int32_t global_warp_id</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:676</div></div>
+<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a53d1bd761ca2346d5b9bcc60d1c43be6"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a53d1bd761ca2346d5b9bcc60d1c43be6">global_warp_id</a></div><div class="ttdeci">const int32_t global_warp_id</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:678</div></div>
 </div><!-- fragment -->
 </div>
 </div>
