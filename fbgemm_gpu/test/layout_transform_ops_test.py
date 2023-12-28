@@ -20,7 +20,11 @@ try:
     from test_utils import gpu_unavailable
 
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 

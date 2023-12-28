@@ -37,9 +37,14 @@ from torch import nn, Tensor  # usort:skip
 from torch.autograd.profiler import record_function
 
 try:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-    )
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
+        )
 except OSError:
     # Keep for BC: will be deprecated soon.
     torch.ops.load_library(
