@@ -15,6 +15,15 @@ namespace fbgemm_gpu {
 /// @ingroup quantize-ops-cuda
 /// Converts a tensor of `float` values into a tensor of Hybrid 8-bit Floating
 /// Point (`hfp8`) values.
+///
+/// @param input A tensor of `float` values
+/// @param ebits
+/// @param exponent_bias
+/// @param max_pos
+///
+/// @return A new tensor with values from the input tensor converted to `hfp8`.
+///
+/// @throw c10::Error if `ebits > 0` or `exponent_bias > 0`.
 DLL_PUBLIC at::Tensor _float_to_hfp8_gpu(
     const at::Tensor& input,
     const int64_t ebits,
@@ -45,6 +54,14 @@ DLL_PUBLIC at::Tensor _float_to_hfp8_gpu(
 /// @ingroup quantize-ops-cuda
 /// Converts a tensor of Hybrid 8-bit Floating Point (`hfp8`) values into a
 /// tensor of `float` values.
+///
+/// @param input A tensor of `hfp8` values
+/// @param ebits
+/// @param exponent_bias
+///
+/// @return A new tensor with values from the input tensor converted to `float`.
+///
+/// @throw c10::Error if `ebits > 0` or `exponent_bias > 0`.
 DLL_PUBLIC at::Tensor _hfp8_to_float_gpu(
     const at::Tensor& input,
     const int64_t ebits,

@@ -20,7 +20,15 @@ library.
    general/TestInstructions.rst
    general/DocsInstructions.rst
 
-.. _fbgemm-gpu.docs.toc.python:
+.. _fbgemm-gpu.docs.toc.overview:
+
+.. toctree::
+   :maxdepth: 2
+   :caption: FBGEMM_GPU Overview
+
+   overview/jagged-tensor-ops/JaggedTensorOps.rst
+
+.. _fbgemm-gpu.docs.toc.api.python:
 
 .. toctree::
    :maxdepth: 2
@@ -29,7 +37,7 @@ library.
    python-api/table_batched_embedding_ops.rst
    python-api/jagged_tensor_ops.rst
 
-.. _fbgemm-gpu.docs.toc.cpp:
+.. _fbgemm-gpu.docs.toc.api.cpp:
 
 .. toctree::
    :maxdepth: 2
