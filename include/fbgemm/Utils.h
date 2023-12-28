@@ -151,6 +151,16 @@ FBGEMM_API bool fbgemmHasArmNeonSupport();
  */
 FBGEMM_API inst_set_t fbgemmInstructionSet();
 
+
+FBGEMM_API constexpr bool fbgemmIsArmInstructionSet() {
+#if defined(__aarch64__) || defined(__arm__) || \
+    (defined(_MSC_VER) && (defined(_M_ARM) || defined(_M_ARM64)))
+  return true;
+#else
+  return false;
+#endif
+}
+
 /**
  * @brief Is ISA is wide vector ZMM
  */
@@ -376,5 +386,36 @@ FBGEMM_API std::pair<K*, V*> radix_sort_parallel(
  * accelerated with OpenMP or not.
  */
 FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
+
+constexpr bool isArmInstructionSet() {
+#if defined(__aarch64__) || defined(__arm__) || \
+    (defined(_MSC_VER) && (defined(_M_ARM) || defined(_M_ARM64)))
+  return true;
+#else
+  return false;
+#endif
+}
+
+
+
+#define DISPATCH_FOR_ARCH(func_avx512, func_avx2, func_default, ...) \
+  [&] { \
+  if constexpr (fbgemmIsArmInstructionSet()) { \
+    return func_default(__VA_ARGS__); \
+ \
+  } else { \
+    static const auto iset = fbgemmInstructionSet(); \
+ \
+    if (isZmm(iset)) { \
+      return func_avx512(__VA_ARGS__); \
+ \
+    } else if (isYmm(iset)) { \
+      return func_avx2(__VA_ARGS__); \
+ \
+    } else { \
+      return func_default(__VA_ARGS__); \
+    } \
+  } \
+}()
 
 } // namespace fbgemm

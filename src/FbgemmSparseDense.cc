@@ -209,6 +209,14 @@ void SparseDenseMM(
     float* C,
     int ldc,
     bool accum) {
+
+  // DISPATCH_FOR_ARCH(
+  //   internal::SparseDenseMMAvx512,
+  //   internal::SparseDenseMMAvx2,
+  //   sparseDenseMMRef,
+  //   M, N, row_ptr, col_idx, values, B, ldb, C, ldc, accum
+  // );
+
   static const auto iset = fbgemmInstructionSet();
   // Run time CPU detection
   if (isZmm(iset)) {
@@ -235,14 +243,31 @@ FBGEMM_API void fbgemmSparseDenseInt8MM(
     bool accum,
     int thread_id,
     int num_threads) {
-  static const auto iset = fbgemmInstructionSet();
   // No parallelization currently
   // All work is done by thread 0
   if (thread_id > 0) {
     return;
   }
 
+  // DISPATCH_FOR_ARCH(
+  //   internal::SparseDenseInt8MMAvx512<FUSE_RELU, Q_GRAN>,
+  //   internal::SparseDenseInt8MMAvx2<FUSE_RELU, Q_GRAN>,
+  //   sparseDenseInt8MMRef<FUSE_RELU, Q_GRAN>,
+  //       N,
+  //       bcsr,
+  //       B,
+  //       ldb,
+  //       C_i32,
+  //       C_u8,
+  //       ldc,
+  //       rParams,
+  //       accum,
+  //       thread_id,
+  //       num_threads);
+
   // Run time CPU detection
+  static const auto iset = fbgemmInstructionSet();
+
   if (isZmm(iset)) {
     internal::SparseDenseInt8MMAvx512<FUSE_RELU, Q_GRAN>(
         N,

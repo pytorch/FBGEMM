@@ -62,8 +62,8 @@ macro(add_gtest TESTNAME)
       target_compile_definitions(${TESTNAME} PRIVATE FBGEMM_STATIC)
     endif()
   else(MSVC)
-    target_compile_options(${TESTNAME} PRIVATE
-     "-m64" "-mavx2" "-mfma" "-masm=intel")
+    # target_compile_options(${TESTNAME} PRIVATE
+    #  "-m64" "-mavx2" "-mfma" "-masm=intel")
   endif(MSVC)
   if (USE_SANITIZER)
     target_compile_options(${TESTNAME} PRIVATE
