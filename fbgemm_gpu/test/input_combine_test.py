@@ -20,7 +20,10 @@ try:
     # pyre-ignore[21]
     from test_utils import cpu_and_maybe_gpu, optests
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
     from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, optests
 

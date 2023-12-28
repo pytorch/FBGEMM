@@ -16,17 +16,30 @@ from .lookup_args import *
 
 # Provide compatibility to downstream packages for eventual migration to the split training / inference packages
 try:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training")
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
 
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+if torch.version.hip:
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils_hip")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings_hip")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_hip")
+else:
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update")
+
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings")
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_cpu")
 
 {%- endif %}
