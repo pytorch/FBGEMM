@@ -10,6 +10,7 @@ breathe
 bs4
 docutils
 lxml
+myst-parser
 sphinx-lint
 sphinx-serve
 six

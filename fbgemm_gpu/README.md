@@ -13,7 +13,7 @@ packages (2.1+) that are built against those CUDA versions.
 
 Only Intel/AMD CPUs with AVX2 extensions are currently supported.
 
-See our [Documentation](docs/README.md) for more information.
+See our [Documentation](https://pytorch.org/FBGEMM) for more information.
 
 
 ## Installation
