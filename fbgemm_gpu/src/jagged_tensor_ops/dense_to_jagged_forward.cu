@@ -49,8 +49,8 @@ Tensor dense_to_jagged_forward(
       values.scalar_type(),
       "dense_to_jagged_gpu_op_forward",
       DISPATCH_DENSE_TO_JAGGED_CASE(at::ScalarType::Half)
-      DISPATCH_DENSE_TO_JAGGED_CASE(at::ScalarType::Int)
-      AT_DISPATCH_CASE_FLOATING_TYPES_AND2(
+      AT_DISPATCH_CASE_FLOATING_TYPES_AND3(
+          at::ScalarType::Int,
           at::ScalarType::Long,
           at::ScalarType::BFloat16,
           [&] {
