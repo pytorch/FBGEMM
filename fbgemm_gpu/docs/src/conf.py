@@ -49,9 +49,11 @@ release = "0.1.2"
 # ones.
 extensions = [
     "breathe",
+    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.intersphinx",
+    "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
 ]
 

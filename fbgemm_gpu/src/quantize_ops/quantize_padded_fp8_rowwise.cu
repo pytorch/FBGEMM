@@ -395,6 +395,16 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
 }
 
 /// @ingroup quantize-ops-cuda
+/// Converts a tensor of `float` values into a tensor of padded `fp8` rowwise
+/// values.
+///
+/// @param input A tensor of `float` values.  The dtype can be either
+///              `SparseType::FP32`, `SparseType::FP16`, or `SparseType::BF16`
+/// @param forward
+/// @param row_dim
+///
+/// @return A new tensor with values from the input tensor converted to padded
+/// `fp8` rowwise.
 DLL_PUBLIC Tensor _float_to_paddedFP8rowwise_gpu(
     const Tensor& input,
     const bool forward,
@@ -402,6 +412,22 @@ DLL_PUBLIC Tensor _float_to_paddedFP8rowwise_gpu(
   return _float_to_paddedFP8rowwise_gpu_t(input, forward, row_dim);
 }
 
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of padded `fp8` rowwise values into a tensor of `float
+/// values`.
+///
+/// @param input A tensor of `float` values.  The dtype can be either
+///              `SparseType::FP32`, `SparseType::FP16`, or `SparseType::BF16`
+/// @param forward
+/// @param row_dim
+/// @param output_last_dim
+/// @param output_dtype The target floating point type, specified as integer
+///                     representation of `SparseType` enum
+///
+/// @return A new tensor with values from the input tensor converted to `float`.
+///
+/// @throw c10::Error if `output_dtype` is not one of (`SparseType::FP32`,
+/// `SparseType::FP16`, `SparseType::BF16`).
 DLL_PUBLIC at::Tensor _paddedFP8rowwise_to_float_gpu(
     const at::Tensor& input,
     const bool forward,

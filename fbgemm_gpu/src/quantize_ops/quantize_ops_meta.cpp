@@ -49,6 +49,7 @@ Tensor FP8rowwise_to_float_meta(
   }
 }
 
+/// @ingroup quantize-data-meta
 Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool forward) {
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
