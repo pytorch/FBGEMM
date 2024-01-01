@@ -1,0 +1,990 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Jagged Tensor Operators &mdash; fbgemm 0.1.2 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Table Batched Embedding (TBE) Operators" href="../../python-api/table_batched_embedding_ops.html" />
+    <link rel="prev" title="Contributing Documentation" href="../../general/DocsInstructions.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','UA-117752657-2');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="../../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch">
+                  <span class="dropdown-title">ExecuTorch</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-orange-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/audio/stable/index.html">
+                  <span class="dropdown-title">torchaudio</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/text/stable/index.html">
+                  <span class="dropdown-title">torchtext</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/vision/stable/index.html">
+                  <span class="dropdown-title">torchvision</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torcharrow">
+                  <span class="dropdown-title">torcharrow</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/data">
+                  <span class="dropdown-title">TorchData</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchrec">
+                  <span class="dropdown-title">TorchRec</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/serve/">
+                  <span class="dropdown-title">TorchServe</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchx/">
+                  <span class="dropdown-title">TorchX</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/xla">
+                  <span class="dropdown-title">PyTorch on XLA Devices</span>
+                  <p></p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Resources
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/features">
+                  <span class="dropdown-title">About</span>
+                  <p>Learn about PyTorch’s features and capabilities</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn about the PyTorch foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class="dropdown-title">Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class="dropdown-title">Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/hub">
+                  <span class="dropdown-title">Models (Beta)</span>
+                  <p>Discover, publish, and reuse pre-trained models</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">GitHub</a>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+
+            
+              
+              
+            
+
+            
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+            
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../general/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../general/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../general/DocsInstructions.html">Contributing Documentation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Jagged Tensor Operators</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cpp-api/embedding_ops.html">Embedding Operators</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Jagged Tensor Operators</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../../_sources/overview/jagged-tensor-ops/JaggedTensorOps.rst.txt" rel="nofollow"><img src="../../_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=UA-117752657-2"
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="jagged-tensor-operators">
+<h1>Jagged Tensor Operators<a class="headerlink" href="#jagged-tensor-operators" title="Permalink to this heading">¶</a></h1>
+<section id="high-level-overview">
+<h2>High Level Overview<a class="headerlink" href="#high-level-overview" title="Permalink to this heading">¶</a></h2>
+<p>The purpose of jagged tensor operators is to handle the case where some
+dimension of the input data is “jagged,” i.e. each consecutive row in a given
+dimension may be a different length.  This is similar to the <code class="docutils literal notranslate"><span class="pre">NestedTensor</span></code>
+<a class="reference external" href="https://github.com/pytorch/pytorch/issues/25032">implementation</a>
+in PyTorch and the <code class="docutils literal notranslate"><span class="pre">RaggedTensor</span></code>
+<a class="reference external" href="https://www.tensorflow.org/guide/ragged_tensor">implementation</a> in
+Tensorflow.</p>
+<p>Two notable examples of this type of input are:</p>
+<ul class="simple">
+<li><p>Sparse feature inputs in recommendation systems</p></li>
+<li><p>Batches of tokenized sentences which may be input to natural language
+processing systems.</p></li>
+</ul>
+</section>
+<section id="jagged-tensor-format">
+<h2>Jagged Tensor Format<a class="headerlink" href="#jagged-tensor-format" title="Permalink to this heading">¶</a></h2>
+<p>Jagged tensors are effectively represented in FBGEMm_GPU as a three-tensor
+object.  The three tensors are: <strong>Values</strong>, <strong>Max Lengths</strong>, and <strong>Offsets</strong>.</p>
+<section id="values">
+<h3>Values<a class="headerlink" href="#values" title="Permalink to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">Values</span></code> is defined as a 2D tensor that contains all the element values
+in the jagged tensor, i.e. <code class="docutils literal notranslate"><span class="pre">Values.numel()</span></code> is the number of elements in the
+jagged tensor.  The size of each row in <code class="docutils literal notranslate"><span class="pre">Values</span></code> is derived from the greatest
+common divisor for the smallest (most-inner) dimension sub-tensor
+(excluding tensors of size 0) in the jagged tensor.</p>
+</section>
+<section id="offsets">
+<h3>Offsets<a class="headerlink" href="#offsets" title="Permalink to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">Offsets</span></code> is a list of tensors, where each tensor <code class="docutils literal notranslate"><span class="pre">Offsets[i]</span></code> represents
+the partitioning indices of the values of the next tensor in the list,
+<code class="docutils literal notranslate"><span class="pre">Offsets[i</span> <span class="pre">+</span> <span class="pre">1]</span></code>.</p>
+<p>For example, <code class="docutils literal notranslate"><span class="pre">Offset[i]</span> <span class="pre">=</span> <span class="pre">[</span> <span class="pre">0,</span> <span class="pre">3,</span> <span class="pre">4</span> <span class="pre">]</span></code> implies that the current
+dimension <code class="docutils literal notranslate"><span class="pre">i</span></code> is divided into two groups, denoted by index bounds
+<code class="docutils literal notranslate"><span class="pre">[0</span> <span class="pre">,</span> <span class="pre">3)</span></code> and <code class="docutils literal notranslate"><span class="pre">[3,</span> <span class="pre">4)</span></code>.  For each <code class="docutils literal notranslate"><span class="pre">Offsets[i]</span></code>, where
+<code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">&lt;=</span> <span class="pre">i</span> <span class="pre">&lt;</span> <span class="pre">len(Offests)</span> <span class="pre">-</span> <span class="pre">1</span></code>, <code class="docutils literal notranslate"><span class="pre">Offsets[i][0]</span> <span class="pre">=</span> <span class="pre">0</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">Offsets[i][-1]</span> <span class="pre">=</span> <span class="pre">Offsets[i+1].length</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">Offsets[-1]</span></code> refers to the outer dimension index of <code class="docutils literal notranslate"><span class="pre">Values</span></code> (row index),
+i.e. <code class="docutils literal notranslate"><span class="pre">offsets[-1]</span></code> would be the partition index of <code class="docutils literal notranslate"><span class="pre">Values</span></code> itself.  As
+such, <code class="docutils literal notranslate"><span class="pre">Offsets[-1]</span></code>, the tensor begins with <code class="docutils literal notranslate"><span class="pre">0</span></code> and ends with
+<code class="docutils literal notranslate"><span class="pre">Values.size(0)</span></code> (i.e. the number of rows for <code class="docutils literal notranslate"><span class="pre">Values</span></code>).</p>
+</section>
+<section id="max-lengths">
+<h3>Max Lengths<a class="headerlink" href="#max-lengths" title="Permalink to this heading">¶</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">MaxLengths</span></code> is a list of integers, where each value <code class="docutils literal notranslate"><span class="pre">MaxLengths[i]</span></code>
+represents the maximum value between corresponding offset values in
+<code class="docutils literal notranslate"><span class="pre">Offsets[i]</span></code>:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">MaxLengths</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">max</span><span class="p">(</span><span class="w"> </span><span class="n">Offsets</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">Offsets</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="mi">-1</span><span class="p">]</span><span class="w">  </span><span class="o">|</span><span class="w">  </span><span class="mi">0</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">j</span><span class="w">  </span><span class="o">&lt;</span><span class="w"> </span><span class="n">len</span><span class="p">(</span><span class="n">Offsets</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The information in <code class="docutils literal notranslate"><span class="pre">MaxLengths</span></code> is used for performing the conversion from
+jagged tensor to normal (dense) densor where it will be used to determine the
+shape of the tensor’s dense form.</p>
+</section>
+<section id="jagged-tensor-example">
+<span id="fbgemm-gpu-docs-overview-ops-jagged-example"></span><h3>Jagged Tensor Example<a class="headerlink" href="#jagged-tensor-example" title="Permalink to this heading">¶</a></h3>
+<p>The figure below shows an example jagged tensor that contains three 2D
+sub-tensors, with each sub-tensor having a different dimension:</p>
+<img alt="../../_images/JaggedTensorExample.png" src="../../_images/JaggedTensorExample.png" />
+<p>In this example, the sizes of the rows in the inner-most dimension of the jagged
+tensor are <code class="docutils literal notranslate"><span class="pre">8</span></code>, <code class="docutils literal notranslate"><span class="pre">4</span></code>, and <code class="docutils literal notranslate"><span class="pre">0</span></code>, and so number of elements per row in
+<code class="docutils literal notranslate"><span class="pre">Values</span></code> is set to <code class="docutils literal notranslate"><span class="pre">4</span></code> (greatest common divisor).  This means <code class="docutils literal notranslate"><span class="pre">Values</span></code>
+must be of size <code class="docutils literal notranslate"><span class="pre">9</span> <span class="pre">x</span> <span class="pre">4</span></code> in order to accomodate all values in the jagged
+tensor.</p>
+<p>Because the example jagged tensor contains 2D sub-tensors, the <code class="docutils literal notranslate"><span class="pre">Offsets</span></code> list
+will need to have a length of 2 to create the partitioning indices.
+<code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code> represents the partition for dimension <code class="docutils literal notranslate"><span class="pre">0</span></code> and <code class="docutils literal notranslate"><span class="pre">Offsets[1]</span></code>
+represents the partition for dimension <code class="docutils literal notranslate"><span class="pre">1</span></code>.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">MaxLengths</span></code> values in the example jagged tensor are <code class="docutils literal notranslate"><span class="pre">[4</span> <span class="pre">,</span> <span class="pre">2]</span></code>.
+<code class="docutils literal notranslate"><span class="pre">MaxLengths[0]</span></code> is derived from <code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code> range <code class="docutils literal notranslate"><span class="pre">[4,</span> <span class="pre">0)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">MaxLengths[1]</span></code> is derived from <code class="docutils literal notranslate"><span class="pre">Offsets[1]</span></code> range <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">2)</span></code> (or
+<code class="docutils literal notranslate"><span class="pre">[7,</span> <span class="pre">9]</span></code>, <code class="docutils literal notranslate"><span class="pre">[3,5]</span></code>).</p>
+<p>Below is a table of the partition indices applied to the <code class="docutils literal notranslate"><span class="pre">Values</span></code> tensor to
+construct the logical representation of the example jagged tensor:</p>
+<table class="docutils align-default" id="fbgemm-gpu-docs-overview-ops-jagged-example-table">
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code> Range</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code> Group</p></th>
+<th class="head"><p>Corresponding <code class="docutils literal notranslate"><span class="pre">Offsets[1]</span></code></p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">Offsets[1]</span></code> Range</p></th>
+<th class="head"><p><code class="docutils literal notranslate"><span class="pre">Values</span></code> Group</p></th>
+<th class="head"><p>Corresponding <code class="docutils literal notranslate"><span class="pre">Values</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">0,</span> <span class="pre">4,</span> <span class="pre">6,</span> <span class="pre">8</span> <span class="pre">]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">4)</span></code></p></td>
+<td><p>Group 1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">0,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">3,</span> <span class="pre">5</span> <span class="pre">]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">0,</span> <span class="pre">2</span> <span class="pre">)</span></code></p></td>
+<td><p>Group 1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">[</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">4</span> <span class="pre">],</span> <span class="pre">[</span> <span class="pre">5,</span> <span class="pre">6,</span> <span class="pre">7,</span> <span class="pre">8</span> <span class="pre">]</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td></td>
+<td></td>
+<td></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">2,</span> <span class="pre">3</span> <span class="pre">)</span></code></p></td>
+<td><p>Group 2</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">[</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">4</span> <span class="pre">]</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-even"><td></td>
+<td></td>
+<td></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">3,</span> <span class="pre">3</span> <span class="pre">)</span></code></p></td>
+<td><p>Group 3</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td></td>
+<td></td>
+<td></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">3,</span> <span class="pre">5</span> <span class="pre">)</span></code></p></td>
+<td><p>Group 4</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">[</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">4</span> <span class="pre">],</span> <span class="pre">[</span> <span class="pre">5,</span> <span class="pre">6,</span> <span class="pre">7,</span> <span class="pre">8</span> <span class="pre">]</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-even"><td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[4,</span> <span class="pre">6)</span></code></p></td>
+<td><p>Group 2</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">5,</span> <span class="pre">6,</span> <span class="pre">7</span> <span class="pre">]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">5,</span> <span class="pre">6</span> <span class="pre">)</span></code></p></td>
+<td><p>Group 5</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">[</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">4</span> <span class="pre">]</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td></td>
+<td></td>
+<td></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">6,</span> <span class="pre">7</span> <span class="pre">)</span></code></p></td>
+<td><p>Group 6</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">[</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">7,</span> <span class="pre">9</span> <span class="pre">]</span> <span class="pre">]</span></code></p></td>
+</tr>
+<tr class="row-even"><td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[6,</span> <span class="pre">8)</span></code></p></td>
+<td><p>Group 3</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">7,</span> <span class="pre">9</span> <span class="pre">]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">7,</span> <span class="pre">9</span> <span class="pre">)</span></code></p></td>
+<td><p>Group 7</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[</span> <span class="pre">[</span> <span class="pre">1,</span> <span class="pre">2,</span> <span class="pre">3,</span> <span class="pre">4</span> <span class="pre">],</span> <span class="pre">[</span> <span class="pre">8,</span> <span class="pre">8,</span> <span class="pre">9,</span> <span class="pre">6</span> <span class="pre">]</span> <span class="pre">]</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="jagged-tensor-operations">
+<h2>Jagged Tensor Operations<a class="headerlink" href="#jagged-tensor-operations" title="Permalink to this heading">¶</a></h2>
+<p>At the current stage, FBGEMM_GPU only supports element-wise addition,
+multiplication, and conversion operations for jagged tensors.</p>
+<section id="arithmetic-operations">
+<h3>Arithmetic Operations<a class="headerlink" href="#arithmetic-operations" title="Permalink to this heading">¶</a></h3>
+<p>Jagged Tensor addition and multiplication works similar to the
+<a class="reference external" href="https://en.wikipedia.org/wiki/Hadamard_product_(matrices)">Hadamard Product</a>
+and involves only the <code class="docutils literal notranslate"><span class="pre">Values</span></code> of the jagged tensor.  For example:</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}\begin{bmatrix}
+\begin{bmatrix}
+    1. &amp; 2. \\
+    3. &amp; 4. \\
+\end{bmatrix} \\
+\begin{bmatrix}
+    5. &amp; 6. \\
+\end{bmatrix} \\
+\begin{bmatrix}
+    7. &amp; 8. \\
+    9. &amp; 10. \\
+    11. &amp; 12. \\
+\end{bmatrix} \\
+\end{bmatrix}
+\times
+\begin{bmatrix}
+\begin{bmatrix}
+    1. &amp; 2. \\
+    3. &amp; 4. \\
+\end{bmatrix} \\
+\begin{bmatrix}
+    5. &amp; 6. \\
+\end{bmatrix} \\
+\begin{bmatrix}
+    7. &amp; 8. \\
+    9. &amp; 5. \\
+    2. &amp; 3. \\
+\end{bmatrix} \\
+\end{bmatrix}
+\rightarrow
+\begin{bmatrix}
+\begin{bmatrix}
+    1. &amp; 4. \\
+    9. &amp; 16. \\
+\end{bmatrix} \\
+\begin{bmatrix}
+    25. &amp; 36. \\
+\end{bmatrix} \\
+\begin{bmatrix}
+    49. &amp; 64. \\
+    81. &amp; 50. \\
+    22. &amp; 36. \\
+\end{bmatrix} \\
+\end{bmatrix}\end{split}\]</div>
+<p>As such, arithmetic operations on jagged tensors require the two operand to have
+same shape.  In other words, if we have jagged tensors, <span class="math notranslate nohighlight">\(A\)</span>, <span class="math notranslate nohighlight">\(X\)</span>,
+<span class="math notranslate nohighlight">\(B\)</span>, and <span class="math notranslate nohighlight">\(C\)</span>, where <span class="math notranslate nohighlight">\(C = AX + B\)</span>, then the following
+properties hold:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">// MaxLengths are the same</span>
+<span class="n">C</span><span class="p">.</span><span class="n">maxlengths</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">maxlengths</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">X</span><span class="p">.</span><span class="n">maxlengths</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">maxlengths</span>
+
+<span class="c1">// Offsets are the same</span>
+<span class="n">C</span><span class="p">.</span><span class="n">offsets</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">offsets</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">X</span><span class="p">.</span><span class="n">offsets</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">offsets</span>
+
+<span class="c1">// Values are elementwise equal to the operations applied</span>
+<span class="n">C</span><span class="p">.</span><span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">X</span><span class="p">.</span><span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+<section id="conversion-operations">
+<h3>Conversion Operations<a class="headerlink" href="#conversion-operations" title="Permalink to this heading">¶</a></h3>
+<section id="jagged-to-dense">
+<h4>Jagged to Dense<a class="headerlink" href="#jagged-to-dense" title="Permalink to this heading">¶</a></h4>
+<img alt="../../_images/JaggedTensorConversion1.png" src="../../_images/JaggedTensorConversion1.png" />
+<p>Conversions of a jagged tensor <span class="math notranslate nohighlight">\(J\)</span> to the equivalent dense tensor <span class="math notranslate nohighlight">\(D\)</span>
+starts with an empty dense tensor.  The shape of <span class="math notranslate nohighlight">\(D\)</span> is based on the
+<code class="docutils literal notranslate"><span class="pre">MaxLengths</span></code>, the inner dimension of <code class="docutils literal notranslate"><span class="pre">Values</span></code>, and the length of
+<code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code>. The number of dimensions in <span class="math notranslate nohighlight">\(D\)</span> is:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">rank</span><span class="p">(</span><span class="n">D</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">len</span><span class="p">(</span><span class="n">MaxLengths</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span>
+</pre></div>
+</div>
+<p>For each dimension in <span class="math notranslate nohighlight">\(D\)</span>, the dimension size is:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="n">dim</span><span class="p">(</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MaxLengths</span><span class="p">[</span><span class="n">i</span><span class="mi">-1</span><span class="p">]</span><span class="w">  </span><span class="c1">// (0 &lt; i &lt; D.rank-1)</span>
+</pre></div>
+</div>
+<p>Using the example jagged tensor from
+<a class="reference internal" href="#fbgemm-gpu-docs-overview-ops-jagged-example"><span class="std std-ref">Jagged Tensor Example</span></a>, <code class="docutils literal notranslate"><span class="pre">len(MaxLengths)</span> <span class="pre">=</span> <span class="pre">2</span></code>, so
+the equivalent dense tensor’s rank (number of dimension) will be <code class="docutils literal notranslate"><span class="pre">4</span></code>.  The
+example jagged tensor two offset tensors, <code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code> and <code class="docutils literal notranslate"><span class="pre">Offsets[1]</span></code>.
+During the conversion process, elements from <code class="docutils literal notranslate"><span class="pre">Values</span></code> will be loaded onto the
+dense tensor based on the ranges denoted in the partition indices of
+<code class="docutils literal notranslate"><span class="pre">Offsets[0]</span></code> and <code class="docutils literal notranslate"><span class="pre">Offsets[1]</span></code> (see the
+<a class="reference internal" href="#fbgemm-gpu-docs-overview-ops-jagged-example-table"><span class="std std-ref">table</span></a> for the mapping
+of the groups to corresponding rows in the dense table):</p>
+<img alt="../../_images/JaggedTensorConversion2.png" src="../../_images/JaggedTensorConversion2.png" />
+<p>Some parts of <span class="math notranslate nohighlight">\(D\)</span> will not have values from <span class="math notranslate nohighlight">\(J\)</span> loaded into it since
+not every partition range denoted in <code class="docutils literal notranslate"><span class="pre">Offsets[i]</span></code> has a size equal to
+<code class="docutils literal notranslate"><span class="pre">MaxLengths[i]</span></code>. In that case, those parts will be padded with a pad value.
+In the above example, the pad value is <code class="docutils literal notranslate"><span class="pre">0</span></code>.</p>
+</section>
+<section id="dense-to-jagged">
+<h4>Dense to Jagged<a class="headerlink" href="#dense-to-jagged" title="Permalink to this heading">¶</a></h4>
+<p>For conversons from dense to jagged tensors, values in the dense tensor are
+loaded into the jagged tensor’s <code class="docutils literal notranslate"><span class="pre">Values</span></code>.  However, it’s possible that the
+given dense tensor is not same shape referring to the <code class="docutils literal notranslate"><span class="pre">Offsets</span></code>.  It could
+lead to the case where jagged tensor can not read in corresponding dense location
+if dense’s related dimension is smaller than expected.  When this happens we
+give the padded value to corresponding <code class="docutils literal notranslate"><span class="pre">Values</span></code> (see below):</p>
+<img alt="../../_images/JaggedTensorConversion3.png" src="../../_images/JaggedTensorConversion3.png" />
+</section>
+</section>
+<section id="combined-arithmetic-conversion-operations">
+<h3>Combined Arithmetic + Conversion Operations<a class="headerlink" href="#combined-arithmetic-conversion-operations" title="Permalink to this heading">¶</a></h3>
+<p>In some situations, we would like to perform the following operation:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span>dense_tensor + jagged_tensor → dense_tensor (or jagged_tensor)
+</pre></div>
+</div>
+<p>We can break such an operation into two steps:</p>
+<ol class="arabic simple">
+<li><p><strong>Conversion Operation</strong> - convert from jagged → dense or dense → jagged
+depending on the desired format for the target tensor.  After conversion,
+the operand tensors, be it dense or jagged, should have the exact same
+shapes.</p></li>
+<li><p><strong>Arithmetic operation</strong> - perform the arithmetic operations as usual for dense
+or jagged tensors.</p></li>
+</ol>
+</section>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="../../python-api/table_batched_embedding_ops.html" class="btn btn-neutral float-right" title="Table Batched Embedding (TBE) Operators" accesskey="n" rel="next">Next <img src="../../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="../../general/DocsInstructions.html" class="btn btn-neutral" title="Contributing Documentation" accesskey="p" rel="prev"><img src="../../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2023, FBGEMM Team.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Jagged Tensor Operators</a><ul>
+<li><a class="reference internal" href="#high-level-overview">High Level Overview</a></li>
+<li><a class="reference internal" href="#jagged-tensor-format">Jagged Tensor Format</a><ul>
+<li><a class="reference internal" href="#values">Values</a></li>
+<li><a class="reference internal" href="#offsets">Offsets</a></li>
+<li><a class="reference internal" href="#max-lengths">Max Lengths</a></li>
+<li><a class="reference internal" href="#jagged-tensor-example">Jagged Tensor Example</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#jagged-tensor-operations">Jagged Tensor Operations</a><ul>
+<li><a class="reference internal" href="#arithmetic-operations">Arithmetic Operations</a></li>
+<li><a class="reference internal" href="#conversion-operations">Conversion Operations</a><ul>
+<li><a class="reference internal" href="#jagged-to-dense">Jagged to Dense</a></li>
+<li><a class="reference internal" href="#dense-to-jagged">Dense to Jagged</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#combined-arithmetic-conversion-operations">Combined Arithmetic + Conversion Operations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+         <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
+         <script src="../../_static/doctools.js"></script>
+         <script src="../../_static/sphinx_highlight.js"></script>
+         <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+            
+          <li>
+            <a href="">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li class="resources-mobile-menu-title">
+            Docs
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/audio/stable/index.html">torchaudio</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/text/stable/index.html">torchtext</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/vision/stable/index.html">torchvision</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torcharrow">torcharrow</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/data">TorchData</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchrec">TorchRec</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/serve/">TorchServe</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchx/">TorchX</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/xla">PyTorch on XLA Devices</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            Resources
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+
+            <li>
+              <a href="https://pytorch.org/features">About</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/#community-module">Community</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/resources">Developer Resources</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+
+            <li>
+              <a href="https://discuss.pytorch.org/">Forums</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/hub">Models (Beta)</a>
+            </li>
+          </ul>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">Github</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>

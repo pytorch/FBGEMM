@@ -199,6 +199,7 @@ description:
       /// @param param2 Description of param #2
       ///
       /// @return Description of the method's return value.
+      ///
       /// @throw fbgemm_gpu::my_error if an error occurs
       ///
       /// @note This is an example note.
@@ -233,3 +234,39 @@ description:
 
 #.  Verify the changes by building the docs locally or submitting a PR for a
     Netlify preview.
+
+
+Sphinx Documentation Pointers
+-----------------------------
+
+Adding References to Other Sections
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To reference other sections in the documentation, an anchor must first be
+created above the target section:
+
+.. code:: rst
+
+  .. _fbgemm-gpu.docs.example.reference:
+
+  Example Section Header
+  ----------------------
+
+  NOTES:
+
+  #.  The reference anchor must start with an underscore, i.e. ``_``.
+
+  #.  There must be an empty line between the anchor and its target.
+
+The anchor can then be referenced elsewhere in the docs:
+
+.. code:: rst
+
+  Referencing the section :ref:`fbgemm-gpu.docs.example.reference` from
+  another page in the docs.
+
+  Referencing the section with
+  :ref:`custom text <fbgemm-gpu.docs.example.reference>` from another page
+  in the docs.
+
+  Note that the prefix underscore is not needed when referencing the anchor.

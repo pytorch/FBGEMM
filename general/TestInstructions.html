@@ -261,6 +261,10 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Testing FBGEMM_GPU</a></li>
 <li class="toctree-l1"><a class="reference internal" href="DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
@@ -355,8 +359,8 @@
               
   <section id="testing-fbgemm-gpu">
 <h1>Testing FBGEMM_GPU<a class="headerlink" href="#testing-fbgemm-gpu" title="Permalink to this heading">¶</a></h1>
-<p>The tests (in the <code class="docutils literal notranslate"><span class="pre">test/</span></code> directoy) and benchmarks (in the <code class="docutils literal notranslate"><span class="pre">bench/</span></code>
-directory) provide good examples on how to use FBGEMM_GPU.</p>
+<p>The tests (in the <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/test/</span></code> directory) and benchmarks (in the
+<code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/bench/</span></code> directory) provide good examples on how to use FBGEMM_GPU.</p>
 <section id="fbgemm-gpu-tests">
 <h2>FBGEMM_GPU Tests<a class="headerlink" href="#fbgemm-gpu-tests" title="Permalink to this heading">¶</a></h2>
 <p>To run the tests after building / installing the FBGEMM_GPU package:</p>
@@ -375,7 +379,9 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 used for testing. To run the tests and benchmarks on a GPU-capable
 device in CPU-only mode, <code class="docutils literal notranslate"><span class="pre">CUDA_VISIBLE_DEVICES=-1</span></code> must be set in the
 environment:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span>-1
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable for running in CPU-only mode (when on a GPU-capable machine)</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span>-1
+
 <span class="c1"># Enable for debugging failed kernel executions</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_LAUNCH_BLOCKING</span><span class="o">=</span><span class="m">1</span>
 

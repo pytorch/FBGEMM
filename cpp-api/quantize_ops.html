@@ -261,6 +261,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../general/TestInstructions.html">Testing FBGEMM_GPU</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Contributing Documentation</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
@@ -363,98 +367,413 @@ accuracy.</p>
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga2f1cc4b6dc6f708324855f94d558cfc1"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_float_to_bfloat16_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input)</span></span></dt>
-<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Brain Floating Point (<code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>) values. </p>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Brain Floating Point (<code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>) values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>. </p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga2076a59fd190690f67c1eddb79b6acc4"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_bfloat16_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input)</span></span></dt>
-<dd><p>Converts a tensor of Brain Floating Point (<code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. </p>
+<dd><p>Converts a tensor of Brain Floating Point (<code class="docutils literal notranslate"><span class="pre">bfloat16</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">bfloat16</span></code> values</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>. </p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga31b9029d43a60ad1fc90dc6ec54af9db"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_FP8rowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">forward)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of <code class="docutils literal notranslate"><span class="pre">fp8</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. The dtype can be either <code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code></p></li>
+<li><p><strong>forward</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">input.dtype</span></code> is not one of (<code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code>). </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">fp8</span></code>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga70d90c85fad4384b23c8958a6c300ce2"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_FP8rowwise_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">bool</span> <span class="pre">forward,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">fp8</span></code> values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">fp8</span></code> values </p></li>
+<li><p><strong>forward</strong> – </p></li>
+<li><p><strong>output_dtype</strong> – The target floating point type, specified as integer representation of <code class="docutils literal notranslate"><span class="pre">SparseType</span></code> enum</p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">output_dtype</span></code> is not one of (<code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code>). </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code> (with <code class="docutils literal notranslate"><span class="pre">dtype</span></code> of either <code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code>).</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga8c11c8dc06cae57b3afba79358c00e99"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_fused8bitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of fused 8-bit rowwise values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to fused 8-bit rowwise. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gadfeb2fc956b7aa5c2446a00ccbcd058e"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_half_to_fused8bitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input)</span></span></dt>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values into a tensor of fused 8-bit rowwise values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to fused 8-bit rowwise. </p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1gaff285349cb9c51a56fc418b628772b16"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_single_or_half_precision_to_fused8bitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">at::Single</span></code> or <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values into a tensor of fused 8-bit rowwise values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">at::Single</span></code> or <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to fused 8-bit rowwise. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gaab093a380068925d1b267452a1e255c2"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fused8bitrowwise_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input)</span></span></dt>
+<dd><p>Converts a tensor of fused 8-bit rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – A tensor of fused 8-bit rowwise values</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga3aa2e594cf4bbb5cb5241c4eaa593f8a"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fused8bitrowwise_to_half_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input)</span></span></dt>
+<dd><p>Converts a tensor of fused 8-bit rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>input</strong> – A tensor of fused 8-bit rowwise values</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">at::Half</span></code>. </p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1gafacdb4ec7d8f5b969c75d2127537ab16"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fused8bitrowwise_to_single_or_half_precision_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of fused 8-bit rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code>, <code class="docutils literal notranslate"><span class="pre">at::Half</span></code>, or <code class="docutils literal notranslate"><span class="pre">at::BFloat16</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of fused 8-bit rowwise values </p></li>
+<li><p><strong>output_dtype</strong> – The target floating point type, specified as integer representation of <code class="docutils literal notranslate"><span class="pre">SparseType</span></code> enum</p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">output_dtype</span></code> is not one of (<code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code>). </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>, <code class="docutils literal notranslate"><span class="pre">at::Half</span></code>, or <code class="docutils literal notranslate"><span class="pre">at::BFloat16</span></code>.</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga4c2c033e940095d20e76e9e00fe925d3"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fused8bitrowwise_to_float_mixed_dim_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;D_offsets,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
-<dd></dd></dl>
-
-<dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv4I0E32_float_to_fusednbitrowwise_gpu_t6TensorRK6TensorK7int64_t">
-<span id="_CPPv3I0E32_float_to_fusednbitrowwise_gpu_tRK6TensorK7int64_t"></span><span id="_CPPv2I0E32_float_to_fusednbitrowwise_gpu_tRK6TensorK7int64_t"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">input_t</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__quantize-ops-cuda_1ga02c8f9158646d9b16efbd3853711f56a"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">_float_to_fusednbitrowwise_gpu_t</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0E32_float_to_fusednbitrowwise_gpu_t6TensorRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of fused 8-bit rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">at::kFloat</span></code> or <code class="docutils literal notranslate"><span class="pre">at::kHalf</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of fused 8-bit rowwise values </p></li>
+<li><p><strong>D_offsets</strong> – </p></li>
+<li><p><strong>output_dtype</strong> – The target floating point type, specified as integer representation of <code class="docutils literal notranslate"><span class="pre">SparseType</span></code> enum</p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">output_dtype</span></code> is not one of (<code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>) </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">at::kFloat</span></code> or <code class="docutils literal notranslate"><span class="pre">at::kHalf</span></code>.</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1gaa3e8fd136e9bfa0e4d0c0016659bf708"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_fusednbitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of fused N-bit rowwise values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values </p></li>
+<li><p><strong>bit_rate</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to fused N-bit rowwise. </p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga6e2bd64f3f9e3b36493ec955680771af"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_half_to_fusednbitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values into a tensor of fused N-bit rowwise values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values </p></li>
+<li><p><strong>bit_rate</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to fused N-bit rowwise. </p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv4I0E32_fusednbitrowwise_to_float_gpu_t6TensorRK6TensorK7int64_t">
-<span id="_CPPv3I0E32_fusednbitrowwise_to_float_gpu_tRK6TensorK7int64_t"></span><span id="_CPPv2I0E32_fusednbitrowwise_to_float_gpu_tRK6TensorK7int64_t"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">output_t</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__quantize-ops-cuda_1gae1e827b74f0825dc4135e68c10e443b3"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">_fusednbitrowwise_to_float_gpu_t</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0E32_fusednbitrowwise_to_float_gpu_t6TensorRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
-<dd></dd></dl>
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1ga3b963d0e45c2bc0060aaa974efe64b8a"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_or_half_to_fusednbitrowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> or <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values into a tensor of fused N-bit rowwise values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> or <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values </p></li>
+<li><p><strong>bit_rate</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to fused N-bit rowwise. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gae0193dd7bbb4e72fc977330cc3f019a4"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fusednbitrowwise_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
+<dd><p>Converts a tensor of fused N-bit rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of fused N-bit rowwise values </p></li>
+<li><p><strong>bit_rate</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>. </p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga6152517943258bd3adc42b7c103a9277"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fusednbitrowwise_to_half_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of fused N-bit rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of fused N-bit rowwise values </p></li>
+<li><p><strong>bit_rate</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">at::Half</span></code>. </p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga07f4c02c95710472b815bdc1d7bfff19"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_fusednbitrowwise_to_float_or_half_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bit_rate,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of fused N-bit rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> or <code class="docutils literal notranslate"><span class="pre">at::Half</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of fused N-bit rowwise values </p></li>
+<li><p><strong>bit_rate</strong> – </p></li>
+<li><p><strong>output_dtype</strong> – The target floating point type, specified as integer representation of <code class="docutils literal notranslate"><span class="pre">SparseType</span></code> enum</p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">output_dtype</span></code> is not one of (<code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code> or <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>). </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code> or <code class="docutils literal notranslate"><span class="pre">at::Half</span></code>, depending on <code class="docutils literal notranslate"><span class="pre">output_dtype</span></code>.</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1gab2837424e3774fe34ba255658554a75a"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_float_to_hfp8_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">exponent_bias,</span> <span class="pre">const</span> <span class="pre">double</span> <span class="pre">max_pos)</span></span></dt>
-<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Hybrid 8-bit Floating Point (<code class="docutils literal notranslate"><span class="pre">hfp8</span></code>) values. </p>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Hybrid 8-bit Floating Point (<code class="docutils literal notranslate"><span class="pre">hfp8</span></code>) values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values </p></li>
+<li><p><strong>ebits</strong> – </p></li>
+<li><p><strong>exponent_bias</strong> – </p></li>
+<li><p><strong>max_pos</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">ebits</span> <span class="pre">&gt;</span> <span class="pre">0</span></code> or <code class="docutils literal notranslate"><span class="pre">exponent_bias</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>. </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">hfp8</span></code>.</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga03a8f8825a16c6235b699886fa46e1f6"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_hfp8_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">exponent_bias)</span></span></dt>
-<dd><p>Converts a tensor of Hybrid 8-bit Floating Point (<code class="docutils literal notranslate"><span class="pre">hfp8</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. </p>
+<dd><p>Converts a tensor of Hybrid 8-bit Floating Point (<code class="docutils literal notranslate"><span class="pre">hfp8</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">hfp8</span></code> values </p></li>
+<li><p><strong>ebits</strong> – </p></li>
+<li><p><strong>exponent_bias</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">ebits</span> <span class="pre">&gt;</span> <span class="pre">0</span></code> or <code class="docutils literal notranslate"><span class="pre">exponent_bias</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>. </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga427f81e1d8901e2fafc9611860fbd4d5"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_float_to_msfp_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bounding_box_size,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">mbits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bias,</span> <span class="pre">const</span> <span class="pre">double</span> <span class="pre">min_pos,</span> <span class="pre">const</span> <span class="pre">double</span> <span class="pre">max_pos)</span></span></dt>
-<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Microsoft Floating Point (<code class="docutils literal notranslate"><span class="pre">msfp</span></code>) values. </p>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of Microsoft Floating Point (<code class="docutils literal notranslate"><span class="pre">msfp</span></code>) values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values </p></li>
+<li><p><strong>bounding_box_size</strong> – </p></li>
+<li><p><strong>ebits</strong> – </p></li>
+<li><p><strong>mbits</strong> – </p></li>
+<li><p><strong>bias</strong> – </p></li>
+<li><p><strong>min_pos</strong> – </p></li>
+<li><p><strong>max_pos</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">msfp</span></code>. </p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1gac0c20377454dbfafcc5ac245fe6427ce"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_msfp_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">ebits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">mbits,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">bias)</span></span></dt>
-<dd><p>Converts a tensor of Microsoft Floating Point (<code class="docutils literal notranslate"><span class="pre">msfp</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. </p>
+<dd><p>Converts a tensor of Microsoft Floating Point (<code class="docutils literal notranslate"><span class="pre">msfp</span></code>) values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">msfp</span></code> values </p></li>
+<li><p><strong>ebits</strong> – </p></li>
+<li><p><strong>mbits</strong> – </p></li>
+<li><p><strong>bias</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>. </p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="cpp function">
 <dt class="sig sig-object cpp">
 <span class="target" id="group__quantize-ops-cuda_1ga5043927653e4d50462b79b7f3df33223"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">Tensor</span> <span class="pre">_float_to_paddedFP8rowwise_gpu</span> <span class="pre">(const</span> <span class="pre">Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">forward,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">row_dim)</span></span></dt>
-<dd></dd></dl>
+<dd><p>Converts a tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values into a tensor of padded <code class="docutils literal notranslate"><span class="pre">fp8</span></code> rowwise values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. The dtype can be either <code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code></p></li>
+<li><p><strong>forward</strong> – </p></li>
+<li><p><strong>row_dim</strong> – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor with values from the input tensor converted to padded <code class="docutils literal notranslate"><span class="pre">fp8</span></code> rowwise. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp">
+<span class="target" id="group__quantize-ops-cuda_1gafc30bb56977528d8a85e43f9aa5c2cf8"></span><span class="sig-name descname"><span class="pre">DLL_PUBLIC</span> <span class="pre">at::Tensor</span> <span class="pre">_paddedFP8rowwise_to_float_gpu</span> <span class="pre">(const</span> <span class="pre">at::Tensor</span> <span class="pre">&amp;input,</span> <span class="pre">const</span> <span class="pre">bool</span> <span class="pre">forward,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">row_dim,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_last_dim,</span> <span class="pre">const</span> <span class="pre">int64_t</span> <span class="pre">output_dtype)</span></span></dt>
+<dd><p>Converts a tensor of padded <code class="docutils literal notranslate"><span class="pre">fp8</span></code> rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span> <span class="pre">values</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. The dtype can be either <code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code></p></li>
+<li><p><strong>forward</strong> – </p></li>
+<li><p><strong>row_dim</strong> – </p></li>
+<li><p><strong>output_last_dim</strong> – </p></li>
+<li><p><strong>output_dtype</strong> – The target floating point type, specified as integer representation of <code class="docutils literal notranslate"><span class="pre">SparseType</span></code> enum</p></li>
+</ul>
+</dd>
+<dt class="field-even">Throws<span class="colon">:</span></dt>
+<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><span class="n">Error</span></span></span> – if <code class="docutils literal notranslate"><span class="pre">output_dtype</span></code> is not one of (<code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code>). </p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p>
+</dd>
+</dl>
+</dd></dl>
 
 </section>
 <section id="cpu-operators">

@@ -76,7 +76,8 @@ $(function() {
 </div><!-- top -->
 <div class="header">
   <div class="summary">
-<a href="#namespaces">Namespaces</a>  </div>
+<a href="#namespaces">Namespaces</a> &#124;
+<a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">quantize_fused_nbit_rowwise.cu File Reference</div></div>
 </div><!--header-->
 <div class="contents">
@@ -86,6 +87,21 @@ $(function() {
 Namespaces</h2></td></tr>
 <tr class="memitem:namespacefbgemm__gpu" id="r_namespacefbgemm__gpu"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacefbgemm__gpu.html">fbgemm_gpu</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
+Functions</h2></td></tr>
+<tr class="memitem:gaa3e8fd136e9bfa0e4d0c0016659bf708" id="r_gaa3e8fd136e9bfa0e4d0c0016659bf708"><td class="memItemLeft" align="right" valign="top"><a class="el" href="ops__utils_8h.html#a29047de4dfe891435d8254535634ac1d">DLL_PUBLIC</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#gaa3e8fd136e9bfa0e4d0c0016659bf708">_float_to_fusednbitrowwise_gpu</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">input</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">bit_rate</a>)</td></tr>
+<tr class="separator:gaa3e8fd136e9bfa0e4d0c0016659bf708"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga6e2bd64f3f9e3b36493ec955680771af" id="r_ga6e2bd64f3f9e3b36493ec955680771af"><td class="memItemLeft" align="right" valign="top"><a class="el" href="ops__utils_8h.html#a29047de4dfe891435d8254535634ac1d">DLL_PUBLIC</a> at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga6e2bd64f3f9e3b36493ec955680771af">_half_to_fusednbitrowwise_gpu</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">input</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">bit_rate</a>)</td></tr>
+<tr class="separator:ga6e2bd64f3f9e3b36493ec955680771af"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga3b963d0e45c2bc0060aaa974efe64b8a" id="r_ga3b963d0e45c2bc0060aaa974efe64b8a"><td class="memItemLeft" align="right" valign="top"><a class="el" href="ops__utils_8h.html#a29047de4dfe891435d8254535634ac1d">DLL_PUBLIC</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga3b963d0e45c2bc0060aaa974efe64b8a">_float_or_half_to_fusednbitrowwise_gpu</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">input</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">bit_rate</a>)</td></tr>
+<tr class="separator:ga3b963d0e45c2bc0060aaa974efe64b8a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gae0193dd7bbb4e72fc977330cc3f019a4" id="r_gae0193dd7bbb4e72fc977330cc3f019a4"><td class="memItemLeft" align="right" valign="top"><a class="el" href="ops__utils_8h.html#a29047de4dfe891435d8254535634ac1d">DLL_PUBLIC</a> at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#gae0193dd7bbb4e72fc977330cc3f019a4">_fusednbitrowwise_to_float_gpu</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">input</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">bit_rate</a>)</td></tr>
+<tr class="separator:gae0193dd7bbb4e72fc977330cc3f019a4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga6152517943258bd3adc42b7c103a9277" id="r_ga6152517943258bd3adc42b7c103a9277"><td class="memItemLeft" align="right" valign="top"><a class="el" href="ops__utils_8h.html#a29047de4dfe891435d8254535634ac1d">DLL_PUBLIC</a> at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga6152517943258bd3adc42b7c103a9277">_fusednbitrowwise_to_half_gpu</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">input</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">bit_rate</a>)</td></tr>
+<tr class="separator:ga6152517943258bd3adc42b7c103a9277"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga07f4c02c95710472b815bdc1d7bfff19" id="r_ga07f4c02c95710472b815bdc1d7bfff19"><td class="memItemLeft" align="right" valign="top"><a class="el" href="ops__utils_8h.html#a29047de4dfe891435d8254535634ac1d">DLL_PUBLIC</a> at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga07f4c02c95710472b815bdc1d7bfff19">_fusednbitrowwise_to_float_or_half_gpu</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">input</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">bit_rate</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">output_dtype</a>)</td></tr>
+<tr class="separator:ga07f4c02c95710472b815bdc1d7bfff19"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Typedef Documentation</h2>
 <a id="abc1167888f441327c12e300780ee568a" name="abc1167888f441327c12e300780ee568a"></a>
@@ -122,7 +138,7 @@ Namespaces</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="group__sparse-data-cuda.html#ga3b963d0e45c2bc0060aaa974efe64b8a">fbgemm_gpu::_float_or_half_to_fusednbitrowwise_gpu</a></td>          <td class="paramname"><span class="paramname"></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="group__quantize-ops-cuda.html#ga3b963d0e45c2bc0060aaa974efe64b8a">fbgemm_gpu::_float_or_half_to_fusednbitrowwise_gpu</a></td>          <td class="paramname"><span class="paramname"></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -174,7 +190,7 @@ Namespaces</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae0193dd7bbb4e72fc977330cc3f019a4">fbgemm_gpu::_fusednbitrowwise_to_float_gpu</a></td>          <td class="paramname"><span class="paramname"></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="group__quantize-ops-cuda.html#gae0193dd7bbb4e72fc977330cc3f019a4">fbgemm_gpu::_fusednbitrowwise_to_float_gpu</a></td>          <td class="paramname"><span class="paramname"></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -32,7 +32,7 @@
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Table Batched Embedding (TBE) Operators" href="../python-api/table_batched_embedding_ops.html" />
+    <link rel="next" title="Jagged Tensor Operators" href="../overview/jagged-tensor-ops/JaggedTensorOps.html" />
     <link rel="prev" title="Testing FBGEMM_GPU" href="TestInstructions.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -260,6 +260,10 @@
 <li class="toctree-l1"><a class="reference internal" href="InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="TestInstructions.html">Testing FBGEMM_GPU</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Contributing Documentation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
@@ -522,6 +526,7 @@ Here is an example of how it can look:</p>
 <span class="c1">/// @param param2 Description of param #2</span>
 <span class="c1">///</span>
 <span class="c1">/// @return Description of the method&#39;s return value.</span>
+<span class="c1">///</span>
 <span class="c1">/// @throw fbgemm_gpu::my_error if an error occurs</span>
 <span class="c1">///</span>
 <span class="c1">/// @note This is an example note.</span>
@@ -547,13 +552,44 @@ Using the above example:</p>
 <img alt="../_images/ExampleDocsOutput.png" src="../_images/ExampleDocsOutput.png" />
 </li>
 <li><p>Make sure the <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file is included in to the <code class="docutils literal notranslate"><span class="pre">toctree</span></code> in
-<code class="docutils literal notranslate"><span class="pre">index.rst</span></code> (<a class="reference internal" href="../index.html#fbgemm-gpu-docs-toc-cpp"><span class="std std-ref">FBGEMM_GPU C++ API</span></a>).</p></li>
+<code class="docutils literal notranslate"><span class="pre">index.rst</span></code> (<span class="xref std std-ref">fbgemm-gpu.docs.toc.cpp</span>).</p></li>
 <li><p>The C++ source header file needs to be in one of the directories listed in
 the <code class="docutils literal notranslate"><span class="pre">INPUT</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">Doxygen.ini</span></code>.  If it’s in a directory not
 listed, be sure to append the directory path to the parameter.</p></li>
 <li><p>Verify the changes by building the docs locally or submitting a PR for a
 Netlify preview.</p></li>
 </ol>
+</section>
+<section id="sphinx-documentation-pointers">
+<h2>Sphinx Documentation Pointers<a class="headerlink" href="#sphinx-documentation-pointers" title="Permalink to this heading">¶</a></h2>
+<section id="adding-references-to-other-sections">
+<h3>Adding References to Other Sections<a class="headerlink" href="#adding-references-to-other-sections" title="Permalink to this heading">¶</a></h3>
+<p>To reference other sections in the documentation, an anchor must first be
+created above the target section:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="nt">_fbgemm-gpu.docs.example.reference:</span>
+
+<span class="gh">Example Section Header</span>
+<span class="gh">----------------------</span>
+
+NOTES:
+
+<span class="m">#.</span>  The reference anchor must start with an underscore, i.e. <span class="s">``_``</span>.
+
+<span class="m">#.</span>  There must be an empty line between the anchor and its target.
+</pre></div>
+</div>
+<p>The anchor can then be referenced elsewhere in the docs:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span>Referencing the section <span class="na">:ref:</span><span class="nv">`fbgemm-gpu.docs.example.reference`</span> from
+another page in the docs.
+
+Referencing the section with
+<span class="na">:ref:</span><span class="nv">`custom text &lt;fbgemm-gpu.docs.example.reference&gt;`</span> from another page
+in the docs.
+
+Note that the prefix underscore is not needed when referencing the anchor.
+</pre></div>
+</div>
+</section>
 </section>
 </section>
 
@@ -565,7 +601,7 @@ Netlify preview.</p></li>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../python-api/table_batched_embedding_ops.html" class="btn btn-neutral float-right" title="Table Batched Embedding (TBE) Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="../overview/jagged-tensor-ops/JaggedTensorOps.html" class="btn btn-neutral float-right" title="Jagged Tensor Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="TestInstructions.html" class="btn btn-neutral" title="Testing FBGEMM_GPU" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
@@ -612,6 +648,10 @@ Netlify preview.</p></li>
 <li><a class="reference internal" href="#general-documentation-guidelines">General Documentation Guidelines</a></li>
 <li><a class="reference internal" href="#adding-documentation-to-python-code">Adding Documentation to Python Code</a></li>
 <li><a class="reference internal" href="#adding-documentation-to-c-code">Adding Documentation to C++ Code</a></li>
+<li><a class="reference internal" href="#sphinx-documentation-pointers">Sphinx Documentation Pointers</a><ul>
+<li><a class="reference internal" href="#adding-references-to-other-sections">Adding References to Other Sections</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
