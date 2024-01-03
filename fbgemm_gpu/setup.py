@@ -17,6 +17,7 @@ import textwrap
 from datetime import date
 from typing import List, Optional
 
+import setuptools
 import setuptools_git_versioning as gitversion
 import torch
 from setuptools.command.install import install as PipInstall
@@ -266,7 +267,7 @@ class FbgemmGpuInstaller(PipInstall):
 
     @classmethod
     def generate_version_file(cls, package_version: str) -> None:
-        with open("fbgemm_gpu/_fbgemm_gpu_version.py", "w") as file:
+        with open("fbgemm_gpu/docs/version.py", "w") as file:
             print(
                 f"[SETUP.PY] Generating version file at: {os.path.realpath(file.name)}"
             )
@@ -382,7 +383,7 @@ def main(argv: List[str]) -> None:
             "GPU",
             "CUDA",
         ],
-        packages=["fbgemm_gpu"],
+        packages=setuptools.find_packages(),
         install_requires=[
             # Only specify numpy, as specifying torch will auto-install the
             # release version of torch, which is not what we want for the

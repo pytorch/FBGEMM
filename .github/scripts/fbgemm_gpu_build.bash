@@ -420,6 +420,7 @@ build_fbgemm_gpu_install () {
   # fbgemm_gpu/ subdirectory present
   cd - || return 1
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
+  (test_python_import_symbol "${env_name}" fbgemm_gpu __version__) || return 1
   cd - || return 1
 
   echo "[BUILD] FBGEMM-GPU build + install completed"

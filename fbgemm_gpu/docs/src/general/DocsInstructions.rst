@@ -1,5 +1,5 @@
-Contributing Documentation
-==========================
+Building Documentation
+======================
 
 FBGEMM_GPU provides extensive comments in its source files, which provide the
 most authoritative and up-to-date documentation available for the package.
@@ -170,7 +170,8 @@ When you add descriptionss to a function, make sure that the ``#ifndef`` and
 ``#endif`` are configured correctly.
 
 All functions are grouped by a specific group for better organization.
-Make sure you add ``@defgroup`` to the code comments.
+Make sure you add ``@defgroup`` to the code comments to define the group, and
+``@ingroup`` in each docstring to associate the target method with the group.
 
 Follow these instructions to document, generate, and publish a new C++
 description:
