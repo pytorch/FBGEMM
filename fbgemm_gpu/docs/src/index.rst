@@ -19,6 +19,8 @@ library.
    general/InstallationInstructions.rst
    general/TestInstructions.rst
    general/DocsInstructions.rst
+   general/Contributing.rst
+   general/ContactUs.rst
 
 .. _fbgemm-gpu.docs.toc.overview:
 
