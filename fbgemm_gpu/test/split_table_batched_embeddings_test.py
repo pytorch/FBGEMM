@@ -55,6 +55,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     CounterBasedRegularizationDefinition,
     CounterWeightDecayMode,
+    CowClipDefinition,
     DEFAULT_ASSOC,
     DenseTableBatchedEmbeddingBagsCodegen,
     GradSumDecay,
@@ -3361,7 +3362,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         long_segments: bool,
         pooling_mode: PoolingMode,
         use_cpu: bool,
-        weight_decay_mode: WeightDecayMode = WeightDecayMode.L2,
+        weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         uvm_non_rowwise_momentum: bool = False,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
@@ -3371,9 +3372,13 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             or optimizer
             in [
                 OptimType.EXACT_ADAGRAD,
-                OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
             ]
+            or (
+                optimizer in [OptimType.EXACT_ROWWISE_ADAGRAD]
+                and weight_decay_mode
+                not in [WeightDecayMode.COUNTER, WeightDecayMode.COWCLIP]
+            )
         )
 
         assume(pooling_mode == PoolingMode.SUM or not weighted)
@@ -3487,7 +3492,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         [f.backward(go) for (f, go) in zip(fs, gos)]
         # do SGD update
 
-        optimizer_kwargs = {"learning_rate": 0.5}
+        optimizer_kwargs: Dict[str, Any] = {"learning_rate": 0.5}
         (lr, eps, beta1, beta2, weight_decay, momentum, eta) = (
             0.5,
             1e-4,
@@ -3498,6 +3503,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             0.01,
         )
         counter_based_regularization: CounterBasedRegularizationDefinition
+        cowclip_regularization: CowClipDefinition
 
         if optimizer == OptimType.EXACT_ADAGRAD:
             optimizer_kwargs["eps"] = eps
@@ -3519,8 +3525,15 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
                 optimizer_kwargs[
                     "counter_based_regularization"
-                    # pyre-fixme[6]: Expected `float` for 2nd param but got `CounterBasedRegularizationDefinition`.
                 ] = counter_based_regularization
+            if weight_decay_mode == WeightDecayMode.COWCLIP:
+                cowclip_regularization = CowClipDefinition(
+                    counter_weight_decay_mode=CounterWeightDecayMode.DECOUPLE,
+                    counter_halflife=10,
+                    weight_norm_coefficient=0.5,
+                    lower_bound=1e-6,
+                )
+                optimizer_kwargs["cowclip_regularization"] = cowclip_regularization
 
         if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
             optimizer_kwargs["eps"] = eps
@@ -3550,7 +3563,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             optimizer=optimizer,
             pooling_mode=pooling_mode,
             uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
-            # pyre-fixme[6]: Expected `CacheAlgorithm` for 5th param but got `float`.
             **optimizer_kwargs,
         )
 
@@ -3618,7 +3630,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 freq: Optional[torch.Tensor] = None
                 iter_: int = -1
 
-                if rowwise and weight_decay_mode == WeightDecayMode.COUNTER:
+                if rowwise and weight_decay_mode in (
+                    WeightDecayMode.COUNTER,
+                    WeightDecayMode.COWCLIP,
+                ):
                     (m1, prev_iter, row_counter) = split_optimizer_states[t]
                 else:
                     (m1,) = split_optimizer_states[t]
@@ -3631,16 +3646,21 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     # is true and the template code (https://fburl.com/code/1kctlup3) is not executed.
                     if weight_decay_mode == WeightDecayMode.L2:
                         dense_cpu_grad += weight_decay * bs[t].weight.cpu()
-                    elif weight_decay_mode == WeightDecayMode.COUNTER:
+                    elif weight_decay_mode in (
+                        WeightDecayMode.COUNTER,
+                        WeightDecayMode.COWCLIP,
+                    ):
                         iter_ = int(cc.iter.item())
                         (
                             dense_cpu_grad,
                             row_counter,
                             freq,
-                        ) = self.get_grad_from_counter_adagrad(
+                        ) = self._get_grad_from_counter_adagrad(
                             dense_cpu_grad,
                             bs[t].weight.cpu(),
-                            counter_based_regularization,
+                            counter_based_regularization
+                            if weight_decay_mode == WeightDecayMode.COUNTER
+                            else cowclip_regularization,
                             row_counter.cpu(),
                             prev_iter.cpu(),
                             iter_,
@@ -3676,7 +3696,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                         weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                     elif weight_decay_mode == WeightDecayMode.COUNTER:
                         max_counter = cc.max_counter.item()
-                        weights_ref = self.get_wts_from_counter_adagrad(
+                        weights_ref = self._get_wts_from_counter_adagrad_using_counter(
                             dense_cpu_grad,
                             bs[t].weight.cpu(),
                             denom,
@@ -3687,6 +3707,16 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                             max_counter,
                             iter_,
                             eps,
+                            lr,
+                            weight_decay,
+                        )
+                    elif weight_decay_mode == WeightDecayMode.COWCLIP:
+                        weights_ref = self._get_wts_from_counter_adagrad_using_cowclip(
+                            dense_cpu_grad,
+                            bs[t].weight.cpu(),
+                            denom,
+                            cowclip_regularization,
+                            row_counter,
                             lr,
                             weight_decay,
                         )
@@ -3704,7 +3734,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
                 optimizer_states_dict = get_optimizer_states[t]
                 expected_keys = {"sum"}
-                if rowwise and weight_decay_mode == WeightDecayMode.COUNTER:
+                if rowwise and weight_decay_mode in (
+                    WeightDecayMode.COUNTER,
+                    WeightDecayMode.COWCLIP,
+                ):
                     expected_keys.update(["prev_iter", "row_counter"])
                 assert set(optimizer_states_dict.keys()) == expected_keys
 
@@ -3857,11 +3890,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     rtol=1.0e-4,
                 )
 
-    def get_grad_from_counter_adagrad(
+    def _get_grad_from_counter_adagrad(
         self,
         dense_cpu_grad: torch.Tensor,
         weights: torch.Tensor,
-        counter_based_regularization: CounterBasedRegularizationDefinition,
+        regularization: Union[CounterBasedRegularizationDefinition, CowClipDefinition],
         row_counter: torch.Tensor,
         prev_iter: torch.Tensor,
         iter_: int,
@@ -3870,24 +3903,20 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_counter = row_counter.view(row_counter.numel(), 1)
         prev_iter = prev_iter.view(prev_iter.numel(), 1)
         freq = torch.ones_like(row_counter)
-        counter_weight_decay_mode = (
-            counter_based_regularization.counter_weight_decay_mode
-        )
-        counter_halflife = counter_based_regularization.counter_halflife
+        counter_weight_decay_mode = regularization.counter_weight_decay_mode
+        counter_halflife = regularization.counter_halflife
         l2_wd = 1.0 if counter_weight_decay_mode == CounterWeightDecayMode.L2 else 0.0
 
         if counter_halflife > 0:
-            counter_log_rho = math.log(2.0) / counter_halflife
-            # if id occurs multiple times in a batch, iter_delta=1
-            iter_delta = torch.where(prev_iter == 0.0, 1.0, iter_ * 1.0 - prev_iter)
-            prev_iter = iter_ * torch.ones_like(prev_iter)
-            row_counter = 1.0 + torch.exp(-iter_delta * counter_log_rho) * row_counter
             freq = torch.tensor([counter_halflife]) / row_counter
 
-        dense_cpu_grad += l2_wd * freq * weight_decay * weights
+        if isinstance(regularization, CounterBasedRegularizationDefinition):
+            dense_cpu_grad += l2_wd * freq * weight_decay * weights
+        else:
+            dense_cpu_grad += l2_wd * weight_decay * weights
         return dense_cpu_grad, row_counter, freq
 
-    def get_wts_from_counter_adagrad(
+    def _get_wts_from_counter_adagrad_using_counter(
         self,
         dense_cpu_grad: torch.Tensor,
         weights: torch.Tensor,
@@ -3964,6 +3993,39 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     exp_reg_correction = 1.0 - freq * weight_decay * learning_rate
                 elif counter_weight_decay_mode == CounterWeightDecayMode.L2:
                     exp_reg_correction = 1.0 - freq * weight_decay * multiplier
+
+        weights = exp_reg_correction * weights - adjusted_multiplier * dense_cpu_grad
+        return weights
+
+    def _get_wts_from_counter_adagrad_using_cowclip(
+        self,
+        dense_cpu_grad: torch.Tensor,
+        weights: torch.Tensor,
+        denom: torch.Tensor,
+        regularization: CowClipDefinition,
+        row_counter: torch.Tensor,
+        learning_rate: float,
+        weight_decay: float,
+    ) -> torch.Tensor:
+        counter_weight_decay_mode = regularization.counter_weight_decay_mode
+        weight_norm_coefficient = regularization.weight_norm_coefficient
+        lower_bound = regularization.lower_bound
+
+        multiplier = torch.tensor([learning_rate]) / denom
+        exp_reg_correction = 1.0
+
+        weight_norm = weights.norm(dim=-1, keepdim=True) * weight_norm_coefficient
+        clip_ratio = (
+            row_counter
+            * torch.maximum(weight_norm, torch.Tensor([lower_bound]))
+            / dense_cpu_grad.norm(dim=-1, keepdim=True)
+        )
+        adjusted_multiplier = (
+            torch.minimum(clip_ratio, torch.Tensor([1.0])) * multiplier
+        )
+
+        if counter_weight_decay_mode == CounterWeightDecayMode.DECOUPLE:
+            exp_reg_correction = 1.0 - weight_decay * learning_rate
 
         weights = exp_reg_correction * weights - adjusted_multiplier * dense_cpu_grad
         return weights
@@ -4069,11 +4131,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         else st.just(True),
         weight_decay_mode=st.sampled_from(
             [
+                WeightDecayMode.NONE,
                 WeightDecayMode.L2,
                 WeightDecayMode.DECOUPLE,
-                # temporarily disabled due to a test error to unblock release
-                # will fix in a follow-up diff
-                # WeightDecayMode.COUNTER,
+                WeightDecayMode.COUNTER,
+                WeightDecayMode.COWCLIP,
             ]
         ),
     )
