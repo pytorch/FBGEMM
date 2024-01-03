@@ -24,7 +24,7 @@ Jagged Tensor Format
 -------------------
 
 Jagged tensors are effectively represented in FBGEMm_GPU as a three-tensor
-object.  The three tensors are: **Values**, **Max Lengths**, and **Offsets**.
+object.  The three tensors are: **Values**, **MaxLengths**, and **Offsets**.
 
 Values
 ~~~~~~

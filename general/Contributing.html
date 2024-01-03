@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Testing FBGEMM_GPU &mdash; fbgemm 0.1.2 documentation</title>
+  <title>Contributing to FBGEMM / FBGEMM_GPU &mdash; fbgemm 0.1.2 documentation</title>
   
 
   
@@ -32,6 +32,8 @@
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Contact Us" href="ContactUs.html" />
+    <link rel="prev" title="Building Documentation" href="DocsInstructions.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -253,11 +255,13 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU General Info</span></p>
-<ul>
+<ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="BuildInstructions.html">Build Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="InstallationInstructions.html">Installation Instructions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="TestInstructions.html">Testing FBGEMM_GPU</a></li>
-<li class="toctree-l1"><a class="reference internal" href="DocsInstructions.html">Contributing Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="DocsInstructions.html">Building Documentation</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Contributing to FBGEMM / FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ContactUs.html">Contact Us</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
 <ul>
@@ -319,13 +323,13 @@
       </li>
 
         
-      <li>Testing FBGEMM_GPU</li>
+      <li>Contributing to FBGEMM / FBGEMM_GPU</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/general/ContactInfo.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/general/Contributing.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -355,63 +359,44 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="testing-fbgemm-gpu">
-<h1>Testing FBGEMM_GPU<a class="headerlink" href="#testing-fbgemm-gpu" title="Permalink to this heading">¶</a></h1>
-<p>The tests (in the <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/test/</span></code> directory) and benchmarks (in the
-<code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/bench/</span></code> directory) provide good examples on how to use FBGEMM_GPU.</p>
-<section id="fbgemm-gpu-tests">
-<h2>FBGEMM_GPU Tests<a class="headerlink" href="#fbgemm-gpu-tests" title="Permalink to this heading">¶</a></h2>
-<p>To run the tests after building / installing the FBGEMM_GPU package:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
-<span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
-
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>quantize_ops_test.py
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>sparse_ops_test.py
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_embedding_inference_converter_test.py
-</pre></div>
-</div>
-<section id="testing-with-the-cuda-variant">
-<h3>Testing with the CUDA Variant<a class="headerlink" href="#testing-with-the-cuda-variant" title="Permalink to this heading">¶</a></h3>
-<p>For the FBGEMM_GPU CUDA package, GPUs will be automatically detected and
-used for testing. To run the tests and benchmarks on a GPU-capable
-device in CPU-only mode, <code class="docutils literal notranslate"><span class="pre">CUDA_VISIBLE_DEVICES=-1</span></code> must be set in the
-environment:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable for running in CPU-only mode (when on a GPU-capable machine)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span>-1
-
-<span class="c1"># Enable for debugging failed kernel executions</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_LAUNCH_BLOCKING</span><span class="o">=</span><span class="m">1</span>
-
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
-</pre></div>
-</div>
+  <section id="contributing-to-fbgemm-fbgemm-gpu">
+<h1>Contributing to FBGEMM / FBGEMM_GPU<a class="headerlink" href="#contributing-to-fbgemm-fbgemm-gpu" title="Permalink to this heading">¶</a></h1>
+<p>We want to make contributing to this project as easy and transparent as
+possible.</p>
+<section id="code-of-conduct">
+<h2>Code of Conduct<a class="headerlink" href="#code-of-conduct" title="Permalink to this heading">¶</a></h2>
+<p>The code of conduct is described in <a class="reference internal" href="#CODE_OF_CONDUCT.md"><span class="xref myst"><code class="docutils literal notranslate"><span class="pre">CODE_OF_CONDUCT.md</span></code></span></a>.</p>
 </section>
-<section id="testing-with-the-rocm-variant">
-<h3>Testing with the ROCm Variant<a class="headerlink" href="#testing-with-the-rocm-variant" title="Permalink to this heading">¶</a></h3>
-<p>For ROCm machines, testing against a ROCm GPU needs to be enabled with
-<code class="docutils literal notranslate"><span class="pre">FBGEMM_TEST_WITH_ROCM=1</span></code> set in the environment:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
-<span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
-
-<span class="nb">export</span><span class="w"> </span><span class="nv">FBGEMM_TEST_WITH_ROCM</span><span class="o">=</span><span class="m">1</span>
-<span class="c1"># Enable for debugging failed kernel executions</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">HIP_LAUNCH_BLOCKING</span><span class="o">=</span><span class="m">1</span>
-
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
-</pre></div>
-</div>
+<section id="pull-requests">
+<h2>Pull Requests<a class="headerlink" href="#pull-requests" title="Permalink to this heading">¶</a></h2>
+<p>We actively welcome your pull requests.</p>
+<ol class="arabic simple">
+<li><p><strong>Fork</strong> the repository and create your branch from <code class="docutils literal notranslate"><span class="pre">main</span></code>.</p></li>
+<li><p>If you’ve added code that should be tested, add tests.</p></li>
+<li><p>If you’ve added or changed APIs, update the documentation.</p></li>
+<li><p>Ensure the test suite passes.</p></li>
+<li><p>Make sure your code lints.</p></li>
+<li><p>If you haven’t already, complete the Contributor License Agreement (“CLA”).</p></li>
+</ol>
 </section>
+<section id="contributor-license-agreement-cla">
+<h2>Contributor License Agreement (“CLA”)<a class="headerlink" href="#contributor-license-agreement-cla" title="Permalink to this heading">¶</a></h2>
+<p>In order to accept your pull request, we need you to submit a CLA. You only need
+to do this once to work on any of Facebook’s open source projects.</p>
+<p>Complete your CLA here: <a class="reference external" href="https://code.facebook.com/cla">https://code.facebook.com/cla</a></p>
 </section>
-<section id="fbgemm-gpu-benchmarks">
-<h2>FBGEMM_GPU Benchmarks<a class="headerlink" href="#fbgemm-gpu-benchmarks" title="Permalink to this heading">¶</a></h2>
-<p>To run the benchmarks:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
-<span class="nb">cd</span><span class="w"> </span>bench
-
-python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span class="w"> </span>uvm
-</pre></div>
-</div>
+<section id="issues">
+<h2>Issues<a class="headerlink" href="#issues" title="Permalink to this heading">¶</a></h2>
+<p>We use GitHub issues to track public bugs. Please ensure your description is
+clear and has sufficient instructions to be able to reproduce the issue.</p>
+<p>Facebook has a <a class="reference external" href="https://www.facebook.com/whitehat/">bounty program</a> for the safe
+disclosure of security bugs. In those cases, please go through the process
+outlined on that page and do not file a public issue.</p>
+</section>
+<section id="license">
+<h2>License<a class="headerlink" href="#license" title="Permalink to this heading">¶</a></h2>
+<p>By contributing to FBGEMM, you agree that your contributions will be licensed
+under the LICENSE file in the root directory of this source tree.</p>
 </section>
 </section>
 
@@ -420,6 +405,15 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
              
             </div>
             <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="ContactUs.html" class="btn btn-neutral float-right" title="Contact Us" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="DocsInstructions.html" class="btn btn-neutral" title="Building Documentation" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
   
 
   
@@ -449,13 +443,12 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Testing FBGEMM_GPU</a><ul>
-<li><a class="reference internal" href="#fbgemm-gpu-tests">FBGEMM_GPU Tests</a><ul>
-<li><a class="reference internal" href="#testing-with-the-cuda-variant">Testing with the CUDA Variant</a></li>
-<li><a class="reference internal" href="#testing-with-the-rocm-variant">Testing with the ROCm Variant</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#fbgemm-gpu-benchmarks">FBGEMM_GPU Benchmarks</a></li>
+<li><a class="reference internal" href="#">Contributing to FBGEMM / FBGEMM_GPU</a><ul>
+<li><a class="reference internal" href="#code-of-conduct">Code of Conduct</a></li>
+<li><a class="reference internal" href="#pull-requests">Pull Requests</a></li>
+<li><a class="reference internal" href="#contributor-license-agreement-cla">Contributor License Agreement (“CLA”)</a></li>
+<li><a class="reference internal" href="#issues">Issues</a></li>
+<li><a class="reference internal" href="#license">License</a></li>
 </ul>
 </li>
 </ul>
