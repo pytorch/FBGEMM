@@ -33,6 +33,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     SplitState,
 )
 
+from rfe.scubadata.scubadata_py3 import Sample, ScubaData
+
 try:
     if torch.version.hip:
         torch.ops.load_library(
@@ -45,8 +47,10 @@ try:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training"
     )
+    from rfe.scubadata.scubadata_py3 import Sample, ScubaData
+    NOT_OSS: bool = True
 except Exception:
-    pass
+    NOT_OSS: bool = False
 
 DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
 INT8_EMB_ROW_DIM_OFFSET = 8
@@ -103,6 +107,94 @@ class CounterBasedRegularizationDefinition:
     grad_sum_decay: GradSumDecay = GradSumDecay.NO_DECAY
     tail_id_threshold: TailIdThreshold = field(default_factory=TailIdThreshold)
     max_counter_update_freq: int = 1000
+
+
+class UVMCacheStatsManager:
+    @torch.jit.ignore
+    def __init__(self) -> None:
+        self.requests: List[float] = []
+        self.unique_indices: List[float] = []
+        self.unique_misses: List[float] = []
+        self.conflict_unique_misses: List[float] = []
+        self.conflict_misses: List[float] = []
+        self.unique_miss_rates: List[float] = []
+        self.conflict_unique_miss_rates: List[float] = []
+        self.mast_job_id: str = os.environ.get("MAST_HPC_JOB_NAME", "")
+        self.rank: str = os.environ.get("RANK", "")
+        self.scuba_data: ScubaData = ScubaData("ai_training_uvm_cache_stats")
+
+    @torch.jit.ignore
+    def zero_cache_stats(self) -> None:
+        self.requests = []
+        self.unique_indices = []
+        self.unique_misses = []
+        self.conflict_unique_misses = []
+        self.conflict_misses = []
+        self.unique_miss_rates = []
+        self.conflict_unique_miss_rates = []
+
+    @torch.jit.ignore
+    def log_uvm_cache_stats_maxs_to_scuba(self) -> None:
+        # We log the max of the stats per interval, since interested in worst case
+        sample = Sample()
+        sample.addNormalValue("job_id", self.mast_job_id)
+        sample.addNormalValue("rank", self.rank)
+        sample.addDoubleValue(
+            "requests", max(self.requests) if len(self.requests) > 0 else 0.0
+        )
+        sample.addDoubleValue(
+            "unique_indices",
+            max(self.unique_indices) if len(self.unique_indices) > 0 else 0.0,
+        )
+        sample.addDoubleValue(
+            "unique_misses",
+            max(self.unique_misses) if len(self.unique_misses) > 0 else 0.0,
+        )
+        sample.addDoubleValue(
+            "conflict_unique_misses",
+            max(self.conflict_unique_misses)
+            if len(self.conflict_unique_misses) > 0
+            else 0.0,
+        )
+        sample.addDoubleValue(
+            "conflict_misses",
+            max(self.conflict_misses) if len(self.conflict_misses) > 0 else 0.0,
+        )
+        sample.addDoubleValue(
+            "unique_miss_rate",
+            max(self.unique_miss_rates) if len(self.unique_miss_rates) > 0.0 else 0.0,
+        )
+        sample.addDoubleValue(
+            "conflict_unique_miss_rate",
+            max(self.conflict_unique_miss_rates)
+            if len(self.conflict_unique_miss_rates) > 0
+            else 0.0,
+        )
+        try:
+            self.scuba_data.addSample(sample)
+        except Exception as e:
+            logging.error(f"Failed to log to scuba due to {e}")
+        self.zero_cache_stats()
+
+    def add_uvm_cache_stats(
+        self, uvm_cache_stats_list: List[int], logging_interval: int
+    ) -> None:
+        # Add UVM cache stats every iter (then we zero the buffer)
+        self.requests.append(uvm_cache_stats_list[1] / logging_interval)
+        self.unique_indices.append(uvm_cache_stats_list[2] / logging_interval)
+        self.unique_misses.append(uvm_cache_stats_list[3] / logging_interval)
+        self.conflict_unique_misses.append(uvm_cache_stats_list[4] / logging_interval)
+        self.conflict_misses.append(uvm_cache_stats_list[5] / logging_interval)
+        self.unique_miss_rates.append(
+            uvm_cache_stats_list[3] / uvm_cache_stats_list[1]
+            if uvm_cache_stats_list[1] > 0
+            else 0.0
+        )
+        self.conflict_unique_miss_rates.append(
+            uvm_cache_stats_list[4] / uvm_cache_stats_list[1]
+            if uvm_cache_stats_list[1] > 0
+            else 0.0
+        )
 
 
 def construct_split_state(
@@ -303,6 +395,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         optimizer: OptimType = OptimType.EXACT_SGD,
         record_cache_metrics: Optional[RecordCacheMetrics] = None,
         gather_uvm_cache_stats: Optional[bool] = False,
+        # Num steps btwn logging max of stats and flush
+        log_uvm_cache_stats_interval: int = 1000,
         # General Optimizer args
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
@@ -419,6 +513,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.gather_uvm_cache_stats = gather_uvm_cache_stats
+        self.log_uvm_cache_stats_interval = log_uvm_cache_stats_interval
+        # For perf reasons, we gather local uvm stats to total uvm stats each iter,
+        # and only gather these as time series infrequently (every 100). Then every log
+        # interval, we log the max of the time series to scuba and flush. Goal is to monitor
+        # windowed worst case UVM stats, while minimizing ops per iter.
+        self.gather_uvm_cache_stats_interval: int = min(
+            100, log_uvm_cache_stats_interval
+        )
         # Define the size of uvm cache stats as class variable
         # to make it work with torch jit script.
         self.uvm_cache_stats_size = 6
@@ -765,6 +867,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"Use experimental TBE: {is_experimental}"
             )
         self.is_experimental: bool = is_experimental
+        self.uvm_cache_stats_manager: Optional[UVMCacheStatsManager] = (
+            UVMCacheStatsManager() if self.gather_uvm_cache_stats and NOT_OSS else None
+        )
 
     def _register_nonpersistent_buffers(self, prefix: str) -> None:
         # NOTE: make TorchScript work!
@@ -1240,13 +1345,38 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.lxu_cache_locations_list.append(lxu_cache_locations)
 
         if self.gather_uvm_cache_stats:
-            # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
-            # We may wanna do this accumulation atomically, but as it's only for monitoring,
-            # slightly inaccurate result may be acceptable.
-            self.uvm_cache_stats = torch.add(
-                self.uvm_cache_stats, self.local_uvm_cache_stats
+            self.update_uvm_cache_stats()
+
+    @torch.jit.ignore
+    def update_uvm_cache_stats(self) -> None:
+        # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
+        # We may wanna do this accumulation atomically, but as it's only for monitoring,
+        # slightly inaccurate result may be acceptable.
+        # Every iter add local to todal stats (for perf, stay on device); every gather interval
+        # add averaged total to stats time series, and every logging interval log max of stats to scuba
+        assert (
+            self.gather_uvm_cache_stats
+        ), "Only update UVM cache stats if gather_uvm_cache_stats is True"
+        self.uvm_cache_stats = torch.add(
+            self.uvm_cache_stats, self.local_uvm_cache_stats
+        )
+        self.local_uvm_cache_stats.zero_()
+        """
+        TODO (bf0428): We should make this occassional update async in a separate process, since the conversion
+              to list and uvm logic can result in QPS drop. We don't see such a drop right now, but in the
+              long run this is a better design choice.
+        """
+        if self.step % self.gather_uvm_cache_stats_interval == 0 and self.step > 0:
+            # Each logging interval, log the max of stats time series and flush series
+            uvm_cache_stats_list: List[int] = self.uvm_cache_stats.tolist()
+            # pyre-ignore
+            self.uvm_cache_stats_manager.add_uvm_cache_stats(
+                uvm_cache_stats_list, self.gather_uvm_cache_stats_interval
             )
-            self.local_uvm_cache_stats.zero_()
+            self.uvm_cache_stats.zero_()
+        if self.step % self.log_uvm_cache_stats_interval == 0 and self.step > 0:
+            # pyre-ignore
+            self.uvm_cache_stats_manager.log_uvm_cache_stats_maxs_to_scuba()
 
     def _prefetch_tensors_record_stream(
         self, forward_stream: torch.cuda.Stream
@@ -1808,7 +1938,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.lxu_cache_state,
             self.total_cache_hash_size,
             False,  # not collecting cache stats
-            self.local_uvm_cache_stats,
+            self.uvm_cache_stats,
         )
         # self.lxu_cache_locations is updated inplace
         torch.ops.fbgemm.lxu_cache_locations_update(
