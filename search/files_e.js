@@ -11,5 +11,8 @@ var searchData=
   ['quantize_5fops_5fgpu_2ecpp_8',['quantize_ops_gpu.cpp',['../quantize__ops__gpu_8cpp.html',1,'']]],
   ['quantize_5fops_5fmeta_2ecpp_9',['quantize_ops_meta.cpp',['../quantize__ops__meta_8cpp.html',1,'']]],
   ['quantize_5fops_5futils_2eh_10',['quantize_ops_utils.h',['../quantize__ops__utils_8h.html',1,'']]],
-  ['quantize_5fpadded_5ffp8_5frowwise_2ecu_11',['quantize_padded_fp8_rowwise.cu',['../quantize__padded__fp8__rowwise_8cu.html',1,'']]]
+  ['quantize_5fpadded_5ffp8_5frowwise_2ecu_11',['quantize_padded_fp8_rowwise.cu',['../quantize__padded__fp8__rowwise_8cu.html',1,'']]],
+  ['quantutils_2eh_12',['QuantUtils.h',['../_quant_utils_8h.html',1,'']]],
+  ['quantutilsavx2_2eh_13',['QuantUtilsAvx2.h',['../_quant_utils_avx2_8h.html',1,'']]],
+  ['quantutilsavx512_2eh_14',['QuantUtilsAvx512.h',['../_quant_utils_avx512_8h.html',1,'']]]
 ];

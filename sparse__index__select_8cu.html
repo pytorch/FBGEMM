@@ -71,7 +71,7 @@ $(function() {
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="dir_68267d1309a1af8e8297ef4c3efbcdba.html">src</a></li><li class="navelem"><a class="el" href="dir_828e33ae11ea9ec04ffe6e59c52eef6d.html">sparse_ops</a></li>  </ul>
+<li class="navelem"><a class="el" href="dir_480d82297e3e1dcf307abc53c42f0f83.html">src</a></li><li class="navelem"><a class="el" href="dir_625d6a5f1fb3a71c87342a949cd4f713.html">sparse_ops</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
@@ -116,20 +116,17 @@ Functions</h2></td></tr>
 <div class="line">          UNROLL_FACTOR,                                                      \</div>
 <div class="line">          INDICES_SORTED&gt;),                                                   \</div>
 <div class="line">      <a class="code hl_function" href="sparse__ops__utils_8h.html#a2eba06f69b5b34fe6ca0eafb0240d369">cuda_calc_xblock_count</a>(N, 1),                                           \</div>
-<div class="line">      std::min(div_round_up(<a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a>, UNROLL_FACTOR), kMaxThreads),                  \</div>
+<div class="line">      std::min(div_round_up(<a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a>, UNROLL_FACTOR), kMaxThreads),                  \</div>
 <div class="line">      0,                                                                      \</div>
 <div class="line">      at::cuda::getCurrentCUDAStream(),                                       \</div>
 <div class="line">      input_reshaped.packed_accessor64&lt;scalar_t, 2, at::RestrictPtrTraits&gt;(), \</div>
-<div class="line">      <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a>.packed_accessor64&lt;index_t, 1, at::RestrictPtrTraits&gt;(),         \</div>
+<div class="line">      indices.packed_accessor64&lt;index_t, 1, at::RestrictPtrTraits&gt;(),         \</div>
 <div class="line">      INDICES_SORTED                                                          \</div>
 <div class="line">          ? orig_indices                                                      \</div>
-<div class="line">                .packed_accessor64&lt;<a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, at::RestrictPtrTraits&gt;()       \</div>
-<div class="line">          : dummy_packed_accessor64&lt;<a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, at::RestrictPtrTraits&gt;(),     \</div>
-<div class="line">      <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>.packed_accessor64&lt;scalar_t, 2&gt;());</div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel_8cu_html_ac4ebc0de2e60165af8333b6f4eab3e70"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></div><div class="ttdeci">template int64_t</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel.cu:1250</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_a110a71f81fecd3888738618492db1672"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt; FixedDivisor const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const int32_t const bool pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; output</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:128</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_acbf20500022fb5f972956bea423a05ff"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt; FixedDivisor const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; indices</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:123</div></div>
-<div class="ttc" id="agen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu_html_a057f5488fcdaf454d09c4f1b25374ac9"><div class="ttname"><a href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; int64_t D</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_dense_unweighted_nobag_kernel_small.cu:101</div></div>
+<div class="line">                .packed_accessor64&lt;int64_t, 1, at::RestrictPtrTraits&gt;()       \</div>
+<div class="line">          : dummy_packed_accessor64&lt;int64_t, 1, at::RestrictPtrTraits&gt;(),     \</div>
+<div class="line">      output.packed_accessor64&lt;scalar_t, 2&gt;());</div>
+<div class="ttc" id="aembedding__forward__split__kernel__template_8cu_html_a3ba475d30d23d2b8afc22ea4eb06e5d0"><div class="ttname"><a href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a></div><div class="ttdeci">const auto D</div><div class="ttdef"><b>Definition</b> embedding_forward_split_kernel_template.cu:199</div></div>
 <div class="ttc" id="asparse__ops__utils_8h_html_a2eba06f69b5b34fe6ca0eafb0240d369"><div class="ttname"><a href="sparse__ops__utils_8h.html#a2eba06f69b5b34fe6ca0eafb0240d369">cuda_calc_xblock_count</a></div><div class="ttdeci">constexpr uint32_t cuda_calc_xblock_count(Integer1 num_items, Integer2 threads_per_block)</div><div class="ttdef"><b>Definition</b> sparse_ops_utils.h:353</div></div>
 </div><!-- fragment -->
 </div>
@@ -142,7 +139,7 @@ Functions</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a> = at::Tensor</td>
+          <td class="memname">using <a class="el" href="embedding__inplace__update_8h.html#abc1167888f441327c12e300780ee568a">Tensor</a> = at::Tensor</td>
         </tr>
       </table>
 </div><div class="memdoc">

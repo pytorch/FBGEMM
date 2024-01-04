@@ -71,7 +71,7 @@ $(function() {
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="dir_0255d041b3ce7964bcd7b11954959c22.html">codegen</a></li>  </ul>
+<li class="navelem"><a class="el" href="dir_2305497498524d1fcac2e12cca5f0c05.html">codegen</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
@@ -81,9 +81,9 @@ $(function() {
 </div><!--header-->
 <div class="contents">
 <div class="textblock"><code>#include &quot;<a class="el" href="embedding__forward__split__cpu_8h.html">codegen/embedding_forward_split_cpu.h</a>&quot;</code><br />
-<code>#include &quot;fbgemm/FbgemmEmbedding.h&quot;</code><br />
-<code>#include &quot;fbgemm/Types.h&quot;</code><br />
-<code>#include &quot;fbgemm/Utils.h&quot;</code><br />
+<code>#include &quot;<a class="el" href="_fbgemm_embedding_8h.html">fbgemm/FbgemmEmbedding.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="_types_8h.html">fbgemm/Types.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="_utils_8h.html">fbgemm/Utils.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="cpu__utils_8h.html">fbgemm_gpu/cpu_utils.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="dispatch__macros_8h.html">fbgemm_gpu/dispatch_macros.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="embedding__common_8h.html">fbgemm_gpu/embedding_common.h</a>&quot;</code><br />
@@ -120,9 +120,9 @@ Namespaces</h2></td></tr>
 <div class="line">      <span class="keyword">const</span> at::TensorAccessor&lt;int64_t, 1&gt;&amp; <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csr_offsets</a>,  \</div>
 <div class="line">      <span class="keyword">const</span> at::TensorAccessor&lt;int64_t, 1&gt;&amp; <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csr_indices</a>,  \</div>
 <div class="line">      <span class="keyword">const</span> at::TensorAccessor&lt;SCALAR_T, 1&gt;&amp; <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csr_weights</a>, \</div>
-<div class="line">      <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">pooling_mode</a>,                               \</div>
+<div class="line">      <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">pooling_mode</a>,                               \</div>
 <div class="line">      <span class="keyword">const</span> <span class="keywordtype">int</span>* <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">table_to_feature_offset</a>,                 \</div>
-<div class="line">      <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">num_embeddings</a>);                            \</div>
+<div class="line">      <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">num_embeddings</a>);                            \</div>
 <div class="line">                                                          \</div>
 <div class="line">  <span class="keyword">template</span> <span class="keywordtype">void</span> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csr2csc_template_&lt;SCALAR_T, false&gt;</a>(       \</div>
 <div class="line">      HyperCompressedSparseColumn &amp; <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csc</a>,                  \</div>
@@ -130,11 +130,10 @@ Namespaces</h2></td></tr>
 <div class="line">      <span class="keyword">const</span> at::TensorAccessor&lt;int64_t, 1&gt;&amp; <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csr_offsets</a>,  \</div>
 <div class="line">      <span class="keyword">const</span> at::TensorAccessor&lt;int64_t, 1&gt;&amp; <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csr_indices</a>,  \</div>
 <div class="line">      <span class="keyword">const</span> at::TensorAccessor&lt;SCALAR_T, 1&gt;&amp; <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">csr_weights</a>, \</div>
-<div class="line">      <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">pooling_mode</a>,                               \</div>
+<div class="line">      <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">pooling_mode</a>,                               \</div>
 <div class="line">      <span class="keyword">const</span> <span class="keywordtype">int</span>* <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">table_to_feature_offset</a>,                 \</div>
-<div class="line">      <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">num_embeddings</a>);</div>
+<div class="line">      <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">num_embeddings</a>);</div>
 <div class="ttc" id="aclassfbgemm__gpu_1_1_tensor_accessor_html"><div class="ttname"><a href="classfbgemm__gpu_1_1_tensor_accessor.html">fbgemm_gpu::TensorAccessor</a></div><div class="ttdef"><b>Definition</b> fbgemm_tensor_accessor.h:128</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel_8cu_html_ac4ebc0de2e60165af8333b6f4eab3e70"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></div><div class="ttdeci">template int64_t</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel.cu:1250</div></div>
 <div class="ttc" id="anamespacefbgemm__gpu_html_adb51b4975da6fe6cd1f6465b56b3b8ab"><div class="ttname"><a href="namespacefbgemm__gpu.html#adb51b4975da6fe6cd1f6465b56b3b8ab">fbgemm_gpu::B</a></div><div class="ttdeci">__global__ const int32_t B</div><div class="ttdef"><b>Definition</b> sparse_batched_unary_embeddings.cu:20</div></div>
 </div><!-- fragment -->
 </div>
@@ -147,7 +146,7 @@ Namespaces</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">using</a> <a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a> = at::Tensor</td>
+          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">using</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> = at::Tensor</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -162,54 +161,54 @@ Namespaces</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a> split_embedding_codegen_forward_cpu </td>
+          <td class="memname"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> split_embedding_codegen_forward_cpu </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -223,54 +222,54 @@ Namespaces</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a> split_embedding_codegen_forward_cpu_meta </td>
+          <td class="memname"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> split_embedding_codegen_forward_cpu_meta </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -284,39 +283,39 @@ Namespaces</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a> split_embedding_codegen_grad_indice_weights_cpu </td>
+          <td class="memname"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> split_embedding_codegen_grad_indice_weights_cpu </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>grad_output</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>grad_output</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>feature_requires_grad</em></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>feature_requires_grad</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -334,52 +333,52 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
         <tr>
           <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">void</a> split_embedding_forward_cpu_kernel </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
+          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>output</em></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>output</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -397,42 +396,42 @@ template&lt;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">typen
         <tr>
           <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">void</a> split_embedding_grad_indice_weights_cpu_kernel </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>grad_output</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>grad_output</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>feature_requires_grad</em>, </span></td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>feature_requires_grad</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>grad_indice_weights</em></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>grad_indice_weights</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

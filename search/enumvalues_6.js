@@ -1,7 +1,10 @@
 var searchData=
 [
-  ['managed_0',['MANAGED',['../namespacefbgemm__gpu.html#a8f04cbe33fa88d1e420c06b1f8879194af59a25f2594f469f0bfccad7f8f13744',1,'fbgemm_gpu']]],
-  ['managed_5fcaching_1',['MANAGED_CACHING',['../namespacefbgemm__gpu.html#a8f04cbe33fa88d1e420c06b1f8879194a3664f93edf39a3e7e0a84f3cefb624a6',1,'fbgemm_gpu']]],
-  ['mean_2',['MEAN',['../namespacefbgemm__gpu.html#aa1f721fe0d5e5a710e7a05f788f01f5da4ea6d1161ea24d7599365f574aff6610',1,'fbgemm_gpu']]],
-  ['mixed_3',['mixed',['../namespacefbgemm__gpu.html#a020b3d9d49f1ff2257534a002d8ebf62ab164032fff82a847826b4887d9e7be58',1,'fbgemm_gpu']]]
+  ['ignore_0',['IGNORE',['../namespacefbgemm__gpu.html#a70433200cf584e2429434a33d45111eaaa2e843feab94ef623fea888f07c28696',1,'fbgemm_gpu']]],
+  ['im2col_1',['im2col',['../namespacefbgemm.html#ae779e18e5742efa69f340bcb616acdb2a5dabc9ed82cab5196ded256cb2bdec8f',1,'fbgemm']]],
+  ['int_2',['INT',['../namespacefbgemm__gpu.html#aa7e45742197542f659233c21b883ba60a53f93baa3057821107c750323892fa92',1,'fbgemm_gpu']]],
+  ['int2_3',['INT2',['../namespacefbgemm__gpu.html#a47b4476e5f749d63e15d2f8e55be833ea8fbf1fab49398b0d298699ea3ccbebc5',1,'fbgemm_gpu']]],
+  ['int4_4',['INT4',['../namespacefbgemm__gpu.html#a47b4476e5f749d63e15d2f8e55be833ea94635600f8a63640263a5ebc30d79a2a',1,'fbgemm_gpu']]],
+  ['int8_5',['INT8',['../namespacefbgemm__gpu.html#a47b4476e5f749d63e15d2f8e55be833eaee9d73311ff0658494edfff14c3ec1e3',1,'fbgemm_gpu']]],
+  ['invalid_6',['INVALID',['../namespacefbgemm__gpu.html#a47b4476e5f749d63e15d2f8e55be833eaccc0377a8afbf50e7094f5c23a8af223',1,'fbgemm_gpu']]]
 ];

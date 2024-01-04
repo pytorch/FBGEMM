@@ -71,7 +71,7 @@ $(function() {
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="dir_d44c64559bbebec7f509842c48db8b23.html">include</a></li><li class="navelem"><a class="el" href="dir_cafe9c3a34c8f467f9ca81fe4c33c741.html">fbgemm_gpu</a></li>  </ul>
+<li class="navelem"><a class="el" href="dir_9bbc85fb6cfbce51ed674bab6205f8cb.html">include</a></li><li class="navelem"><a class="el" href="dir_a13c1b53005a8c279eb71f07c614d23a.html">fbgemm_gpu</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
@@ -97,17 +97,17 @@ template&lt;typename scalar_t &gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> *__restrict__</td>          <td class="paramname"><span class="paramname"><em>offset_dim_list</em>, </span></td>
+          <td class="paramtype">const int64_t *__restrict__</td>          <td class="paramname"><span class="paramname"><em>offset_dim_list</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> *__restrict__</td>          <td class="paramname"><span class="paramname"><em>permute_list</em>, </span></td>
+          <td class="paramtype">const int64_t *__restrict__</td>          <td class="paramname"><span class="paramname"><em>permute_list</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> *__restrict__</td>          <td class="paramname"><span class="paramname"><em>inv_offset_dim_list</em>, </span></td>
+          <td class="paramtype">const int64_t *__restrict__</td>          <td class="paramname"><span class="paramname"><em>inv_offset_dim_list</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -117,17 +117,17 @@ template&lt;typename scalar_t &gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>B</em>, </span></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>B</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>T</em>, </span></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>T</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>dim_sum</em></span>&#160;)</td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>dim_sum</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -145,12 +145,12 @@ template&lt;typename scalar_t &gt; </div>
         <tr>
           <td class="memname">__global__ void recat_copy_async_kernel </td>
           <td>(</td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> *__restrict__</td>          <td class="paramname"><span class="paramname"><em>dim_sum_per_rank</em>, </span></td>
+          <td class="paramtype">const int64_t *__restrict__</td>          <td class="paramname"><span class="paramname"><em>dim_sum_per_rank</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> *__restrict__</td>          <td class="paramname"><span class="paramname"><em>cum_dim_sum_per_rank</em>, </span></td>
+          <td class="paramtype">const int64_t *__restrict__</td>          <td class="paramname"><span class="paramname"><em>cum_dim_sum_per_rank</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -165,17 +165,17 @@ template&lt;typename scalar_t &gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>T</em>, </span></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>T</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>B</em>, </span></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>B</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>dim_sum</em></span>&#160;)</td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>dim_sum</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

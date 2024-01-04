@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['warning_0',['WARNING',['../namespacefbgemm__gpu.html#a70433200cf584e2429434a33d45111eaa059e9861e0400dfbe05c98a841f3f96b',1,'fbgemm_gpu']]]
+  ['ref_0',['ref',['../namespacefbgemm.html#a5356ce4b0771923d6eee8b3692afd2f3a18389a4a9ad5795744699cff0ba66c15',1,'fbgemm']]]
 ];

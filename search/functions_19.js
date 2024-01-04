@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['_7ehypercompressedsparsecolumn_0',['~HyperCompressedSparseColumn',['../structinternal_1_1_hyper_compressed_sparse_column.html#a60d5f8ac0716350bb51bcf02ed10aaeb',1,'internal::HyperCompressedSparseColumn']]],
-  ['_7einitializer_1',['~Initializer',['../classssd_1_1_initializer.html#a7a69aed99981539d9a2c0ee85459b4b6',1,'ssd::Initializer']]]
+  ['zipf_5fcuda_0',['zipf_cuda',['../namespacefbgemm__gpu.html#a957e5dced6114b32a6d2e5e62011adbf',1,'fbgemm_gpu']]],
+  ['zipf_5fkernel_1',['zipf_kernel',['../namespacefbgemm__gpu.html#a6991817ca1213e7cc0eba3bad689c03a',1,'fbgemm_gpu']]]
 ];

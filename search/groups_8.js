@@ -1,7 +1,6 @@
 var searchData=
 [
-  ['permute_20pooled_20embeddings_20operators_20cpu_0',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
-  ['permute_20pooled_20embeddings_20operators_20cuda_1',['Permute Pooled Embeddings Operators (CUDA)',['../group__permute-pooled-embs-gpu.html',1,'']]],
-  ['pooled_20embeddings_20operators_20cpu_2',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
-  ['pooled_20embeddings_20operators_20cuda_3',['Permute Pooled Embeddings Operators (CUDA)',['../group__permute-pooled-embs-gpu.html',1,'']]]
+  ['memory_20operators_0',['CUDA Memory Operators',['../group__cumem-utils.html',1,'']]],
+  ['merge_20operators_1',['Merge Operators',['../group__merge-pooled-emb.html',1,'']]],
+  ['method_20group_2',['Example Method Group',['../group__example-method-group.html',1,'']]]
 ];

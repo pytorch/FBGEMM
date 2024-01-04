@@ -1,7 +1,8 @@
 var searchData=
 [
-  ['tensor_20cuda_20operators_0',['Jagged Tensor CUDA Operators',['../group__jagged-tensor-ops-cuda.html',1,'']]],
-  ['tensor_20operators_1',['Jagged Tensor Operators',['../group__jagged-tensor-ops-cpu.html',1,'']]],
-  ['transformation_20cpu_20operators_2',['Layout Transformation CPU Operators',['../group__layout-transform-cpu.html',1,'']]],
-  ['transformation_20cuda_20operators_3',['Layout Transformation CUDA Operators',['../group__layout-transform-cuda.html',1,'']]]
+  ['quantization_20operators_20cuda_0',['Quantization Operators (CUDA)',['../group__quantize-ops-cuda.html',1,'']]],
+  ['quantization_20utilities_20avx2_1',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
+  ['quantization_20utilities_20avx512_2',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]],
+  ['quantization_20utilities_20generic_3',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]],
+  ['quantize_20data_20cpu_20operators_4',['Quantize Data CPU Operators',['../group__quantize-data-cpu.html',1,'']]]
 ];

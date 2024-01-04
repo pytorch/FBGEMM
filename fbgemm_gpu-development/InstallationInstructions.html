@@ -1,0 +1,967 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Installation Instructions &mdash; FBGEMM 0.6.0 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Testing FBGEMM_GPU" href="TestInstructions.html" />
+    <link rel="prev" title="Build Instructions" href="BuildInstructions.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','UA-117752657-2');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch">
+                  <span class="dropdown-title">ExecuTorch</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-orange-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/audio/stable/index.html">
+                  <span class="dropdown-title">torchaudio</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/text/stable/index.html">
+                  <span class="dropdown-title">torchtext</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/vision/stable/index.html">
+                  <span class="dropdown-title">torchvision</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torcharrow">
+                  <span class="dropdown-title">torcharrow</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/data">
+                  <span class="dropdown-title">TorchData</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchrec">
+                  <span class="dropdown-title">TorchRec</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/serve/">
+                  <span class="dropdown-title">TorchServe</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchx/">
+                  <span class="dropdown-title">TorchX</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/xla">
+                  <span class="dropdown-title">PyTorch on XLA Devices</span>
+                  <p></p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Resources
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/features">
+                  <span class="dropdown-title">About</span>
+                  <p>Learn about PyTorch’s features and capabilities</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn about the PyTorch foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class="dropdown-title">Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class="dropdown-title">Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/hub">
+                  <span class="dropdown-title">Models (Beta)</span>
+                  <p>Discover, publish, and reuse pre-trained models</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">GitHub</a>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+
+            
+              
+              
+                <div class="version">
+                  0.6
+                </div>
+              
+            
+
+            
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+            
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing to FBGEMM and FBGEMM_GPU</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Installation Instructions</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/fbgemm_gpu-development/InstallationInstructions.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=UA-117752657-2"
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="installation-instructions">
+<h1>Installation Instructions<a class="headerlink" href="#installation-instructions" title="Permalink to this heading">¶</a></h1>
+<p><strong>Note:</strong> The most up-to-date installation instructions are embedded in a set
+of scripts bundled in the FBGEMM_GPU repo under
+<a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash">setup_env.bash</a>.</p>
+<p>The general steps for installing FBGEMM_GPU are as follows:</p>
+<ol class="arabic simple">
+<li><p>Set up an isolated build environment.</p></li>
+<li><p>Set up the toolchain for either a CPU-only, CUDA, or ROCm runtime.</p></li>
+<li><p>Install PyTorch.</p></li>
+<li><p>Install the FBGEMM_GPU package.</p></li>
+<li><p>Run post-installation checks.</p></li>
+</ol>
+<section id="set-up-cpu-only-environment">
+<h2>Set Up CPU-Only Environment<a class="headerlink" href="#set-up-cpu-only-environment" title="Permalink to this heading">¶</a></h2>
+<p>Follow the instructions for setting up the Conda environment at
+<a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>, followed by
+<a class="reference internal" href="#fbgemm-gpu-install-libraries"><span class="std std-ref">Install Python Libraries</span></a>.</p>
+</section>
+<section id="set-up-cuda-environment">
+<h2>Set Up CUDA Environment<a class="headerlink" href="#set-up-cuda-environment" title="Permalink to this heading">¶</a></h2>
+<p>The CUDA variant of FBGEMM_GPU requires an NVIDIA GPU installed to the machine,
+along with working NVIDIA drivers installed; otherwise or the library will fall
+back to running the CPU version of the operators.</p>
+<p>The FBGEMM_GPU CUDA package is currently only built for the SM70 and SM80
+architectures (V100 and A100 GPUs respectively). Support for other architectures
+can be achieved by building the package from scratch, but is not guaranteed to
+work (especially for older architectures).</p>
+<section id="install-nvidia-drivers">
+<h3>Install NVIDIA Drivers<a class="headerlink" href="#install-nvidia-drivers" title="Permalink to this heading">¶</a></h3>
+<p>The NVIDIA display drivers must be installed on the system prior to all other
+environment setup. The steps provided by
+<a class="reference external" href="https://docs.nvidia.com/datacenter/tesla/tesla-installation-notes/index.html">NVIDIA</a>
+and
+<a class="reference external" href="https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml">PyTorch</a>
+are the most authoritative instructions for doing this. Driver setup may
+be verified with the <code class="docutils literal notranslate"><span class="pre">nvidia-smi</span></code> command:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>nvidia-smi
+
++-----------------------------------------------------------------------------+
+<span class="p">|</span><span class="w"> </span>NVIDIA-SMI<span class="w"> </span><span class="m">515</span>.76<span class="w">       </span>Driver<span class="w"> </span>Version:<span class="w"> </span><span class="m">515</span>.76<span class="w">       </span>CUDA<span class="w"> </span>Version:<span class="w"> </span><span class="m">11</span>.7<span class="w">     </span><span class="p">|</span>
+<span class="p">|</span>-------------------------------+----------------------+----------------------+
+<span class="p">|</span><span class="w"> </span>GPU<span class="w">  </span>Name<span class="w">        </span>Persistence-M<span class="p">|</span><span class="w"> </span>Bus-Id<span class="w">        </span>Disp.A<span class="w"> </span><span class="p">|</span><span class="w"> </span>Volatile<span class="w"> </span>Uncorr.<span class="w"> </span>ECC<span class="w"> </span><span class="p">|</span>
+<span class="p">|</span><span class="w"> </span>Fan<span class="w">  </span>Temp<span class="w">  </span>Perf<span class="w">  </span>Pwr:Usage/Cap<span class="p">|</span><span class="w">         </span>Memory-Usage<span class="w"> </span><span class="p">|</span><span class="w"> </span>GPU-Util<span class="w">  </span>Compute<span class="w"> </span>M.<span class="w"> </span><span class="p">|</span>
+<span class="p">|</span><span class="w">                               </span><span class="p">|</span><span class="w">                      </span><span class="p">|</span><span class="w">               </span>MIG<span class="w"> </span>M.<span class="w"> </span><span class="p">|</span>
+<span class="p">|</span><span class="o">===============================</span>+<span class="o">======================</span>+<span class="o">======================</span><span class="p">|</span>
+<span class="p">|</span><span class="w">   </span><span class="m">0</span><span class="w">  </span>NVIDIA<span class="w"> </span>A10G<span class="w">         </span>Off<span class="w">  </span><span class="p">|</span><span class="w"> </span><span class="m">00000000</span>:00:1E.0<span class="w"> </span>Off<span class="w"> </span><span class="p">|</span><span class="w">                    </span><span class="m">0</span><span class="w"> </span><span class="p">|</span>
+<span class="p">|</span><span class="w">  </span><span class="m">0</span>%<span class="w">   </span>31C<span class="w">    </span>P0<span class="w">    </span>59W<span class="w"> </span>/<span class="w"> </span>300W<span class="w"> </span><span class="p">|</span><span class="w">      </span>0MiB<span class="w"> </span>/<span class="w"> </span>23028MiB<span class="w"> </span><span class="p">|</span><span class="w">      </span><span class="m">2</span>%<span class="w">      </span>Default<span class="w"> </span><span class="p">|</span>
+<span class="p">|</span><span class="w">                               </span><span class="p">|</span><span class="w">                      </span><span class="p">|</span><span class="w">                  </span>N/A<span class="w"> </span><span class="p">|</span>
++-------------------------------+----------------------+----------------------+
+
++-----------------------------------------------------------------------------+
+<span class="p">|</span><span class="w"> </span>Processes:<span class="w">                                                                  </span><span class="p">|</span>
+<span class="p">|</span><span class="w">  </span>GPU<span class="w">   </span>GI<span class="w">   </span>CI<span class="w">        </span>PID<span class="w">   </span>Type<span class="w">   </span>Process<span class="w"> </span>name<span class="w">                  </span>GPU<span class="w"> </span>Memory<span class="w"> </span><span class="p">|</span>
+<span class="p">|</span><span class="w">        </span>ID<span class="w">   </span>ID<span class="w">                                                   </span>Usage<span class="w">      </span><span class="p">|</span>
+<span class="p">|</span><span class="o">=============================================================================</span><span class="p">|</span>
+<span class="p">|</span><span class="w">  </span>No<span class="w"> </span>running<span class="w"> </span>processes<span class="w"> </span>found<span class="w">                                                 </span><span class="p">|</span>
++-----------------------------------------------------------------------------+
+</pre></div>
+</div>
+</section>
+<section id="set-up-the-docker-container-and-conda-environment">
+<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#set-up-the-docker-container-and-conda-environment" title="Permalink to this heading">¶</a></h3>
+<p>It is recommended, though not required, to install and run FBGEMM_GPU through a
+Docker setup for isolation and reproducibility of the CUDA environment.</p>
+<p>The NVIDIA-Docker runtime needs to be installed to expose the driver to the
+container. The install steps provided by
+<a class="reference external" href="https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml">PyTorch</a>
+provide details on how to achieve this.</p>
+<p>Once this is done, follow the instructions in
+<a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-cuda-image"><span class="std std-ref">CUDA Docker Image</span></a> for pulling the CUDA Docker image
+and launching a container.</p>
+<p>From there, the rest of the runtime environment may be constructed through
+Conda. Follow the instructions for setting up the Conda environment at
+<a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>, followed by
+<a class="reference internal" href="#fbgemm-gpu-install-libraries"><span class="std std-ref">Install Python Libraries</span></a>.</p>
+</section>
+<section id="install-the-cuda-runtime">
+<h3>Install the CUDA Runtime<a class="headerlink" href="#install-the-cuda-runtime" title="Permalink to this heading">¶</a></h3>
+<p>If the OS / Docker environment does not already contain the full CUDA runtime,
+follow the instructions in <a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-cuda-install"><span class="std std-ref">Install CUDA</span></a> for
+installing the CUDA toolkit inside a Conda environment.</p>
+</section>
+</section>
+<section id="set-up-rocm-environment">
+<h2>Set Up ROCm Environment<a class="headerlink" href="#set-up-rocm-environment" title="Permalink to this heading">¶</a></h2>
+<p>The ROCm variant of FBGEMM_GPU requires an AMD GPU installed to the machine,
+along with working AMDGPU drivers installed; otherwise or the library will fall
+back to running the CPU version of the operators.</p>
+<section id="install-amdgpu-drivers">
+<h3>Install AMDGPU Drivers<a class="headerlink" href="#install-amdgpu-drivers" title="Permalink to this heading">¶</a></h3>
+<p>The AMDGPU display drivers must be installed on the system prior to all other
+environment setup. The steps provided by
+<a class="reference external" href="https://docs.amd.com/bundle/ROCm-Installation-Guide-v5.5/page/How_to_Install_ROCm.html">AMD</a>
+are the most authoritative instructions for doing this. Driver setup may be
+verified with the <code class="docutils literal notranslate"><span class="pre">rocm-smi</span></code> command:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>rocm-smi
+
+<span class="o">=======================</span><span class="w"> </span>ROCm<span class="w"> </span>System<span class="w"> </span>Management<span class="w"> </span><span class="nv">Interface</span><span class="w"> </span><span class="o">=======================</span>
+<span class="o">=================================</span><span class="w"> </span>Concise<span class="w"> </span><span class="nv">Info</span><span class="w"> </span><span class="o">=================================</span>
+GPU<span class="w">  </span>Temp<span class="w"> </span><span class="o">(</span>DieEdge<span class="o">)</span><span class="w">  </span>AvgPwr<span class="w">  </span>SCLK<span class="w">    </span>MCLK<span class="w">     </span>Fan<span class="w">  </span>Perf<span class="w">  </span>PwrCap<span class="w">  </span>VRAM%<span class="w">  </span>GPU%
+<span class="m">0</span><span class="w">    </span><span class="m">33</span>.0c<span class="w">           </span><span class="m">37</span>.0W<span class="w">   </span>300Mhz<span class="w">  </span>1200Mhz<span class="w">  </span><span class="m">0</span>%<span class="w">   </span>auto<span class="w">  </span><span class="m">290</span>.0W<span class="w">    </span><span class="m">0</span>%<span class="w">   </span><span class="m">0</span>%
+<span class="m">1</span><span class="w">    </span><span class="m">32</span>.0c<span class="w">           </span><span class="m">39</span>.0W<span class="w">   </span>300Mhz<span class="w">  </span>1200Mhz<span class="w">  </span><span class="m">0</span>%<span class="w">   </span>auto<span class="w">  </span><span class="m">290</span>.0W<span class="w">    </span><span class="m">0</span>%<span class="w">   </span><span class="m">0</span>%
+<span class="m">2</span><span class="w">    </span><span class="m">33</span>.0c<span class="w">           </span><span class="m">37</span>.0W<span class="w">   </span>300Mhz<span class="w">  </span>1200Mhz<span class="w">  </span><span class="m">0</span>%<span class="w">   </span>auto<span class="w">  </span><span class="m">290</span>.0W<span class="w">    </span><span class="m">0</span>%<span class="w">   </span><span class="m">0</span>%
+<span class="o">================================================================================</span>
+<span class="o">=============================</span><span class="w"> </span>End<span class="w"> </span>of<span class="w"> </span>ROCm<span class="w"> </span>SMI<span class="w"> </span><span class="nv">Log</span><span class="w"> </span><span class="o">==============================</span>
+</pre></div>
+</div>
+</section>
+<section id="id1">
+<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#id1" title="Permalink to this heading">¶</a></h3>
+<p>It is recommended, though not required, to install and run FBGEMM_GPU through a
+Docker setup for isolation and reproducibility of the ROCm environment, which
+can be difficult to set up.</p>
+<p>Follow the instructions in <a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-rocm-image"><span class="std std-ref">ROCm Docker Image</span></a> for
+pulling the full ROCm Docker image and launching a container.</p>
+<p>From there, the rest of the runtime environment may be constructed through
+Conda. Follow the instructions for setting up the Conda environment at
+<a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-rocm-install"><span class="std std-ref">Install ROCm</span></a>, followed by
+<a class="reference internal" href="#fbgemm-gpu-install-libraries"><span class="std std-ref">Install Python Libraries</span></a>.</p>
+</section>
+</section>
+<section id="install-python-libraries">
+<span id="fbgemm-gpu-install-libraries"></span><h2>Install Python Libraries<a class="headerlink" href="#install-python-libraries" title="Permalink to this heading">¶</a></h2>
+<p>Install the relevant Python libraries for working with FBGEMM_GPU:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>numpy<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>scikit-build
+</pre></div>
+</div>
+</section>
+<section id="install-pytorch">
+<h2>Install PyTorch<a class="headerlink" href="#install-pytorch" title="Permalink to this heading">¶</a></h2>
+<p>Follow the instructions in <a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-pytorch-install"><span class="std std-ref">Install PyTorch</span></a>
+for installing PyTorch inside a Conda environment.</p>
+</section>
+<section id="install-the-fbgemm-gpu-package">
+<h2>Install the FBGEMM_GPU Package<a class="headerlink" href="#install-the-fbgemm-gpu-package" title="Permalink to this heading">¶</a></h2>
+<section id="install-through-pytorch-pip">
+<h3>Install through PyTorch PIP<a class="headerlink" href="#install-through-pytorch-pip" title="Permalink to this heading">¶</a></h3>
+<p>PyTorch PIP is the preferred channel for installing FBGEMM_GPU:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># CPU-only Nightly</span>
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cpu/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cpu/
+
+<span class="c1"># CPU-only Release</span>
+pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu/
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu/
+
+<span class="c1"># CUDA Nightly</span>
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu121/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu121/
+
+<span class="c1"># CUDA Release</span>
+pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
+
+<span class="c1"># ROCm Nightly</span>
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
+
+<span class="c1"># Test the installation</span>
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="install-through-public-pypi">
+<h3>Install through Public PyPI<a class="headerlink" href="#install-through-public-pypi" title="Permalink to this heading">¶</a></h3>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># CPU-Only Nightly</span>
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu-nightly-cpu
+
+<span class="c1"># CPU-Only Release</span>
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu-cpu
+
+<span class="c1"># CUDA Nightly</span>
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu-nightly
+
+<span class="c1"># CUDA Release</span>
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu
+</pre></div>
+</div>
+<p>As of time of writing, packages for the ROCm variant of FBGEMM_GPU are not
+released to public PyPI.</p>
+</section>
+</section>
+<section id="post-installation-checks">
+<h2>Post-Installation Checks<a class="headerlink" href="#post-installation-checks" title="Permalink to this heading">¶</a></h2>
+<p>After installation, run an import test to ensure that the library is correctly
+linked and set up.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu; print(torch.ops.fbgemm.merge_pooled_embeddings)&quot;</span>
+</pre></div>
+</div>
+<section id="undefined-symbols">
+<h3>Undefined Symbols<a class="headerlink" href="#undefined-symbols" title="Permalink to this heading">¶</a></h3>
+<p>A common error that is encountered is the failure to import FBGEMM_GPU in
+Python, which has the following error signature:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>Traceback<span class="w"> </span><span class="o">(</span>most<span class="w"> </span>recent<span class="w"> </span>call<span class="w"> </span>last<span class="o">)</span>:
+<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/torch/_ops.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">565</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>__getattr__
+<span class="w">    </span>op,<span class="w"> </span><span class="nv">overload_names</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>torch._C._jit_get_operation<span class="o">(</span>qualified_op_name<span class="o">)</span>
+RuntimeError:<span class="w"> </span>No<span class="w"> </span>such<span class="w"> </span>operator<span class="w"> </span>fbgemm::jagged_2d_to_dense
+The<span class="w"> </span>above<span class="w"> </span>exception<span class="w"> </span>was<span class="w"> </span>the<span class="w"> </span>direct<span class="w"> </span>cause<span class="w"> </span>of<span class="w"> </span>the<span class="w"> </span>following<span class="w"> </span>exception:
+Traceback<span class="w"> </span><span class="o">(</span>most<span class="w"> </span>recent<span class="w"> </span>call<span class="w"> </span>last<span class="o">)</span>:
+<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;&lt;string&gt;&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">1</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
+<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/__init__.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">21</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
+<span class="w">    </span>from<span class="w"> </span>.<span class="w"> </span>import<span class="w"> </span>_fbgemm_gpu_docs<span class="w">  </span><span class="c1"># noqa: F401, E402</span>
+<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/_fbgemm_gpu_docs.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">18</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;module&gt;
+<span class="w">    </span>torch.ops.fbgemm.jagged_2d_to_dense,
+<span class="w">  </span>File<span class="w"> </span><span class="s2">&quot;/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/torch/_ops.py&quot;</span>,<span class="w"> </span>line<span class="w"> </span><span class="m">569</span>,<span class="w"> </span><span class="k">in</span><span class="w"> </span>__getattr__
+<span class="w">    </span>raise<span class="w"> </span>AttributeError<span class="o">(</span>
+AttributeError:<span class="w"> </span><span class="s1">&#39;_OpNamespace&#39;</span><span class="w"> </span><span class="s1">&#39;fbgemm&#39;</span><span class="w"> </span>object<span class="w"> </span>has<span class="w"> </span>no<span class="w"> </span>attribute<span class="w"> </span><span class="s1">&#39;jagged_2d_to_dense&#39;</span>
+ERROR<span class="w"> </span>conda.cli.main_run:execute<span class="o">(</span><span class="m">47</span><span class="o">)</span>:<span class="w"> </span><span class="sb">`</span>conda<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span>import<span class="w"> </span>fbgemm_gpu<span class="sb">`</span><span class="w"> </span>failed.<span class="w"> </span><span class="o">(</span>See<span class="w"> </span>above<span class="w"> </span><span class="k">for</span><span class="w"> </span>error<span class="o">)</span>
+/root/miniconda/envs/mycondaenv/lib/python3.10/site-packages/fbgemm_gpu-0.4.1.post47-py3.10-linux-aarch64.egg/fbgemm_gpu/fbgemm_gpu_py.so:<span class="w"> </span>undefined<span class="w"> </span>symbol:<span class="w"> </span>_ZN6fbgemm48FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2ItLi2EEEvPKT_miPh
+</pre></div>
+</div>
+<p>In general, undefined symbols can appear in an FBGEMM_GPU installation for the
+following reasons:</p>
+<ol class="arabic simple">
+<li><p>The runtime libraries that FBGEMM_GPU depends on, such as <code class="docutils literal notranslate"><span class="pre">libnvidia-ml.so</span></code>
+or <code class="docutils literal notranslate"><span class="pre">libtorch.so</span></code>, are either not installed correctly or are not visible
+in <code class="docutils literal notranslate"><span class="pre">LD_LIBRARY_PATH</span></code>.</p></li>
+<li><p>The FBGEMM_GPU package was built incorrectly and contains
+declarations that were not linked (see
+<a class="reference external" href="https://github.com/pytorch/FBGEMM/issues/1618">PR 1618</a> for example).</p></li>
+</ol>
+<p>In the former case, this may be resolved by re-installing the relevant packages
+and/or manually updating <code class="docutils literal notranslate"><span class="pre">LD_LIBRARY_PATH</span></code>.</p>
+<p>In the latter case, this is a serious building and/or packaging issue tha should
+be reported to the FBGEMM developers.</p>
+</section>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="TestInstructions.html" class="btn btn-neutral float-right" title="Testing FBGEMM_GPU" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="BuildInstructions.html" class="btn btn-neutral" title="Build Instructions" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2023, FBGEMM Team.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Installation Instructions</a><ul>
+<li><a class="reference internal" href="#set-up-cpu-only-environment">Set Up CPU-Only Environment</a></li>
+<li><a class="reference internal" href="#set-up-cuda-environment">Set Up CUDA Environment</a><ul>
+<li><a class="reference internal" href="#install-nvidia-drivers">Install NVIDIA Drivers</a></li>
+<li><a class="reference internal" href="#set-up-the-docker-container-and-conda-environment">Set Up the Docker Container and Conda Environment</a></li>
+<li><a class="reference internal" href="#install-the-cuda-runtime">Install the CUDA Runtime</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#set-up-rocm-environment">Set Up ROCm Environment</a><ul>
+<li><a class="reference internal" href="#install-amdgpu-drivers">Install AMDGPU Drivers</a></li>
+<li><a class="reference internal" href="#id1">Set Up the Docker Container and Conda Environment</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#install-python-libraries">Install Python Libraries</a></li>
+<li><a class="reference internal" href="#install-pytorch">Install PyTorch</a></li>
+<li><a class="reference internal" href="#install-the-fbgemm-gpu-package">Install the FBGEMM_GPU Package</a><ul>
+<li><a class="reference internal" href="#install-through-pytorch-pip">Install through PyTorch PIP</a></li>
+<li><a class="reference internal" href="#install-through-public-pypi">Install through Public PyPI</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#post-installation-checks">Post-Installation Checks</a><ul>
+<li><a class="reference internal" href="#undefined-symbols">Undefined Symbols</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+            
+          <li>
+            <a href="">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li class="resources-mobile-menu-title">
+            Docs
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/audio/stable/index.html">torchaudio</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/text/stable/index.html">torchtext</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/vision/stable/index.html">torchvision</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torcharrow">torcharrow</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/data">TorchData</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchrec">TorchRec</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/serve/">TorchServe</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchx/">TorchX</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/xla">PyTorch on XLA Devices</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            Resources
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+
+            <li>
+              <a href="https://pytorch.org/features">About</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/#community-module">Community</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/resources">Developer Resources</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+
+            <li>
+              <a href="https://discuss.pytorch.org/">Forums</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/hub">Models (Beta)</a>
+            </li>
+          </ul>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">Github</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>

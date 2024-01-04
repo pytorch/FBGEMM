@@ -71,7 +71,7 @@ $(function() {
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="dir_68267d1309a1af8e8297ef4c3efbcdba.html">src</a></li><li class="navelem"><a class="el" href="dir_a88d368584008a90df396d91e5b8b095.html">jagged_tensor_ops</a></li>  </ul>
+<li class="navelem"><a class="el" href="dir_480d82297e3e1dcf307abc53c42f0f83.html">src</a></li><li class="navelem"><a class="el" href="dir_f3dcc5e7870b415a8e923f7c46efb32a.html">jagged_tensor_ops</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
@@ -105,15 +105,13 @@ Namespaces</h2></td></tr>
 <b>Value:</b><div class="fragment"><div class="line">  AT_DISPATCH_CASE(TYPE, [&amp;] {                                       \</div>
 <div class="line">    jagged_dense_elementwise_jagged_output_opt_&lt;scalar_t&gt;(           \</div>
 <div class="line">        values,                                                      \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a>,                                                     \</div>
+<div class="line">        offsets,                                                     \</div>
 <div class="line">        dense,                                                       \</div>
-<div class="line">        <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>,                                                      \</div>
+<div class="line">        output,                                                      \</div>
 <div class="line">        [] __device__(scalar_t <span class="comment">/*unused*/</span>, scalar_t y) -&gt; scalar_t { \</div>
 <div class="line">          <span class="keywordflow">return</span> y;                                                  \</div>
 <div class="line">        });                                                          \</div>
 <div class="line">  })</div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_a110a71f81fecd3888738618492db1672"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt; FixedDivisor const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const int32_t const bool pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; output</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:128</div></div>
-<div class="ttc" id="agen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu_html_aff2584a62b3409906c19c5419a4cc647"><div class="ttname"><a href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; int64_t FixedDivisor const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; offsets</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_dense_unweighted_nobag_kernel_small.cu:104</div></div>
 </div><!-- fragment -->
 </div>
 </div>
@@ -125,7 +123,7 @@ Namespaces</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a> = at::Tensor</td>
+          <td class="memname">using <a class="el" href="embedding__inplace__update_8h.html#abc1167888f441327c12e300780ee568a">Tensor</a> = at::Tensor</td>
         </tr>
       </table>
 </div><div class="memdoc">

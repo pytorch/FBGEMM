@@ -71,7 +71,7 @@ $(function() {
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="dir_0255d041b3ce7964bcd7b11954959c22.html">codegen</a></li>  </ul>
+<li class="navelem"><a class="el" href="dir_2305497498524d1fcac2e12cca5f0c05.html">codegen</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
@@ -106,7 +106,7 @@ Classes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">INDEX_WEIGHT</span>&#160;)&#160;&#160;&#160;  {%- <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a618af795eb1829b78b342e084130e1f4">if</a> weighted %}</td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">INDEX_WEIGHT</span>&#160;)&#160;&#160;&#160;  {%- <a class="el" href="bench__utils_8cuh.html#aa3487d3e764e516ac71de417077959a6">if</a> weighted %}</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -148,13 +148,12 @@ Classes</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-<b>Value:</b><div class="fragment"><div class="line">    <span class="keywordflow">if</span> (<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aa7b80f1189d1874ab861378ed299a21e">use_lxu_cache</a>) { \</div>
+<b>Value:</b><div class="fragment"><div class="line">    <span class="keywordflow">if</span> (use_lxu_cache) { \</div>
 <div class="line">      INVOKE_PROCESS_ALL_INDICES_HELPER(<span class="keyword">true</span>, __VA_ARGS__); \</div>
 <div class="line">    } \</div>
 <div class="line">    <span class="keywordflow">else</span> { \</div>
 <div class="line">      INVOKE_PROCESS_ALL_INDICES_HELPER(<span class="keyword">false</span>, __VA_ARGS__); \</div>
 <div class="line">    }</div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_aa7b80f1189d1874ab861378ed299a21e"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aa7b80f1189d1874ab861378ed299a21e">use_lxu_cache</a></div><div class="ttdeci">bool use_lxu_cache</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:748</div></div>
 </div><!-- fragment -->
 </div>
 </div>
@@ -191,33 +190,22 @@ Classes</h2></td></tr>
 <div class="line">      emb_t, \</div>
 <div class="line">      emb_vec_t, \</div>
 <div class="line">      cache_t, \</div>
-<div class="line">      <a class="code hl_typedef" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6394626e129b23b47a8e900179ea1a98">cache_vec_t</a>, \</div>
-<div class="line">      <a class="code hl_typedef" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a46b036c211c222352709e6bb2420878d">output_vec_t</a>, \</div>
+<div class="line">      cache_vec_t, \</div>
+<div class="line">      output_vec_t, \</div>
 <div class="line">      USE_CACHE, \</div>
 <div class="line">      USE_CACHE &amp;&amp; !std::is_same&lt;emb_t, cache_t&gt;::value, \</div>
-<div class="line">      <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a586264efd35f61c1e5b73ab1fd4f87a5">NUM_PARAMS</a> * <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aef84dc9fc9b8afa43b8fed4684630167">NUM_WARPS</a>, \</div>
-<div class="line">      <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aad5a825be51026d8249ffccad954dbb5">STEP</a>, \</div>
+<div class="line">      NUM_PARAMS * NUM_WARPS, \</div>
+<div class="line">      STEP, \</div>
 <div class="line">      STEP_MASK, \</div>
 <div class="line">      TAIL_WARP_SIZE \</div>
 <div class="line">    &gt;( \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a843d0aea30f5cc9663eb720c3dd003ce">smem</a>, \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a>, \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6aa5afd375a88f7cb364118fde074739">load_d</a> + (threadIdx.x % TAIL_WARP_SIZE) &lt; <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a016decd4d08ff2700a397621aff0cd67">load_D</a>, \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#aa7749446d7c1da86adc5b7c06dcc7817">mean_pooling</a>, \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a02bec57c3d9431edc5aba7767412fada">params_offset</a>, \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a179f256aa33ee3f02b437129f3186a4c">max_D_cache</a>)</div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a179f256aa33ee3f02b437129f3186a4c"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a179f256aa33ee3f02b437129f3186a4c">max_D_cache</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const const uint32_t const uint32_t const bool const uint32_t max_D_cache</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:64</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_aa7749446d7c1da86adc5b7c06dcc7817"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#aa7749446d7c1da86adc5b7c06dcc7817">mean_pooling</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const const uint32_t const uint32_t const bool mean_pooling</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:63</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a016decd4d08ff2700a397621aff0cd67"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a016decd4d08ff2700a397621aff0cd67">load_D</a></div><div class="ttdeci">uint32_t load_D</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:726</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a02bec57c3d9431edc5aba7767412fada"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a02bec57c3d9431edc5aba7767412fada">params_offset</a></div><div class="ttdeci">const uint32_t params_offset</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:676</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a46b036c211c222352709e6bb2420878d"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a46b036c211c222352709e6bb2420878d">output_vec_t</a></div><div class="ttdeci">vec4_type&lt; output_t &gt; output_vec_t</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:669</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a586264efd35f61c1e5b73ab1fd4f87a5"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a586264efd35f61c1e5b73ab1fd4f87a5">NUM_PARAMS</a></div><div class="ttdeci">constexpr uint32_t NUM_PARAMS</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:673</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a6394626e129b23b47a8e900179ea1a98"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6394626e129b23b47a8e900179ea1a98">cache_vec_t</a></div><div class="ttdeci">vec4_type&lt; cache_t &gt; cache_vec_t</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:668</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a6aa5afd375a88f7cb364118fde074739"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6aa5afd375a88f7cb364118fde074739">load_d</a></div><div class="ttdeci">const uint32_t load_d</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:743</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a71a77dfc9561ca59031082dfd57dd5ca"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a></div><div class="ttdeci">uint32_t L</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:746</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_a843d0aea30f5cc9663eb720c3dd003ce"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a843d0aea30f5cc9663eb720c3dd003ce">smem</a></div><div class="ttdeci">__shared__ long smem[NUM_PARAMS *NUM_WARPS+kForwardMaxThreads]</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:675</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_aad5a825be51026d8249ffccad954dbb5"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aad5a825be51026d8249ffccad954dbb5">STEP</a></div><div class="ttdeci">constexpr uint32_t STEP</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:674</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__v2__kernel_8cu_html_aef84dc9fc9b8afa43b8fed4684630167"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aef84dc9fc9b8afa43b8fed4684630167">NUM_WARPS</a></div><div class="ttdeci">constexpr uint32_t NUM_WARPS</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_v2_kernel.cu:671</div></div>
+<div class="line">        smem, \</div>
+<div class="line">        <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a>, \</div>
+<div class="line">        load_d + (threadIdx.x % TAIL_WARP_SIZE) &lt; load_D, \</div>
+<div class="line">        mean_pooling, \</div>
+<div class="line">        params_offset, \</div>
+<div class="line">        max_D_cache)</div>
+<div class="ttc" id="aembedding__forward__split__kernel__template_8cu_html_a71a77dfc9561ca59031082dfd57dd5ca"><div class="ttname"><a href="embedding__forward__split__kernel__template_8cu.html#a71a77dfc9561ca59031082dfd57dd5ca">L</a></div><div class="ttdeci">int32_t L</div><div class="ttdef"><b>Definition</b> embedding_forward_split_kernel_template.cu:176</div></div>
 </div><!-- fragment -->
 </div>
 </div>
@@ -235,7 +223,7 @@ Classes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">WEIGHT_IDX</span>&#160;)&#160;&#160;&#160;  (<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6394626e129b23b47a8e900179ea1a98">cache_vec_t</a>**)[SMEM_IDX])[WEIGHT_IDX]</td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">WEIGHT_IDX</span>&#160;)&#160;&#160;&#160;  (<a class="el" href="#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const cache_vec_t**)[SMEM_IDX])[WEIGHT_IDX]</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -249,7 +237,7 @@ Classes</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define SMEM_CACHE_WEIGHT_PTR&#160;&#160;&#160;<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6394626e129b23b47a8e900179ea1a98">cache_vec_t</a>**)</td>
+          <td class="memname">#define SMEM_CACHE_WEIGHT_PTR&#160;&#160;&#160;<a class="el" href="#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const cache_vec_t**)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -270,7 +258,7 @@ Classes</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">WEIGHT_IDX</span>&#160;)&#160;&#160;&#160;  (<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const emb_vec_t**)[SMEM_IDX])[WEIGHT_IDX]</td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">WEIGHT_IDX</span>&#160;)&#160;&#160;&#160;  (<a class="el" href="#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const emb_vec_t**)[SMEM_IDX])[WEIGHT_IDX]</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -284,7 +272,7 @@ Classes</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define SMEM_EMB_WEIGHT_PTR&#160;&#160;&#160;<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const emb_vec_t**)</td>
+          <td class="memname">#define SMEM_EMB_WEIGHT_PTR&#160;&#160;&#160;<a class="el" href="#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(const emb_vec_t**)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -298,7 +286,7 @@ Classes</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define SMEM_GENERIC_PTR&#160;&#160;&#160;<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(uintptr_t*)</td>
+          <td class="memname">#define SMEM_GENERIC_PTR&#160;&#160;&#160;<a class="el" href="#aec0d9a647d3bde05780ff426af9ebf45">SMEM_PTR_BASE</a>(uintptr_t*)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -329,7 +317,7 @@ Classes</h2></td></tr>
           <td class="memname">#define SMEM_PTR_BASE</td>
           <td>(</td>
           <td class="paramtype"></td>          <td class="paramname"><span class="paramname">TYPE</span></td><td>)</td>
-          <td>&#160;&#160;&#160;  (reinterpret_cast&lt;TYPE&gt;(<a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a843d0aea30f5cc9663eb720c3dd003ce">smem</a> + WEIGHT_PTR_OFFSET) + threadIdx.y * <a class="el" href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a>)</td>
+          <td>&#160;&#160;&#160;  (reinterpret_cast&lt;TYPE&gt;(smem + WEIGHT_PTR_OFFSET) + threadIdx.y * kWarpSize)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -357,10 +345,10 @@ Classes</h2></td></tr>
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename <a class="el" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a> &gt; </div>
+template&lt;typename T &gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a58da2e6e124bd5725ddbf144b36921f5">vec4_type</a> = typename <a class="el" href="struct_vec4_type.html">Vec4Type</a>&lt;<a class="el" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a>&gt;::type</td>
+          <td class="memname">using <a class="el" href="#a58da2e6e124bd5725ddbf144b36921f5">vec4_type</a> = typename Vec4Type&lt;T&gt;::type</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -375,7 +363,7 @@ template&lt;typename <a class="el" href="gen__embedding__forward__split__unweigh
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">enum <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aa8c3f67d852b0552ccbe30a899cd4c54">SAVED_PARAMS</a></td>
+          <td class="memname">enum <a class="el" href="#aa8c3f67d852b0552ccbe30a899cd4c54">SAVED_PARAMS</a></td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -443,12 +431,12 @@ template&lt;typename emb_t , typename cache_t , typename output_t , typename ind
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>B</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>B</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>T</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>T</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -458,7 +446,7 @@ template&lt;typename emb_t , typename cache_t , typename output_t , typename ind
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>max_D_cache</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>max_D_cache</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -473,7 +461,7 @@ template&lt;typename emb_t , typename cache_t , typename output_t , typename ind
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">{%- <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a618af795eb1829b78b342e084130e1f4">if</a> weighted %} const <a class="el" href="gen__batch__index__select__dim0__backward__kernel__cta_8cu.html#a6df94b891e47f19e9fa76b529e49cdda">float</a> *__restrict__ const</td>          <td class="paramname"><span class="paramname"><em>index_weights</em>, </span></td>
+          <td class="paramtype">{%- <a class="el" href="bench__utils_8cuh.html#aa3487d3e764e516ac71de417077959a6">if</a> weighted %} const float *__restrict__ const</td>          <td class="paramname"><span class="paramname"><em>index_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -483,12 +471,12 @@ template&lt;typename emb_t , typename cache_t , typename output_t , typename ind
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> *__restrict__ const</td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
+          <td class="paramtype">const uint32_t *__restrict__ const</td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a> *__restrict__ const</td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
+          <td class="paramtype">const int64_t *__restrict__ const</td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -532,12 +520,12 @@ template&lt;typename emb_t , typename cache_t , typename output_t , typename ind
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> LOWER_BIT_CNT, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> WARP_MASK&gt; </div>
+template&lt;uint32_t LOWER_BIT_CNT, uint32_t WARP_MASK&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">__inline__ __device__ void get_next_bag_boundary_and_L </td>
           <td>(</td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>bag_boundary</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>bag_boundary</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -547,7 +535,7 @@ template&lt;<a class="el" href="gen__embedding__backward__split__grad_8cu.html#a
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> *const</td>          <td class="paramname"><span class="paramname"><em>L</em></span>&#160;)</td>
+          <td class="paramtype">uint32_t *const</td>          <td class="paramname"><span class="paramname"><em>L</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -560,7 +548,7 @@ template&lt;<a class="el" href="gen__embedding__backward__split__grad_8cu.html#a
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename cache_t , typename <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6394626e129b23b47a8e900179ea1a98">cache_vec_t</a> , typename <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a46b036c211c222352709e6bb2420878d">output_vec_t</a> , bool USE_CACHE_WEIGHTS, bool USE_MIXED_TYPE_CACHE, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> WEIGHT_PTR_OFFSET, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> STEP, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> STEP_MASK, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> LOAD_GROUP_SIZE&gt; </div>
+template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename cache_t , typename cache_vec_t , typename output_vec_t , bool USE_CACHE_WEIGHTS, bool USE_MIXED_TYPE_CACHE, uint32_t WEIGHT_PTR_OFFSET, uint32_t STEP, uint32_t STEP_MASK, uint32_t LOAD_GROUP_SIZE&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">__noinline__ __device__ void process_all_indices_large_Ls </td>
@@ -570,7 +558,7 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename ca
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>L</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>L</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -585,12 +573,12 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename ca
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>params_offset</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>params_offset</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>max_D_cache</em></span>&#160;)</td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>max_D_cache</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -603,7 +591,7 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename ca
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a46b036c211c222352709e6bb2420878d">output_vec_t</a> , <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> STEP&gt; </div>
+template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename output_vec_t , uint32_t STEP&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">__inline__ __device__ void process_all_indices_no_pooling </td>
@@ -618,7 +606,7 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename <a
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>params_offset</em></span>&#160;)</td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>params_offset</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -631,7 +619,7 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename <a
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename cache_t , typename <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a6394626e129b23b47a8e900179ea1a98">cache_vec_t</a> , typename <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a46b036c211c222352709e6bb2420878d">output_vec_t</a> , bool USE_CACHE_WEIGHTS, bool USE_MIXED_TYPE_CACHE, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> WEIGHT_PTR_OFFSET, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> STEP, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> STEP_MASK, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> LOAD_GROUP_SIZE&gt; </div>
+template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename cache_t , typename cache_vec_t , typename output_vec_t , bool USE_CACHE_WEIGHTS, bool USE_MIXED_TYPE_CACHE, uint32_t WEIGHT_PTR_OFFSET, uint32_t STEP, uint32_t STEP_MASK, uint32_t LOAD_GROUP_SIZE&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">__noinline__ __device__ void process_all_indices_small_Ls </td>
@@ -641,7 +629,7 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename ca
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>total_L</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>total_L</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -656,12 +644,12 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename ca
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>params_offset</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>params_offset</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>max_D_cache</em></span>&#160;)</td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>max_D_cache</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -674,7 +662,7 @@ template&lt;typename index_t , typename emb_t , typename emb_vec_t , typename ca
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename emb_t , typename <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#a46b036c211c222352709e6bb2420878d">output_vec_t</a> , <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> STEP, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> BOUNDARY_IDX_BIT_CNT, <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> WARP_MASK&gt; </div>
+template&lt;typename emb_t , typename output_vec_t , uint32_t STEP, uint32_t BOUNDARY_IDX_BIT_CNT, uint32_t WARP_MASK&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">__inline__ __device__ void write_loop_small_Ls </td>
@@ -684,12 +672,12 @@ template&lt;typename emb_t , typename <a class="el" href="gen__embedding__forwar
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> *const</td>          <td class="paramname"><span class="paramname"><em>write_idx</em>, </span></td>
+          <td class="paramtype">uint32_t *const</td>          <td class="paramname"><span class="paramname"><em>write_idx</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> *const</td>          <td class="paramname"><span class="paramname"><em>bag_boundary</em>, </span></td>
+          <td class="paramtype">uint32_t *const</td>          <td class="paramname"><span class="paramname"><em>bag_boundary</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -699,22 +687,22 @@ template&lt;typename emb_t , typename <a class="el" href="gen__embedding__forwar
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> *const</td>          <td class="paramname"><span class="paramname"><em>L</em>, </span></td>
+          <td class="paramtype">uint32_t *const</td>          <td class="paramname"><span class="paramname"><em>L</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">Vec4StepT&lt; <a class="el" href="gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#aad5a825be51026d8249ffccad954dbb5">STEP</a>, emb_t &gt; *const</td>          <td class="paramname"><span class="paramname"><em>accumulator</em>, </span></td>
+          <td class="paramtype">Vec4StepT&lt; STEP, emb_t &gt; *const</td>          <td class="paramname"><span class="paramname"><em>accumulator</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>params_offset</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>params_offset</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a></td>          <td class="paramname"><span class="paramname"><em>l</em>, </span></td>
+          <td class="paramtype">const uint32_t</td>          <td class="paramname"><span class="paramname"><em>l</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -742,7 +730,7 @@ template&lt;typename emb_t , typename <a class="el" href="gen__embedding__forwar
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">constexpr <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> LXU_PARAMS_CNT = 2</td>
+          <td class="memname">constexpr uint32_t LXU_PARAMS_CNT = 2</td>
         </tr>
       </table>
   </td>
@@ -764,7 +752,7 @@ template&lt;typename emb_t , typename <a class="el" href="gen__embedding__forwar
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">constexpr <a class="el" href="gen__embedding__backward__split__grad_8cu.html#abe53421bcec0b67763c3ed41e3a2a2ad">uint32_t</a> VEC_WIDTH = 4</td>
+          <td class="memname">constexpr uint32_t VEC_WIDTH = 4</td>
         </tr>
       </table>
   </td>

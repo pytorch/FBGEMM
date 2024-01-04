@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['lxu_5fcache_5fparams_0',['LXU_CACHE_PARAMS',['../gen__embedding__forward__split__unweighted__v2__kernel_8cu.html#ad863bc0421e111195e2ac11c7ad2071d',1,'LXU_CACHE_PARAMS:&#160;gen_embedding_forward_split_unweighted_v2_kernel.cu'],['../gen__embedding__forward__split__weighted__v2__kernel_8cu.html#ad863bc0421e111195e2ac11c7ad2071d',1,'LXU_CACHE_PARAMS:&#160;gen_embedding_forward_split_weighted_v2_kernel.cu']]]
+  ['impl_5ftype_5ft_0',['impl_type_t',['../namespacefbgemm.html#a5356ce4b0771923d6eee8b3692afd2f3',1,'fbgemm']]],
+  ['inst_5fset_5ft_1',['inst_set_t',['../namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301',1,'fbgemm']]]
 ];

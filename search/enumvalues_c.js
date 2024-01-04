@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['zero_0',['zero',['../namespacefbgemm__gpu.html#a020b3d9d49f1ff2257534a002d8ebf62a7b3ef6ceb30a5b0c69691a9574a1b6db',1,'fbgemm_gpu']]]
+  ['sum_0',['SUM',['../namespacefbgemm__gpu.html#aa1f721fe0d5e5a710e7a05f788f01f5da6970bdc2201030b9c03fbdcf3973858a',1,'fbgemm_gpu']]]
 ];

@@ -71,7 +71,7 @@ $(function() {
 
 <div id="nav-path" class="navpath">
   <ul>
-<li class="navelem"><a class="el" href="dir_0255d041b3ce7964bcd7b11954959c22.html">codegen</a></li>  </ul>
+<li class="navelem"><a class="el" href="dir_2305497498524d1fcac2e12cca5f0c05.html">codegen</a></li>  </ul>
 </div>
 </div><!-- top -->
 <div class="header">
@@ -123,50 +123,35 @@ Namespaces</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">    nbit::INT2_split_embedding{{ <span class="stringliteral">&quot;_nobag&quot;</span> <span class="keywordflow">if</span> nobag <span class="keywordflow">else</span> <span class="stringliteral">&quot;&quot;</span> }}_codegen_forward_{{ wdesc }}_kernel_small_L&lt;index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly&gt;&lt;&lt;&lt; \</div>
-<div class="line">        nbit::div_round_up(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a> * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread), kWarpsPerBlock), \</div>
-<div class="line">        dim3(<a class="code hl_variable" href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a>, kWarpsPerBlock), \</div>
+<div class="line">        nbit::div_round_up(T * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(B, OutputRowsPerThread), kWarpsPerBlock), \</div>
+<div class="line">        dim3(kWarpSize, kWarpsPerBlock), \</div>
 <div class="line">        0, \</div>
 <div class="line">        at::cuda::getCurrentCUDAStream()&gt;&gt;&gt;( \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a6d8072fe7f1cbd1cf456e3ea8a440ad3">dev_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#ad4dd9cc51f1eccdf4626318632701868">weights_placements</a>, int32_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, weights_tys, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, dev_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, uvm_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, weights_placements, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, weights_offsets, int64_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, weights_tys, uint8_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">else</span> %} \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a>, \</div>
+<div class="line">        <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a>, \</div>
 <div class="line">        {% endif %} \</div>
-<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread)), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a>, index_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a>, index_t, 1, 32), \</div>
+<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(B, OutputRowsPerThread)), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, indices, index_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
 <div class="line">        pooling_mode, \</div>
 <div class="line">        {% endif %} \</div>
 <div class="line">        row_alignment, \</div>
 <div class="line">        {% <span class="keywordflow">if</span> weighted %} <a class="code hl_define" href="fbgemm__tensor__accessor_8h.html#a614f4b016e2758186bd598bc3be6e6cf">MAKE_PTA_WITH_NAME</a>(func_name1, indice_weights, <span class="keywordtype">float</span>, 1, 32), {% endif %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>, output_t, 2, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a0c2527424502280dfcf6276b49b41cdc">lxu_cache_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 2, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name1, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a60a1ec59d36df78e844d5cd7a0d34f03">lxu_cache_locations</a>, int32_t, 1, 32) \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, output, output_t, 2, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, lxu_cache_weights, uint8_t, 2, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name1, lxu_cache_locations, int32_t, 1, 32) \</div>
 <div class="line">    ); \</div>
 <div class="line">    C10_CUDA_KERNEL_LAUNCH_CHECK(); \</div>
+<div class="ttc" id="aembedding__forward__split__kernel__template_8cu_html_a3ba475d30d23d2b8afc22ea4eb06e5d0"><div class="ttname"><a href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a></div><div class="ttdeci">const auto D</div><div class="ttdef"><b>Definition</b> embedding_forward_split_kernel_template.cu:199</div></div>
 <div class="ttc" id="afbgemm__tensor__accessor_8h_html_a614f4b016e2758186bd598bc3be6e6cf"><div class="ttname"><a href="fbgemm__tensor__accessor_8h.html#a614f4b016e2758186bd598bc3be6e6cf">MAKE_PTA_WITH_NAME</a></div><div class="ttdeci">#define MAKE_PTA_WITH_NAME(FUNC_NAME, TENSOR, T, N, INDEX_NBITS)</div><div class="ttdef"><b>Definition</b> fbgemm_tensor_accessor.h:577</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel_8cu_html_a1360e7840ee58417b26bf9445f94c59d"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a></div><div class="ttdeci">template uint8_t</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel.cu:1249</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel_8cu_html_ac4ebc0de2e60165af8333b6f4eab3e70"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a></div><div class="ttdeci">template int64_t</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel.cu:1250</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_a110a71f81fecd3888738618492db1672"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt; FixedDivisor const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const int32_t const bool pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; output</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:128</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_a6d8072fe7f1cbd1cf456e3ea8a440ad3"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a6d8072fe7f1cbd1cf456e3ea8a440ad3">dev_weights</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; dev_weights</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:119</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_a764f8ae801cd000c2a5cb4bb23f14299"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; weights_offsets</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:120</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_a8a3ac708f5fc38ea5ebecdbe685f3c73"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt; D_offsets</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:121</div></div>
-<div class="ttc" id="agen__batch__index__select__dim0__forward__kernel__small_8cu_html_acbf20500022fb5f972956bea423a05ff"><div class="ttname"><a href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int32_t, 1, at::RestrictPtrTraits &gt; FixedDivisor const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; indices</div><div class="ttdef"><b>Definition</b> gen_batch_index_select_dim0_forward_kernel_small.cu:123</div></div>
-<div class="ttc" id="agen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu_html_a057f5488fcdaf454d09c4f1b25374ac9"><div class="ttname"><a href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; int64_t D</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_dense_unweighted_nobag_kernel_small.cu:101</div></div>
-<div class="ttc" id="agen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu_html_aff2584a62b3409906c19c5419a4cc647"><div class="ttname"><a href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a></div><div class="ttdeci">template const pta::PackedTensorAccessor64&lt; uint8_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; int64_t FixedDivisor const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; const pta::PackedTensorAccessor32&lt; int64_t, 1, at::RestrictPtrTraits &gt; offsets</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_dense_unweighted_nobag_kernel_small.cu:104</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a0c2527424502280dfcf6276b49b41cdc"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a0c2527424502280dfcf6276b49b41cdc">lxu_cache_weights</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const lxu_cache_weights</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:59</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a17f61eb7bf7a7e4089982fbf69116da5"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const uvm_weights</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:58</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a240b4e029c521f922d447346c8b757b8"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const const uint32_t B</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:61</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a2ee4b3e799d56c4d34c87190c37a7a64"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const const uint32_t const uint32_t T</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:62</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_a60a1ec59d36df78e844d5cd7a0d34f03"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a60a1ec59d36df78e844d5cd7a0d34f03">lxu_cache_locations</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const const uint32_t const uint32_t const bool const uint32_t const FixedDivisor const index_t *__restrict__ const const index_t *__restrict__ const const uint32_t *__restrict__ const const int64_t *__restrict__ const const int32_t *__restrict__ const lxu_cache_locations</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:70</div></div>
-<div class="ttc" id="agen__embedding__forward__split__unweighted__codegen__cuda_8cu_html_ad4dd9cc51f1eccdf4626318632701868"><div class="ttname"><a href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#ad4dd9cc51f1eccdf4626318632701868">weights_placements</a></div><div class="ttdeci">__launch_bounds__(kForwardMaxThreads) __global__ void split_embedding_nobag_codegen_forward_unweighted_small_kernel(const pta const emb_t *__restrict__ const const cache_t *__restrict__ const const int32_t *__restrict__ const weights_placements</div><div class="ttdef"><b>Definition</b> gen_embedding_forward_split_unweighted_codegen_cuda.cu:60</div></div>
-<div class="ttc" id="agen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu_html_a4a63994c436795f993c09c5626acfb05"><div class="ttname"><a href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a></div><div class="ttdeci">template __global__ kWarpSize</div><div class="ttdef"><b>Definition</b> gen_embedding_optimizer_rowwise_adagrad_split_kernel.cu:1952</div></div>
 <div class="ttc" id="anamespacenbit_html_a620ba1c7dba3e279e09759758b7a86db"><div class="ttname"><a href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a></div><div class="ttdeci">C10_HOST_DEVICE C10_ALWAYS_INLINE uint32_t div_round_up(uint32_t a, uint32_t b)</div><div class="ttdef"><b>Definition</b> embedding_common.h:94</div></div>
 </div><!-- fragment -->
 </div>
@@ -205,31 +190,31 @@ Namespaces</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">    nbit::INT4_split_embedding{{ <span class="stringliteral">&quot;_nobag&quot;</span> <span class="keywordflow">if</span> nobag <span class="keywordflow">else</span> <span class="stringliteral">&quot;&quot;</span> }}_codegen_forward_{{ wdesc }}_kernel_small_L&lt;index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly&gt;&lt;&lt;&lt; \</div>
-<div class="line">        nbit::div_round_up(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a> * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread), kWarpsPerBlock), \</div>
-<div class="line">        dim3(<a class="code hl_variable" href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a>, kWarpsPerBlock), \</div>
+<div class="line">        nbit::div_round_up(T * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(B, OutputRowsPerThread), kWarpsPerBlock), \</div>
+<div class="line">        dim3(kWarpSize, kWarpsPerBlock), \</div>
 <div class="line">        0, \</div>
 <div class="line">        at::cuda::getCurrentCUDAStream()&gt;&gt;&gt;( \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a6d8072fe7f1cbd1cf456e3ea8a440ad3">dev_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#ad4dd9cc51f1eccdf4626318632701868">weights_placements</a>, int32_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, weights_tys, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, dev_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, uvm_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, weights_placements, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, weights_offsets, int64_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, weights_tys, uint8_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, D_offsets, int32_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">else</span> %} \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a>, \</div>
+<div class="line">        <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a>, \</div>
 <div class="line">        {% endif %} \</div>
-<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread)), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a>, index_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a>, index_t, 1, 32), \</div>
+<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(B, OutputRowsPerThread)), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, indices, index_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, offsets, index_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
 <div class="line">        pooling_mode, \</div>
 <div class="line">        {% endif %} \</div>
 <div class="line">        row_alignment, \</div>
 <div class="line">        {% <span class="keywordflow">if</span> weighted %} <a class="code hl_define" href="fbgemm__tensor__accessor_8h.html#a614f4b016e2758186bd598bc3be6e6cf">MAKE_PTA_WITH_NAME</a>(func_name2, indice_weights, <span class="keywordtype">float</span>, 1, 32), {% endif %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>, output_t, 2, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a0c2527424502280dfcf6276b49b41cdc">lxu_cache_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 2, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name2, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a60a1ec59d36df78e844d5cd7a0d34f03">lxu_cache_locations</a>, int32_t, 1, 32) \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, output, output_t, 2, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, lxu_cache_weights, uint8_t, 2, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name2, lxu_cache_locations, int32_t, 1, 32) \</div>
 <div class="line">    ); \</div>
 <div class="line">    C10_CUDA_KERNEL_LAUNCH_CHECK(); \</div>
 </div><!-- fragment -->
@@ -269,31 +254,31 @@ Namespaces</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">    nbit::INT8_split_embedding{{ <span class="stringliteral">&quot;_nobag&quot;</span> <span class="keywordflow">if</span> nobag <span class="keywordflow">else</span> <span class="stringliteral">&quot;&quot;</span> }}_codegen_forward_{{ wdesc }}_kernel_small_L&lt;index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly&gt;&lt;&lt;&lt; \</div>
-<div class="line">        nbit::div_round_up(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a> * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread), kWarpsPerBlock), \</div>
-<div class="line">        dim3(<a class="code hl_variable" href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a>, kWarpsPerBlock), \</div>
+<div class="line">        nbit::div_round_up(T * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(B, OutputRowsPerThread), kWarpsPerBlock), \</div>
+<div class="line">        dim3(kWarpSize, kWarpsPerBlock), \</div>
 <div class="line">        0, \</div>
 <div class="line">        at::cuda::getCurrentCUDAStream()&gt;&gt;&gt;( \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a6d8072fe7f1cbd1cf456e3ea8a440ad3">dev_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#ad4dd9cc51f1eccdf4626318632701868">weights_placements</a>, int32_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, weights_tys, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, dev_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, uvm_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, weights_placements, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, weights_offsets, int64_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, weights_tys, uint8_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, D_offsets, int32_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">else</span> %} \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a>, \</div>
+<div class="line">        <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a>, \</div>
 <div class="line">        {% endif %} \</div>
-<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread)), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a>, index_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a>, index_t, 1, 32), \</div>
+<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(B, OutputRowsPerThread)), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, indices, index_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, offsets, index_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
 <div class="line">        pooling_mode, \</div>
 <div class="line">        {% endif %} \</div>
 <div class="line">        row_alignment, \</div>
 <div class="line">        {% <span class="keywordflow">if</span> weighted %} <a class="code hl_define" href="fbgemm__tensor__accessor_8h.html#a614f4b016e2758186bd598bc3be6e6cf">MAKE_PTA_WITH_NAME</a>(func_name3, indice_weights, <span class="keywordtype">float</span>, 1, 32), {% endif %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>, output_t, 2, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a0c2527424502280dfcf6276b49b41cdc">lxu_cache_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 2, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name3, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a60a1ec59d36df78e844d5cd7a0d34f03">lxu_cache_locations</a>, int32_t, 1, 32) \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, output, output_t, 2, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, lxu_cache_weights, uint8_t, 2, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name3, lxu_cache_locations, int32_t, 1, 32) \</div>
 <div class="line">    ); \</div>
 <div class="line">    C10_CUDA_KERNEL_LAUNCH_CHECK(); \</div>
 </div><!-- fragment -->
@@ -333,23 +318,23 @@ Namespaces</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">    nbit::FP8_split_embedding{{ <span class="stringliteral">&quot;_nobag&quot;</span> <span class="keywordflow">if</span> nobag <span class="keywordflow">else</span> <span class="stringliteral">&quot;&quot;</span> }}_codegen_forward_{{ wdesc }}_kernel_small_L&lt;index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly&gt;&lt;&lt;&lt; \</div>
-<div class="line">        nbit::div_round_up(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a> * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread), kWarpsPerBlock), \</div>
-<div class="line">        dim3(<a class="code hl_variable" href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a>, kWarpsPerBlock), \</div>
+<div class="line">        nbit::div_round_up(T * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(B, OutputRowsPerThread), kWarpsPerBlock), \</div>
+<div class="line">        dim3(kWarpSize, kWarpsPerBlock), \</div>
 <div class="line">        0, \</div>
 <div class="line">        at::cuda::getCurrentCUDAStream()&gt;&gt;&gt;( \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a6d8072fe7f1cbd1cf456e3ea8a440ad3">dev_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#ad4dd9cc51f1eccdf4626318632701868">weights_placements</a>, int32_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, weights_tys, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, dev_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, uvm_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, weights_placements, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, weights_offsets, int64_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, weights_tys, uint8_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, D_offsets, int32_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">else</span> %} \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a>, \</div>
+<div class="line">        <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a>, \</div>
 <div class="line">        {% endif %} \</div>
-<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread)), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a>, index_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a>, index_t, 1, 32), \</div>
+<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(B, OutputRowsPerThread)), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, indices, index_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, offsets, index_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
 <div class="line">        pooling_mode, \</div>
 <div class="line">        {% endif %} \</div>
@@ -357,9 +342,9 @@ Namespaces</h2></td></tr>
 <div class="line">        {% <span class="keywordflow">if</span> weighted %} <a class="code hl_define" href="fbgemm__tensor__accessor_8h.html#a614f4b016e2758186bd598bc3be6e6cf">MAKE_PTA_WITH_NAME</a>(func_name4, indice_weights, <span class="keywordtype">float</span>, 1, 32), {% endif %} \</div>
 <div class="line">        fp8_exponent_bits, \</div>
 <div class="line">        fp8_exponent_bias, \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>, output_t, 2, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a0c2527424502280dfcf6276b49b41cdc">lxu_cache_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 2, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name4, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a60a1ec59d36df78e844d5cd7a0d34f03">lxu_cache_locations</a>, int32_t, 1, 32) \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, output, output_t, 2, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_weights, uint8_t, 2, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_locations, int32_t, 1, 32) \</div>
 <div class="line">    ); \</div>
 <div class="line">    C10_CUDA_KERNEL_LAUNCH_CHECK(); \</div>
 </div><!-- fragment -->
@@ -399,31 +384,31 @@ Namespaces</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">    nbit::FP16_split_embedding{{ <span class="stringliteral">&quot;_nobag&quot;</span> <span class="keywordflow">if</span> nobag <span class="keywordflow">else</span> <span class="stringliteral">&quot;&quot;</span> }}_codegen_forward_{{ wdesc }}_kernel_small_L&lt;index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly&gt;&lt;&lt;&lt; \</div>
-<div class="line">        nbit::div_round_up(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a> * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread), kWarpsPerBlock), \</div>
-<div class="line">        dim3(<a class="code hl_variable" href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a>, kWarpsPerBlock), \</div>
+<div class="line">        nbit::div_round_up(T * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(B, OutputRowsPerThread), kWarpsPerBlock), \</div>
+<div class="line">        dim3(kWarpSize, kWarpsPerBlock), \</div>
 <div class="line">        0, \</div>
 <div class="line">        at::cuda::getCurrentCUDAStream()&gt;&gt;&gt;( \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a6d8072fe7f1cbd1cf456e3ea8a440ad3">dev_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#ad4dd9cc51f1eccdf4626318632701868">weights_placements</a>, int32_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, weights_tys, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, dev_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, uvm_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, weights_placements, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, weights_offsets, int64_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, weights_tys, uint8_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, D_offsets, int32_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">else</span> %} \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a>, \</div>
+<div class="line">        <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a>, \</div>
 <div class="line">        {% endif %} \</div>
-<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread)), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a>, index_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a>, index_t, 1, 32), \</div>
+<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(B, OutputRowsPerThread)), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, indices, index_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, offsets, index_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
 <div class="line">        pooling_mode, \</div>
 <div class="line">        {% endif %} \</div>
 <div class="line">        row_alignment, \</div>
 <div class="line">        {% <span class="keywordflow">if</span> weighted %} <a class="code hl_define" href="fbgemm__tensor__accessor_8h.html#a614f4b016e2758186bd598bc3be6e6cf">MAKE_PTA_WITH_NAME</a>(func_name5, indice_weights, <span class="keywordtype">float</span>, 1, 32), {% endif %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>, output_t, 2, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a0c2527424502280dfcf6276b49b41cdc">lxu_cache_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 2, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name5, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a60a1ec59d36df78e844d5cd7a0d34f03">lxu_cache_locations</a>, int32_t, 1, 32) \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, output, output_t, 2, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, lxu_cache_weights, uint8_t, 2, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name5, lxu_cache_locations, int32_t, 1, 32) \</div>
 <div class="line">    ); \</div>
 <div class="line">    C10_CUDA_KERNEL_LAUNCH_CHECK(); \</div>
 </div><!-- fragment -->
@@ -463,31 +448,31 @@ Namespaces</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">    nbit::FP32_split_embedding{{ <span class="stringliteral">&quot;_nobag&quot;</span> <span class="keywordflow">if</span> nobag <span class="keywordflow">else</span> <span class="stringliteral">&quot;&quot;</span> }}_codegen_forward_{{ wdesc }}_kernel_small_L&lt;index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly&gt;&lt;&lt;&lt; \</div>
-<div class="line">        nbit::div_round_up(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a2ee4b3e799d56c4d34c87190c37a7a64">T</a> * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread), kWarpsPerBlock), \</div>
-<div class="line">        dim3(<a class="code hl_variable" href="gen__embedding__optimizer__rowwise__adagrad__split__kernel_8cu.html#a4a63994c436795f993c09c5626acfb05">kWarpSize</a>, kWarpsPerBlock), \</div>
+<div class="line">        nbit::div_round_up(T * <a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">nbit::div_round_up</a>(B, OutputRowsPerThread), kWarpsPerBlock), \</div>
+<div class="line">        dim3(kWarpSize, kWarpsPerBlock), \</div>
 <div class="line">        0, \</div>
 <div class="line">        at::cuda::getCurrentCUDAStream()&gt;&gt;&gt;( \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a6d8072fe7f1cbd1cf456e3ea8a440ad3">dev_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a17f61eb7bf7a7e4089982fbf69116da5">uvm_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#ad4dd9cc51f1eccdf4626318632701868">weights_placements</a>, int32_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a764f8ae801cd000c2a5cb4bb23f14299">weights_offsets</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#ac4ebc0de2e60165af8333b6f4eab3e70">int64_t</a>, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, weights_tys, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, dev_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, uvm_weights, uint8_t, 1, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, weights_placements, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, weights_offsets, int64_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, weights_tys, uint8_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a8a3ac708f5fc38ea5ebecdbe685f3c73">D_offsets</a>, int32_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, D_offsets, int32_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">else</span> %} \</div>
-<div class="line">        <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#a057f5488fcdaf454d09c4f1b25374ac9">D</a>, \</div>
+<div class="line">        <a class="code hl_variable" href="embedding__forward__split__kernel__template_8cu.html#a3ba475d30d23d2b8afc22ea4eb06e5d0">D</a>, \</div>
 <div class="line">        {% endif %} \</div>
-<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(<a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a240b4e029c521f922d447346c8b757b8">B</a>, OutputRowsPerThread)), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#acbf20500022fb5f972956bea423a05ff">indices</a>, index_t, 1, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__embedding__forward__dense__unweighted__nobag__kernel__small_8cu.html#aff2584a62b3409906c19c5419a4cc647">offsets</a>, index_t, 1, 32), \</div>
+<div class="line">        FixedDivisor(<a class="code hl_function" href="namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db">div_round_up</a>(B, OutputRowsPerThread)), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, indices, index_t, 1, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, offsets, index_t, 1, 32), \</div>
 <div class="line">        {% <span class="keywordflow">if</span> not nobag %} \</div>
 <div class="line">        pooling_mode, \</div>
 <div class="line">        {% endif %} \</div>
 <div class="line">        row_alignment, \</div>
 <div class="line">        {% <span class="keywordflow">if</span> weighted %} <a class="code hl_define" href="fbgemm__tensor__accessor_8h.html#a614f4b016e2758186bd598bc3be6e6cf">MAKE_PTA_WITH_NAME</a>(func_name6, indice_weights, <span class="keywordtype">float</span>, 1, 32), {% endif %} \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel__small_8cu.html#a110a71f81fecd3888738618492db1672">output</a>, output_t, 2, 32), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a0c2527424502280dfcf6276b49b41cdc">lxu_cache_weights</a>, <a class="code hl_variable" href="gen__batch__index__select__dim0__forward__kernel_8cu.html#a1360e7840ee58417b26bf9445f94c59d">uint8_t</a>, 2, 64), \</div>
-<div class="line">        MAKE_PTA_WITH_NAME(func_name6, <a class="code hl_variable" href="gen__embedding__forward__split__unweighted__codegen__cuda_8cu.html#a60a1ec59d36df78e844d5cd7a0d34f03">lxu_cache_locations</a>, int32_t, 1, 32) \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, output, output_t, 2, 32), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, lxu_cache_weights, uint8_t, 2, 64), \</div>
+<div class="line">        MAKE_PTA_WITH_NAME(func_name6, lxu_cache_locations, int32_t, 1, 32) \</div>
 <div class="line">    ); \</div>
 <div class="line">    C10_CUDA_KERNEL_LAUNCH_CHECK(); \</div>
 </div><!-- fragment -->
@@ -523,7 +508,7 @@ Namespaces</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="gen__batch__index__select__dim0__backward__codegen__cuda_8cu.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>
+          <td class="memname">using <a class="el" href="embedding__inplace__update_8h.html#abc1167888f441327c12e300780ee568a">Tensor</a></td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -532,7 +517,7 @@ Namespaces</h2></td></tr>
 <div class="line"> </div>
 <div class="line"> </div>
 <div class="line"><span class="keyword">using namespace </span><a class="code hl_namespace" href="namespacefbgemm__gpu.html">fbgemm_gpu</a> at::Tensor</div>
-<div class="ttc" id="anamespacefbgemm__gpu_html"><div class="ttname"><a href="namespacefbgemm__gpu.html">fbgemm_gpu</a></div><div class="ttdef"><b>Definition</b> embedding_forward_template_helpers.cuh:45</div></div>
+<div class="ttc" id="anamespacefbgemm__gpu_html"><div class="ttname"><a href="namespacefbgemm__gpu.html">fbgemm_gpu</a></div><div class="ttdef"><b>Definition</b> cpu_utils.h:17</div></div>
 </div><!-- fragment -->
 </div>
 </div>
