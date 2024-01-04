@@ -1,56 +1,80 @@
-.. FBGEMM documentation master file, copied from fbgemm/docs
-   on Wed Jun 8 17:19:01 2022.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+FBGEMM and FBGEMM_GPU Documentation Homepage
+============================================
 
-Welcome to FBGEMM's documentation!
-=======================================
+Welcome to the documentation page for the **FBGEMM** and **FBGEMM_GPU**
+libraries!
 
-This documentation provides a comprehensive reference of the `fbgemm_gpu`
-library.
+**FBGEMM** (Facebook GEneral Matrix Multiplication) is a low-precision,
+high-performance matrix-matrix multiplications and convolution library for
+server-side inference.  This library is used as a backend of
+`Caffe2 <https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server>`__ and
+`PyTorch <https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu>`__
+quantized operators on x86 machines.
 
-.. _fbgemm-gpu.docs.toc.general:
+**FBGEMM_GPU** (FBGEMM GPU Kernels Library) is a collection of high-performance
+PyTorch GPU operator libraries for training and inference.  This library is
+built on top of FBGEMM and provides efficient table batched embedding bag, data
+layout transformation, and quantization support.
+
+Table of Contents
+
+.. _home.docs.toc.general:
 
 .. toctree::
-   :maxdepth: 2
-   :caption: FBGEMM_GPU General Info
+   :maxdepth: 1
+   :caption: General Info
 
-   general/BuildInstructions.rst
-   general/InstallationInstructions.rst
-   general/TestInstructions.rst
-   general/DocsInstructions.rst
    general/Contributing.rst
+   general/DocsInstructions.rst
    general/ContactUs.rst
 
-.. _fbgemm-gpu.docs.toc.overview:
+.. _fbgemm-gpu.toc.development:
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :caption: FBGEMM_GPU Development
+
+   fbgemm_gpu-development/BuildInstructions.rst
+   fbgemm_gpu-development/InstallationInstructions.rst
+   fbgemm_gpu-development/TestInstructions.rst
+
+.. _fbgemm-gpu.toc.overview:
+
+.. toctree::
+   :maxdepth: 1
    :caption: FBGEMM_GPU Overview
 
-   overview/jagged-tensor-ops/JaggedTensorOps.rst
+   fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.rst
 
-.. _fbgemm-gpu.docs.toc.api.python:
-
-.. toctree::
-   :maxdepth: 2
-   :caption: FBGEMM_GPU Python API
-
-   python-api/table_batched_embedding_ops.rst
-   python-api/jagged_tensor_ops.rst
-
-.. _fbgemm-gpu.docs.toc.api.cpp:
+.. _fbgemm.toc.api.cpp:
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :caption: FBGEMM C++ API
+
+   fbgemm-cpp-api/QuantUtils.rst
+
+.. _fbgemm-gpu.toc.api.cpp:
+
+.. toctree::
+   :maxdepth: 1
    :caption: FBGEMM_GPU C++ API
 
-   cpp-api/sparse_ops.rst
-   cpp-api/quantize_ops.rst
-   cpp-api/merge_pooled_embeddings.rst
-   cpp-api/split_table_batched_embeddings.rst
-   cpp-api/jagged_tensor_ops.rst
-   cpp-api/memory_utils.rst
-   cpp-api/input_combine.rst
-   cpp-api/layout_transform_ops.rst
-   cpp-api/embedding_ops.rst
+   fbgemm_gpu-cpp-api/sparse_ops.rst
+   fbgemm_gpu-cpp-api/quantize_ops.rst
+   fbgemm_gpu-cpp-api/merge_pooled_embeddings.rst
+   fbgemm_gpu-cpp-api/split_table_batched_embeddings.rst
+   fbgemm_gpu-cpp-api/jagged_tensor_ops.rst
+   fbgemm_gpu-cpp-api/memory_utils.rst
+   fbgemm_gpu-cpp-api/input_combine.rst
+   fbgemm_gpu-cpp-api/layout_transform_ops.rst
+   fbgemm_gpu-cpp-api/embedding_ops.rst
+
+.. _fbgemm-gpu.toc.api.python:
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM_GPU Python API
+
+   fbgemm_gpu-python-api/table_batched_embedding_ops.rst
+   fbgemm_gpu-python-api/jagged_tensor_ops.rst

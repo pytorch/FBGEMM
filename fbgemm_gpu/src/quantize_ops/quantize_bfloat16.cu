@@ -13,6 +13,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 /// @ingroup quantize-ops-cuda
+///
 /// Converts a tensor of `float` values into a tensor of Brain Floating Point
 /// (`bfloat16`) values.
 ///
@@ -44,6 +45,7 @@ DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
 }
 
 /// @ingroup quantize-ops-cuda
+///
 /// Converts a tensor of Brain Floating Point (`bfloat16`) values into a tensor
 /// of `float` values.
 ///
