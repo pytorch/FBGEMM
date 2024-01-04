@@ -6,4 +6,4 @@
 # LICENSE file in the root directory of this source tree.
 
 # Trigger the manual addition of docstrings to pybind11-generated operators
-from . import jagged_tensor_ops, table_batched_embedding_ops  # noqa: F401  # noqa: F401
+from . import jagged_tensor_ops, table_batched_embedding_ops  # noqa: F401

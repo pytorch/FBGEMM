@@ -395,6 +395,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
 }
 
 /// @ingroup quantize-ops-cuda
+///
 /// Converts a tensor of `float` values into a tensor of padded `fp8` rowwise
 /// values.
 ///
@@ -413,6 +414,7 @@ DLL_PUBLIC Tensor _float_to_paddedFP8rowwise_gpu(
 }
 
 /// @ingroup quantize-ops-cuda
+///
 /// Converts a tensor of padded `fp8` rowwise values into a tensor of `float
 /// values`.
 ///

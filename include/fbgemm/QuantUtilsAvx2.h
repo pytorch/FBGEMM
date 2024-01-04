@@ -12,18 +12,21 @@
 #include "./FbgemmBuild.h"
 #include "./UtilsAvx2.h"
 
+/// @defgroup fbgemm-quant-utils-avx2 Quantization Utilities (AVX2)
+///
+
 namespace fbgemm {
 
-// Structs from gemmlowp
-//
-// A structure to hold quantization parameters 'scale' and 'zero_point'.
-// The meaning of these values is as the constants in the quantization equation
-//
-//   real_value = scale * (quantized_value - zero_point)
-//
-// In other words, 'zero_point' is the quantized value that corresponds
-// to the real value 0, and 'scale' is the difference of real values
-// corresponding to consecutive quantized values.
+/// Struct from <a href="https://github.com/google/gemmlowp">`gemmlowp`</a>
+///
+/// A structure to hold quantization parameters `scale` and `zero_point`.
+/// The meaning of these values is as the constants in the quantization equation
+///
+///   `real_value = scale * (quantized_value - zero_point)`
+///
+/// In other words, 'zero_point' is the quantized value that corresponds
+/// to the real value 0, and 'scale' is the difference of real values
+/// corresponding to consecutive quantized values.
 struct FBGEMM_API TensorQuantizationParams {
   float scale;
   std::int32_t zero_point;
@@ -32,13 +35,13 @@ struct FBGEMM_API TensorQuantizationParams {
   float Max() const;
 };
 
-// Parameters when we scale from int32 intermediate matrix multiplication
-// results to 8-bit integers
+/// Parameters when we scale from int32 intermediate matrix multiplication
+/// results to 8-bit integers
 struct FBGEMM_API RequantizationParams {
-  // For floating-point requantization
+  /// For floating-point requantization
   float real_multiplier;
 
-  // For fixed-point requantization
+  /// For fixed-point requantization
   std::int32_t multiplier;
   int right_shift;
 
@@ -47,6 +50,7 @@ struct FBGEMM_API RequantizationParams {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Utility functions
+////////////////////////////////////////////////////////////////////////////////
 
 template <typename T = std::uint8_t, bool LEGACY = true>
 void QuantizeAvx2(
@@ -63,14 +67,15 @@ void FusedQuantizeDequantizeAvx2(
     const TensorQuantizationParams& qparams,
     float noise_ratio = 0.0f);
 
-/*
- * Random number generator in [0, 9]: https://www.jstatsoft.org/v08/i14/paper
- */
+/// @ingroup fbgemm-quant-utils-avx2
+///
+/// Random number generator in [0, 9] based on
+/// <a href="https://www.jstatsoft.org/v08/i14/paper">this paper</a>.
 uint32_t FBGEMM_API Xor128(void);
 
-/**
- * @brief Find the min and max value in a float matrix.
- */
+/// @ingroup fbgemm-quant-utils-avx2
+///
+/// @brief Find the min and max value in a float matrix.
 void FBGEMM_API FindMinMax(const float* m, float* min, float* max, int64_t len);
 
 void RequantizeFixedPointAvx2(
@@ -85,9 +90,9 @@ void RequantizeAvx2(
     int len,
     const RequantizationParams& params);
 
-/**
- * @brief Requantize with avx2 and bias is fused.
- */
+/// @ingroup fbgemm-quant-utils-avx2
+///
+/// Requantize with avx2 and bias is fused.
 template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,

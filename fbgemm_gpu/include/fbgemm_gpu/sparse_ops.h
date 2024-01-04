@@ -103,6 +103,7 @@ at::Tensor invert_permute_cuda(const at::Tensor& permute);
 #endif
 
 /// @ingroup sparse-data-cuda
+///
 /// expand_into_jagged_permute expand the sparse data permute index from
 /// table dimension to batch dimension, for cases where the sparse features
 /// has different batch sizes across ranks.

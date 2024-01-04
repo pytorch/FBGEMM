@@ -68,7 +68,7 @@ The information in ``MaxLengths`` is used for performing the conversion from
 jagged tensor to normal (dense) densor where it will be used to determine the
 shape of the tensor's dense form.
 
-.. _fbgemm-gpu.docs.overview.ops.jagged.example:
+.. _fbgemm-gpu.overview.ops.jagged.example:
 
 Jagged Tensor Example
 ~~~~~~~~~~~~~~~~~~~~~
@@ -97,7 +97,7 @@ The ``MaxLengths`` values in the example jagged tensor are ``[4 , 2]``.
 Below is a table of the partition indices applied to the ``Values`` tensor to
 construct the logical representation of the example jagged tensor:
 
-.. _fbgemm-gpu.docs.overview.ops.jagged.example.table:
+.. _fbgemm-gpu.overview.ops.jagged.example.table:
 
 .. list-table::
     :header-rows: 1
@@ -260,13 +260,13 @@ For each dimension in :math:`D`, the dimension size is:
   dim(i) = MaxLengths[i-1]  // (0 < i < D.rank-1)
 
 Using the example jagged tensor from
-:ref:`fbgemm-gpu.docs.overview.ops.jagged.example`, ``len(MaxLengths) = 2``, so
+:ref:`fbgemm-gpu.overview.ops.jagged.example`, ``len(MaxLengths) = 2``, so
 the equivalent dense tensor's rank (number of dimension) will be ``4``.  The
 example jagged tensor two offset tensors, ``Offsets[0]`` and ``Offsets[1]``.
 During the conversion process, elements from ``Values`` will be loaded onto the
 dense tensor based on the ranges denoted in the partition indices of
 ``Offsets[0]`` and ``Offsets[1]`` (see the
-:ref:`table <fbgemm-gpu.docs.overview.ops.jagged.example.table>` for the mapping
+:ref:`table <fbgemm-gpu.overview.ops.jagged.example.table>` for the mapping
 of the groups to corresponding rows in the dense table):
 
 .. image:: JaggedTensorConversion2.png

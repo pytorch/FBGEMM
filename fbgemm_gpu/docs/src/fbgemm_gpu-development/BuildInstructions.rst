@@ -13,7 +13,7 @@ The general steps for building FBGEMM_GPU are as follows:
 #. Run the build script.
 
 
-.. _fbgemm-gpu.docs.build.setup.env:
+.. _fbgemm-gpu.build.setup.env:
 
 Set Up an Isolated Build Environment
 ------------------------------------
@@ -68,8 +68,8 @@ Set Up for CPU-Only Build
 -------------------------
 
 Follow the instructions for setting up the Conda environment at
-:ref:`fbgemm-gpu.docs.build.setup.env`, followed by
-:ref:`fbgemm-gpu.docs.build.setup.tools.install`.
+:ref:`fbgemm-gpu.build.setup.env`, followed by
+:ref:`fbgemm-gpu.build.setup.tools.install`.
 
 
 Set Up for CUDA Build
@@ -81,7 +81,7 @@ FBGEMM_GPU can be done either through pre-built Docker images or through Conda
 installation on bare metal. Note that neither a GPU nor the NVIDIA drivers need
 to be present for builds, since they are only used at runtime.
 
-.. _fbgemm-gpu.docs.build.setup.cuda.image:
+.. _fbgemm-gpu.build.setup.cuda.image:
 
 CUDA Docker Image
 ~~~~~~~~~~~~~~~~~
@@ -99,7 +99,7 @@ From here, the rest of the build environment may be constructed through Conda,
 as it is still the recommended mechanism for creating an isolated and
 reproducible build environment.
 
-.. _fbgemm-gpu.docs.build.setup.cuda.install:
+.. _fbgemm-gpu.build.setup.cuda.install:
 
 Install CUDA
 ~~~~~~~~~~~~
@@ -146,7 +146,7 @@ FBGEMM_GPU supports running on AMD (ROCm) devices. Setting the machine
 up for ROCm builds of FBGEMM_GPU can be done either through pre-built
 Docker images or through bare metal.
 
-.. _fbgemm-gpu.docs.build.setup.rocm.image:
+.. _fbgemm-gpu.build.setup.rocm.image:
 
 ROCm Docker Image
 ~~~~~~~~~~~~~~~~~
@@ -168,7 +168,7 @@ From here, the rest of the build environment may be constructed through Conda,
 as it is still the recommended mechanism for creating an isolated and
 reproducible build environment.
 
-.. _fbgemm-gpu.docs.build.setup.rocm.install:
+.. _fbgemm-gpu.build.setup.rocm.install:
 
 Install ROCm
 ~~~~~~~~~~~~
@@ -206,7 +206,7 @@ installed:
   apt install hipify-clang miopen-hip miopen-hip-dev
 
 
-.. _fbgemm-gpu.docs.build.setup.tools.install:
+.. _fbgemm-gpu.build.setup.tools.install:
 
 Install the Build Tools
 -----------------------
@@ -262,7 +262,7 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
       wheel
 
 
-.. _fbgemm-gpu.docs.build.setup.pytorch.install:
+.. _fbgemm-gpu.build.setup.pytorch.install:
 
 Install PyTorch
 ---------------
@@ -380,7 +380,7 @@ build cache:
 
   python setup.py clean
 
-.. _fbgemm-gpu.docs.build.process.cuda:
+.. _fbgemm-gpu.build.process.cuda:
 
 CUDA Build
 ~~~~~~~~~~
@@ -439,7 +439,7 @@ CUDA device, however, is not required for building the package.
       --nvml_lib_path=${NVML_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
-.. _fbgemm-gpu.docs.build.process.rocm:
+.. _fbgemm-gpu.build.process.rocm:
 
 ROCm Build
 ~~~~~~~~~~
@@ -479,7 +479,7 @@ the package.
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
 
-.. _fbgemm-gpu.docs.build.process.cpu:
+.. _fbgemm-gpu.build.process.cpu:
 
 CPU-Only Build
 ~~~~~~~~~~~~~~

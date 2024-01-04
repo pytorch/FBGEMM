@@ -20,6 +20,7 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 /// @ingroup quantize-data-meta
+///
 Tensor FP8rowwise_to_float_meta(
     const Tensor& input,
     [[maybe_unused]] bool forward,
@@ -50,6 +51,7 @@ Tensor FP8rowwise_to_float_meta(
 }
 
 /// @ingroup quantize-data-meta
+///
 Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool forward) {
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
 
