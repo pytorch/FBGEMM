@@ -1,11 +1,12 @@
-# Contributing to FBGEMM / FBGEMM_GPU
+# Contributing to FBGEMM and FBGEMM_GPU
 
 We want to make contributing to this project as easy and transparent as
 possible.
 
 ## Code of Conduct
 
-The code of conduct is described in [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+The code of conduct is described in the
+[Code of Conduct](https://github.com/pytorch/FBGEMM/blob/main/CODE_OF_CONDUCT.md).
 
 ## Pull Requests
 

@@ -18,8 +18,8 @@ Set Up CPU-Only Environment
 ---------------------------
 
 Follow the instructions for setting up the Conda environment at
-:ref:`fbgemm-gpu.docs.build.setup.env`, followed by
-:ref:`fbgemm-gpu.docs.install.libraries`.
+:ref:`fbgemm-gpu.build.setup.env`, followed by
+:ref:`fbgemm-gpu.install.libraries`.
 
 
 Set Up CUDA Environment
@@ -81,19 +81,19 @@ container. The install steps provided by
 provide details on how to achieve this.
 
 Once this is done, follow the instructions in
-:ref:`fbgemm-gpu.docs.build.setup.cuda.image` for pulling the CUDA Docker image
+:ref:`fbgemm-gpu.build.setup.cuda.image` for pulling the CUDA Docker image
 and launching a container.
 
 From there, the rest of the runtime environment may be constructed through
 Conda. Follow the instructions for setting up the Conda environment at
-:ref:`fbgemm-gpu.docs.build.setup.env`, followed by
-:ref:`fbgemm-gpu.docs.install.libraries`.
+:ref:`fbgemm-gpu.build.setup.env`, followed by
+:ref:`fbgemm-gpu.install.libraries`.
 
 Install the CUDA Runtime
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 If the OS / Docker environment does not already contain the full CUDA runtime,
-follow the instructions in :ref:`fbgemm-gpu.docs.build.setup.cuda.install` for
+follow the instructions in :ref:`fbgemm-gpu.build.setup.cuda.install` for
 installing the CUDA toolkit inside a Conda environment.
 
 
@@ -133,15 +133,15 @@ It is recommended, though not required, to install and run FBGEMM_GPU through a
 Docker setup for isolation and reproducibility of the ROCm environment, which
 can be difficult to set up.
 
-Follow the instructions in :ref:`fbgemm-gpu.docs.build.setup.rocm.image` for
+Follow the instructions in :ref:`fbgemm-gpu.build.setup.rocm.image` for
 pulling the full ROCm Docker image and launching a container.
 
 From there, the rest of the runtime environment may be constructed through
 Conda. Follow the instructions for setting up the Conda environment at
-:ref:`fbgemm-gpu.docs.build.setup.rocm.install`, followed by
-:ref:`fbgemm-gpu.docs.install.libraries`.
+:ref:`fbgemm-gpu.build.setup.rocm.install`, followed by
+:ref:`fbgemm-gpu.install.libraries`.
 
-.. _fbgemm-gpu.docs.install.libraries:
+.. _fbgemm-gpu.install.libraries:
 
 Install Python Libraries
 ------------------------
@@ -159,7 +159,7 @@ Install the relevant Python libraries for working with FBGEMM_GPU:
 Install PyTorch
 ---------------
 
-Follow the instructions in :ref:`fbgemm-gpu.docs.build.setup.pytorch.install`
+Follow the instructions in :ref:`fbgemm-gpu.build.setup.pytorch.install`
 for installing PyTorch inside a Conda environment.
 
 

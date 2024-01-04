@@ -1,18 +1,22 @@
-Building Documentation
-======================
+Documentation
+=============
 
-FBGEMM_GPU provides extensive comments in its source files, which provide the
-most authoritative and up-to-date documentation available for the package.
+Both FBGEMM and FBGEMM_GPU provide extensive comments in its source files, which
+serve as the most authoritative and up-to-date documentation available for the
+two libraries.
 
+
+.. _fbgemm-gpu.docs.build:
 
 Building the API Documentation
 ------------------------------
 
 **Note:** The most up-to-date documentation build instructions are embedded in
-a set of scripts bundled in the FBGEMM_GPU repo under
+a set of scripts bundled in the FBGEMM repo under
 `setup_env.bash <https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash>`_.
 
-The general steps for building the FBGEMM_GPU documentation are as follows:
+The general steps for building the FBGEMM and FBGEMM_GPU documentation are as
+follows:
 
 #. Set up an isolated build environment.
 #. Build FBGEMM_GPU (CPU variant).
@@ -23,15 +27,15 @@ Set Up Build Environment
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 Follow the instructions for setting up the Conda environment at
-:ref:`fbgemm-gpu.docs.build.setup.env`.
+:ref:`fbgemm-gpu.build.setup.env`.
 
 Build FBGEMM_GPU
 ~~~~~~~~~~~~~~~~
 
 A build pass of FBGEMM_GPU is required for the documentation to be built
 correctly.  Follow the instructions in
-:ref:`fbgemm-gpu.docs.build.setup.tools.install`, followed by
-:ref:`fbgemm-gpu.docs.build.process.cpu`, to build FBGEMM_GPU (CPU variant).
+:ref:`fbgemm-gpu.build.setup.tools.install`, followed by
+:ref:`fbgemm-gpu.build.process.cpu`, to build FBGEMM_GPU (CPU variant).
 
 Set Up Documentation Toolchain
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -69,8 +73,8 @@ After the build completes, view the generated documentation:
 Deployment Preview
 ~~~~~~~~~~~~~~~~~~
 
-As a PyTorch project, a preview of the FBGEMM_GPU documentation will be
-automatically built and deployed by `Netlify <https://www.netlify.com/>`__
+As a PyTorch project, a preview of the FBGEMM and FBGEMM_GPU documentation will
+be automatically built and deployed by `Netlify <https://www.netlify.com/>`__
 when pull requests are made.  When the build completes, the deployment preview
 can be found at:
 
@@ -83,7 +87,8 @@ General Documentation Guidelines
 --------------------------------
 
 When new public API methods are added, they should be accompanied by sufficient
-documentation.  Here are some guidelines for documenting FBGEMM_GPU code:
+documentation.  Here are some guidelines for documenting FBGEMM and FBGEMM_GPU
+code:
 
 * Code by itself is not documentation! Put yourself in the shoes of new
   developers who has to understand what your code does, and make their lives
@@ -158,83 +163,75 @@ Adding Documentation to C++ Code
 
 Documentation for C++ is provided through
 `Javadoc-style comments <https://www.oracle.com/technical-resources/articles/java/javadoc-tool.html>`__
-and generated using Sphinx + `Doxygen <https://www.doxygen.nl/>`__ +
+and generated using Sphinx, `Doxygen <https://www.doxygen.nl/>`__, and
 `Breathe <https://www.breathe-doc.org/>`__.
 
-
 Documentation is kept in header files with the ``.h`` extension as well as in
-``.cpp``, ``cu``, and ``cuh`` files. In these files, everything between
+``.cpp``, ``cu``, and ``cuh`` files.  In these files, everything between
 ``#ifndef DOXYGEN_THIS_WILL_BE_SKIPPED`` and ``#endif`` will be hidden from the
-HTML output. At the moment, undocumented functions are hidden in these tags.
-When you add descriptionss to a function, make sure that the ``#ifndef`` and
-``#endif`` are configured correctly.
-
-All functions are grouped by a specific group for better organization.
-Make sure you add ``@defgroup`` to the code comments to define the group, and
-``@ingroup`` in each docstring to associate the target method with the group.
+HTML output.  When you add descriptionss to a function, make sure that the
+``#ifndef`` and ``#endif`` are configured correctly.
 
 Follow these instructions to document, generate, and publish a new C++
 description:
 
-#.  Add a description to the source header file. At a very minimum, add a
-    description verbatim, parameters by using the ``@param`` tag, and
-    return value by using the @return tag. You can other tags as needed.
-    Here is an example of how it can look:
+#.  API methods are grouped together by group tags for better organization in
+    Sphinx.  If a desired method group for the target method is not defined yet,
+    define it near the top of the relevant header file with the ``@defgroup``
+    keyword:
 
-    .. code:: cpp
+    .. literalinclude::  ../../../src/docs/example_code.cpp
+      :language: cpp
+      :start-after: fbgemm-gpu.docs.example.defgroup.start
+      :end-before: fbgemm-gpu.docs.example.defgroup.end
 
-      /// @defgroup example-method-group Example Method Group
-      /// This is a description of the example method group.
+#.  Add the docstring above the target method's declaration.  At a very minimum,
+    please add descriptions of:
 
-      /// @ingroup example-method-group
-      /// Description of `example_method`
-      ///
-      /// **Example:**
-      /// ```python
-      /// # Here is a Python code block
-      /// def foo(lst: List[int]):
-      ///   return [ x ** 2 for x in lst ]
-      /// ```
-      ///
-      /// @param param1 Description of param #1
-      /// @param param2 Description of param #2
-      ///
-      /// @return Description of the method's return value.
-      ///
-      /// @throw fbgemm_gpu::my_error if an error occurs
-      ///
-      /// @note This is an example note.
-      /// @warning This is an example  warning.
-      /// @see For more info, see <a href="https://www.doxygen.nl/manual/commands.html#cmdlink">here</a>.
-      int32_t example_method(bool foo, float bar);
+    * The method's functional behavior
+    * The type parameters, as denoted by the ``@tparam`` tag
+    * The arguments, as denoted by the ``@param`` tag
+    * The return value, as denoted by the ``@return`` tag
+    * The exceptions that can be thrown (if applicable), as denoted by the
+      ``@throw`` tag
 
-#.  Add a ``doxygengroup`` directive to the corresponding ``.rst`` file.  If
-    an ``.rst`` file for the corresponding header file does not exist, create a
-    new one by the same name as the header file.  If an ``.rst`` file already
-    exists, make sure the ``doxygengroup`` is defined in that file.
-    Using the above example:
+    Other tags ``@note``, ``@warning``, and ``@see`` should be added as needed.
+    Here is an example docstring:
+
+    .. literalinclude::  ../../../src/docs/example_code.cpp
+      :language: cpp
+      :start-after: fbgemm-gpu.docs.example.docstring.start
+      :end-before: fbgemm-gpu.docs.example.docstring.end
+
+#.  On the Sphinx documentation side, add a ``doxygengroup`` directive to the
+    corresponding ``.rst`` file.  If an ``.rst`` file for the corresponding
+    header file does not exist, create a new one by the same name as the header
+    file.  Using the above example:
 
     .. code:: rst
-
-      Example Methods Group
-      ---------------------
 
       .. doxygengroup:: example-method-group
         :content-only:
 
-    This example generates the following HTML output:
-
-    .. image:: ExampleDocsOutput.png
-
 #.  Make sure the ``.rst`` file is included in to the ``toctree`` in
-    ``index.rst`` (:ref:`fbgemm-gpu.docs.toc.cpp`).
+    ``index.rst`` (:ref:`fbgemm-gpu.toc.cpp`).
 
 #.  The C++ source header file needs to be in one of the directories listed in
-    the ``INPUT`` parameter in ``Doxygen.ini``.  If it's in a directory not
-    listed, be sure to append the directory path to the parameter.
+    the ``INPUT`` parameter in ``Doxygen.ini``.  In general, this has already
+    been taken care of, but if it's in a directory not listed, be sure to
+    append the directory path to the parameter.
 
-#.  Verify the changes by building the docs locally or submitting a PR for a
-    Netlify preview.
+#.  Verify the changes by building the docs locally with
+    :ref:`fbgemm-gpu.docs.build` or submitting a PR for a Netlify preview.
+
+------------
+
+Following the example above generates the following HTML output:
+
+.. doxygengroup:: example-method-group
+  :content-only:
+
+------------
 
 
 Sphinx Documentation Pointers
@@ -248,7 +245,7 @@ created above the target section:
 
 .. code:: rst
 
-  .. _fbgemm-gpu.docs.example.reference:
+  .. _fbgemm-gpu.example.reference:
 
   Example Section Header
   ----------------------
@@ -263,11 +260,11 @@ The anchor can then be referenced elsewhere in the docs:
 
 .. code:: rst
 
-  Referencing the section :ref:`fbgemm-gpu.docs.example.reference` from
+  Referencing the section :ref:`fbgemm-gpu.example.reference` from
   another page in the docs.
 
   Referencing the section with
-  :ref:`custom text <fbgemm-gpu.docs.example.reference>` from another page
+  :ref:`custom text <fbgemm-gpu.example.reference>` from another page
   in the docs.
 
   Note that the prefix underscore is not needed when referencing the anchor.

@@ -18,6 +18,7 @@ using Tensor = at::Tensor;
 ///
 
 /// @ingroup cumem-utils
+///
 /// Allocate an `at::Tensor` with unified managed memory (UVM).  Then set its
 /// preferred storage location to CPU (host memory) and establish mappings
 /// on the CUDA device to the host memory.
@@ -31,6 +32,7 @@ Tensor new_managed_tensor(
     const std::vector<std::int64_t>& sizes);
 
 /// @ingroup cumem-utils
+///
 /// Placeholder operator for the `Meta` dispatch key.
 ///
 /// @param self The input tensor
@@ -42,6 +44,7 @@ Tensor new_managed_tensor_meta(
     const std::vector<std::int64_t>& sizes);
 
 /// @ingroup cumem-utils
+///
 /// Allocate the `at::Tensor` with host-mapped memory.
 ///
 /// @param self The input tensor
@@ -53,6 +56,7 @@ Tensor new_host_mapped_tensor(
     const std::vector<std::int64_t>& sizes);
 
 /// @ingroup cumem-utils
+///
 /// Allocate the `at::Tensor` with either unified managed memory (UVM) or
 /// host-mapped memory.
 ///
@@ -68,6 +72,7 @@ Tensor new_unified_tensor(
     bool is_host_mapped);
 
 /// @ingroup cumem-utils
+///
 /// Allocate an `at::Tensor` with unified managed memory (UVM), but allow for
 /// its preferred storage location to be automatically managed.
 ///
@@ -80,6 +85,7 @@ Tensor new_vanilla_managed_tensor(
     const std::vector<std::int64_t>& sizes);
 
 /// @ingroup cumem-utils
+///
 /// Check if a tensor is allocated with UVM (either CPU or GPU tensor).
 ///
 /// @param self The input tensor
@@ -88,6 +94,7 @@ Tensor new_vanilla_managed_tensor(
 bool uvm_storage(const Tensor& self);
 
 /// @ingroup cumem-utils
+///
 /// Check if a tensor is allocated with UVM, BUT is not a CPU tensor.
 ///
 /// @param self The input tensor
@@ -97,6 +104,7 @@ bool uvm_storage(const Tensor& self);
 bool is_uvm_tensor(const Tensor& self);
 
 /// @ingroup cumem-utils
+///
 /// Convert a UVM tensor to a CPU tensor.
 ///
 /// @param self The input tensor
@@ -105,6 +113,7 @@ bool is_uvm_tensor(const Tensor& self);
 Tensor uvm_to_cpu(const Tensor& self);
 
 /// @ingroup cumem-utils
+///
 /// Create a new UVM tensor that shares the same device and UVM storage with
 /// `prototype`.
 ///
@@ -117,6 +126,7 @@ Tensor uvm_to_cpu(const Tensor& self);
 Tensor uvm_to_device(const Tensor& self, const Tensor& prototype);
 
 /// @ingroup cumem-utils
+///
 /// Call `cudaMemAdvise()` on a UVM tensor's storage. The `cudaMemoryAdvise`
 /// enum is available on the Python side in the `fbgemm_gpu.uvm` namespace; see
 /// the documentation over there for valid values.
@@ -130,6 +140,7 @@ Tensor uvm_to_device(const Tensor& self, const Tensor& prototype);
 void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 
 /// @ingroup cumem-utils
+///
 /// Call `cudaMemPrefetchAsync()` on a UVM tensor's storage to prefetch memory
 /// to a destination device.
 ///
@@ -145,6 +156,7 @@ void uvm_cuda_mem_prefetch_async(
     c10::optional<Tensor> device_t);
 
 /// @ingroup cumem-utils
+///
 /// Call `madvise(...MADV_DONTFORK)` on a UVM tensor's storage. This is a
 /// workaround for an issue where the UVM kernel driver un-maps UVM storage
 /// pages from the page table on fork, causing slowdown on the next access from
@@ -158,6 +170,7 @@ void uvm_cuda_mem_prefetch_async(
 void uvm_mem_advice_dont_fork(const Tensor& self);
 
 /// @ingroup cumem-utils
+///
 /// Copy a UVM tensor's contiguous storage (uvm_storage(t) is true) into a new
 /// CPU Tensor.  The copy operation uses single-threaded `memcpy()`.
 ///
