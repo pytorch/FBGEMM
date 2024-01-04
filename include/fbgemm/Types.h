@@ -12,6 +12,25 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifndef __is_identifier
+#define __is_identifier(x) 1
+#endif
+
+#define __has_keyword(__x) !(__is_identifier(__x))
+
+// TODO: we're disabling native fp16 on Windows to workaround test failures
+// due to "undefined symbol __gnu_h2f_ieee" error. We should follup on this
+// later.
+#if __has_keyword(__fp16) && !defined(_WIN32)
+#define HAS_NATIVE_FP16_TYPE
+typedef __fp16 native_fp16_t;
+#elif __has_keyword(_Float16) && !defined(_WIN32)
+#define HAS_NATIVE_FP16_TYPE
+typedef _Float16 native_fp16_t;
+#else
+typedef void native_fp16_t;
+#endif
+
 namespace fbgemm {
 
 using float16 = std::uint16_t;
@@ -161,7 +180,7 @@ static inline float16 cpu_float2half_rz(float f) {
 
 // Converts a 16-bit unsigned integer representation of a IEEE754 half-precision
 // float into an IEEE754 32-bit single-precision float
-static inline float cpu_half2float(const float16 h) {
+inline float cpu_half2float_ref(const float16 h) {
   // Get sign and exponent alone by themselves
   uint32_t sign_bit = (h >> f16_num_non_sign_bits) & 1;
   uint32_t exponent = (h >> f16_num_mantissa_bits) & f16_exponent_mask;
@@ -198,6 +217,18 @@ static inline float cpu_half2float(const float16 h) {
   return ret;
 }
 
+// Same as the previous function, but use the built-in fp16 to fp32
+// conversion provided by the compiler
+inline float cpu_half2float(const float16 h) {
+#ifdef HAS_NATIVE_FP16_TYPE
+  __fp16 h_fp16;
+  std::memcpy(&h_fp16, &h, sizeof(__fp16));
+  return h_fp16;
+#else
+  return cpu_half2float_ref(h);
+#endif
+}
+
 static inline float cpu_bf162float(bfloat16 src) {
   float ret;
   uint32_t val_fp32 =
@@ -210,6 +241,14 @@ static inline bfloat16 cpu_float2bfloat16(float src) {
   uint32_t temp;
   memcpy(&temp, &src, sizeof(uint32_t));
   return (temp + (1u << 15)) >> 16;
+}
+
+inline int64_t round_up(int64_t val, int64_t unit) {
+  return (val + unit - 1) / unit * unit;
+}
+
+inline int64_t div_up(int64_t val, int64_t unit) {
+  return (val + unit - 1) / unit;
 }
 
 } // namespace fbgemm
