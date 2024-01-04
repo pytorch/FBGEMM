@@ -63,6 +63,9 @@ class OptimizerArgs(NamedTuple):
     tail_id_threshold: float
     is_tail_id_thresh_ratio: int
     total_hash_size: int  # Required for OptimType.NONE
+    weight_norm_coefficient: float
+    lower_bound: float
+    regularization_mode: int
 
 
 class Momentum(NamedTuple):
