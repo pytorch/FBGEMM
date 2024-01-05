@@ -469,7 +469,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 max_B_feature_rank=-1,
                 output_size=-1,
             ),
+            # Unused arguments
             is_experimental=False,
+            use_uniq_cache_locations_bwd=False,
+            use_homogeneous_placements=True,
         )
 
         momentum1 = invokers.lookup_args.Momentum(

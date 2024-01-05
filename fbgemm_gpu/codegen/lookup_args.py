@@ -41,6 +41,8 @@ class CommonArgs(NamedTuple):
     output_dtype: int
     vbe_metadata: VBEMetadata
     is_experimental: bool
+    use_uniq_cache_locations_bwd: bool
+    use_homogeneous_placements: bool
 
 
 class OptimizerArgs(NamedTuple):
