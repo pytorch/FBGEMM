@@ -357,6 +357,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "Only LRU cache policy supports prefetch_pipeline."
         self.prefetch_pipeline: bool = prefetch_pipeline
         self.lock_cache_line: bool = self.prefetch_pipeline
+        self.use_uniq_cache_locations_bwd: bool = self.prefetch_pipeline
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -498,6 +499,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "feature_dims",
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
+        )
+
+        # A flag for indicating whether all embedding tables are placed in the
+        # same locations
+        self.use_homogeneous_placements: bool = all(
+            loc == locations[0] for loc in locations
         )
 
         weight_split = construct_split_state(
@@ -1007,6 +1014,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
             is_experimental=self.is_experimental,
+            use_uniq_cache_locations_bwd=self.use_uniq_cache_locations_bwd,
+            use_homogeneous_placements=self.use_homogeneous_placements,
         )
 
         if self.optimizer == OptimType.NONE:
@@ -1828,24 +1837,28 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.lxu_cache_locking_counter,
             self.lxu_cache_locations,
         )
-
         # Recompute linear_cache_indices
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             self._indices,
             self._offsets,
         )
-        lxu_cache_locations_new = torch.ops.fbgemm.lxu_cache_lookup(
+        (
+            linear_unique_indices,
+            linear_unique_indices_length,
+            _,
+        ) = torch.ops.fbgemm.get_unique_indices(
             linear_cache_indices,
+            self.total_cache_hash_size,
+            compute_count=False,
+        )
+        torch.ops.fbgemm.lxu_cache_lookup(
+            linear_unique_indices,
             self.lxu_cache_state,
             self.total_cache_hash_size,
-            False,  # not collecting cache stats
-            self.local_uvm_cache_stats,
-        )
-        # self.lxu_cache_locations is updated inplace
-        torch.ops.fbgemm.lxu_cache_locations_update(
-            self.lxu_cache_locations,
-            lxu_cache_locations_new,
+            gather_cache_stats=False,  # not collecting cache stats
+            num_uniq_cache_indices=linear_unique_indices_length,
+            lxu_cache_locations_output=self.lxu_cache_locations,
         )
 
     def _init_uvm_cache_counter(self, cache_sets: int, persistent: bool) -> None:

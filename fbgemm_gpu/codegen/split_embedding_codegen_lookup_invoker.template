@@ -329,5 +329,7 @@ def invoke(
         {%- endif %}
         output_dtype=common_args.output_dtype,
         is_experimental=common_args.is_experimental,
+        use_uniq_cache_locations_bwd=common_args.use_uniq_cache_locations_bwd,
+        use_homogeneous_placements=common_args.use_homogeneous_placements,
     )
     {%- endif %}
