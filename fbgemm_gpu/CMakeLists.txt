@@ -204,7 +204,6 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 # Optimizers with the VBE support
 set(VBE_OPTIMIZERS
     rowwise_adagrad
-    rowwise_adagrad_with_counter
     sgd)
 
 # Individual optimizers (not fused with SplitTBE backward)
