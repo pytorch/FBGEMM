@@ -53,7 +53,7 @@ var searchData=
   ['rk_5fstate_50',['rk_state',['../structfbgemm__gpu_1_1rk__state.html',1,'fbgemm_gpu']]],
   ['rk_5fzipf_51',['rk_zipf',['../namespacefbgemm__gpu.html#ac4468c32ea6dc23cc2d7bded57a53119',1,'fbgemm_gpu']]],
   ['round_5fdown_52',['round_down',['../namespacefbgemm__gpu.html#afad69123afbd407f6cd94913da47680e',1,'fbgemm_gpu']]],
-  ['round_5fup_53',['round_up',['../namespacenbit.html#a3f668dd605c2700542424899b9df54c6',1,'nbit']]],
+  ['round_5fup_53',['round_up',['../namespacenbit.html#a3f668dd605c2700542424899b9df54c6',1,'nbit::round_up()'],['../namespacefbgemm.html#a5c6ee4949e75f36173e152815429fce1',1,'fbgemm::round_up(int64_t val, int64_t unit)']]],
   ['roundtofloat16_54',['RoundToFloat16',['../namespacefbgemm.html#a6c3a57d375ef2c4d66bafa8377d6e007',1,'fbgemm']]],
   ['row_5f_55',['row_',['../structfbgemm__gpu_1_1_weight_row.html#aba84449b569f220a80ccbbcc1d4da57c',1,'fbgemm_gpu::WeightRow::row_'],['../structfbgemm__gpu_1_1_weight_row_accessor.html#aba84449b569f220a80ccbbcc1d4da57c',1,'fbgemm_gpu::WeightRowAccessor::row_']]],
   ['row_5findices_56',['row_indices',['../structinternal_1_1_hyper_compressed_sparse_column.html#a22af9d871fd3faef3d676cc6757debcc',1,'internal::HyperCompressedSparseColumn']]],

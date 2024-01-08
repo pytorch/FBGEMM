@@ -1693,6 +1693,56 @@ template&lt;int SPATIAL_DIM = 2, typename ACC_T  = std::int32_t&gt; </div>
 
 </div>
 </div>
+<a id="a805c1dcf4ed7bdf112f45ae4110259b4" name="a805c1dcf4ed7bdf112f45ae4110259b4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a805c1dcf4ed7bdf112f45ae4110259b4">&#9670;&#160;</a></span>cpu_half2float()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">float cpu_half2float </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="#a9fdd2b3a4eaf8b428a5d8cda6bb9a5c6">float16</a></td>          <td class="paramname"><span class="paramname"><em>h</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a92a033d9a37c2dfc5efc8b2db52d084c" name="a92a033d9a37c2dfc5efc8b2db52d084c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a92a033d9a37c2dfc5efc8b2db52d084c">&#9670;&#160;</a></span>cpu_half2float_ref()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">float cpu_half2float_ref </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="#a9fdd2b3a4eaf8b428a5d8cda6bb9a5c6">float16</a></td>          <td class="paramname"><span class="paramname"><em>h</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ab8fb0fb075ea673f7c5e30c877376b14" name="ab8fb0fb075ea673f7c5e30c877376b14"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ab8fb0fb075ea673f7c5e30c877376b14">&#9670;&#160;</a></span>depthwise_2d_same_pad()</h2>
 
@@ -1964,6 +2014,35 @@ template&lt;typename T &gt; </div>
           <td class="paramtype">const <a class="el" href="structfbgemm_1_1_tensor_quantization_params.html">TensorQuantizationParams</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>qparams</em></span>&#160;)</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a3c194c0f51bc1c8f4c8ed197a9251259" name="a3c194c0f51bc1c8f4c8ed197a9251259"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3c194c0f51bc1c8f4c8ed197a9251259">&#9670;&#160;</a></span>div_up()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t div_up </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>val</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>unit</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -3052,6 +3131,25 @@ template&lt;typename packed_W , typename outType , bool FUSE_RELU, QuantizationG
 </div><div class="memdoc">
 
 <p>Are we running on a ARM Neon supported cpu? </p>
+
+</div>
+</div>
+<a id="a9a623c5de12d35e218d98eb9749bd721" name="a9a623c5de12d35e218d98eb9749bd721"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9a623c5de12d35e218d98eb9749bd721">&#9670;&#160;</a></span>fbgemmHasArmSve2Support()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="_fbgemm_build_8h.html#af706797174a30c6c37b4fdf264281f45">FBGEMM_API</a> bool fbgemmHasArmSve2Support </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Are we running on a ARM SVE2 supported cpu? </p>
 
 </div>
 </div>
@@ -6698,6 +6796,35 @@ template&lt;bool A_SYMMETRIC, bool B_SYMMETRIC, QuantizationGranularity Q_GRAN, 
 
 </div>
 </div>
+<a id="a5c6ee4949e75f36173e152815429fce1" name="a5c6ee4949e75f36173e152815429fce1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5c6ee4949e75f36173e152815429fce1">&#9670;&#160;</a></span>round_up()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int64_t round_up </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>val</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>unit</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a6c3a57d375ef2c4d66bafa8377d6e007" name="a6c3a57d375ef2c4d66bafa8377d6e007"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a6c3a57d375ef2c4d66bafa8377d6e007">&#9670;&#160;</a></span>RoundToFloat16()</h2>
 
@@ -7727,8 +7854,8 @@ template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN&gt; </div>
 </div><div class="memdoc">
 <b>Initial value:</b><div class="fragment"><div class="line">= <a class="code hl_variable" href="#ada5d58f910436aee56c19c1dd3b1445d">f16_exponent_mask</a></div>
 <div class="line">    &lt;&lt; <a class="code hl_variable" href="#a30b0a7dd6458f4e7e859cd7c456d1197">f16_num_mantissa_bits</a></div>
-<div class="ttc" id="anamespacefbgemm_html_a30b0a7dd6458f4e7e859cd7c456d1197"><div class="ttname"><a href="#a30b0a7dd6458f4e7e859cd7c456d1197">fbgemm::f16_num_mantissa_bits</a></div><div class="ttdeci">constexpr uint32_t f16_num_mantissa_bits</div><div class="ttdef"><b>Definition</b> Types.h:29</div></div>
-<div class="ttc" id="anamespacefbgemm_html_ada5d58f910436aee56c19c1dd3b1445d"><div class="ttname"><a href="#ada5d58f910436aee56c19c1dd3b1445d">fbgemm::f16_exponent_mask</a></div><div class="ttdeci">constexpr uint32_t f16_exponent_mask</div><div class="ttdef"><b>Definition</b> Types.h:32</div></div>
+<div class="ttc" id="anamespacefbgemm_html_a30b0a7dd6458f4e7e859cd7c456d1197"><div class="ttname"><a href="#a30b0a7dd6458f4e7e859cd7c456d1197">fbgemm::f16_num_mantissa_bits</a></div><div class="ttdeci">constexpr uint32_t f16_num_mantissa_bits</div><div class="ttdef"><b>Definition</b> Types.h:48</div></div>
+<div class="ttc" id="anamespacefbgemm_html_ada5d58f910436aee56c19c1dd3b1445d"><div class="ttname"><a href="#ada5d58f910436aee56c19c1dd3b1445d">fbgemm::f16_exponent_mask</a></div><div class="ttdeci">constexpr uint32_t f16_exponent_mask</div><div class="ttdef"><b>Definition</b> Types.h:51</div></div>
 </div><!-- fragment -->
 </div>
 </div>
@@ -7885,7 +8012,7 @@ template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN&gt; </div>
 </div><div class="memdoc">
 <b>Initial value:</b><div class="fragment"><div class="line">=</div>
 <div class="line">    <a class="code hl_variable" href="#a1f667fa3d96241966c23aae2f3c2b391">f16_num_exponent_bits</a> + <a class="code hl_variable" href="#a30b0a7dd6458f4e7e859cd7c456d1197">f16_num_mantissa_bits</a></div>
-<div class="ttc" id="anamespacefbgemm_html_a1f667fa3d96241966c23aae2f3c2b391"><div class="ttname"><a href="#a1f667fa3d96241966c23aae2f3c2b391">fbgemm::f16_num_exponent_bits</a></div><div class="ttdeci">constexpr uint32_t f16_num_exponent_bits</div><div class="ttdef"><b>Definition</b> Types.h:28</div></div>
+<div class="ttc" id="anamespacefbgemm_html_a1f667fa3d96241966c23aae2f3c2b391"><div class="ttname"><a href="#a1f667fa3d96241966c23aae2f3c2b391">fbgemm::f16_num_exponent_bits</a></div><div class="ttdeci">constexpr uint32_t f16_num_exponent_bits</div><div class="ttdef"><b>Definition</b> Types.h:47</div></div>
 </div><!-- fragment -->
 </div>
 </div>
@@ -8088,8 +8215,8 @@ template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN&gt; </div>
 </div><div class="memdoc">
 <b>Initial value:</b><div class="fragment"><div class="line">=</div>
 <div class="line">    <a class="code hl_variable" href="#a0e60ecc2444b65828424342ed11cdf34">f32_num_exponent_bits</a> + <a class="code hl_variable" href="#a54247a378d897a890e17670893292c17">f32_num_mantissa_bits</a></div>
-<div class="ttc" id="anamespacefbgemm_html_a0e60ecc2444b65828424342ed11cdf34"><div class="ttname"><a href="#a0e60ecc2444b65828424342ed11cdf34">fbgemm::f32_num_exponent_bits</a></div><div class="ttdeci">constexpr uint32_t f32_num_exponent_bits</div><div class="ttdef"><b>Definition</b> Types.h:47</div></div>
-<div class="ttc" id="anamespacefbgemm_html_a54247a378d897a890e17670893292c17"><div class="ttname"><a href="#a54247a378d897a890e17670893292c17">fbgemm::f32_num_mantissa_bits</a></div><div class="ttdeci">constexpr uint32_t f32_num_mantissa_bits</div><div class="ttdef"><b>Definition</b> Types.h:48</div></div>
+<div class="ttc" id="anamespacefbgemm_html_a0e60ecc2444b65828424342ed11cdf34"><div class="ttname"><a href="#a0e60ecc2444b65828424342ed11cdf34">fbgemm::f32_num_exponent_bits</a></div><div class="ttdeci">constexpr uint32_t f32_num_exponent_bits</div><div class="ttdef"><b>Definition</b> Types.h:66</div></div>
+<div class="ttc" id="anamespacefbgemm_html_a54247a378d897a890e17670893292c17"><div class="ttname"><a href="#a54247a378d897a890e17670893292c17">fbgemm::f32_num_mantissa_bits</a></div><div class="ttdeci">constexpr uint32_t f32_num_mantissa_bits</div><div class="ttdef"><b>Definition</b> Types.h:67</div></div>
 </div><!-- fragment -->
 </div>
 </div>

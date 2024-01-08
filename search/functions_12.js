@@ -34,7 +34,7 @@ var searchData=
   ['rk_5fseed_31',['rk_seed',['../namespacefbgemm__gpu.html#ad56b0e8dd76a57dcc1e268831fe58abb',1,'fbgemm_gpu']]],
   ['rk_5fzipf_32',['rk_zipf',['../namespacefbgemm__gpu.html#ac4468c32ea6dc23cc2d7bded57a53119',1,'fbgemm_gpu']]],
   ['round_5fdown_33',['round_down',['../namespacefbgemm__gpu.html#afad69123afbd407f6cd94913da47680e',1,'fbgemm_gpu']]],
-  ['round_5fup_34',['round_up',['../namespacenbit.html#a3f668dd605c2700542424899b9df54c6',1,'nbit']]],
+  ['round_5fup_34',['round_up',['../namespacenbit.html#a3f668dd605c2700542424899b9df54c6',1,'nbit::round_up()'],['../namespacefbgemm.html#a5c6ee4949e75f36173e152815429fce1',1,'fbgemm::round_up(int64_t val, int64_t unit)']]],
   ['roundtofloat16_35',['RoundToFloat16',['../namespacefbgemm.html#a6c3a57d375ef2c4d66bafa8377d6e007',1,'fbgemm']]],
   ['row_5foffsets_5fu8acc32_5fref_36',['row_offsets_u8acc32_ref',['../namespacefbgemm.html#a92fb6b5f7ca86680c7a2d3fb14ceddde',1,'fbgemm']]],
   ['rowidx_37',['RowIdx',['../classfbgemm_1_1_compressed_sparse_column.html#af63a28ce518a4b31b6ac9219b0b533ed',1,'fbgemm::CompressedSparseColumn']]],

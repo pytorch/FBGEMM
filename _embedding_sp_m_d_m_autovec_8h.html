@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.10.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>fbgemm_gpu: File Members</title>
+<title>fbgemm_gpu: /__w/FBGEMM/FBGEMM/src/EmbeddingSpMDMAutovec.h File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -48,7 +48,6 @@ $(function() {
 /* @license-end */
 </script>
 <div id="main-nav"></div>
-</div><!-- top -->
 <!-- window showing the filter options -->
 <div id="MSearchSelectWindow"
      onmouseover="return searchBox.OnSearchSelectShow()"
@@ -70,17 +69,51 @@ $(function() {
 </div>
 </div>
 
+<div id="nav-path" class="navpath">
+  <ul>
+<li class="navelem"><a class="el" href="dir_68267d1309a1af8e8297ef4c3efbcdba.html">src</a></li>  </ul>
+</div>
+</div><!-- top -->
+<div class="header">
+  <div class="summary">
+<a href="#namespaces">Namespaces</a>  </div>
+  <div class="headertitle"><div class="title">EmbeddingSpMDMAutovec.h File Reference</div></div>
+</div><!--header-->
 <div class="contents">
-<div class="textblock">Here is a list of all file members with links to the files they belong to:</div>
+<div class="textblock"><code>#include &quot;<a class="el" href="_ref_implementations_8h.html">RefImplementations.h</a>&quot;</code><br />
+</div><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="namespaces" name="namespaces"></a>
+Namespaces</h2></td></tr>
+<tr class="memitem:namespacefbgemm" id="r_namespacefbgemm"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacefbgemm.html">fbgemm</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
+<h2 class="groupheader">Macro Definition Documentation</h2>
+<a id="a4a9a280c3a601b98a7d1694f622a269c" name="a4a9a280c3a601b98a7d1694f622a269c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4a9a280c3a601b98a7d1694f622a269c">&#9670;&#160;</a></span>ALIAS_TEMPLATE_FUNCTION</h2>
 
-<h3><a id="index_n" name="index_n"></a>- n -</h3><ul>
-<li>native_fp16_t&#160;:&#160;<a class="el" href="_types_8h.html#a4744f84c5139427d32ccd6d0b49fd1d9">Types.h</a></li>
-<li>NO_SANITIZE&#160;:&#160;<a class="el" href="_fbgemm_build_8h.html#ad9da6ea3aa6bf12d1057e80c163ab6a4">FbgemmBuild.h</a></li>
-<li>Node&#160;:&#160;<a class="el" href="topology__utils_8h.html#a659b93920c81116289ee7ff5d45f48c9">topology_utils.h</a></li>
-<li>NOINLINE&#160;:&#160;<a class="el" href="_fbgemm_build_8h.html#a1b173d22e57d9395897acbd8de62d505">FbgemmBuild.h</a></li>
-<li>NUM_THREADS_PER_BLOCK&#160;:&#160;<a class="el" href="metric__ops_8cu.html#ac147221d5b74086a08d3623657d16517">metric_ops.cu</a></li>
-<li>NVML_CHECK&#160;:&#160;<a class="el" href="topology__utils_8cpp.html#af1ec00426a14a4658189ab308ea76636">topology_utils.cpp</a></li>
-</ul>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define ALIAS_TEMPLATE_FUNCTION</td>
+          <td>(</td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">highLevelF, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname">lowLevelF</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<b>Value:</b><div class="fragment"><div class="line">  <span class="keyword">template</span> &lt;<span class="keyword">typename</span>... Args&gt;                              \</div>
+<div class="line">  <span class="keyword">inline</span> <span class="keyword">auto</span> highLevelF(Args&amp;&amp;... args)                   \</div>
+<div class="line">      -&gt;decltype(lowLevelF(std::forward&lt;Args&gt;(args)...)) { \</div>
+<div class="line">    <span class="keywordflow">return</span> lowLevelF(std::forward&lt;Args&gt;(args)...);         \</div>
+<div class="line">  }</div>
+</div><!-- fragment -->
+</div>
+</div>
 </div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>

@@ -155,9 +155,10 @@ var searchData=
   ['stride_5f_152',['STRIDE_',['../classfbgemm_1_1_gen_conv_kernel_base.html#a4ec218f80bfc9a6e4930ba348935cab2',1,'fbgemm::GenConvKernelBase']]],
   ['strides_153',['strides',['../classfbgemm__gpu_1_1_tensor_accessor_base.html#af446bd0965fd0586067d176a1630a6c1',1,'fbgemm_gpu::TensorAccessorBase']]],
   ['strides_5f_154',['strides_',['../classfbgemm__gpu_1_1_tensor_accessor_base.html#a44a19ea7efb719bdd2baac00add90d40',1,'fbgemm_gpu::TensorAccessorBase::strides_'],['../classfbgemm__gpu_1_1_generic_packed_tensor_accessor_base.html#a20a855fc09b0bad6cc73895d2bd48bea',1,'fbgemm_gpu::GenericPackedTensorAccessorBase::strides_']]],
-  ['sum_155',['sum',['../structfbgemm__gpu_1_1_vec4_step_t_3_01_s_t_e_p_00_01float_01_4.html#a2b4995ca44cb8977ca258395e80a8687',1,'fbgemm_gpu::Vec4StepT&lt; STEP, float &gt;::sum()'],['../structfbgemm__gpu_1_1_vec4_step_t_3_01_s_t_e_p_00_01at_1_1_half_01_4.html#a2b4995ca44cb8977ca258395e80a8687',1,'fbgemm_gpu::Vec4StepT&lt; STEP, at::Half &gt;::sum()'],['../structfbgemm__gpu_1_1_vec4_step_t_3_01_s_t_e_p_00_01uint8__t_01_4.html#a2b4995ca44cb8977ca258395e80a8687',1,'fbgemm_gpu::Vec4StepT&lt; STEP, uint8_t &gt;::sum()'],['../namespacefbgemm__gpu.html#adb83758639b252f212d790847ca2f6b6',1,'fbgemm_gpu::sum']]],
+  ['sum_155',['sum',['../structfbgemm__gpu_1_1_vec4_step_t_3_01_s_t_e_p_00_01float_01_4.html#a2b4995ca44cb8977ca258395e80a8687',1,'fbgemm_gpu::Vec4StepT&lt; STEP, float &gt;::sum()'],['../structfbgemm__gpu_1_1_vec4_step_t_3_01_s_t_e_p_00_01at_1_1_half_01_4.html#a2b4995ca44cb8977ca258395e80a8687',1,'fbgemm_gpu::Vec4StepT&lt; STEP, at::Half &gt;::sum()'],['../structfbgemm__gpu_1_1_vec4_step_t_3_01_s_t_e_p_00_01uint8__t_01_4.html#a2b4995ca44cb8977ca258395e80a8687',1,'fbgemm_gpu::Vec4StepT&lt; STEP, uint8_t &gt;::sum()']]],
   ['sum_156',['SUM',['../namespacefbgemm__gpu.html#aa1f721fe0d5e5a710e7a05f788f01f5da6970bdc2201030b9c03fbdcf3973858a',1,'fbgemm_gpu']]],
-  ['sum_5fe_157',['sum_E',['../namespacefbgemm__gpu.html#aba761028ac72c20c7defaef09de61d95',1,'fbgemm_gpu']]],
-  ['sum_5freduce_5fto_5fone_5fdevice_158',['sum_reduce_to_one_device',['../namespacefbgemm__gpu.html#aa7f73354e0c76fbc0584c3250dadc98e',1,'fbgemm_gpu']]],
-  ['syncwarp_159',['syncwarp',['../namespacefbgemm__gpu.html#ab776b7b9076d17238d502b2746135ace',1,'fbgemm_gpu']]]
+  ['sum_157',['sum',['../namespacefbgemm__gpu.html#adb83758639b252f212d790847ca2f6b6',1,'fbgemm_gpu']]],
+  ['sum_5fe_158',['sum_E',['../namespacefbgemm__gpu.html#aba761028ac72c20c7defaef09de61d95',1,'fbgemm_gpu']]],
+  ['sum_5freduce_5fto_5fone_5fdevice_159',['sum_reduce_to_one_device',['../namespacefbgemm__gpu.html#aa7f73354e0c76fbc0584c3250dadc98e',1,'fbgemm_gpu']]],
+  ['syncwarp_160',['syncwarp',['../namespacefbgemm__gpu.html#ab776b7b9076d17238d502b2746135ace',1,'fbgemm_gpu']]]
 ];

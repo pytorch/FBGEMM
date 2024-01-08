@@ -27,10 +27,11 @@ var searchData=
   ['div_24',['Div',['../classfbgemm__gpu_1_1_fixed_divisor.html#a74e5cb4569d6d48cbc0ee32674a7e374',1,'fbgemm_gpu::FixedDivisor']]],
   ['div_25',['div',['../structfbgemm__gpu_1_1_vec4_acc_t.html#a36a62a848632d6968fe6723ee19277da',1,'fbgemm_gpu::Vec4AccT']]],
   ['div_5fround_5fup_26',['div_round_up',['../namespacenbit.html#a620ba1c7dba3e279e09759758b7a86db',1,'nbit::div_round_up()'],['../namespacefbgemm__gpu.html#a1e5f0f7703057bbda166a7723b16e6ef',1,'fbgemm_gpu::div_round_up()']]],
-  ['divmod_27',['DivMod',['../classfbgemm__gpu_1_1_fixed_divisor.html#abea2bdfe3649f1b944a15453e78ae523',1,'fbgemm_gpu::FixedDivisor::DivMod()'],['../namespacefbgemm__gpu.html#aef6bada16cf81832eb1e594eb47875d8',1,'fbgemm_gpu::DivMod()']]],
-  ['donothing_28',['DoNothing',['../classfbgemm_1_1_do_nothing.html#a3f04654f586b7702fa94fdc364c67f06',1,'fbgemm::DoNothing']]],
-  ['dosconvoninpbuffer_29',['DoSConvOnInpBuffer',['../classfbgemm_1_1_do_s_conv_on_inp_buffer.html#ab9a6b2960e7e8a27ca066276bb8d992d',1,'fbgemm::DoSConvOnInpBuffer']]],
-  ['dospmdmoninpbuffer_30',['DoSpmdmOnInpBuffer',['../classfbgemm_1_1_do_spmdm_on_inp_buffer.html#ac4d48750987a1b6b37db4050b50c160d',1,'fbgemm::DoSpmdmOnInpBuffer']]],
-  ['dummy_5fpacked_5faccessor32_31',['dummy_packed_accessor32',['../namespacefbgemm__gpu.html#a86a8cc18b54f6986ec4faeec0b223907',1,'fbgemm_gpu']]],
-  ['dummy_5fpacked_5faccessor64_32',['dummy_packed_accessor64',['../namespacefbgemm__gpu.html#aeb6f64d8ceb0189b03aa6808b97e8b16',1,'fbgemm_gpu']]]
+  ['div_5fup_27',['div_up',['../namespacefbgemm.html#a3c194c0f51bc1c8f4c8ed197a9251259',1,'fbgemm']]],
+  ['divmod_28',['DivMod',['../classfbgemm__gpu_1_1_fixed_divisor.html#abea2bdfe3649f1b944a15453e78ae523',1,'fbgemm_gpu::FixedDivisor::DivMod()'],['../namespacefbgemm__gpu.html#aef6bada16cf81832eb1e594eb47875d8',1,'fbgemm_gpu::DivMod()']]],
+  ['donothing_29',['DoNothing',['../classfbgemm_1_1_do_nothing.html#a3f04654f586b7702fa94fdc364c67f06',1,'fbgemm::DoNothing']]],
+  ['dosconvoninpbuffer_30',['DoSConvOnInpBuffer',['../classfbgemm_1_1_do_s_conv_on_inp_buffer.html#ab9a6b2960e7e8a27ca066276bb8d992d',1,'fbgemm::DoSConvOnInpBuffer']]],
+  ['dospmdmoninpbuffer_31',['DoSpmdmOnInpBuffer',['../classfbgemm_1_1_do_spmdm_on_inp_buffer.html#ac4d48750987a1b6b37db4050b50c160d',1,'fbgemm::DoSpmdmOnInpBuffer']]],
+  ['dummy_5fpacked_5faccessor32_32',['dummy_packed_accessor32',['../namespacefbgemm__gpu.html#a86a8cc18b54f6986ec4faeec0b223907',1,'fbgemm_gpu']]],
+  ['dummy_5fpacked_5faccessor64_33',['dummy_packed_accessor64',['../namespacefbgemm__gpu.html#aeb6f64d8ceb0189b03aa6808b97e8b16',1,'fbgemm_gpu']]]
 ];
