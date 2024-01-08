@@ -89,39 +89,6 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a7ac7e62127705921ee912811a72697c6" id="r_a7ac7e62127705921ee912811a72697c6"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7ac7e62127705921ee912811a72697c6">ReQuantizeForFloat</a> (nextOPType &amp;nextop, float Aq_scale, const float *Bq_scale, std::int32_t Aq_zero_point, const std::int32_t *Bq_zero_point, const std::int32_t *row_offsets, const std::int32_t *col_offsets, const float *bias, std::uint32_t nCol, int groups=1)</td></tr>
 <tr class="separator:a7ac7e62127705921ee912811a72697c6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
-<h2 class="groupheader">Member Typedef Documentation</h2>
-<a id="a076b13d324edb2ae0e7eb1c0718f41e5" name="a076b13d324edb2ae0e7eb1c0718f41e5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a076b13d324edb2ae0e7eb1c0718f41e5">&#9670;&#160;</a></span>inpType</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR, typename outT  = float, typename inT  = std::int32_t, typename nextOPType  = DoNothing&lt;outT, outT&gt;&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">using <a class="el" href="#a076b13d324edb2ae0e7eb1c0718f41e5">inpType</a> = inT</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="aa0d17ba90f263277f046bed55a31e9bb" name="aa0d17ba90f263277f046bed55a31e9bb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa0d17ba90f263277f046bed55a31e9bb">&#9670;&#160;</a></span>outType</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR, typename outT  = float, typename inT  = std::int32_t, typename nextOPType  = DoNothing&lt;outT, outT&gt;&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">using <a class="el" href="#aa0d17ba90f263277f046bed55a31e9bb">outType</a> = outT</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="a7ac7e62127705921ee912811a72697c6" name="a7ac7e62127705921ee912811a72697c6"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a7ac7e62127705921ee912811a72697c6">&#9670;&#160;</a></span>ReQuantizeForFloat()</h2>
@@ -204,106 +171,9 @@ template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN = QuantizationGranula
 
 </div>
 </div>
-<h2 class="groupheader">Member Function Documentation</h2>
-<a id="afb732727d9dc0f156c7d4f3e10cf04f9" name="afb732727d9dc0f156c7d4f3e10cf04f9"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afb732727d9dc0f156c7d4f3e10cf04f9">&#9670;&#160;</a></span>f() <span class="overload">[1/2]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR, typename outT  = float, typename inT  = std::int32_t, typename nextOPType  = DoNothing&lt;outT, outT&gt;&gt; </div>
-<div class="memtemplate">
-template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">int f </td>
-          <td>(</td>
-          <td class="paramtype">outT *</td>          <td class="paramname"><span class="paramname"><em>out</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">inT *</td>          <td class="paramname"><span class="paramname"><em>inp</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>block</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>ld_out</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>ld_in</em></span>&#160;) const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="afb732727d9dc0f156c7d4f3e10cf04f9" name="afb732727d9dc0f156c7d4f3e10cf04f9"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afb732727d9dc0f156c7d4f3e10cf04f9">&#9670;&#160;</a></span>f() <span class="overload">[2/2]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;bool FUSE_RELU, QuantizationGranularity Q_GRAN = QuantizationGranularity::TENSOR, typename outT  = float, typename inT  = std::int32_t, typename nextOPType  = DoNothing&lt;outT, outT&gt;&gt; </div>
-<div class="memtemplate">
-template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">int f </td>
-          <td>(</td>
-          <td class="paramtype">outT *</td>          <td class="paramname"><span class="paramname"><em>out</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">inT *</td>          <td class="paramname"><span class="paramname"><em>inp</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>block</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>ld_out</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>ld_in</em></span>&#160;) const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <hr/>The documentation for this class was generated from the following files:<ul>
-<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<a class="el" href="_fbgemm_8h.html">Fbgemm.h</a></li>
-<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<a class="el" href="_output_processing-inl_8h.html">OutputProcessing-inl.h</a></li>
+<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<b>Fbgemm.h</b></li>
+<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<b>OutputProcessing-inl.h</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->

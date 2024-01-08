@@ -137,8 +137,8 @@ Public Member Functions</h2></td></tr>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:a16921c92359f31fbdc4968c875c90ae2" id="r_a16921c92359f31fbdc4968c875c90ae2"><td class="memItemLeft" align="right" valign="top">static constexpr bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a16921c92359f31fbdc4968c875c90ae2">isA</a> ()</td></tr>
 <tr class="separator:a16921c92359f31fbdc4968c875c90ae2"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ad3b06646ed9f70495d2233aa23eafa65" id="r_ad3b06646ed9f70495d2233aa23eafa65"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad3b06646ed9f70495d2233aa23eafa65">packedBufferSize</a> (int rows=0, int cols=0, const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
-<tr class="separator:ad3b06646ed9f70495d2233aa23eafa65"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab11bd74e390ac73323a514cf2d6e6b98" id="r_ab11bd74e390ac73323a514cf2d6e6b98"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab11bd74e390ac73323a514cf2d6e6b98">packedBufferSize</a> (int rows=0, int cols=0, const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
+<tr class="separator:ab11bd74e390ac73323a514cf2d6e6b98"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pro-methods" name="pro-methods"></a>
 Protected Member Functions</h2></td></tr>
@@ -155,89 +155,8 @@ class fbgemm::PackMatrix&lt; PT, inpType, accType &gt;</div><p>Matrix is tiled i
   </dd>
 </dl>
 </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="a7e249b8e37ad95111d9f92b8a791ea13" name="a7e249b8e37ad95111d9f92b8a791ea13"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7e249b8e37ad95111d9f92b8a791ea13">&#9670;&#160;</a></span>PackMatrix() <span class="overload">[1/4]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a> </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">delete</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a78a1fe3ed32bdea7668ddf950b29ebdf" name="a78a1fe3ed32bdea7668ddf950b29ebdf"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a78a1fe3ed32bdea7668ddf950b29ebdf">&#9670;&#160;</a></span>PackMatrix() <span class="overload">[2/4]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a> </td>
-          <td>(</td>
-          <td class="paramtype">const <a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a>&lt; PT, inpType, accType &gt; &amp;</td>          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">delete</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a5165b48d7a1d3157cda2e08b61fca4d5" name="a5165b48d7a1d3157cda2e08b61fca4d5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5165b48d7a1d3157cda2e08b61fca4d5">&#9670;&#160;</a></span>PackMatrix() <span class="overload">[3/4]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a> </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a>&lt; PT, inpType, accType &gt; &amp;&amp;</td>          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">delete</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="ac15276b97315df2567c4ab36d48b8da0" name="ac15276b97315df2567c4ab36d48b8da0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac15276b97315df2567c4ab36d48b8da0">&#9670;&#160;</a></span>PackMatrix() <span class="overload">[4/4]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#ac15276b97315df2567c4ab36d48b8da0">&#9670;&#160;</a></span>PackMatrix()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -280,33 +199,6 @@ template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt
   </table>
   </dd>
 </dl>
-
-</div>
-</div>
-<a id="ac404729f99326fdfdd35fec15fe9f68a" name="ac404729f99326fdfdd35fec15fe9f68a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac404729f99326fdfdd35fec15fe9f68a">&#9670;&#160;</a></span>~PackMatrix()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">virtual ~<a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a> </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">virtual</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
 
 </div>
 </div>
@@ -567,35 +459,6 @@ template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt
 
 </div>
 </div>
-<a id="a231aae141b5263a766275bb3236d297d" name="a231aae141b5263a766275bb3236d297d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a231aae141b5263a766275bb3236d297d">&#9670;&#160;</a></span>isThisLastKBlock()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool isThisLastKBlock </td>
-          <td>(</td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>block_id</em></span></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>When k loop is also tiled/blocked, this function is used to check if have executed computations for the last k block so that we can perform post-GEMM operations. </p>
-
-</div>
-</div>
 <a id="a5eebab135ee2071673af06c8b873780f" name="a5eebab135ee2071673af06c8b873780f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a5eebab135ee2071673af06c8b873780f">&#9670;&#160;</a></span>lastBcol()</h2>
 
@@ -649,60 +512,6 @@ template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt
 </table>
 </div><div class="memdoc">
 <dl class="section return"><dt>Returns</dt><dd>The number of rows in the last row block. </dd></dl>
-
-</div>
-</div>
-<a id="a603839ccf1cb72d8ee3729f4a7580fcc" name="a603839ccf1cb72d8ee3729f4a7580fcc"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a603839ccf1cb72d8ee3729f4a7580fcc">&#9670;&#160;</a></span>numCols()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::int32_t numCols </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a8921af2a0f5be06926ea7fc23fa34867" name="a8921af2a0f5be06926ea7fc23fa34867"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8921af2a0f5be06926ea7fc23fa34867">&#9670;&#160;</a></span>numGroups()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">int numGroups </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
 
 </div>
 </div>
@@ -762,116 +571,6 @@ template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt
 
 </div>
 </div>
-<a id="ad563b58f28aaeaad5f57cd509b089267" name="ad563b58f28aaeaad5f57cd509b089267"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad563b58f28aaeaad5f57cd509b089267">&#9670;&#160;</a></span>numRows()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::int32_t numRows </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a6b2e1256a87370d70a5fcc0479cf1da3" name="a6b2e1256a87370d70a5fcc0479cf1da3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a6b2e1256a87370d70a5fcc0479cf1da3">&#9670;&#160;</a></span>operator==() <span class="overload">[1/2]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a> &amp; operator== </td>
-          <td>(</td>
-          <td class="paramtype">const <a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a>&lt; PT, inpType, accType &gt; &amp;</td>          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">delete</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="aa7cdcc073c3a8d6af7b43df1582315d5" name="aa7cdcc073c3a8d6af7b43df1582315d5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa7cdcc073c3a8d6af7b43df1582315d5">&#9670;&#160;</a></span>operator==() <span class="overload">[2/2]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a> &amp; operator== </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a>&lt; PT, inpType, accType &gt; &amp;&amp;</td>          <td class="paramname"><span class="paramname"><em>rhs</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">delete</span><span class="mlabel">noexcept</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a58a5c6b7f15d3c2a796942e383a97f36" name="a58a5c6b7f15d3c2a796942e383a97f36"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a58a5c6b7f15d3c2a796942e383a97f36">&#9670;&#160;</a></span>pack()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">void pack </td>
-          <td>(</td>
-          <td class="paramtype">const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>block</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>Actual packing of a block of the source matrix in pmat buffer. </p>
-
-</div>
-</div>
 <a id="a9c6a626fc1b0a20479c167862d7a91be" name="a9c6a626fc1b0a20479c167862d7a91be"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a9c6a626fc1b0a20479c167862d7a91be">&#9670;&#160;</a></span>packedBlock()</h2>
 
@@ -900,19 +599,19 @@ template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt
 
 </div>
 </div>
-<a id="ad3b06646ed9f70495d2233aa23eafa65" name="ad3b06646ed9f70495d2233aa23eafa65"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad3b06646ed9f70495d2233aa23eafa65">&#9670;&#160;</a></span>packedBufferSize()</h2>
+<a id="ab11bd74e390ac73323a514cf2d6e6b98" name="ab11bd74e390ac73323a514cf2d6e6b98"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab11bd74e390ac73323a514cf2d6e6b98">&#9670;&#160;</a></span>packedBufferSize()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
+template&lt;typename PT , typename inpType , typename accType &gt; </div>
 <table class="mlabels">
   <tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static int packedBufferSize </td>
+          <td class="memname">int packedBufferSize </td>
           <td>(</td>
           <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>rows</em><span class="paramdefsep"> = </span><span class="paramdefval">0</span>, </span></td>
         </tr>
@@ -995,216 +694,9 @@ template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt
 
 </div>
 </div>
-<a id="a6efc512f013eacc053ed29b2dee722d5" name="a6efc512f013eacc053ed29b2dee722d5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a6efc512f013eacc053ed29b2dee722d5">&#9670;&#160;</a></span>printPackedMatrix()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">void printPackedMatrix </td>
-          <td>(</td>
-          <td class="paramtype">std::string</td>          <td class="paramname"><span class="paramname"><em>name</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>Print the packed block. </p>
-
-</div>
-</div>
-<h2 class="groupheader">Member Data Documentation</h2>
-<a id="a39ff9fbd497e19e41a2666fb158b61bb" name="a39ff9fbd497e19e41a2666fb158b61bb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a39ff9fbd497e19e41a2666fb158b61bb">&#9670;&#160;</a></span>bcol_</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::int32_t bcol_</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>the number of columns in each block </p>
-
-</div>
-</div>
-<a id="aa94e292b3bf63b26e96c8d00654170a0" name="aa94e292b3bf63b26e96c8d00654170a0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa94e292b3bf63b26e96c8d00654170a0">&#9670;&#160;</a></span>blocking_params</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a>* blocking_params</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>MCB, KCB, NCB, MR, NR, NR_MIN, ROW_INTERLEAVE;. </p>
-
-</div>
-</div>
-<a id="a8d6df6d285a6ae4c23253f657c70efe0" name="a8d6df6d285a6ae4c23253f657c70efe0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8d6df6d285a6ae4c23253f657c70efe0">&#9670;&#160;</a></span>brow_</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::int32_t brow_</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>the number of rows in each block </p>
-
-</div>
-</div>
-<a id="ab2752fb7b6a691a3eef18cc60dd45a1e" name="ab2752fb7b6a691a3eef18cc60dd45a1e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab2752fb7b6a691a3eef18cc60dd45a1e">&#9670;&#160;</a></span>buf_</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">inpType* buf_</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a36bff8df08b1423ce7e2d21058c8fa6b" name="a36bff8df08b1423ce7e2d21058c8fa6b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a36bff8df08b1423ce7e2d21058c8fa6b">&#9670;&#160;</a></span>bufAllocatedHere_</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool bufAllocatedHere_ {false}</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="aa199625140167245ff63d128ac92db6e" name="aa199625140167245ff63d128ac92db6e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa199625140167245ff63d128ac92db6e">&#9670;&#160;</a></span>nbcol_</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::int32_t nbcol_</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>the number of blocks along columns </p>
-
-</div>
-</div>
-<a id="a3f93cb681634f5e1dc73bba3ca55c8c1" name="a3f93cb681634f5e1dc73bba3ca55c8c1"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3f93cb681634f5e1dc73bba3ca55c8c1">&#9670;&#160;</a></span>nbrow_</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename PT , typename inpType , typename accType  = std::int32_t&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::int32_t nbrow_</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>the number of blocks along rows </p>
-
-</div>
-</div>
-<hr/>The documentation for this class was generated from the following file:<ul>
-<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<a class="el" href="_fbgemm_8h.html">Fbgemm.h</a></li>
+<hr/>The documentation for this class was generated from the following files:<ul>
+<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<b>Fbgemm.h</b></li>
+<li>/__w/FBGEMM/FBGEMM/src/<b>PackMatrix.cc</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->

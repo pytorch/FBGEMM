@@ -96,7 +96,7 @@ Inheritance diagram for PackAWithIm2Col&lt; T, accT, SPATIAL_DIM &gt;:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:a37d96dcba66f792135549702d2f25e4a" id="r_a37d96dcba66f792135549702d2f25e4a"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a37d96dcba66f792135549702d2f25e4a">PackAWithIm2Col</a> (const <a class="el" href="structfbgemm_1_1conv__param__t.html">conv_param_t</a>&lt; SPATIAL_DIM &gt; &amp;conv_param, const T *sdata, <a class="el" href="#aa04b38ade77aa4632176ed8bb19317d0">inpType</a> *pmat=nullptr, std::int32_t a_zero_pt=0, std::int32_t *row_offset=nullptr, bool b_symmetric=false, const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
+<tr class="memitem:a37d96dcba66f792135549702d2f25e4a" id="r_a37d96dcba66f792135549702d2f25e4a"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a37d96dcba66f792135549702d2f25e4a">PackAWithIm2Col</a> (const <a class="el" href="structfbgemm_1_1conv__param__t.html">conv_param_t</a>&lt; SPATIAL_DIM &gt; &amp;conv_param, const T *sdata, inpType *pmat=nullptr, std::int32_t a_zero_pt=0, std::int32_t *row_offset=nullptr, bool b_symmetric=false, const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
 <tr class="separator:a37d96dcba66f792135549702d2f25e4a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a354db6b6efb4336767afa41583a96082" id="r_a354db6b6efb4336767afa41583a96082"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a354db6b6efb4336767afa41583a96082">isPrePacked</a> () const</td></tr>
 <tr class="separator:a354db6b6efb4336767afa41583a96082"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -138,13 +138,13 @@ Public Member Functions</h2></td></tr>
 Static Public Member Functions</h2></td></tr>
 <tr class="memitem:a16921c92359f31fbdc4968c875c90ae2" id="r_a16921c92359f31fbdc4968c875c90ae2"><td class="memItemLeft" align="right" valign="top">static constexpr bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a16921c92359f31fbdc4968c875c90ae2">isA</a> ()</td></tr>
 <tr class="separator:a16921c92359f31fbdc4968c875c90ae2"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:acd0b3889ef1ef7b836e0bd2c1a672b3d" id="r_acd0b3889ef1ef7b836e0bd2c1a672b3d"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acd0b3889ef1ef7b836e0bd2c1a672b3d">rowOffsetBufferSize</a> (const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
-<tr class="separator:acd0b3889ef1ef7b836e0bd2c1a672b3d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa77e3ad795b908ab26006e954e19fa19" id="r_aa77e3ad795b908ab26006e954e19fa19"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa77e3ad795b908ab26006e954e19fa19">rowOffsetBufferSize</a> (const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
+<tr class="separator:aa77e3ad795b908ab26006e954e19fa19"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="inherit_header pub_static_methods_classfbgemm_1_1_pack_matrix"><td colspan="2" onclick="javascript:dynsection.toggleInherit('pub_static_methods_classfbgemm_1_1_pack_matrix')"><img src="closed.png" alt="-"/>&#160;Static Public Member Functions inherited from <a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix&lt; PT, inpType, accType &gt;</a></td></tr>
 <tr class="memitem:a16921c92359f31fbdc4968c875c90ae2 inherit pub_static_methods_classfbgemm_1_1_pack_matrix" id="r_a16921c92359f31fbdc4968c875c90ae2"><td class="memItemLeft" align="right" valign="top">static constexpr bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classfbgemm_1_1_pack_matrix.html#a16921c92359f31fbdc4968c875c90ae2">isA</a> ()</td></tr>
 <tr class="separator:a16921c92359f31fbdc4968c875c90ae2 inherit pub_static_methods_classfbgemm_1_1_pack_matrix"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ad3b06646ed9f70495d2233aa23eafa65 inherit pub_static_methods_classfbgemm_1_1_pack_matrix" id="r_ad3b06646ed9f70495d2233aa23eafa65"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classfbgemm_1_1_pack_matrix.html#ad3b06646ed9f70495d2233aa23eafa65">packedBufferSize</a> (int rows=0, int cols=0, const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
-<tr class="separator:ad3b06646ed9f70495d2233aa23eafa65 inherit pub_static_methods_classfbgemm_1_1_pack_matrix"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab11bd74e390ac73323a514cf2d6e6b98 inherit pub_static_methods_classfbgemm_1_1_pack_matrix" id="r_ab11bd74e390ac73323a514cf2d6e6b98"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classfbgemm_1_1_pack_matrix.html#ab11bd74e390ac73323a514cf2d6e6b98">packedBufferSize</a> (int rows=0, int cols=0, const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *params=nullptr)</td></tr>
+<tr class="separator:ab11bd74e390ac73323a514cf2d6e6b98 inherit pub_static_methods_classfbgemm_1_1_pack_matrix"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="inherited" name="inherited"></a>
 Additional Inherited Members</h2></td></tr>
@@ -152,101 +152,9 @@ Additional Inherited Members</h2></td></tr>
 <tr class="memitem:a9c6a626fc1b0a20479c167862d7a91be inherit pro_methods_classfbgemm_1_1_pack_matrix" id="r_a9c6a626fc1b0a20479c167862d7a91be"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classfbgemm_1_1_pack_matrix.html#a9c6a626fc1b0a20479c167862d7a91be">packedBlock</a> (const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;block)</td></tr>
 <tr class="separator:a9c6a626fc1b0a20479c167862d7a91be inherit pro_methods_classfbgemm_1_1_pack_matrix"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
-<h2 class="groupheader">Member Typedef Documentation</h2>
-<a id="ab08712bfadb74d1a900f29317f1db588" name="ab08712bfadb74d1a900f29317f1db588"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab08712bfadb74d1a900f29317f1db588">&#9670;&#160;</a></span>accType</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">using <a class="el" href="#ab08712bfadb74d1a900f29317f1db588">accType</a> = accT</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a90f9e5d6bc6be566d221f2743d5a6a76" name="a90f9e5d6bc6be566d221f2743d5a6a76"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a90f9e5d6bc6be566d221f2743d5a6a76">&#9670;&#160;</a></span>BaseType</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">using <a class="el" href="#a90f9e5d6bc6be566d221f2743d5a6a76">BaseType</a> = <a class="el" href="classfbgemm_1_1_pack_matrix.html">PackMatrix</a>&lt;<a class="el" href="#acccef17ead9e81a6c60c02e23e804c4e">This</a>, T, accT&gt;</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="aa04b38ade77aa4632176ed8bb19317d0" name="aa04b38ade77aa4632176ed8bb19317d0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa04b38ade77aa4632176ed8bb19317d0">&#9670;&#160;</a></span>inpType</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">using <a class="el" href="#aa04b38ade77aa4632176ed8bb19317d0">inpType</a> = T</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="acccef17ead9e81a6c60c02e23e804c4e" name="acccef17ead9e81a6c60c02e23e804c4e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acccef17ead9e81a6c60c02e23e804c4e">&#9670;&#160;</a></span>This</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">using <a class="el" href="#acccef17ead9e81a6c60c02e23e804c4e">This</a> = <a class="el" href="classfbgemm_1_1_pack_a_with_im2_col.html">PackAWithIm2Col</a>&lt;T, accT, SPATIAL_DIM&gt;</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="abfb887f09017b2c8daa7fe9004ffad78" name="abfb887f09017b2c8daa7fe9004ffad78"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abfb887f09017b2c8daa7fe9004ffad78">&#9670;&#160;</a></span>PackAWithIm2Col() <span class="overload">[1/2]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm_1_1_pack_a_with_im2_col.html">PackAWithIm2Col</a> </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">delete</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="a37d96dcba66f792135549702d2f25e4a" name="a37d96dcba66f792135549702d2f25e4a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a37d96dcba66f792135549702d2f25e4a">&#9670;&#160;</a></span>PackAWithIm2Col() <span class="overload">[2/2]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a37d96dcba66f792135549702d2f25e4a">&#9670;&#160;</a></span>PackAWithIm2Col()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -266,7 +174,7 @@ template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; 
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="#aa04b38ade77aa4632176ed8bb19317d0">inpType</a> *</td>          <td class="paramname"><span class="paramname"><em>pmat</em><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>, </span></td>
+          <td class="paramtype">inpType *</td>          <td class="paramname"><span class="paramname"><em>pmat</em><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -298,33 +206,6 @@ template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; 
   </table>
   </dd>
 </dl>
-
-</div>
-</div>
-<a id="ad4c9cbed75495d3622ceaf5dbdb5584d" name="ad4c9cbed75495d3622ceaf5dbdb5584d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad4c9cbed75495d3622ceaf5dbdb5584d">&#9670;&#160;</a></span>~PackAWithIm2Col()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">~<a class="el" href="classfbgemm_1_1_pack_a_with_im2_col.html">PackAWithIm2Col</a> </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
 
 </div>
 </div>
@@ -413,61 +294,19 @@ template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; 
 
 </div>
 </div>
-<a id="a58a5c6b7f15d3c2a796942e383a97f36" name="a58a5c6b7f15d3c2a796942e383a97f36"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a58a5c6b7f15d3c2a796942e383a97f36">&#9670;&#160;</a></span>pack()</h2>
+<a id="aa77e3ad795b908ab26006e954e19fa19" name="aa77e3ad795b908ab26006e954e19fa19"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa77e3ad795b908ab26006e954e19fa19">&#9670;&#160;</a></span>rowOffsetBufferSize()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">void pack </td>
-          <td>(</td>
-          <td class="paramtype">const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>block</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Packs a block of source matrix into pmat buffer. </p>
-
-</div>
-</div>
-<a id="a6efc512f013eacc053ed29b2dee722d5" name="a6efc512f013eacc053ed29b2dee722d5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a6efc512f013eacc053ed29b2dee722d5">&#9670;&#160;</a></span>printPackedMatrix()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">void printPackedMatrix </td>
-          <td>(</td>
-          <td class="paramtype">std::string</td>          <td class="paramname"><span class="paramname"><em>name</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Print the packed block. </p>
-
-</div>
-</div>
-<a id="acd0b3889ef1ef7b836e0bd2c1a672b3d" name="acd0b3889ef1ef7b836e0bd2c1a672b3d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acd0b3889ef1ef7b836e0bd2c1a672b3d">&#9670;&#160;</a></span>rowOffsetBufferSize()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; </div>
+template&lt;typename T , typename accT , int SPATIAL_DIM&gt; </div>
 <table class="mlabels">
   <tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static int rowOffsetBufferSize </td>
+          <td class="memname">int rowOffsetBufferSize </td>
           <td>(</td>
           <td class="paramtype">const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *</td>          <td class="paramname"><span class="paramname"><em>params</em><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span></span></td><td>)</td>
           <td></td>
@@ -483,8 +322,9 @@ template&lt;typename T , typename accT  = std::int32_t, int SPATIAL_DIM = 2&gt; 
 
 </div>
 </div>
-<hr/>The documentation for this class was generated from the following file:<ul>
-<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<a class="el" href="_fbgemm_8h.html">Fbgemm.h</a></li>
+<hr/>The documentation for this class was generated from the following files:<ul>
+<li>/__w/FBGEMM/FBGEMM/include/fbgemm/<b>Fbgemm.h</b></li>
+<li>/__w/FBGEMM/FBGEMM/src/<b>PackAWithIm2Col.cc</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->

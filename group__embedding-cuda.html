@@ -79,188 +79,11 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:gabbe880100f1036a979f3a8d8755447d0" id="r_gabbe880100f1036a979f3a8d8755447d0"><td class="memItemLeft" align="right" valign="top"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gabbe880100f1036a979f3a8d8755447d0">int_nbit_split_embedding_uvm_caching_codegen_lookup_function</a> (<a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">dev_weights</a>, <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">uvm_weights</a>, <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">weights_placements</a>, <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">weights_offsets</a>, <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">weights_tys</a>, <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">D_offsets</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">total_D</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">max_int2_D</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">max_int4_D</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">max_int8_D</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">max_float16_D</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">max_float32_D</a>, <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> indices, <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> offsets, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">pooling_mode</a>, c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">indice_weights</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">output_dtype</a>, c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">lxu_cache_weights</a>, c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">lxu_cache_locations</a>, c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">row_alignment</a>, c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">max_float8_D</a>, c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">fp8_exponent_bits</a>, c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">fp8_exponent_bias</a>, c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">cache_hash_size_cumsum</a>, c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">total_cache_hash_size</a>, c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">cache_index_table_map</a>, c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">lxu_cache_state</a>, c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">lxu_state</a>)</td></tr>
+<tr class="memitem:gabbe880100f1036a979f3a8d8755447d0" id="r_gabbe880100f1036a979f3a8d8755447d0"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gabbe880100f1036a979f3a8d8755447d0">int_nbit_split_embedding_uvm_caching_codegen_lookup_function</a> (Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, int64_t total_D, int64_t max_int2_D, int64_t max_int4_D, int64_t max_int8_D, int64_t max_float16_D, int64_t max_float32_D, Tensor indices, Tensor offsets, int64_t pooling_mode, c10::optional&lt; Tensor &gt; indice_weights, int64_t output_dtype, c10::optional&lt; Tensor &gt; lxu_cache_weights, c10::optional&lt; Tensor &gt; lxu_cache_locations, c10::optional&lt; int64_t &gt; row_alignment, c10::optional&lt; int64_t &gt; max_float8_D, c10::optional&lt; int64_t &gt; fp8_exponent_bits, c10::optional&lt; int64_t &gt; fp8_exponent_bias, c10::optional&lt; Tensor &gt; cache_hash_size_cumsum, c10::optional&lt; int64_t &gt; total_cache_hash_size, c10::optional&lt; Tensor &gt; cache_index_table_map, c10::optional&lt; Tensor &gt; lxu_cache_state, c10::optional&lt; Tensor &gt; lxu_state)</td></tr>
 <tr class="separator:gabbe880100f1036a979f3a8d8755447d0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="gad1c20ea2ace30c269811890919ebdb6e" name="gad1c20ea2ace30c269811890919ebdb6e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#gad1c20ea2ace30c269811890919ebdb6e">&#9670;&#160;</a></span>bounds_check_indices_cuda()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">void</a> bounds_check_indices_cuda </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>rows_per_table</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>bounds_check_mode</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>warning</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>weights</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>B_ofsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_B</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="ga0749f1c6540189dd47b32a56858f82fb" name="ga0749f1c6540189dd47b32a56858f82fb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga0749f1c6540189dd47b32a56858f82fb">&#9670;&#160;</a></span>int_nbit_split_embedding_codegen_lookup_function()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> int_nbit_split_embedding_codegen_lookup_function </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>dev_weights</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>uvm_weights</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_placements</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_tys</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_int2_D</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_int4_D</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_int8_D</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_float16_D</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_float32_D</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>output_dtype</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_weights</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>row_alignment</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>max_float8_D</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>fp8_exponent_bits</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>fp8_exponent_bias</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="gabbe880100f1036a979f3a8d8755447d0" name="gabbe880100f1036a979f3a8d8755447d0"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#gabbe880100f1036a979f3a8d8755447d0">&#9670;&#160;</a></span>int_nbit_split_embedding_uvm_caching_codegen_lookup_function()</h2>
 
@@ -268,210 +91,148 @@ Functions</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> int_nbit_split_embedding_uvm_caching_codegen_lookup_function </td>
+          <td class="memname">Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>dev_weights</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>dev_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>uvm_weights</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>uvm_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_placements</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>weights_placements</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>weights_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>weights_tys</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>weights_tys</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>D_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>total_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_int2_D</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>max_int2_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_int4_D</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>max_int4_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_int8_D</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>max_int8_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_float16_D</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>max_float16_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>max_float32_D</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>max_float32_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>pooling_mode</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>indice_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>output_dtype</em>, </span></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>output_dtype</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_weights</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_weights</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>row_alignment</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>row_alignment</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>max_float8_D</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>max_float8_D</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>fp8_exponent_bits</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>fp8_exponent_bits</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>fp8_exponent_bias</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>fp8_exponent_bias</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>cache_hash_size_cumsum</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>cache_hash_size_cumsum</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>total_cache_hash_size</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>total_cache_hash_size</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>cache_index_table_map</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>cache_index_table_map</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_state</em>, </span></td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_state</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">c10::optional&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_state</em></span>&#160;)</td>
+          <td class="paramtype">c10::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_state</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 <p>Simlar to int_nbit_split_embedding_codegen_lookup_function, but it does UVM_CACHING lookup. </p>
-
-</div>
-</div>
-<a id="gaea1d3ae26d1e893ccf08f8b55b3d6eff" name="gaea1d3ae26d1e893ccf08f8b55b3d6eff"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#gaea1d3ae26d1e893ccf08f8b55b3d6eff">&#9670;&#160;</a></span>pruned_array_lookup_cuda()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> pruned_array_lookup_cuda </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>index_remappings</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>index_remappings_offsets</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="ga1adb0a98306b7d6f839b5fbcaaa44ec7" name="ga1adb0a98306b7d6f839b5fbcaaa44ec7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga1adb0a98306b7d6f839b5fbcaaa44ec7">&#9670;&#160;</a></span>pruned_hashmap_lookup_cuda()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> pruned_hashmap_lookup_cuda </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_table</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a></td>          <td class="paramname"><span class="paramname"><em>hash_table_offsets</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
 
 </div>
 </div>

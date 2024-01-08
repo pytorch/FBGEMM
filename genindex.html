@@ -29,6 +29,7 @@
   <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
   <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
   <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="#" />
     <link rel="search" title="Search" href="search.html" />
   <!-- Google Tag Manager -->
@@ -257,9 +258,10 @@
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="general/Contributing.html">Contributing to FBGEMM and FBGEMM_GPU</a></li>
-<li class="toctree-l1"><a class="reference internal" href="general/DocsInstructions.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/Documentation.html">Documentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul>
@@ -383,21 +385,68 @@
  | <a href="#M"><strong>M</strong></a>
  | <a href="#N"><strong>N</strong></a>
  | <a href="#P"><strong>P</strong></a>
+ | <a href="#Q"><strong>Q</strong></a>
  | <a href="#R"><strong>R</strong></a>
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
  | <a href="#U"><strong>U</strong></a>
- | <a href="#W"><strong>W</strong></a>
+ | <a href="#X"><strong>X</strong></a>
  
 </div>
 <h2 id="_">_</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv422_bfloat16_to_float_gpuRKN2at6TensorE">_bfloat16_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv438_float_or_half_to_fusednbitrowwise_gpuRK6TensorK7int64_t">_float_or_half_to_fusednbitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv422_float_to_bfloat16_gpuRKN2at6TensorE">_float_to_bfloat16_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv424_float_to_FP8rowwise_gpuRK6TensorKb">_float_to_FP8rowwise_gpu (C++ function)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv434_float_to_fused8bitrowwise_cpu_outR6TensorRK6Tensor">_float_to_fused8bitrowwise_cpu_out (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv430_float_to_fused8bitrowwise_gpuRK6Tensor">_float_to_fused8bitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv430_float_to_fusednbitrowwise_gpuRK6TensorK7int64_t">_float_to_fusednbitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv418_float_to_hfp8_gpuRKN2at6TensorEK7int64_tK7int64_tKd">_float_to_hfp8_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv418_float_to_msfp_gpuRKN2at6TensorEK7int64_tK7int64_tK7int64_tK7int64_tKdKd">_float_to_msfp_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv430_float_to_paddedFP8rowwise_gpuRK6TensorKbK7int64_t">_float_to_paddedFP8rowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv424_FP8rowwise_to_float_gpuRKN2at6TensorEbK7int64_t">_FP8rowwise_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv434_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor">_fused8bitrowwise_to_float_cpu_out (C++ function)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv434_fused8bitrowwise_to_float_cpu_outR6TensorRK6Tensor">_fused8bitrowwise_to_float_cpu_out (C++ function)</a>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv430_fused8bitrowwise_to_float_gpuRKN2at6TensorE">_fused8bitrowwise_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv440_fused8bitrowwise_to_float_mixed_dim_gpuRKN2at6TensorERKN2at6TensorEK7int64_t">_fused8bitrowwise_to_float_mixed_dim_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429_fused8bitrowwise_to_half_gpuRKN2at6TensorE">_fused8bitrowwise_to_half_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv449_fused8bitrowwise_to_single_or_half_precision_gpuRKN2at6TensorEK7int64_t">_fused8bitrowwise_to_single_or_half_precision_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv430_fusednbitrowwise_to_float_gpuRKN2at6TensorEK7int64_t">_fusednbitrowwise_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv438_fusednbitrowwise_to_float_or_half_gpuRKN2at6TensorEK7int64_tK7int64_t">_fusednbitrowwise_to_float_or_half_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429_fusednbitrowwise_to_half_gpuRKN2at6TensorEK7int64_t">_fusednbitrowwise_to_half_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429_half_to_fused8bitrowwise_gpuRK6Tensor">_half_to_fused8bitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429_half_to_fusednbitrowwise_gpuRKN2at6TensorEK7int64_t">_half_to_fusednbitrowwise_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv418_hfp8_to_float_gpuRKN2at6TensorEK7int64_tK7int64_t">_hfp8_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv418_msfp_to_float_gpuRKN2at6TensorEK7int64_tK7int64_tK7int64_t">_msfp_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv430_paddedFP8rowwise_to_float_gpuRKN2at6TensorEKbK7int64_tK7int64_tK7int64_t">_paddedFP8rowwise_to_float_gpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv449_single_or_half_precision_to_fused8bitrowwise_gpuRK6Tensor">_single_or_half_precision_to_fused8bitrowwise_gpu (C++ function)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -437,18 +486,18 @@
 </li>
       <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv435direct_mapped_lxu_cache_lookup_cudaN2at6TensorEN2at6TensorE7int64_tbN3c108optionalIN2at6TensorEEE">direct_mapped_lxu_cache_lookup_cuda (C++ function)</a>
 </li>
-      <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#term-Documentation"><strong>Documentation</strong></a>
-</li>
   </ul></td>
 </tr></table>
 
 <h2 id="E">E</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="general/DocsInstructions.html#_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf">example_method (C++ function)</a>
+      <li><a href="general/Documentation.html#_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf">example_method (C++ function)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="general/Documentation.html#fbgemm_gpu.docs.examples.example_method">example_method() (in module fbgemm_gpu.docs.examples)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/sparse_ops.html#_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t">expand_into_jagged_permute_cuda (C++ function)</a>
 </li>
   </ul></td>
@@ -464,18 +513,22 @@
         <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#module-fbgemm_gpu">module</a>
 </li>
       </ul></li>
+      <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv410FindMinMaxPKfPfPf7int64_t">FindMinMax (C++ function)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor">float_or_half_to_fused8bitrowwise_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423float_to_FP8rowwise_cpuRK6Tensorb">float_to_FP8rowwise_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor">float_to_fused8bitrowwise_cpu (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd">FloatToFP8Quantized_ref (C++ function)</a>
+      <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv4I0E44FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfviPK9InputType6size_tiPNSt7uint8_tE">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">FP8QuantizedToFloat_ref (C++ function)</a>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd">FloatToFP8Quantized_ref (C++ function)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">FP8QuantizedToFloat_ref (C++ function)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FP8rowwise_to_float_cpuRK6TensorbK7int64_t">FP8rowwise_to_float_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor">fused8bitrowwise_to_float_cpu (C++ function)</a>
@@ -489,6 +542,8 @@
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv437fusednbitrowwise_to_float_or_half_cpuRK6TensorK7int64_tK7int64_t">fusednbitrowwise_to_float_or_half_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t">fusednbitrowwise_to_half_cpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv4I0E23FusedQuantizeDequantizevPKfPfNSt7int64_tERK24TensorQuantizationParamsiif">FusedQuantizeDequantize (C++ function)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -653,10 +708,10 @@
 </li>
       <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv428permute_pooled_embs_cpu_implRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKb">permute_pooled_embs_cpu_impl (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_cpu (C++ function)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_cpu (C++ function)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_gpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/embedding_ops.html#_CPPv423pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor">pruned_array_lookup_cpu (C++ function)</a>
@@ -669,21 +724,20 @@
 </li>
       <li><a href="fbgemm_gpu-cpp-api/embedding_ops.html#_CPPv436pruned_hashmap_lookup_unweighted_cpu6Tensor6Tensor6Tensor6Tensor">pruned_hashmap_lookup_unweighted_cpu (C++ function)</a>
 </li>
-      <li>
-    Python Enhancement Proposals
+  </ul></td>
+</tr></table>
 
-      <ul>
-        <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#index-0">PEP 287</a>
+<h2 id="Q">Q</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv4I0_8layout_tE17QuantizeGroupwisevPKfiiiiPKfPKNSt7int32_tEP1T">QuantizeGroupwise (C++ function)</a>
 </li>
-      </ul></li>
   </ul></td>
 </tr></table>
 
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#term-Reading"><strong>Reading</strong></a>
-</li>
       <li><a href="fbgemm_gpu-cpp-api/layout_transform_ops.html#_CPPv432recat_embedding_grad_output_cuda6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_cuda (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/layout_transform_ops.html#_CPPv446recat_embedding_grad_output_mixed_D_batch_cudaRK6TensorRK6TensorRK6Tensor">recat_embedding_grad_output_mixed_D_batch_cuda (C++ function)</a>
@@ -694,15 +748,12 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/layout_transform_ops.html#_CPPv440recat_embedding_grad_output_mixed_D_cudaRK6TensorRKNSt6vectorI7int64_tEE">recat_embedding_grad_output_mixed_D_cuda (C++ function)</a>
 </li>
+      <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv4I_b_b_23QuantizationGranularity_b_b0_bE30requantizeOutputProcessingAvx2vPNSt7uint8_tEPKNSt7int32_tERK12block_type_tiiRK22requantizationParams_tI9BIAS_TYPEE">requantizeOutputProcessingAvx2 (C++ function)</a>
+</li>
+      <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv4I_b_b_23QuantizationGranularity_b_b_i0E37requantizeOutputProcessingGConvAvx512vPNSt7uint8_tEPKNSt7int32_tERK12block_type_tiiRK22requantizationParams_tI9BIAS_TYPEE">requantizeOutputProcessingGConvAvx512 (C++ function)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv426reset_weight_momentum_cudaN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorE7int64_t">reset_weight_momentum_cuda (C++ function)</a>
 </li>
-      <li>
-    RFC
-
-      <ul>
-        <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#index-1">RFC 2822</a>
-</li>
-      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -750,10 +801,10 @@
   </ul></td>
 </tr></table>
 
-<h2 id="W">W</h2>
+<h2 id="X">X</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="pytorch-sphinx-theme/docs/demo/demo.html#term-Writing"><strong>Writing</strong></a>
+      <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv46Xor128v">Xor128 (C++ function)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -774,7 +825,7 @@
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2023, FBGEMM Team.
+        &copy; Copyright 2020 - 2024, FBGEMM Team.
 
     </p>
   </div>

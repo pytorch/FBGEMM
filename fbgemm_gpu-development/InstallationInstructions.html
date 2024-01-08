@@ -30,6 +30,7 @@
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Testing FBGEMM_GPU" href="TestInstructions.html" />
@@ -260,9 +261,10 @@
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing to FBGEMM and FBGEMM_GPU</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/Documentation.html">Documentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul class="current">
@@ -431,8 +433,8 @@ be verified with the <code class="docutils literal notranslate"><span class="pre
 </pre></div>
 </div>
 </section>
-<section id="set-up-the-docker-container-and-conda-environment">
-<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#set-up-the-docker-container-and-conda-environment" title="Permalink to this heading">¶</a></h3>
+<section id="set-up-the-cuda-docker-container-and-conda-environment">
+<h3>Set Up the CUDA Docker Container and Conda Environment<a class="headerlink" href="#set-up-the-cuda-docker-container-and-conda-environment" title="Permalink to this heading">¶</a></h3>
 <p>It is recommended, though not required, to install and run FBGEMM_GPU through a
 Docker setup for isolation and reproducibility of the CUDA environment.</p>
 <p>The NVIDIA-Docker runtime needs to be installed to expose the driver to the
@@ -479,8 +481,8 @@ GPU<span class="w">  </span>Temp<span class="w"> </span><span class="o">(</span>
 </pre></div>
 </div>
 </section>
-<section id="id1">
-<h3>Set Up the Docker Container and Conda Environment<a class="headerlink" href="#id1" title="Permalink to this heading">¶</a></h3>
+<section id="set-up-the-rocm-docker-container-and-conda-environment">
+<h3>Set Up the ROCm Docker Container and Conda Environment<a class="headerlink" href="#set-up-the-rocm-docker-container-and-conda-environment" title="Permalink to this heading">¶</a></h3>
 <p>It is recommended, though not required, to install and run FBGEMM_GPU through a
 Docker setup for isolation and reproducibility of the ROCm environment, which
 can be difficult to set up.</p>
@@ -633,7 +635,7 @@ be reported to the FBGEMM developers.</p>
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2023, FBGEMM Team.
+        &copy; Copyright 2020 - 2024, FBGEMM Team.
 
     </p>
   </div>
@@ -656,13 +658,13 @@ be reported to the FBGEMM developers.</p>
 <li><a class="reference internal" href="#set-up-cpu-only-environment">Set Up CPU-Only Environment</a></li>
 <li><a class="reference internal" href="#set-up-cuda-environment">Set Up CUDA Environment</a><ul>
 <li><a class="reference internal" href="#install-nvidia-drivers">Install NVIDIA Drivers</a></li>
-<li><a class="reference internal" href="#set-up-the-docker-container-and-conda-environment">Set Up the Docker Container and Conda Environment</a></li>
+<li><a class="reference internal" href="#set-up-the-cuda-docker-container-and-conda-environment">Set Up the CUDA Docker Container and Conda Environment</a></li>
 <li><a class="reference internal" href="#install-the-cuda-runtime">Install the CUDA Runtime</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#set-up-rocm-environment">Set Up ROCm Environment</a><ul>
 <li><a class="reference internal" href="#install-amdgpu-drivers">Install AMDGPU Drivers</a></li>
-<li><a class="reference internal" href="#id1">Set Up the Docker Container and Conda Environment</a></li>
+<li><a class="reference internal" href="#set-up-the-rocm-docker-container-and-conda-environment">Set Up the ROCm Docker Container and Conda Environment</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#install-python-libraries">Install Python Libraries</a></li>

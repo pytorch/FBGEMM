@@ -79,37 +79,37 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:ga2402de1c0102b21af5f2bd5a50d30309" id="r_ga2402de1c0102b21af5f2bd5a50d30309"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga2402de1c0102b21af5f2bd5a50d30309">expand_into_jagged_permute_cuda</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;<a class="el" href="namespacefbgemm__gpu.html#a313d400789ec7e8bf0702c1d06339394">permute</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;<a class="el" href="namespacefbgemm__gpu.html#a88aea1b3f2194509bb8bb7105e0d6553">input_offsets</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;<a class="el" href="namespacefbgemm__gpu.html#a72822c0cc98165904fdc0110344ecdd5">output_offsets</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">output_size</a>)</td></tr>
-<tr class="separator:ga2402de1c0102b21af5f2bd5a50d30309"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gab7344d63216dd37673733b26954aaec4" id="r_gab7344d63216dd37673733b26954aaec4"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gab7344d63216dd37673733b26954aaec4">expand_into_jagged_permute_cuda</a> (const at::Tensor &amp;permute, const at::Tensor &amp;input_offsets, const at::Tensor &amp;output_offsets, int64_t output_size)</td></tr>
+<tr class="separator:gab7344d63216dd37673733b26954aaec4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <p>The following are CUDA operators </p>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="ga2402de1c0102b21af5f2bd5a50d30309" name="ga2402de1c0102b21af5f2bd5a50d30309"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga2402de1c0102b21af5f2bd5a50d30309">&#9670;&#160;</a></span>expand_into_jagged_permute_cuda()</h2>
+<a id="gab7344d63216dd37673733b26954aaec4" name="gab7344d63216dd37673733b26954aaec4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gab7344d63216dd37673733b26954aaec4">&#9670;&#160;</a></span>expand_into_jagged_permute_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="ops__utils_8h.html#a29047de4dfe891435d8254535634ac1d">DLL_PUBLIC</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> expand_into_jagged_permute_cuda </td>
+          <td class="memname">Tensor expand_into_jagged_permute_cuda </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>permute</em>, </span></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>permute</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input_offsets</em>, </span></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>output_offsets</em>, </span></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>output_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">int64_t</a></td>          <td class="paramname"><span class="paramname"><em>output_size</em></span>&#160;)</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>output_size</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -122,11 +122,7 @@ Functions</h2></td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>The output follows the following formula: <div class="fragment"><div class="line"><a class="code hl_variable" href="namespacefbgemm__gpu.html#aa80e8b11fe8b3b1a619f329aeb089f54">output_permute</a>[<a class="code hl_variable" href="namespacefbgemm__gpu.html#a242d5a911279d9ad2128346af039383f">table_offset</a>[<a class="code hl_variable" href="namespacefbgemm__gpu.html#a313d400789ec7e8bf0702c1d06339394">permute</a>[<a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">table</a>]] + <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">batch</a>] &lt;- <a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">bag_offset</a>[<a class="code hl_class" href="classfbgemm__gpu_1_1_tensor_accessor.html">batch</a>]</div>
-<div class="ttc" id="aclassfbgemm__gpu_1_1_tensor_accessor_html"><div class="ttname"><a href="classfbgemm__gpu_1_1_tensor_accessor.html">fbgemm_gpu::TensorAccessor</a></div><div class="ttdef"><b>Definition</b> fbgemm_tensor_accessor.h:128</div></div>
-<div class="ttc" id="anamespacefbgemm__gpu_html_a242d5a911279d9ad2128346af039383f"><div class="ttname"><a href="namespacefbgemm__gpu.html#a242d5a911279d9ad2128346af039383f">fbgemm_gpu::table_offset</a></div><div class="ttdeci">index_t table_offset</div><div class="ttdef"><b>Definition</b> sparse_batched_unary_embeddings.cu:36</div></div>
-<div class="ttc" id="anamespacefbgemm__gpu_html_a313d400789ec7e8bf0702c1d06339394"><div class="ttname"><a href="namespacefbgemm__gpu.html#a313d400789ec7e8bf0702c1d06339394">fbgemm_gpu::permute</a></div><div class="ttdeci">__global__ const offsets_t *__restrict__ int32_t const index_t *__restrict__ permute</div><div class="ttdef"><b>Definition</b> sparse_expand_into_jagged_permute.cu:23</div></div>
-<div class="ttc" id="anamespacefbgemm__gpu_html_aa80e8b11fe8b3b1a619f329aeb089f54"><div class="ttname"><a href="namespacefbgemm__gpu.html#aa80e8b11fe8b3b1a619f329aeb089f54">fbgemm_gpu::output_permute</a></div><div class="ttdeci">__global__ const offsets_t *__restrict__ int32_t const index_t *__restrict__ index_t *__restrict__ output_permute</div><div class="ttdef"><b>Definition</b> sparse_expand_into_jagged_permute.cu:24</div></div>
+<dl class="section return"><dt>Returns</dt><dd>The output follows the following formula: <div class="fragment"><div class="line">output_permute[table_offset[permute[table]] + batch] &lt;- bag_offset[batch]</div>
 </div><!-- fragment --> </dd></dl>
 
 </div>

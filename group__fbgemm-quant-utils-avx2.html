@@ -79,49 +79,16 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:ga5fc3c5b072db44bb3a00cee75ca7fbe3" id="r_ga5fc3c5b072db44bb3a00cee75ca7fbe3"><td class="memItemLeft" align="right" valign="top">uint32_t <a class="el" href="_fbgemm_build_8h.html#af706797174a30c6c37b4fdf264281f45">FBGEMM_API</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga5fc3c5b072db44bb3a00cee75ca7fbe3">Xor128</a> (void)</td></tr>
-<tr class="separator:ga5fc3c5b072db44bb3a00cee75ca7fbe3"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga1d9abe0cd53046e0605d08cb6ffe26df" id="r_ga1d9abe0cd53046e0605d08cb6ffe26df"><td class="memTemplParams" colspan="2">template&lt;bool A_SYMMETRIC, bool B_SYMMETRIC, QuantizationGranularity Q_GRAN, bool HAS_BIAS, bool FUSE_RELU, typename BIAS_TYPE  = std::int32_t, bool DIRECT = false&gt; </td></tr>
-<tr class="memitem:ga1d9abe0cd53046e0605d08cb6ffe26df"><td class="memTemplItemLeft" align="right" valign="top"><a class="el" href="_fbgemm_build_8h.html#af706797174a30c6c37b4fdf264281f45">FBGEMM_API</a> void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ga1d9abe0cd53046e0605d08cb6ffe26df">requantizeOutputProcessingAvx2</a> (std::uint8_t *out, const std::int32_t *inp, const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;block, int ld_out, int ld_in, const <a class="el" href="structfbgemm_1_1requantization_params__t.html">requantizationParams_t</a>&lt; BIAS_TYPE &gt; &amp;r)</td></tr>
-<tr class="separator:ga1d9abe0cd53046e0605d08cb6ffe26df"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga94b9e26f3c7ff032c5316bcc0167c23b" id="r_ga94b9e26f3c7ff032c5316bcc0167c23b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga94b9e26f3c7ff032c5316bcc0167c23b">Xor128</a> (void)</td></tr>
+<tr class="separator:ga94b9e26f3c7ff032c5316bcc0167c23b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga92e2b96889b039f101e24855e163021b" id="r_ga92e2b96889b039f101e24855e163021b"><td class="memTemplParams" colspan="2">template&lt;bool A_SYMMETRIC, bool B_SYMMETRIC, QuantizationGranularity Q_GRAN, bool HAS_BIAS, bool FUSE_RELU, typename BIAS_TYPE  = std::int32_t, bool DIRECT = false&gt; </td></tr>
+<tr class="memitem:ga92e2b96889b039f101e24855e163021b"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ga92e2b96889b039f101e24855e163021b">requantizeOutputProcessingAvx2</a> (std::uint8_t *out, const std::int32_t *inp, const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;block, int ld_out, int ld_in, const <a class="el" href="structfbgemm_1_1requantization_params__t.html">requantizationParams_t</a>&lt; BIAS_TYPE &gt; &amp;r)</td></tr>
+<tr class="separator:ga92e2b96889b039f101e24855e163021b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="ga27ad8e49b024428b996a56a44c75325a" name="ga27ad8e49b024428b996a56a44c75325a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga27ad8e49b024428b996a56a44c75325a">&#9670;&#160;</a></span>FindMinMax()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void <a class="el" href="_fbgemm_build_8h.html#af706797174a30c6c37b4fdf264281f45">FBGEMM_API</a> FindMinMax </td>
-          <td>(</td>
-          <td class="paramtype">const float *</td>          <td class="paramname"><span class="paramname"><em>m</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">float *</td>          <td class="paramname"><span class="paramname"><em>min</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">float *</td>          <td class="paramname"><span class="paramname"><em>max</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>len</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Find the min and max value in a float matrix. </p>
-
-</div>
-</div>
-<a id="ga1d9abe0cd53046e0605d08cb6ffe26df" name="ga1d9abe0cd53046e0605d08cb6ffe26df"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga1d9abe0cd53046e0605d08cb6ffe26df">&#9670;&#160;</a></span>requantizeOutputProcessingAvx2()</h2>
+<a id="ga92e2b96889b039f101e24855e163021b" name="ga92e2b96889b039f101e24855e163021b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga92e2b96889b039f101e24855e163021b">&#9670;&#160;</a></span>requantizeOutputProcessingAvx2()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -129,7 +96,7 @@ Functions</h2></td></tr>
 template&lt;bool A_SYMMETRIC, bool B_SYMMETRIC, QuantizationGranularity Q_GRAN, bool HAS_BIAS, bool FUSE_RELU, typename BIAS_TYPE  = std::int32_t, bool DIRECT = false&gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="_fbgemm_build_8h.html#af706797174a30c6c37b4fdf264281f45">FBGEMM_API</a> void requantizeOutputProcessingAvx2 </td>
+          <td class="memname">void requantizeOutputProcessingAvx2 </td>
           <td>(</td>
           <td class="paramtype">std::uint8_t *</td>          <td class="paramname"><span class="paramname"><em>out</em>, </span></td>
         </tr>
@@ -164,14 +131,14 @@ template&lt;bool A_SYMMETRIC, bool B_SYMMETRIC, QuantizationGranularity Q_GRAN, 
 
 </div>
 </div>
-<a id="ga5fc3c5b072db44bb3a00cee75ca7fbe3" name="ga5fc3c5b072db44bb3a00cee75ca7fbe3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga5fc3c5b072db44bb3a00cee75ca7fbe3">&#9670;&#160;</a></span>Xor128()</h2>
+<a id="ga94b9e26f3c7ff032c5316bcc0167c23b" name="ga94b9e26f3c7ff032c5316bcc0167c23b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga94b9e26f3c7ff032c5316bcc0167c23b">&#9670;&#160;</a></span>Xor128()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t <a class="el" href="_fbgemm_build_8h.html#af706797174a30c6c37b4fdf264281f45">FBGEMM_API</a> Xor128 </td>
+          <td class="memname">uint32_t Xor128 </td>
           <td>(</td>
           <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"></span></td><td>)</td>
           <td></td>

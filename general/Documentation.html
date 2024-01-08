@@ -1,0 +1,1306 @@
+
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Documentation &mdash; FBGEMM 0.6.0 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Contact Us" href="ContactUs.html" />
+    <link rel="prev" title="Contributing" href="Contributing.html" />
+  <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','UA-117752657-2');</script>
+    <!-- End Google Tag Manager -->
+  
+
+  
+  <script src="../_static/js/modernizr.min.js"></script>
+
+  <!-- Preload the theme fonts -->
+
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+<!-- Preload the katex fonts -->
+
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/fonts/KaTeX_Caligraphic-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.2/css/all.css" integrity="sha384-vSIIfh2YWi9wW0r9iZe7RJPrKwp6bG+s9QZMoITbCckVJqGCCRhc+ccxNcdpHuYu" crossorigin="anonymous">
+</head>
+
+<div class="container-fluid header-holder tutorials-header" id="header-holder">
+  <div class="container">
+    <div class="header-container">
+      <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+
+          <li>
+          <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Edge
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/edge">
+                  <span class="dropdown-title">About PyTorch Edge</span>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch">
+                  <span class="dropdown-title">ExecuTorch</span>
+                </a>
+              </div>
+            </div>  
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-orange-arrow">
+                Docs
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/docs/stable/index.html">
+                  <span class="dropdown-title">PyTorch</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/audio/stable/index.html">
+                  <span class="dropdown-title">torchaudio</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/text/stable/index.html">
+                  <span class="dropdown-title">torchtext</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/vision/stable/index.html">
+                  <span class="dropdown-title">torchvision</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torcharrow">
+                  <span class="dropdown-title">torcharrow</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/data">
+                  <span class="dropdown-title">TorchData</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchrec">
+                  <span class="dropdown-title">TorchRec</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/serve/">
+                  <span class="dropdown-title">TorchServe</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/torchx/">
+                  <span class="dropdown-title">TorchX</span>
+                  <p></p>
+                </a>
+                <a class="doc-dropdown-option nav-dropdown-item" href="https://pytorch.org/xla">
+                  <span class="dropdown-title">PyTorch on XLA Devices</span>
+                  <p></p>
+                </a>
+            </div>
+          </li>
+
+          <li>
+            <div id="resourcesDropdownButton" data-toggle="resources-dropdown" class="resources-dropdown">
+              <a class="resource-option with-down-arrow">
+                Resources
+              </a>
+              <div class="resources-dropdown-menu">
+                <a class="nav-dropdown-item" href="https://pytorch.org/features">
+                  <span class="dropdown-title">About</span>
+                  <p>Learn about PyTorch’s features and capabilities</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/foundation">
+                  <span class="dropdown-title">PyTorch Foundation</span>
+                  <p>Learn about the PyTorch foundation</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/#community-module">
+                  <span class="dropdown-title">Community</span>
+                  <p>Join the PyTorch developer community to contribute, learn, and get your questions answered.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/community-stories">
+                  <span class="dropdown-title">Community Stories</span>
+                  <p>Learn how our community solves real, everyday machine learning problems with PyTorch.</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/resources">
+                  <span class="dropdown-title">Developer Resources</span>
+                  <p>Find resources and get questions answered</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/events">
+                  <span class="dropdown-title">Events</span>
+                  <p>Find events, webinars, and podcasts</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://discuss.pytorch.org/" target="_blank">
+                  <span class="dropdown-title">Forums</span>
+                  <p>A place to discuss PyTorch code, issues, install, research</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/hub">
+                  <span class="dropdown-title">Models (Beta)</span>
+                  <p>Discover, publish, and reuse pre-trained models</p>
+                </a>
+              </div>
+            </div>
+          </li>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">GitHub</a>
+          </li>
+        </ul>
+      </div>
+
+      <a class="main-menu-open-button" href="#" data-behavior="open-mobile-menu"></a>
+    </div>
+  </div>
+</div>
+
+<body class="pytorch-body">
+
+   
+
+    
+
+    <div class="table-of-contents-link-wrapper">
+      <span>Table of Contents</span>
+      <a href="#" class="toggle-table-of-contents" data-behavior="toggle-table-of-contents"></a>
+    </div>
+
+    <nav data-toggle="wy-nav-shift" class="pytorch-left-menu" id="pytorch-left-menu">
+      <div class="pytorch-side-scroll">
+        <div class="pytorch-menu pytorch-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          <div class="pytorch-left-menu-search">
+            
+
+            
+              
+              
+                <div class="version">
+                  0.6
+                </div>
+              
+            
+
+            
+
+
+  
+
+
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search Docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+            
+          </div>
+
+          
+            
+            
+              
+            
+            
+              <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="Contributing.html">Contributing</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="License.html">License</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/TestInstructions.html">Testing FBGEMM_GPU</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <div class="pytorch-container">
+      <div class="pytorch-page-level-bar" id="pytorch-page-level-bar">
+        <div class="pytorch-breadcrumbs-wrapper">
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="pytorch-breadcrumbs">
+    
+      <li>
+        <a href="../index.html">
+          
+            Docs
+          
+        </a> &gt;
+      </li>
+
+        
+      <li>Documentation</li>
+    
+    
+      <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/general/Documentation.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+</div>
+        </div>
+
+        <div class="pytorch-shortcuts-wrapper" id="pytorch-shortcuts-wrapper">
+          Shortcuts
+        </div>
+      </div>
+
+      <section data-toggle="wy-nav-shift" id="pytorch-content-wrap" class="pytorch-content-wrap">
+        <div class="pytorch-content-left">
+
+        
+          <!-- Google Tag Manager (noscript) -->
+          <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=UA-117752657-2"
+          height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+          <!-- End Google Tag Manager (noscript) -->
+          
+          <div class="rst-content">
+          
+            <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
+             <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
+              
+  <section id="documentation">
+<h1>Documentation<a class="headerlink" href="#documentation" title="Permalink to this heading">¶</a></h1>
+<p>Both FBGEMM and FBGEMM_GPU provide extensive comments in its source files, which
+serve as the most authoritative and up-to-date documentation available for the
+two libraries.</p>
+<section id="building-the-api-documentation">
+<span id="fbgemm-gpu-docs-build"></span><h2>Building the API Documentation<a class="headerlink" href="#building-the-api-documentation" title="Permalink to this heading">¶</a></h2>
+<p><strong>Note:</strong> The most up-to-date documentation build instructions are embedded in
+a set of scripts bundled in the FBGEMM repo under
+<a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash">setup_env.bash</a>.</p>
+<p>The general steps for building the FBGEMM and FBGEMM_GPU documentation are as
+follows:</p>
+<ol class="arabic simple">
+<li><p>Set up an isolated build environment.</p></li>
+<li><p>Build FBGEMM_GPU (CPU variant).</p></li>
+<li><p>Set up the documentation toolchain.</p></li>
+<li><p>Run documentation build scripts.</p></li>
+</ol>
+<section id="set-up-build-environment">
+<h3>Set Up Build Environment<a class="headerlink" href="#set-up-build-environment" title="Permalink to this heading">¶</a></h3>
+<p>Follow the instructions for setting up the Conda environment at
+<a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>.</p>
+</section>
+<section id="build-fbgemm-gpu">
+<h3>Build FBGEMM_GPU<a class="headerlink" href="#build-fbgemm-gpu" title="Permalink to this heading">¶</a></h3>
+<p>A build pass of <strong>FBGEMM_GPU</strong> is required for the documentation to be built
+correctly.  Follow the instructions in
+<a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-tools-install"><span class="std std-ref">Install the Build Tools</span></a>, followed by
+<a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-process-cpu"><span class="std std-ref">CPU-Only Build</span></a>, to build FBGEMM_GPU (CPU variant).</p>
+</section>
+<section id="set-up-the-documentation-toolchain">
+<h3>Set Up the Documentation Toolchain<a class="headerlink" href="#set-up-the-documentation-toolchain" title="Permalink to this heading">¶</a></h3>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># From the /fbgemm_gpu/ directory</span>
+<span class="nb">cd</span><span class="w"> </span>docs
+
+<span class="c1"># Install Sphinx and other docs tools</span>
+pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+
+<span class="c1"># Install Doxygen and Make</span>
+conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>doxygen<span class="w"> </span>graphviz<span class="w"> </span>make
+</pre></div>
+</div>
+</section>
+<section id="build-the-documentation">
+<h3>Build the Documentation<a class="headerlink" href="#build-the-documentation" title="Permalink to this heading">¶</a></h3>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generate the C++ documentation, the Python documentation, and assemble</span>
+<span class="c1"># together</span>
+make<span class="w"> </span>clean<span class="w"> </span>doxygen<span class="w"> </span>html
+</pre></div>
+</div>
+<p>After the build completes, view the generated documentation:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>sphinx-serve<span class="w"> </span>-b<span class="w"> </span>build
+</pre></div>
+</div>
+</section>
+<section id="deployment-preview">
+<h3>Deployment Preview<a class="headerlink" href="#deployment-preview" title="Permalink to this heading">¶</a></h3>
+<p>As a PyTorch project, a preview of the FBGEMM and FBGEMM_GPU documentation will
+be automatically built and deployed by <a class="reference external" href="https://www.netlify.com/">Netlify</a>
+when pull requests are made.  When the build completes, the deployment preview
+can be found at:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>https://deploy-preview-&lt;PR<span class="w"> </span>NUMBER&gt;&gt;--pytorch-fbgemm-docs.netlify.app/
+</pre></div>
+</div>
+</section>
+</section>
+<section id="general-documentation-guidelines">
+<h2>General Documentation Guidelines<a class="headerlink" href="#general-documentation-guidelines" title="Permalink to this heading">¶</a></h2>
+<p>When new public API methods are added, they should be accompanied by sufficient
+documentation.  Here are some guidelines for documenting FBGEMM and FBGEMM_GPU
+code:</p>
+<ul class="simple">
+<li><p>Code by itself is not documentation! Put yourself in the shoes of new
+developers who has to understand what your code does, and make their lives
+easier.</p></li>
+<li><p>Documentation should be added for any and all public API methods.</p></li>
+<li><p>Don’t leave docstring-writing as a separate task.</p></li>
+<li><p>Write docstrings together with the code.</p></li>
+<li><p>At a very minimum, add:</p>
+<ul>
+<li><p>A description of the method.</p></li>
+<li><p>A description for each argument that can be passed into the method.</p></li>
+<li><p>A description of the method’s return value.</p></li>
+</ul>
+</li>
+<li><p>Add usage examples, links to other methods, and method invocation limitations.</p></li>
+</ul>
+</section>
+<section id="adding-documentation-to-python-code">
+<h2>Adding Documentation to Python Code<a class="headerlink" href="#adding-documentation-to-python-code" title="Permalink to this heading">¶</a></h2>
+<p>Documentation for Python is provided through docstrings and generated using
+<a class="reference external" href="https://www.sphinx-doc.org/en/master/">Sphinx</a>.  Please reference the
+<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/extensions/example_google.html">Google-style Python docstrings</a>
+guide for docstring formatting examples.</p>
+<p>Follow these instructions to document, generate, and publish a new Python
+docstring:</p>
+<ol class="arabic">
+<li><p>Add the docstring directly under the name of the target method.  At a very
+minimum, please add descriptions of:</p>
+<ul class="simple">
+<li><p>The method’s functional behavior</p></li>
+<li><p>The arguments, as denoted by the <code class="docutils literal notranslate"><span class="pre">Args</span></code> section</p></li>
+<li><p>The return value, as denoted by the <code class="docutils literal notranslate"><span class="pre">Returns</span></code> section</p></li>
+<li><p>The exceptions that can be thrown (if applicable), as denoted by the
+<code class="docutils literal notranslate"><span class="pre">Raises</span></code> section</p></li>
+</ul>
+<p>Other sections such as <code class="docutils literal notranslate"><span class="pre">Todo</span></code>, <code class="docutils literal notranslate"><span class="pre">Note</span></code>, and <code class="docutils literal notranslate"><span class="pre">Example</span></code> should be added
+as needed.</p>
+<p>Here is an example Python docstring:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">example_method</span><span class="p">(</span><span class="n">alignment</span><span class="p">:</span> <span class="n">c_size_t</span><span class="p">,</span> <span class="n">param</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    This class is an example of how you can write docstrings.</span>
+<span class="sd">    You can add multiple lines of those descriptions. Make sure to include</span>
+<span class="sd">    useful information about your method.</span>
+
+<span class="sd">    **Code Example:**</span>
+
+<span class="sd">    .. code-block:: cpp</span>
+
+<span class="sd">        // Here is a C++ code block</span>
+<span class="sd">        std::vector&lt;int32_t&gt; foo(const std::vector&lt;int32_t&gt; &amp;lst) {</span>
+<span class="sd">            std::vector&lt;int32_t&gt; ret;</span>
+<span class="sd">            for (const auto x : lst) {</span>
+<span class="sd">                ret.emplace_back(x * 2);</span>
+<span class="sd">            }</span>
+<span class="sd">            return ret;</span>
+<span class="sd">        }</span>
+
+<span class="sd">    And here is a verbatim-text diagram example:</span>
+
+<span class="sd">    .. code-block:: text</span>
+
+<span class="sd">        .------+---------------------------------.-----------------------------</span>
+<span class="sd">        |            Block A (first)             |       Block B (second)</span>
+<span class="sd">        +------+------+--------------------------+------+------+---------------</span>
+<span class="sd">        | Next | Prev |   usable space           | Next | Prev | usable space..</span>
+<span class="sd">        +------+------+--------------------------+------+--+---+---------------</span>
+<span class="sd">        ^  |                                     ^         |</span>
+<span class="sd">        |  &#39;-------------------------------------&#39;         |</span>
+<span class="sd">        |                                                  |</span>
+<span class="sd">        &#39;----------- Block B&#39;s prev points to Block A -----&#39;</span>
+
+<span class="sd">    Todo:</span>
+<span class="sd">        * This is a TODO item.</span>
+<span class="sd">        * And a second TODO item.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        alignment (c_size_t): Description of the `alignment` value.</span>
+<span class="sd">        param (float): Description of `param1`.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Description of the method&#39;s return value.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        AttributeError: If there is an error with the attributes.</span>
+<span class="sd">        ValueError: If `param` is equal to 3.14.</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        This is how you can use this function</span>
+
+<span class="sd">        &gt;&gt;&gt; print(&quot;Code blocks are supported&quot;)</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        For more info on reStructuredText docstrings, see</span>
+<span class="sd">        `here &lt;https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html&gt;`__</span>
+<span class="sd">        and</span>
+<span class="sd">        `here &lt;https://peps.python.org/pep-0287/&gt;`__.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="mi">42</span>
+
+
+</pre></div>
+</div>
+</li>
+<li><p>On the Sphinx documentation side, add an <code class="docutils literal notranslate"><span class="pre">autofunction</span></code> directive to the
+corresponding <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file.  If an <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file for the corresponding
+Python source file does not exist, create a new one by the same name as the
+Python source file.  Using the above example:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">autofunction</span><span class="p">::</span> fbgemm_gpu.docs.examples.example_method
+</pre></div>
+</div>
+</li>
+<li><p>Make sure the <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file is included in to the <code class="docutils literal notranslate"><span class="pre">toctree</span></code> in
+<code class="docutils literal notranslate"><span class="pre">index.rst</span></code> (e.g. <a class="reference internal" href="../index.html#fbgemm-gpu-toc-api-python"><span class="std std-ref">FBGEMM_GPU Python API</span></a>).</p></li>
+<li><p>Verify the changes by building the docs locally with
+<a class="reference internal" href="#fbgemm-gpu-docs-build"><span class="std std-ref">Building the API Documentation</span></a> or submitting a PR for a Netlify preview.</p></li>
+</ol>
+<hr class="docutils" />
+<p>The Python docstring example above generates the following HTML output:</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="fbgemm_gpu.docs.examples.example_method">
+<span class="sig-prename descclassname"><span class="pre">fbgemm_gpu.docs.examples.</span></span><span class="sig-name descname"><span class="pre">example_method</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">alignment</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/ctypes.html#ctypes.c_ulong" title="(in Python v3.12)"><span class="pre">c_ulong</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../_modules/fbgemm_gpu/docs/examples.html#example_method"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#fbgemm_gpu.docs.examples.example_method" title="Permalink to this definition">¶</a></dt>
+<dd><p>This class is an example of how you can write docstrings.
+You can add multiple lines of those descriptions. Make sure to include
+useful information about your method.</p>
+<p><strong>Code Example:</strong></p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">// Here is a C++ code block</span>
+<span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int32_t</span><span class="o">&gt;</span><span class="w"> </span><span class="n">foo</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int32_t</span><span class="o">&gt;</span><span class="w"> </span><span class="o">&amp;</span><span class="n">lst</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">std</span><span class="o">::</span><span class="n">vector</span><span class="o">&lt;</span><span class="kt">int32_t</span><span class="o">&gt;</span><span class="w"> </span><span class="n">ret</span><span class="p">;</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">lst</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">ret</span><span class="p">.</span><span class="n">emplace_back</span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">ret</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>And here is a verbatim-text diagram example:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.------+---------------------------------.-----------------------------
+|            Block A (first)             |       Block B (second)
++------+------+--------------------------+------+------+---------------
+| Next | Prev |   usable space           | Next | Prev | usable space..
++------+------+--------------------------+------+--+---+---------------
+^  |                                     ^         |
+|  &#39;-------------------------------------&#39;         |
+|                                                  |
+&#39;----------- Block B&#39;s prev points to Block A -----&#39;
+</pre></div>
+</div>
+<div class="admonition-todo admonition" id="id1">
+<p class="admonition-title">Todo</p>
+<ul class="simple">
+<li><p>This is a TODO item.</p></li>
+<li><p>And a second TODO item.</p></li>
+</ul>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>alignment</strong> (<em>c_size_t</em>) – Description of the <cite>alignment</cite> value.</p></li>
+<li><p><strong>param</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a>) – Description of <cite>param1</cite>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Description of the method’s return value.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#AttributeError" title="(in Python v3.12)"><strong>AttributeError</strong></a> – If there is an error with the attributes.</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.12)"><strong>ValueError</strong></a> – If <cite>param</cite> is equal to 3.14.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<p>This is how you can use this function</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Code blocks are supported&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For more info on reStructuredText docstrings, see
+<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html">here</a>
+and
+<a class="reference external" href="https://peps.python.org/pep-0287/">here</a>.</p>
+</div>
+</dd></dl>
+
+</section>
+<hr class="docutils" />
+<section id="adding-documentation-to-c-code">
+<h2>Adding Documentation to C++ Code<a class="headerlink" href="#adding-documentation-to-c-code" title="Permalink to this heading">¶</a></h2>
+<p>Documentation for C++ is provided through
+<a class="reference external" href="https://www.oracle.com/technical-resources/articles/java/javadoc-tool.html">Javadoc-style comments</a>
+and generated using Sphinx, <a class="reference external" href="https://www.doxygen.nl/">Doxygen</a>, and
+<a class="reference external" href="https://www.breathe-doc.org/">Breathe</a>.</p>
+<p>Documentation is kept in header files with the <code class="docutils literal notranslate"><span class="pre">.h</span></code> extension as well as in
+<code class="docutils literal notranslate"><span class="pre">.cpp</span></code>, <code class="docutils literal notranslate"><span class="pre">cu</span></code>, and <code class="docutils literal notranslate"><span class="pre">cuh</span></code> files.  In these files, everything between
+<code class="docutils literal notranslate"><span class="pre">#ifndef</span> <span class="pre">DOXYGEN_THIS_WILL_BE_SKIPPED</span></code> and <code class="docutils literal notranslate"><span class="pre">#endif</span></code> will be hidden from the
+HTML output.  When you add descriptionss to a function, make sure that the
+<code class="docutils literal notranslate"><span class="pre">#ifndef</span></code> and <code class="docutils literal notranslate"><span class="pre">#endif</span></code> are configured correctly.</p>
+<p>Follow these instructions to document, generate, and publish a new C++
+docstring:</p>
+<ol class="arabic">
+<li><p>API methods are grouped together by group tags for better organization in
+Sphinx.  If a desired method group for the target method is not defined yet,
+define it near the top of the relevant header file with the <code class="docutils literal notranslate"><span class="pre">&#64;defgroup</span></code>
+command:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">/// @defgroup example-method-group Example Method Group</span>
+<span class="c1">/// This is a description of the example method group.</span>
+</pre></div>
+</div>
+</li>
+<li><p>Add the docstring directly above the target method’s declaration.  At a very
+minimum, please add descriptions of:</p>
+<ul class="simple">
+<li><p>The method’s functional behavior</p></li>
+<li><p>The type parameters, as denoted by the <code class="docutils literal notranslate"><span class="pre">&#64;tparam</span></code> tag</p></li>
+<li><p>The arguments, as denoted by the <code class="docutils literal notranslate"><span class="pre">&#64;param</span></code> tag</p></li>
+<li><p>The return value, as denoted by the <code class="docutils literal notranslate"><span class="pre">&#64;return</span></code> tag</p></li>
+<li><p>The exceptions that can be thrown (if applicable), as denoted by the
+<code class="docutils literal notranslate"><span class="pre">&#64;throw</span></code> tag</p></li>
+</ul>
+<p>Other commands such as <code class="docutils literal notranslate"><span class="pre">&#64;note</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;warning</span></code>, and <code class="docutils literal notranslate"><span class="pre">&#64;see</span></code> should be added
+as needed.</p>
+<p>Here is an example C++ docstring:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">/// @ingroup example-method-group</span>
+<span class="c1">///</span>
+<span class="c1">/// @brief A very short description of `example_method`.</span>
+<span class="c1">///</span>
+<span class="c1">/// Here is a much longer description of `example_method` with code examples:</span>
+<span class="c1">///</span>
+<span class="c1">/// **Example:**</span>
+<span class="c1">/// ```python</span>
+<span class="c1">/// # Here is a Python code block</span>
+<span class="c1">/// def foo(lst: list[int]) -&gt; list[int]:</span>
+<span class="c1">///   return [ x ** 2 for x in lst ]</span>
+<span class="c1">/// ```</span>
+<span class="c1">///</span>
+<span class="c1">/// And here is a verbatim-text diagram example:</span>
+<span class="c1">///</span>
+<span class="c1">/// @code{.unparsed}</span>
+<span class="c1">///   .------+---------------------------------.-----------------------------</span>
+<span class="c1">///   |            Block A (first)             |       Block B (second)</span>
+<span class="c1">///</span>
+<span class="c1">///   +------+------+--------------------------+------+------+---------------</span>
+<span class="c1">///   | Next | Prev |   usable space           | Next | Prev | usable space..</span>
+<span class="c1">///   +------+------+--------------------------+------+--+---+---------------</span>
+<span class="c1">///   ^  |                                     ^         |</span>
+<span class="c1">///   |  &#39;-------------------------------------&#39;         |</span>
+<span class="c1">///   |                                                  |</span>
+<span class="c1">///   &#39;----------- Block B&#39;s prev points to Block A -----&#39;</span>
+<span class="c1">/// @endcode</span>
+<span class="c1">///</span>
+<span class="c1">/// @tparam T Description of `T`</span>
+<span class="c1">/// @tparam Alignment Description of the `Alignment` value</span>
+<span class="c1">/// @param param1 Description of `param1`</span>
+<span class="c1">/// @param param2 Description of `param2`</span>
+<span class="c1">///</span>
+<span class="c1">/// @return Description of the method&#39;s return value.</span>
+<span class="c1">///</span>
+<span class="c1">/// @throw std::bad_alloc if allocation failed</span>
+<span class="c1">/// @throw std::logic_error if a logic error occurs</span>
+<span class="c1">///</span>
+<span class="c1">/// @note This is an example note.</span>
+<span class="c1">///</span>
+<span class="c1">/// @warning This is an example warning.</span>
+<span class="c1">///</span>
+<span class="c1">/// @see For more info on Doxygen docstrings, see</span>
+<span class="c1">/// &lt;a href=&quot;https://www.doxygen.nl/manual/commands.html#cmdlink&quot;&gt;here&lt;/a&gt;.</span>
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">T</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">Alignment</span><span class="o">&gt;</span>
+<span class="kt">int32_t</span><span class="w"> </span><span class="n">example_method</span><span class="p">(</span><span class="n">T</span><span class="w"> </span><span class="n">param1</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">param2</span><span class="p">);</span>
+</pre></div>
+</div>
+</li>
+<li><p>On the Sphinx documentation side, add a <code class="docutils literal notranslate"><span class="pre">doxygengroup</span></code> directive to the
+corresponding <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file.  If an <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file for the corresponding
+header file does not exist, create a new one by the same name as the header
+file.  Using the above example:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">doxygengroup</span><span class="p">::</span> example-method-group
+  <span class="nc">:content-only:</span>
+</pre></div>
+</div>
+</li>
+<li><p>Make sure the <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file is included in to the <code class="docutils literal notranslate"><span class="pre">toctree</span></code> in
+<code class="docutils literal notranslate"><span class="pre">index.rst</span></code> (e.g. <a class="reference internal" href="../index.html#fbgemm-gpu-toc-api-cpp"><span class="std std-ref">FBGEMM_GPU C++ API</span></a>).</p></li>
+<li><p>The C++ source header file needs to be in one of the directories listed in
+the <code class="docutils literal notranslate"><span class="pre">INPUT</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">Doxygen.ini</span></code>.  In general, this has already
+been taken care of, but if it’s in a directory not listed, be sure to
+append the directory path to the parameter.</p></li>
+<li><p>Verify the changes by building the docs locally with
+<a class="reference internal" href="#fbgemm-gpu-docs-build"><span class="std std-ref">Building the API Documentation</span></a> or submitting a PR for a Netlify preview.</p></li>
+</ol>
+<hr class="docutils" />
+<p>The Doxygen example above generates the following HTML output:</p>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf">
+<span id="_CPPv3I0_NSt6size_tEE14example_method1Tf"></span><span id="_CPPv2I0_NSt6size_tEE14example_method1Tf"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">T</span></span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">Alignment</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__example-method-group_1ga56a504c1752577359ba5b75a9cd52737"></span><span class="n"><span class="pre">int32_t</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">example_method</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf" title="example_method::T"><span class="n"><span class="pre">T</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">param1</span></span>, <span class="kt"><span class="pre">float</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">param2</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>A very short description of <code class="docutils literal notranslate"><span class="pre">example_method</span></code>. </p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span>
+</pre></div>
+</div>
+<p>Here is a much longer description of <code class="docutils literal notranslate"><span class="pre">example_method</span></code> with code examples:</p>
+<p><strong>Example:</strong> <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Here is a Python code block</span>
+<span class="k">def</span> <span class="nf">foo</span><span class="p">(</span><span class="n">lst</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+  <span class="k">return</span> <span class="p">[</span> <span class="n">x</span> <span class="o">**</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">lst</span> <span class="p">]</span>
+</pre></div>
+</div>
+</p>
+<p>And here is a verbatim-text diagram example:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.------+---------------------------------.-----------------------------
+|            Block A (first)             |       Block B (second)
+
++------+------+--------------------------+------+------+---------------
+| Next | Prev |   usable space           | Next | Prev | usable space..
++------+------+--------------------------+------+--+---+---------------
+^  |                                     ^         |
+|  &#39;-------------------------------------&#39;         |
+|                                                  |
+&#39;----------- Block B&#39;s prev points to Block A -----&#39;
+</pre></div>
+</div>
+<p><div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<p>For more info on Doxygen docstrings, see <a class="reference external" href="https://www.doxygen.nl/manual/commands.html#cmdlink">here</a>. </p>
+</div>
+</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is an example note.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This is an example warning.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Template Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>T</strong> – Description of <code class="docutils literal notranslate"><span class="pre">T</span></code></p></li>
+<li><p><strong>Alignment</strong> – Description of the <code class="docutils literal notranslate"><span class="pre">Alignment</span></code> value </p></li>
+</ul>
+</dd>
+<dt class="field-even">Parameters<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>param1</strong> – Description of <code class="docutils literal notranslate"><span class="pre">param1</span></code></p></li>
+<li><p><strong>param2</strong> – Description of <code class="docutils literal notranslate"><span class="pre">param2</span></code></p></li>
+</ul>
+</dd>
+<dt class="field-odd">Throws<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">std</span><span class="p">::</span><span class="n">bad_alloc</span></span></span> – if allocation failed </p></li>
+<li><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">std</span><span class="p">::</span><span class="n">logic_error</span></span></span> – if a logic error occurs</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Description of the method’s return value.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<hr class="docutils" />
+<section id="sphinx-documentation-pointers">
+<h2>Sphinx Documentation Pointers<a class="headerlink" href="#sphinx-documentation-pointers" title="Permalink to this heading">¶</a></h2>
+<section id="references-other-sections-of-the-documentation">
+<h3>References Other Sections of the Documentation<a class="headerlink" href="#references-other-sections-of-the-documentation" title="Permalink to this heading">¶</a></h3>
+<p>To reference other sections in the documentation, an anchor must first be
+created above the target section:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="nt">_fbgemm-gpu.example.reference:</span>
+
+<span class="gh">Example Section Header</span>
+<span class="gh">----------------------</span>
+
+NOTES:
+
+<span class="m">#.</span>  The reference anchor must start with an underscore, i.e. <span class="s">``_``</span>.
+
+<span class="m">#.</span>  !! There must be an empty line between the anchor and its target !!
+</pre></div>
+</div>
+<p>The anchor can then be referenced elsewhere in the docs:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span>Referencing the section <span class="na">:ref:</span><span class="nv">`fbgemm-gpu.example.reference`</span> from
+another page in the docs.
+
+Referencing the section with
+<span class="na">:ref:</span><span class="nv">`custom text &lt;fbgemm-gpu.example.reference&gt;`</span> from another page
+in the docs.
+
+Note that the prefix underscore is not needed when referencing the anchor.
+</pre></div>
+</div>
+</section>
+<section id="referencing-the-source-code">
+<h3>Referencing the Source Code<a class="headerlink" href="#referencing-the-source-code" title="Permalink to this heading">¶</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">literalinclude</span></code> directive can be used to display the source code inside a
+Sphinx document.  To display the full file content:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">literalinclude</span><span class="p">::</span>  relative/path/from/this/rst/file/to/the/source.txt
+</pre></div>
+</div>
+<p>To display only a section of the file, a pair of unique tags must first be added
+to the target source file, as comments with the tag string enclosed in brackets.</p>
+<p>For Python source files:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># [example.tag.start]</span>
+
+<span class="c1"># ... code section that will be referenced ...</span>
+
+<span class="c1"># [example.tag.end]</span>
+</pre></div>
+</div>
+<p>For C++ source files:</p>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">/// @skipline [example.tag.start]</span>
+
+<span class="c1">/// ... code section that will be referenced ...</span>
+
+<span class="c1">/// @skipline [example.tag.end]</span>
+</pre></div>
+</div>
+<p>The tags then need to be supplied to the <code class="docutils literal notranslate"><span class="pre">literalinclude</span></code> directive:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">literalinclude</span><span class="p">::</span>  relative/path/from/this/rst/file/to/the/source.cpp
+  <span class="nc">:language:</span> cpp
+  <span class="nc">:start-after:</span> example.tag.start
+  <span class="nc">:end-before:</span> example.tag.end
+</pre></div>
+</div>
+<p>See the Sphinx documentation
+<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#directive-literalinclude">here</a>
+for more information.</p>
+</section>
+<section id="adding-latex">
+<h3>Adding LaTeX<a class="headerlink" href="#adding-latex" title="Permalink to this heading">¶</a></h3>
+<p>Math expressions with LaTeX can be added inline to Sphinx docs using the
+<code class="docutils literal notranslate"><span class="pre">math</span></code> directive:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span>Example text: <span class="na">:math:</span><span class="nv">`k_{n+1} = n^2 + k_n^2 - k_{n-1}`</span>
+</pre></div>
+</div>
+<p>The above example will be rendered as: <span class="math notranslate nohighlight">\(k_{n+1} = n^2 + k_n^2 - k_{n-1}\)</span>.</p>
+<p>Math expressinos can also be inserted as a code block:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">math</span><span class="p">::</span>
+
+  \int_a^bu \frac{d^2v}{dx^2} \,dx
+    = \left.u \frac{dv}{dx} \right|_a^b
+    <span class="m">-</span> \int_a^b \frac{du}{dx} \frac{dv}{dx} \,dx
+</pre></div>
+</div>
+<div class="math notranslate nohighlight">
+\[\int_a^bu \frac{d^2v}{dx^2} \,dx
+  = \left.u \frac{dv}{dx} \right|_a^b
+  - \int_a^b \frac{du}{dx} \frac{dv}{dx} \,dx\]</div>
+<p>See the Sphinx documentation
+<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#math">here</a>
+and <a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/extensions/math.html#module-sphinx.ext.mathjax">here</a>
+for more information.</p>
+</section>
+<section id="adding-graphs">
+<h3>Adding Graphs<a class="headerlink" href="#adding-graphs" title="Permalink to this heading">¶</a></h3>
+<p>Graphs can be generated in Sphinx using <code class="docutils literal notranslate"><span class="pre">graphviz</span></code> directive.  Graph
+descriptions can be added inside a block:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">graphviz</span><span class="p">::</span>
+
+  digraph example {
+    &quot;From&quot; -&gt; &quot;To&quot;;
+  }
+</pre></div>
+</div>
+<div class="graphviz"><object data="../_images/graphviz-990bb40fc3e288e64124bd216043d11702ae2b3e.svg" type="image/svg+xml" class="graphviz">
+<p class="warning">digraph example {
+  &quot;From&quot; -&gt; &quot;To&quot;;
+}</p></object></div>
+<p>Alternatively, they can be imported from an external <code class="docutils literal notranslate"><span class="pre">.dot</span></code> file:</p>
+<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">graphviz</span><span class="p">::</span> ExampleGraph.dot
+</pre></div>
+</div>
+<div class="graphviz"><object data="../_images/graphviz-b71801a1bfe207259e6e784c9f107905c564e860.svg" type="image/svg+xml" class="graphviz">
+<p class="warning">digraph &quot;sphinx-ext-graphviz&quot; {
+     size=&quot;6,8&quot;;
+     rankdir=&quot;LR&quot;;
+     graph [fontname=&quot;Verdana&quot;, fontsize=&quot;12&quot;];
+     node [fontname=&quot;Verdana&quot;, fontsize=&quot;12&quot;];
+     edge [fontname=&quot;Sans&quot;, fontsize=&quot;9&quot;];
+
+     sphinx [label=&quot;Sphinx&quot;, shape=&quot;component&quot;,
+               href=&quot;https://www.sphinx-doc.org/&quot;,
+               target=&quot;_blank&quot;];
+     dot [label=&quot;GraphViz&quot;, shape=&quot;component&quot;,
+          href=&quot;https://www.graphviz.org/&quot;,
+          target=&quot;_blank&quot;];
+     docs [label=&quot;Docs (.rst)&quot;, shape=&quot;folder&quot;,
+          fillcolor=green, style=filled];
+     svg_file [label=&quot;SVG Image&quot;, shape=&quot;note&quot;, fontcolor=white,
+               fillcolor=&quot;#3333ff&quot;, style=filled];
+     html_files [label=&quot;HTML Files&quot;, shape=&quot;folder&quot;,
+          fillcolor=yellow, style=filled];
+
+     docs -&gt; sphinx [label=&quot; parse &quot;];
+     sphinx -&gt; dot [label=&quot; call &quot;, style=dashed, arrowhead=none];
+     dot -&gt; svg_file [label=&quot; draw &quot;];
+     sphinx -&gt; html_files [label=&quot; render &quot;];
+     svg_file -&gt; html_files [style=dashed];
+}</p></object></div>
+<p>See the
+<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html">Sphinx</a>
+and <a class="reference external" href="https://graphviz.org/documentation/">Graphviz</a> documentation more
+information.</p>
+</section>
+</section>
+</section>
+
+
+             </article>
+             
+            </div>
+            <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="ContactUs.html" class="btn btn-neutral float-right" title="Contact Us" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="Contributing.html" class="btn btn-neutral" title="Contributing" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
+  
+
+  
+
+    <hr>
+
+  
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2020 - 2024, FBGEMM Team.
+
+    </p>
+  </div>
+    
+      <div>
+        Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+      </div>
+     
+
+</footer>
+
+          </div>
+        </div>
+
+        <div class="pytorch-content-right" id="pytorch-content-right">
+          <div class="pytorch-right-menu" id="pytorch-right-menu">
+            <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
+              <ul>
+<li><a class="reference internal" href="#">Documentation</a><ul>
+<li><a class="reference internal" href="#building-the-api-documentation">Building the API Documentation</a><ul>
+<li><a class="reference internal" href="#set-up-build-environment">Set Up Build Environment</a></li>
+<li><a class="reference internal" href="#build-fbgemm-gpu">Build FBGEMM_GPU</a></li>
+<li><a class="reference internal" href="#set-up-the-documentation-toolchain">Set Up the Documentation Toolchain</a></li>
+<li><a class="reference internal" href="#build-the-documentation">Build the Documentation</a></li>
+<li><a class="reference internal" href="#deployment-preview">Deployment Preview</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#general-documentation-guidelines">General Documentation Guidelines</a></li>
+<li><a class="reference internal" href="#adding-documentation-to-python-code">Adding Documentation to Python Code</a><ul>
+<li><a class="reference internal" href="#fbgemm_gpu.docs.examples.example_method"><code class="docutils literal notranslate"><span class="pre">example_method()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#adding-documentation-to-c-code">Adding Documentation to C++ Code</a></li>
+<li><a class="reference internal" href="#sphinx-documentation-pointers">Sphinx Documentation Pointers</a><ul>
+<li><a class="reference internal" href="#references-other-sections-of-the-documentation">References Other Sections of the Documentation</a></li>
+<li><a class="reference internal" href="#referencing-the-source-code">Referencing the Source Code</a></li>
+<li><a class="reference internal" href="#adding-latex">Adding LaTeX</a></li>
+<li><a class="reference internal" href="#adding-graphs">Adding Graphs</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  
+
+
+  
+
+     
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
+         <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+     
+
+  
+
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+  <!-- Begin Footer -->
+
+  <div class="container-fluid docs-tutorials-resources" id="docs-tutorials-resources">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 text-center">
+          <h2>Docs</h2>
+          <p>Access comprehensive developer documentation for PyTorch</p>
+          <a class="with-right-arrow" href="https://pytorch.org/docs/stable/index.html">View Docs</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Tutorials</h2>
+          <p>Get in-depth tutorials for beginners and advanced developers</p>
+          <a class="with-right-arrow" href="https://pytorch.org/tutorials">View Tutorials</a>
+        </div>
+
+        <div class="col-md-4 text-center">
+          <h2>Resources</h2>
+          <p>Find development resources and get your questions answered</p>
+          <a class="with-right-arrow" href="https://pytorch.org/resources">View Resources</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-logo-wrapper">
+        <a href="https://pytorch.org/" class="footer-logo"></a>
+      </div>
+
+      <div class="footer-links-wrapper">
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/">PyTorch</a></li>
+            <li><a href="https://pytorch.org/get-started">Get Started</a></li>
+            <li><a href="https://pytorch.org/features">Features</a></li>
+            <li><a href="https://pytorch.org/ecosystem">Ecosystem</a></li>
+            <li><a href="https://pytorch.org/blog/">Blog</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md">Contributing</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title"><a href="https://pytorch.org/resources">Resources</a></li>
+            <li><a href="https://pytorch.org/tutorials">Tutorials</a></li>
+            <li><a href="https://pytorch.org/docs/stable/index.html">Docs</a></li>
+            <li><a href="https://discuss.pytorch.org" target="_blank">Discuss</a></li>
+            <li><a href="https://github.com/pytorch/pytorch/issues" target="_blank">Github Issues</a></li>
+            <li><a href="https://pytorch.org/assets/brand-guidelines/PyTorch-Brand-Guidelines.pdf" target="_blank">Brand Guidelines</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">Stay up to date</li>
+            <li><a href="https://www.facebook.com/pytorch" target="_blank">Facebook</a></li>
+            <li><a href="https://twitter.com/pytorch" target="_blank">Twitter</a></li>
+            <li><a href="https://www.youtube.com/pytorch" target="_blank">YouTube</a></li>
+            <li><a href="https://www.linkedin.com/company/pytorch" target="_blank">LinkedIn</a></li>
+          </ul>  
+          </div>
+
+        <div class="footer-links-col">
+          <ul>
+            <li class="list-title">PyTorch Podcasts</li>
+            <li><a href="https://open.spotify.com/show/6UzHKeiy368jKfQMKKvJY5" target="_blank">Spotify</a></li>
+            <li><a href="https://podcasts.apple.com/us/podcast/pytorch-developer-podcast/id1566080008" target="_blank">Apple</a></li>
+            <li><a href="https://www.google.com/podcasts?feed=aHR0cHM6Ly9mZWVkcy5zaW1wbGVjYXN0LmNvbS9PQjVGa0lsOA%3D%3D" target="_blank">Google</a></li>
+            <li><a href="https://music.amazon.com/podcasts/7a4e6f0e-26c2-49e9-a478-41bd244197d0/PyTorch-Developer-Podcast?" target="_blank">Amazon</a></li>
+          </ul>
+         </div>
+        </div>
+        
+        <div class="privacy-policy">
+          <ul>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/terms/" target="_blank">Terms</a></li>
+            <li class="privacy-policy-links">|</li>
+            <li class="privacy-policy-links"><a href="https://www.linuxfoundation.org/privacy-policy/" target="_blank">Privacy</a></li>
+          </ul>
+        </div>
+        <div class="copyright">
+        <p>© Copyright The Linux Foundation. The PyTorch Foundation is a project of The Linux Foundation.
+          For web site terms of use, trademark policy and other policies applicable to The PyTorch Foundation please see
+          <a href="https://www.linuxfoundation.org/policies/">www.linuxfoundation.org/policies/</a>. The PyTorch Foundation supports the PyTorch open source
+          project, which has been established as PyTorch Project a Series of LF Projects, LLC. For policies applicable to the PyTorch Project a Series of LF Projects, LLC,
+          please see <a href="https://www.lfprojects.org/policies/">www.lfprojects.org/policies/</a>.</p>
+      </div>
+     </div>
+
+  </footer>
+
+  <div class="cookie-banner-wrapper">
+  <div class="container">
+    <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
+  </div>
+</div>
+
+  <!-- End Footer -->
+
+  <!-- Begin Mobile Menu -->
+
+  <div class="mobile-main-menu">
+    <div class="container-fluid">
+      <div class="container">
+        <div class="mobile-main-menu-header-container">
+          <a class="header-logo" href="https://pytorch.org/" aria-label="PyTorch"></a>
+          <a class="main-menu-close-button" href="#" data-behavior="close-mobile-menu"></a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-main-menu-links-container">
+      <div class="main-menu">
+        <ul>
+          <li>
+            <a href="https://pytorch.org/get-started">Get Started</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/ecosystem">Ecosystem</a>
+          </li>
+            
+          <li>
+            <a href="">Mobile</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/blog/">Blog</a>
+          </li>
+
+          <li>
+            <a href="https://pytorch.org/tutorials">Tutorials</a>
+          </li>
+
+          <li class="resources-mobile-menu-title">
+            Docs
+          </li>
+
+          <ul class="resources-mobile-menu-items">
+            <li>
+              <a href="https://pytorch.org/docs/stable/index.html">PyTorch</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/audio/stable/index.html">torchaudio</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/text/stable/index.html">torchtext</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/vision/stable/index.html">torchvision</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torcharrow">torcharrow</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/data">TorchData</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchrec">TorchRec</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/serve/">TorchServe</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/torchx/">TorchX</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/xla">PyTorch on XLA Devices</a>
+            </li>
+          </ul>
+
+          <li class="resources-mobile-menu-title">
+            Resources
+          </li>
+            
+           <ul class="resources-mobile-menu-items">
+
+            <li>
+              <a href="https://pytorch.org/features">About</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/foundation">PyTorch Foundation</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/#community-module">Community</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/community-stories">Community Stories</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/resources">Developer Resources</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/events">Events</a>
+            </li>
+
+            <li>
+              <a href="https://discuss.pytorch.org/">Forums</a>
+            </li>
+
+            <li>
+              <a href="https://pytorch.org/hub">Models (Beta)</a>
+            </li>
+          </ul>
+
+          <li>
+            <a href="https://github.com/pytorch/pytorch">Github</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- End Mobile Menu -->
+
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+
+  <script type="text/javascript">
+    $(document).ready(function() {
+      mobileMenu.bind();
+      mobileTOC.bind();
+      pytorchAnchors.bind();
+      sideMenus.bind();
+      scrollToAnchor.bind();
+      highlightNavigation.bind();
+      mainMenuDropdown.bind();
+      filterTags.bind();
+
+      // Add class to links that have code blocks, since we cannot create links in code blocks
+      $("article.pytorch-article a span.pre").each(function(e) {
+        $(this).closest("a").addClass("has-code");
+      });
+    })
+  </script>
+</body>
+</html>

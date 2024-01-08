@@ -79,7 +79,7 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:gad34ac20d2c9be5a6489c8e8befff7938" id="r_gad34ac20d2c9be5a6489c8e8befff7938"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a>, std::vector&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gad34ac20d2c9be5a6489c8e8befff7938">jagged_dense_elementwise_add_jagged_output_cuda</a> (<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">x_values</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> std::vector&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">x_offsets</a>, <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;<a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">y</a>)</td></tr>
+<tr class="memitem:gad34ac20d2c9be5a6489c8e8befff7938" id="r_gad34ac20d2c9be5a6489c8e8befff7938"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, std::vector&lt; Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gad34ac20d2c9be5a6489c8e8befff7938">jagged_dense_elementwise_add_jagged_output_cuda</a> (const Tensor &amp;x_values, const std::vector&lt; Tensor &gt; &amp;x_offsets, const Tensor &amp;y)</td></tr>
 <tr class="separator:gad34ac20d2c9be5a6489c8e8befff7938"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
@@ -92,54 +92,23 @@ Functions</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">std::tuple&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a>, std::vector&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; &gt; jagged_dense_elementwise_add_jagged_output_cuda </td>
+          <td class="memname">std::tuple&lt; Tensor, std::vector&lt; Tensor &gt; &gt; jagged_dense_elementwise_add_jagged_output_cuda </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>x_values</em>, </span></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>x_values</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> std::vector&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>x_offsets</em>, </span></td>
+          <td class="paramtype">const std::vector&lt; Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>x_offsets</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>y</em></span>&#160;)</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>y</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 <p>output = x + y where x is jagged, y is dense, and output is jagged </p>
-
-</div>
-</div>
-<a id="gaffad7e38f6faf5f8365784fbf82a26f5" name="gaffad7e38f6faf5f8365784fbf82a26f5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#gaffad7e38f6faf5f8365784fbf82a26f5">&#9670;&#160;</a></span>jagged_to_padded_dense_forward()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">at::Tensor jagged_to_padded_dense_forward </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &amp;</td>          <td class="paramname"><span class="paramname"><em>values</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> std::vector&lt; <a class="el" href="namespacefbgemm__gpu.html#ae2016e9bbb2f470174708fc60cd7592f">Tensor</a> &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">c10::SymIntArrayRef</td>          <td class="paramname"><span class="paramname"><em>max_lengths</em>, </span></td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">const</a> <a class="el" href="classfbgemm__gpu_1_1_tensor_accessor.html">double</a></td>          <td class="paramname"><span class="paramname"><em>padding_value</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
 
 </div>
 </div>

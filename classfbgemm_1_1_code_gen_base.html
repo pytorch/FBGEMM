@@ -87,8 +87,38 @@ $(function() {
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:af00d94622211a89e6568e05d9b63850a" id="r_af00d94622211a89e6568e05d9b63850a"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </td></tr>
-<tr class="memitem:af00d94622211a89e6568e05d9b63850a"><td class="memTemplItemLeft" align="right" valign="top"><a class="el" href="#a29a8f6b7ad1202aff2112220ef2812a5">jit_micro_kernel_fp</a>&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#af00d94622211a89e6568e05d9b63850a">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+<tr class="memitem:af00d94622211a89e6568e05d9b63850a"><td class="memTemplItemLeft" align="right" valign="top">jit_micro_kernel_fp&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#af00d94622211a89e6568e05d9b63850a">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
 <tr class="separator:af00d94622211a89e6568e05d9b63850a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa2af59748852e0ff4bfec95c946cbcc9" id="r_aa2af59748852e0ff4bfec95c946cbcc9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa2af59748852e0ff4bfec95c946cbcc9">genComputeBlock</a> (x86::Emitter *a, x86::Gp buffer_A, x86::Gp buffer_B, x86::Gp B_pf, int rowRegs, int colRegs, int lda)</td></tr>
+<tr class="separator:aa2af59748852e0ff4bfec95c946cbcc9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a12a9f2428ed6fd0dd90c91fd4477e271" id="r_a12a9f2428ed6fd0dd90c91fd4477e271"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a12a9f2428ed6fd0dd90c91fd4477e271">storeCRegs</a> (x86::Emitter *a, int rowRegs, int colRegs, x86::Gp C_Offset, x86::Gp ldcReg, bool accum)</td></tr>
+<tr class="separator:a12a9f2428ed6fd0dd90c91fd4477e271"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a65dee023d21aee79a75508f08e51c403" id="r_a65dee023d21aee79a75508f08e51c403"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; int64_t, int64_t, int64_t, int64_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a65dee023d21aee79a75508f08e51c403">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t)</td></tr>
+<tr class="separator:a65dee023d21aee79a75508f08e51c403"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9727e9d8a35fccd581ad604006ea77fe" id="r_a9727e9d8a35fccd581ad604006ea77fe"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9727e9d8a35fccd581ad604006ea77fe">genComputeBlock</a> (x86::Emitter *a, x86::Gp buffer_A, x86::Gp buffer_B, x86::Gp, int rowRegs, int colRegs, int lda)</td></tr>
+<tr class="separator:a9727e9d8a35fccd581ad604006ea77fe"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a87e3f3cd0d070bf371466f4c7521266d" id="r_a87e3f3cd0d070bf371466f4c7521266d"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a87e3f3cd0d070bf371466f4c7521266d">storeCRegs</a> (x86::Emitter *a, int rowRegs, int colRegs, x86::Gp C_Offset, x86::Gp ldcReg, bool accum)</td></tr>
+<tr class="separator:a87e3f3cd0d070bf371466f4c7521266d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae20473007cc942d5263eed6677cfddee" id="r_ae20473007cc942d5263eed6677cfddee"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae20473007cc942d5263eed6677cfddee">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+<tr class="separator:ae20473007cc942d5263eed6677cfddee"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8c35863faf15810abfe3fe1cd432a687" id="r_a8c35863faf15810abfe3fe1cd432a687"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8c35863faf15810abfe3fe1cd432a687">genComputeBlock</a> (x86::Emitter *a, x86::Gp buffer_A, x86::Gp buffer_B, x86::Gp, int rowRegs, int colRegs, int lda)</td></tr>
+<tr class="separator:a8c35863faf15810abfe3fe1cd432a687"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3ba99549f858b04f892c5edb2580aa07" id="r_a3ba99549f858b04f892c5edb2580aa07"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ba99549f858b04f892c5edb2580aa07">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+<tr class="separator:a3ba99549f858b04f892c5edb2580aa07"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab13fc9ae80b3c7b6f7c95597b3eca012" id="r_ab13fc9ae80b3c7b6f7c95597b3eca012"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab13fc9ae80b3c7b6f7c95597b3eca012">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+<tr class="separator:ab13fc9ae80b3c7b6f7c95597b3eca012"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af378fb7873c900315a548c788e5f3e75" id="r_af378fb7873c900315a548c788e5f3e75"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af378fb7873c900315a548c788e5f3e75">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+<tr class="separator:af378fb7873c900315a548c788e5f3e75"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa2af59748852e0ff4bfec95c946cbcc9" id="r_aa2af59748852e0ff4bfec95c946cbcc9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa2af59748852e0ff4bfec95c946cbcc9">genComputeBlock</a> (x86::Emitter *a, x86::Gp buffer_A, x86::Gp buffer_B, x86::Gp B_pf, int rowRegs, int colRegs, int lda)</td></tr>
+<tr class="separator:aa2af59748852e0ff4bfec95c946cbcc9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a87e3f3cd0d070bf371466f4c7521266d" id="r_a87e3f3cd0d070bf371466f4c7521266d"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a87e3f3cd0d070bf371466f4c7521266d">storeCRegs</a> (x86::Emitter *a, int rowRegs, int colRegs, x86::Gp C_Offset, x86::Gp ldcReg, bool accum)</td></tr>
+<tr class="separator:a87e3f3cd0d070bf371466f4c7521266d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4050603658b0e5cf634fd9a989cb84bc" id="r_a4050603658b0e5cf634fd9a989cb84bc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int32_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4050603658b0e5cf634fd9a989cb84bc">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+<tr class="separator:a4050603658b0e5cf634fd9a989cb84bc"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8c35863faf15810abfe3fe1cd432a687" id="r_a8c35863faf15810abfe3fe1cd432a687"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8c35863faf15810abfe3fe1cd432a687">genComputeBlock</a> (x86::Emitter *a, x86::Gp buffer_A, x86::Gp buffer_B, x86::Gp, int rowRegs, int colRegs, int lda)</td></tr>
+<tr class="separator:a8c35863faf15810abfe3fe1cd432a687"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4050603658b0e5cf634fd9a989cb84bc" id="r_a4050603658b0e5cf634fd9a989cb84bc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int32_t &gt;::jit_micro_kernel_fp&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4050603658b0e5cf634fd9a989cb84bc">getOrCreate</a> (bool accum, int32_t mc, int32_t nc, int32_t kc)</td></tr>
+<tr class="separator:a4050603658b0e5cf634fd9a989cb84bc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><div class="compoundTemplParams">template&lt;typename TA, typename TB, typename TC, typename accT&gt;<br />
@@ -101,70 +131,12 @@ class fbgemm::CodeGenBase&lt; TA, TB, TC, accT &gt;</div><dl class="tparams"><dt
   </table>
   </dd>
 </dl>
-</div><h2 class="groupheader">Member Typedef Documentation</h2>
-<a id="a29a8f6b7ad1202aff2112220ef2812a5" name="a29a8f6b7ad1202aff2112220ef2812a5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a29a8f6b7ad1202aff2112220ef2812a5">&#9670;&#160;</a></span>jit_micro_kernel_fp</h2>
+</div><h2 class="groupheader">Member Function Documentation</h2>
+<a id="aa2af59748852e0ff4bfec95c946cbcc9" name="aa2af59748852e0ff4bfec95c946cbcc9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa2af59748852e0ff4bfec95c946cbcc9">&#9670;&#160;</a></span>genComputeBlock() <span class="overload">[1/5]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
-<div class="memtemplate">
-template&lt;typename TA , typename TB , typename TC , typename accT &gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">using <a class="el" href="#a29a8f6b7ad1202aff2112220ef2812a5">jit_micro_kernel_fp</a></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-<b>Initial value:</b><div class="fragment"><div class="line"> void (*)(</div>
-<div class="line">      <span class="keyword">const</span> TA* bufferA,</div>
-<div class="line">      <span class="keyword">const</span> TB* bufferB,</div>
-<div class="line">      <span class="keyword">const</span> TB* b_pf,</div>
-<div class="line">      TC* bufferC,</div>
-<div class="line">      <span class="keywordtype">int</span> kc,</div>
-<div class="line">      <span class="keywordtype">int</span> ldc)</div>
-</div><!-- fragment -->
-</div>
-</div>
-<h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="a843f4289cb9de379bac477ed0dcba1cf" name="a843f4289cb9de379bac477ed0dcba1cf"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a843f4289cb9de379bac477ed0dcba1cf">&#9670;&#160;</a></span>CodeGenBase()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename TA , typename TB , typename TC , typename accT &gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a> </td>
-          <td>(</td>
-          <td class="paramtype">const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a> *</td>          <td class="paramname"><span class="paramname"><em>params</em><span class="paramdefsep"> = </span><span class="paramdefval">nullptr</span></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>Constructor for initializing AVX2/AVX512 registers. </p>
-
-</div>
-</div>
-<h2 class="groupheader">Member Function Documentation</h2>
-<a id="a176924b076bd6485a83a0dd75c20cac6" name="a176924b076bd6485a83a0dd75c20cac6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a176924b076bd6485a83a0dd75c20cac6">&#9670;&#160;</a></span>genComputeBlock()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename TA , typename TB , typename TC , typename accT &gt; </div>
-<div class="memtemplate">
-template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void genComputeBlock </td>
@@ -203,73 +175,200 @@ template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p>Generate instructions for computing block in the rank-k update. </p>
+<p>Generate AVX2 instructions for computing block in the rank-k update of 32-bit Accmulation kernel. </p>
 
 </div>
 </div>
-<a id="af4e14d6e1be8b47db233b7226e4b8e2a" name="af4e14d6e1be8b47db233b7226e4b8e2a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af4e14d6e1be8b47db233b7226e4b8e2a">&#9670;&#160;</a></span>getCodeLoggingFile()</h2>
+<a id="aa2af59748852e0ff4bfec95c946cbcc9" name="aa2af59748852e0ff4bfec95c946cbcc9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa2af59748852e0ff4bfec95c946cbcc9">&#9670;&#160;</a></span>genComputeBlock() <span class="overload">[2/5]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
-<div class="memtemplate">
-template&lt;typename TA , typename TB , typename TC , typename accT &gt; </div>
-<div class="memtemplate">
-template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static std::string getCodeLoggingFile </td>
+          <td class="memname">void genComputeBlock </td>
           <td>(</td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+          <td class="paramtype">x86::Emitter *</td>          <td class="paramname"><span class="paramname"><em>a</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_A</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_B</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>NCB</em>, </span></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>B_pf</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>KCB</em>, </span></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>rowRegs</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>MR</em>, </span></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>colRegs</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>NR</em></span>&#160;)</td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>lda</em></span>&#160;)</td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">static</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
+<p>Generate AVX512 instructions for computing block in the rank-k update of 32-bit Accumulation kernel. </p>
 
-<p>Generate filename to dump generated code (debug-only) </p>
+</div>
+</div>
+<a id="a9727e9d8a35fccd581ad604006ea77fe" name="a9727e9d8a35fccd581ad604006ea77fe"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9727e9d8a35fccd581ad604006ea77fe">&#9670;&#160;</a></span>genComputeBlock() <span class="overload">[3/5]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void genComputeBlock&lt; inst_set_t::avx2 &gt; </td>
+          <td>(</td>
+          <td class="paramtype">x86::Emitter *</td>          <td class="paramname"><span class="paramname"><em>a</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_A</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_B</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname">, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>rowRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>colRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>lda</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Generate AVX2 instructions for computing block in the rank-k update of 16-bit Accmulation kernel. </p>
+
+</div>
+</div>
+<a id="a8c35863faf15810abfe3fe1cd432a687" name="a8c35863faf15810abfe3fe1cd432a687"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8c35863faf15810abfe3fe1cd432a687">&#9670;&#160;</a></span>genComputeBlock() <span class="overload">[4/5]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void genComputeBlock </td>
+          <td>(</td>
+          <td class="paramtype">x86::Emitter *</td>          <td class="paramname"><span class="paramname"><em>a</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_A</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_B</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname">, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>rowRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>colRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>lda</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Generate AVX512 instructions for computing block in the rank-k update of 16-bit Accmulation kernel. </p>
+
+</div>
+</div>
+<a id="a8c35863faf15810abfe3fe1cd432a687" name="a8c35863faf15810abfe3fe1cd432a687"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8c35863faf15810abfe3fe1cd432a687">&#9670;&#160;</a></span>genComputeBlock() <span class="overload">[5/5]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void genComputeBlock </td>
+          <td>(</td>
+          <td class="paramtype">x86::Emitter *</td>          <td class="paramname"><span class="paramname"><em>a</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_A</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>buffer_B</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname">, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>rowRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>colRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>lda</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Generate AVX512 instructions for computing block in the rank-k update of 32-bit Accmulation kernel. </p>
 
 </div>
 </div>
 <a id="af00d94622211a89e6568e05d9b63850a" name="af00d94622211a89e6568e05d9b63850a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af00d94622211a89e6568e05d9b63850a">&#9670;&#160;</a></span>getOrCreate()</h2>
+<h2 class="memtitle"><span class="permalink"><a href="#af00d94622211a89e6568e05d9b63850a">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[1/8]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -279,7 +378,7 @@ template&lt;typename TA , typename TB , typename TC , typename accT &gt; </div>
 template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="#a29a8f6b7ad1202aff2112220ef2812a5">jit_micro_kernel_fp</a> getOrCreate </td>
+          <td class="memname">jit_micro_kernel_fp getOrCreate </td>
           <td>(</td>
           <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
         </tr>
@@ -306,15 +405,288 @@ template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672
 
 </div>
 </div>
-<a id="a01bcc02f063a515df6d7fda518ef1d12" name="a01bcc02f063a515df6d7fda518ef1d12"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a01bcc02f063a515df6d7fda518ef1d12">&#9670;&#160;</a></span>storeCRegs()</h2>
+<a id="ae20473007cc942d5263eed6677cfddee" name="ae20473007cc942d5263eed6677cfddee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae20473007cc942d5263eed6677cfddee">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[2/8]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
-<div class="memtemplate">
-template&lt;typename TA , typename TB , typename TC , typename accT &gt; </div>
-<div class="memtemplate">
-template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp getOrCreate&lt; inst_set_t::avx2 &gt; </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>kc</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Get or Create the AVX2 instructions for 16-bit Accumulation macro-kernel. </p>
+
+</div>
+</div>
+<a id="a3ba99549f858b04f892c5edb2580aa07" name="a3ba99549f858b04f892c5edb2580aa07"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3ba99549f858b04f892c5edb2580aa07">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[3/8]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp getOrCreate </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>kc</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Get or Create the AVX512 instructions for 16-bit Accumulation macro-kernel. </p>
+
+</div>
+</div>
+<a id="ab13fc9ae80b3c7b6f7c95597b3eca012" name="ab13fc9ae80b3c7b6f7c95597b3eca012"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab13fc9ae80b3c7b6f7c95597b3eca012">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[4/8]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp getOrCreate&lt; inst_set_t::avx512_vnni &gt; </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>kc</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Get or Create the AVX512 instructions for 16-bit Accumulation macro-kernel. </p>
+
+</div>
+</div>
+<a id="af378fb7873c900315a548c788e5f3e75" name="af378fb7873c900315a548c788e5f3e75"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af378fb7873c900315a548c788e5f3e75">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[5/8]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int16_t &gt;::jit_micro_kernel_fp getOrCreate&lt; inst_set_t::avx512_vnni_ymm &gt; </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>kc</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Get or Create the AVX512 instructions for 16-bit Accumulation macro-kernel. </p>
+
+</div>
+</div>
+<a id="a4050603658b0e5cf634fd9a989cb84bc" name="a4050603658b0e5cf634fd9a989cb84bc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4050603658b0e5cf634fd9a989cb84bc">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[6/8]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int32_t &gt;::jit_micro_kernel_fp getOrCreate </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>kc</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Get or Create the AVX512 instructions for 32-bit Accumulation macro-kernel. </p>
+
+</div>
+</div>
+<a id="a4050603658b0e5cf634fd9a989cb84bc" name="a4050603658b0e5cf634fd9a989cb84bc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4050603658b0e5cf634fd9a989cb84bc">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[7/8]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int32_t &gt;::jit_micro_kernel_fp getOrCreate </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>kc</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Get or Create the AVX512 instructions for 32-bit Accumulation macro-kernel. </p>
+
+</div>
+</div>
+<a id="a65dee023d21aee79a75508f08e51c403" name="a65dee023d21aee79a75508f08e51c403"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a65dee023d21aee79a75508f08e51c403">&#9670;&#160;</a></span>getOrCreate() <span class="overload">[8/8]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">template <a class="el" href="classfbgemm_1_1_code_gen_base.html">CodeGenBase</a>&lt; uint8_t, int8_t, int32_t, int32_t &gt;::jit_micro_kernel_fp getOrCreate&lt; inst_set_t::avx512_vnni_ymm &gt; </td>
+          <td>(</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>mc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>nc</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Get or Create the avx512 instructions for int64_t GEMM macro-kernel.</p>
+<p>Instatiate the AVX512 instructions for int64_t GEMM macro-kernel.</p>
+<p>Instatiate the AVX512 instructions for 16-bit Accumulation macro-kernel.</p>
+<p>Instatiate the AVX512_256 instructions for 16-bit Accumulation macro-kernel.</p>
+<p>Instantiate the AVX512 instructions for 32-bit Accumulation macro-kernel.</p>
+<p>Instatiate the AVX512_256 instructions for 32-bit Accumulation macro-kernel.</p>
+<p>Instantiate the AVX2 instructions for 32-bit Accumulation macro-kernel.</p>
+<p>Instatiate the AVX512_VNNI instructions for 32-bit Accumulation macro-kernel.</p>
+<p>Instatiate the AVX512_VNNI_256 instructions for 32-bit Accumulation macro-kernel. </p>
+
+</div>
+</div>
+<a id="a12a9f2428ed6fd0dd90c91fd4477e271" name="a12a9f2428ed6fd0dd90c91fd4477e271"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a12a9f2428ed6fd0dd90c91fd4477e271">&#9670;&#160;</a></span>storeCRegs() <span class="overload">[1/3]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">template void storeCRegs&lt; inst_set_t::avx2 &gt; </td>
+          <td>(</td>
+          <td class="paramtype">x86::Emitter *</td>          <td class="paramname"><span class="paramname"><em>a</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>rowRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>colRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>C_Offset</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>ldcReg</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Generate AVX2 instructions for storing the C registers back to the memory in 32-bit Accumulation kernel.</p>
+<p>Instantiate the inst_set_t::avx2 instructions for store kernel.</p>
+<p>Instantiate the inst_set_t::avx512 instructions for store kernel.</p>
+<p>Instantiate the inst_set_t::avx512_ymm instructions for store kernel. </p>
+
+</div>
+</div>
+<a id="a87e3f3cd0d070bf371466f4c7521266d" name="a87e3f3cd0d070bf371466f4c7521266d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a87e3f3cd0d070bf371466f4c7521266d">&#9670;&#160;</a></span>storeCRegs() <span class="overload">[2/3]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
       <table class="memname">
         <tr>
           <td class="memname">void storeCRegs </td>
@@ -348,30 +720,59 @@ template&lt;<a class="el" href="namespacefbgemm.html#a637f4382ad9fa1da0795e05672
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p>Generate instructions for storing the C registers back to the memory. </p>
+<p>Generate instructions for storing the C registers back to the memory in 16-bit Accumulation kernel. </p>
 
 </div>
 </div>
-<h2 class="groupheader">Member Data Documentation</h2>
-<a id="aa94e292b3bf63b26e96c8d00654170a0" name="aa94e292b3bf63b26e96c8d00654170a0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aa94e292b3bf63b26e96c8d00654170a0">&#9670;&#160;</a></span>blocking_params</h2>
+<a id="a87e3f3cd0d070bf371466f4c7521266d" name="a87e3f3cd0d070bf371466f4c7521266d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a87e3f3cd0d070bf371466f4c7521266d">&#9670;&#160;</a></span>storeCRegs() <span class="overload">[3/3]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
-<div class="memtemplate">
-template&lt;typename TA , typename TB , typename TC , typename accT &gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">const <a class="el" href="structfbgemm_1_1_blocking_factors.html">BlockingFactors</a>* blocking_params</td>
+          <td class="memname">void storeCRegs </td>
+          <td>(</td>
+          <td class="paramtype">x86::Emitter *</td>          <td class="paramname"><span class="paramname"><em>a</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>rowRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>colRegs</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>C_Offset</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">x86::Gp</td>          <td class="paramname"><span class="paramname"><em>ldcReg</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>accum</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
+<p>Generate AVX512 instructions for storing the C registers back to the memory in 32-bit Accumulation kernel. </p>
 
 </div>
 </div>
-<hr/>The documentation for this class was generated from the following file:<ul>
-<li>/__w/FBGEMM/FBGEMM/src/<a class="el" href="_generate_kernel_8h.html">GenerateKernel.h</a></li>
+<hr/>The documentation for this class was generated from the following files:<ul>
+<li>/__w/FBGEMM/FBGEMM/src/<b>GenerateKernel.h</b></li>
+<li>/__w/FBGEMM/FBGEMM/src/<b>FbgemmI64.cc</b></li>
+<li>/__w/FBGEMM/FBGEMM/src/<b>GenerateKernelU8S8S32ACC16.cc</b></li>
+<li>/__w/FBGEMM/FBGEMM/src/<b>GenerateKernelU8S8S32ACC16Avx512.cc</b></li>
+<li>/__w/FBGEMM/FBGEMM/src/<b>GenerateKernelU8S8S32ACC32.cc</b></li>
+<li>/__w/FBGEMM/FBGEMM/src/<b>GenerateKernelU8S8S32ACC32Avx512VNNI.cc</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->

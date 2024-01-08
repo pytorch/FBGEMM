@@ -30,10 +30,11 @@
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Installation Instructions" href="InstallationInstructions.html" />
-    <link rel="prev" title="Contact Us" href="../general/ContactUs.html" />
+    <link rel="prev" title="License" href="../general/License.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -260,9 +261,10 @@
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing to FBGEMM and FBGEMM_GPU</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/Documentation.html">Documentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul class="current">
@@ -681,6 +683,28 @@ python<span class="w"> </span>setup.py<span class="w"> </span>clean
 </pre></div>
 </div>
 </section>
+<section id="cpu-only-build">
+<span id="fbgemm-gpu-build-process-cpu"></span><h3>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this heading">¶</a></h3>
+<p>For CPU-only builds, the <code class="docutils literal notranslate"><span class="pre">--cpu_only</span></code> flag needs to be specified.</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
+
+<span class="nv">python_tag</span><span class="o">=</span>py310
+<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_cpu
+
+<span class="c1"># Build the wheel artifact only</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="c1"># Build and install the library into the Conda environment</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span>--package_variant<span class="o">=</span>cpu
+</pre></div>
+</div>
+</section>
 <section id="cuda-build">
 <span id="fbgemm-gpu-build-process-cuda"></span><h3>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this heading">¶</a></h3>
 <p>Building FBGEMM_GPU for CUDA requires both NVML and cuDNN to be installed and
@@ -772,28 +796,6 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 </pre></div>
 </div>
 </section>
-<section id="cpu-only-build">
-<span id="fbgemm-gpu-build-process-cpu"></span><h3>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this heading">¶</a></h3>
-<p>For CPU-only builds, the <code class="docutils literal notranslate"><span class="pre">--cpu_only</span></code> flag needs to be specified.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
-
-<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
-
-<span class="nv">python_tag</span><span class="o">=</span>py310
-<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_cpu
-
-<span class="c1"># Build the wheel artifact only</span>
-python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
-
-<span class="c1"># Build and install the library into the Conda environment</span>
-python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span>--package_variant<span class="o">=</span>cpu
-</pre></div>
-</div>
-</section>
 <section id="post-build-checks-for-developers">
 <h3>Post-Build Checks (For Developers)<a class="headerlink" href="#post-build-checks-for-developers" title="Permalink to this heading">¶</a></h3>
 <p>After the build completes, it is useful to run some checks that verify
@@ -847,7 +849,7 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
         <a href="InstallationInstructions.html" class="btn btn-neutral float-right" title="Installation Instructions" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="../general/ContactUs.html" class="btn btn-neutral" title="Contact Us" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="../general/License.html" class="btn btn-neutral" title="License" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -860,7 +862,7 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2023, FBGEMM Team.
+        &copy; Copyright 2020 - 2024, FBGEMM Team.
 
     </p>
   </div>
@@ -912,9 +914,9 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 <li><a class="reference internal" href="#build-the-fbgemm-gpu-package">Build the FBGEMM_GPU Package</a><ul>
 <li><a class="reference internal" href="#preparing-the-build">Preparing the Build</a></li>
 <li><a class="reference internal" href="#the-build-process">The Build Process</a></li>
+<li><a class="reference internal" href="#cpu-only-build">CPU-Only Build</a></li>
 <li><a class="reference internal" href="#cuda-build">CUDA Build</a></li>
 <li><a class="reference internal" href="#rocm-build">ROCm Build</a></li>
-<li><a class="reference internal" href="#cpu-only-build">CPU-Only Build</a></li>
 <li><a class="reference internal" href="#post-build-checks-for-developers">Post-Build Checks (For Developers)</a><ul>
 <li><a class="reference internal" href="#undefined-symbols-check">Undefined Symbols Check</a></li>
 <li><a class="reference internal" href="#glibc-version-compatibility-check">GLIBC Version Compatibility Check</a></li>

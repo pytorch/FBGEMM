@@ -30,6 +30,7 @@
   <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="CUDA Memory Operators" href="memory_utils.html" />
@@ -260,9 +261,10 @@
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing to FBGEMM and FBGEMM_GPU</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../general/DocsInstructions.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/Documentation.html">Documentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul>
@@ -380,7 +382,7 @@ system batched inputs.</p>
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv430jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd">
-<span id="_CPPv330jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd"></span><span id="_CPPv230jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd"></span><span id="jagged_to_padded_dense_forward__TensorCR.std::vector:Tensor:CR.c10::SymIntArrayRef.doubleC"></span><span class="target" id="group__jagged-tensor-ops-cuda_1gaffad7e38f6faf5f8365784fbf82a26f5"></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">jagged_to_padded_dense_forward</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">values</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">offsets</span></span>, <span class="n"><span class="pre">c10</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">SymIntArrayRef</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">max_lengths</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">padding_value</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv430jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd" title="Permalink to this definition">¶</a><br /></dt>
+<span id="_CPPv330jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd"></span><span id="_CPPv230jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd"></span><span id="jagged_to_padded_dense_forward__TensorCR.std::vector:Tensor:CR.c10::SymIntArrayRef.doubleC"></span><span class="target" id="group__jagged-tensor-ops-cuda_1gaffad7e38f6faf5f8365784fbf82a26f5"></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">jagged_to_padded_dense_forward</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">values</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">offsets</span></span>, <span class="n"><span class="pre">c10</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">SymIntArrayRef</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">max_lengths</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">padding_value</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv430jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 <dl class="cpp function">
@@ -461,7 +463,7 @@ system batched inputs.</p>
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2023, FBGEMM Team.
+        &copy; Copyright 2020 - 2024, FBGEMM Team.
 
     </p>
   </div>
