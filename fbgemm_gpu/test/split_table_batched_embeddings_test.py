@@ -3535,10 +3535,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 optimizer_kwargs["cowclip_regularization"] = cowclip_regularization
 
-        if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
-            optimizer_kwargs["eps"] = eps
-            optimizer_kwargs["weight_decay"] = weight_decay
-
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
             optimizer_kwargs["eps"] = eps
             optimizer_kwargs["beta1"] = beta1
@@ -3619,7 +3615,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 OptimType.PARTIAL_ROWWISE_LAMB,
                 OptimType.EXACT_SGD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_ADAGRAD,
             )
 
@@ -3740,41 +3735,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 ):
                     expected_keys.update(["prev_iter", "row_counter"])
                 assert set(optimizer_states_dict.keys()) == expected_keys
-
-        if optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
-            for t in range(T):
-                (m1,) = split_optimizer_states[t]
-                # to_dense in GPU is non-deterministic due to atmomics used in
-                # coalescing and floating point non-associativity.
-                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
-                dense_cpu_grad += weight_decay * bs[t].weight.cpu()
-                iter_ = cc.iter.item()
-                lambda_ = (iter_ + 1) ** 0.5
-                m1_ref = dense_cpu_grad.pow(2).mean(dim=1)
-                m1_ref *= lambda_
-                torch.testing.assert_close(
-                    m1.float().index_select(dim=0, index=xs[t].view(-1)).cpu(),
-                    m1_ref.float().index_select(dim=0, index=xs[t].view(-1).cpu()),
-                    atol=1.0e-4,
-                    rtol=1.0e-4,
-                )
-                weights_new = split_weights[t]
-                weights_ref = bs[t].weight.cpu() - lr * lambda_ * dense_cpu_grad / (
-                    # pyre-fixme[58]: `/` is not supported for operand types `float`
-                    #  and `Tensor`.
-                    torch.pow(m1_ref.view(m1_ref.numel(), 1), 1.0 / 3)
-                    + eps
-                )
-                torch.testing.assert_close(
-                    weights_new.index_select(dim=0, index=xs[t].view(-1)).cpu(),
-                    weights_ref.index_select(dim=0, index=xs[t].view(-1).cpu()),
-                    atol=1.0e-4,
-                    rtol=1.0e-4,
-                )
-
-                if get_optimizer_states is not None:
-                    optimizer_states_dict = get_optimizer_states[t]
-                    assert set(optimizer_states_dict.keys()) == {"sum"}
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_ADAM
@@ -4113,7 +4073,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             [
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
             ]
         ),
         long_segments=st.booleans(),
