@@ -8,6 +8,7 @@ import torch
 
 from .common import add_docs
 
+
 add_docs(
     torch.ops.fbgemm.jagged_2d_to_dense,
     """
