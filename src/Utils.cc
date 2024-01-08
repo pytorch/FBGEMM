@@ -375,15 +375,19 @@ bool fbgemmHasAvx512Support() {
 }
 
 bool fbgemmHasAvx2Support() {
-  return (cpuinfo_has_x86_avx2());
+  return cpuinfo_has_x86_avx2();
 }
 
 bool fbgemmHasAvx512VnniSupport() {
-  return (cpuinfo_has_x86_avx512vnni());
+  return cpuinfo_has_x86_avx512vnni();
 }
 
 bool fbgemmHasArmNeonSupport() {
-  return (cpuinfo_has_arm_neon());
+  return cpuinfo_has_arm_neon();
+}
+
+bool fbgemmHasArmSve2Support() {
+  return cpuinfo_has_arm_sve2();
 }
 
 void fbgemmPartition1D(

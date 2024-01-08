@@ -1,21 +1,6 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 cc_library(
-    name = "clog",
-    srcs = [
-        "deps/clog/src/clog.c",
-    ],
-    hdrs = glob([
-        "deps/clog/include/*.h",
-    ]),
-    includes = [
-        "deps/clog/include/",
-    ],
-    linkstatic = True,
-    visibility = ["//visibility:public"],
-)
-
-cc_library(
     name = "cpuinfo",
     srcs = glob(
         [
@@ -50,7 +35,4 @@ cc_library(
     ],
     linkstatic = True,
     visibility = ["//visibility:public"],
-    deps = [
-        ":clog",
-    ],
 )

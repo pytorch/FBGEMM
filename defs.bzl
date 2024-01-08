@@ -140,6 +140,11 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
         })
     return asm_srcs if not msvc else intrinsics_srcs
 
+def get_fbgemm_autovec_srcs():
+    return [
+        "src/EmbeddingSpMDMAutovec.cc",
+    ]
+
 def get_fbgemm_tests(skip_tests = []):
     return native.glob(["test/*Test.cc"], exclude = skip_tests)
 
