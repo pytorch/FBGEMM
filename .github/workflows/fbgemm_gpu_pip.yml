@@ -111,7 +111,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
-      ENFORCE_NVIDIA_GPU: 1
+      ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +174,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
-      ENFORCE_AMD_GPU: 1
+      ENFORCE_ROCM_DEVICE: 1
     strategy:
       fail-fast: false
       matrix:

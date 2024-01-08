@@ -134,7 +134,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
-      ENFORCE_AMD_GPU: 1
+      ENFORCE_ROCM_DEVICE: 1
     strategy:
       fail-fast: false
       matrix:

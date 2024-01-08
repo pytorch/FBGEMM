@@ -16,6 +16,8 @@ PyTorch GPU operator libraries for training and inference.  This library is
 built on top of FBGEMM and provides efficient table batched embedding bag, data
 layout transformation, and quantization support.
 
+------------
+
 Table of Contents
 
 .. _home.docs.toc.general:
@@ -25,8 +27,9 @@ Table of Contents
    :caption: General Info
 
    general/Contributing.rst
-   general/DocsInstructions.rst
+   general/Documentation.rst
    general/ContactUs.rst
+   general/License.rst
 
 .. _fbgemm-gpu.toc.development:
 

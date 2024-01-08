@@ -32,13 +32,13 @@ Follow the instructions for setting up the Conda environment at
 Build FBGEMM_GPU
 ~~~~~~~~~~~~~~~~
 
-A build pass of FBGEMM_GPU is required for the documentation to be built
+A build pass of **FBGEMM_GPU** is required for the documentation to be built
 correctly.  Follow the instructions in
 :ref:`fbgemm-gpu.build.setup.tools.install`, followed by
 :ref:`fbgemm-gpu.build.process.cpu`, to build FBGEMM_GPU (CPU variant).
 
-Set Up Documentation Toolchain
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Set Up the Documentation Toolchain
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: sh
 
@@ -51,18 +51,16 @@ Set Up Documentation Toolchain
   pip install -r requirements.txt
 
   # Install Doxygen and Make
-  conda install -c conda-forge -y doxygen make
+  conda install -c conda-forge -y doxygen graphviz make
 
 Build the Documentation
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: sh
 
-  # Generate the C++ documentation
-  make doxygen
-
-  # Generate the Python documentation and assemble together with the C++ documentation
-  make html
+  # Generate the C++ documentation, the Python documentation, and assemble
+  # together
+  make clean doxygen html
 
 After the build completes, view the generated documentation:
 
@@ -118,44 +116,50 @@ Documentation for Python is provided through docstrings and generated using
 <https://www.sphinx-doc.org/en/master/usage/extensions/example_google.html>`__
 guide for docstring formatting examples.
 
-Please add Python docstrings to the ``.py`` files under the name of the
-method:
+Follow these instructions to document, generate, and publish a new Python
+docstring:
 
-.. code:: python
+#.  Add the docstring directly under the name of the target method.  At a very
+    minimum, please add descriptions of:
 
-  def example_function():
-      """
-      This class is an example of how you can write docstrings.
-      You can add multiple lines of those descriptions. Make sure to include
-      useful information about your method.
+    * The method's functional behavior
+    * The arguments, as denoted by the ``Args`` section
+    * The return value, as denoted by the ``Returns`` section
+    * The exceptions that can be thrown (if applicable), as denoted by the
+      ``Raises`` section
 
-      Args:
-          arg1 (int): This is the first arg that you can pass with this function.
+    Other sections such as ``Todo``, ``Note``, and ``Example`` should be added
+    as needed.
 
-      Returns:
-          This function returns X.
+    Here is an example Python docstring:
 
-      Raises:
-          AttributeError: This function raises an error.
+    .. literalinclude::  ../../../fbgemm_gpu/docs/examples.py
+      :language: python
+      :start-after: fbgemm-gpu.python.docs.examples.docstring.start
+      :end-before: fbgemm-gpu.python.docs.examples.docstring.end
 
-      Example:
-          This is how you can use this function
+#.  On the Sphinx documentation side, add an ``autofunction`` directive to the
+    corresponding ``.rst`` file.  If an ``.rst`` file for the corresponding
+    Python source file does not exist, create a new one by the same name as the
+    Python source file.  Using the above example:
 
-          >>> print("Code blocks are supported")
+    .. code:: rst
 
-      Note:
-         You can find more information
-      """
+      .. autofunction:: fbgemm_gpu.docs.examples.example_method
 
-Adding docstrings does not automatically publish them to the package
-documentation.  To publish new docstrings:
+#.  Make sure the ``.rst`` file is included in to the ``toctree`` in
+    ``index.rst`` (e.g. :ref:`fbgemm-gpu.toc.api.python`).
 
-#.  Add the module method to its corresponding ``.rst`` file.
+#.  Verify the changes by building the docs locally with
+    :ref:`fbgemm-gpu.docs.build` or submitting a PR for a Netlify preview.
 
-#.  To preview locally, run ``make html``.
+------------
 
-#.  Verify the changes by building the docs locally or submitting a PR for a
-    Netlify preview.
+The Python docstring example above generates the following HTML output:
+
+.. autofunction:: fbgemm_gpu.docs.examples.example_method
+
+------------
 
 
 Adding Documentation to C++ Code
@@ -173,20 +177,20 @@ HTML output.  When you add descriptionss to a function, make sure that the
 ``#ifndef`` and ``#endif`` are configured correctly.
 
 Follow these instructions to document, generate, and publish a new C++
-description:
+docstring:
 
 #.  API methods are grouped together by group tags for better organization in
     Sphinx.  If a desired method group for the target method is not defined yet,
     define it near the top of the relevant header file with the ``@defgroup``
-    keyword:
+    command:
 
     .. literalinclude::  ../../../src/docs/example_code.cpp
       :language: cpp
-      :start-after: fbgemm-gpu.docs.example.defgroup.start
-      :end-before: fbgemm-gpu.docs.example.defgroup.end
+      :start-after: fbgemm-gpu.cpp.docs.examples.defgroup.start
+      :end-before: fbgemm-gpu.cpp.docs.examples.defgroup.end
 
-#.  Add the docstring above the target method's declaration.  At a very minimum,
-    please add descriptions of:
+#.  Add the docstring directly above the target method's declaration.  At a very
+    minimum, please add descriptions of:
 
     * The method's functional behavior
     * The type parameters, as denoted by the ``@tparam`` tag
@@ -195,13 +199,15 @@ description:
     * The exceptions that can be thrown (if applicable), as denoted by the
       ``@throw`` tag
 
-    Other tags ``@note``, ``@warning``, and ``@see`` should be added as needed.
-    Here is an example docstring:
+    Other commands such as ``@note``, ``@warning``, and ``@see`` should be added
+    as needed.
+
+    Here is an example C++ docstring:
 
     .. literalinclude::  ../../../src/docs/example_code.cpp
       :language: cpp
-      :start-after: fbgemm-gpu.docs.example.docstring.start
-      :end-before: fbgemm-gpu.docs.example.docstring.end
+      :start-after: fbgemm-gpu.cpp.docs.examples.docstring.start
+      :end-before: fbgemm-gpu.cpp.docs.examples.docstring.end
 
 #.  On the Sphinx documentation side, add a ``doxygengroup`` directive to the
     corresponding ``.rst`` file.  If an ``.rst`` file for the corresponding
@@ -214,7 +220,7 @@ description:
         :content-only:
 
 #.  Make sure the ``.rst`` file is included in to the ``toctree`` in
-    ``index.rst`` (:ref:`fbgemm-gpu.toc.cpp`).
+    ``index.rst`` (e.g. :ref:`fbgemm-gpu.toc.api.cpp`).
 
 #.  The C++ source header file needs to be in one of the directories listed in
     the ``INPUT`` parameter in ``Doxygen.ini``.  In general, this has already
@@ -226,7 +232,7 @@ description:
 
 ------------
 
-Following the example above generates the following HTML output:
+The Doxygen example above generates the following HTML output:
 
 .. doxygengroup:: example-method-group
   :content-only:
@@ -237,8 +243,8 @@ Following the example above generates the following HTML output:
 Sphinx Documentation Pointers
 -----------------------------
 
-Adding References to Other Sections
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+References Other Sections of the Documentation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 To reference other sections in the documentation, an anchor must first be
 created above the target section:
@@ -254,7 +260,7 @@ created above the target section:
 
   #.  The reference anchor must start with an underscore, i.e. ``_``.
 
-  #.  There must be an empty line between the anchor and its target.
+  #.  !! There must be an empty line between the anchor and its target !!
 
 The anchor can then be referenced elsewhere in the docs:
 
@@ -268,3 +274,119 @@ The anchor can then be referenced elsewhere in the docs:
   in the docs.
 
   Note that the prefix underscore is not needed when referencing the anchor.
+
+
+Referencing the Source Code
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``literalinclude`` directive can be used to display the source code inside a
+Sphinx document.  To display the full file content:
+
+.. code:: rst
+
+    .. literalinclude::  relative/path/from/this/rst/file/to/the/source.txt
+
+
+To display only a section of the file, a pair of unique tags must first be added
+to the target source file, as comments with the tag string enclosed in brackets.
+
+For Python source files:
+
+.. code:: python
+
+  # [example.tag.start]
+
+  # ... code section that will be referenced ...
+
+  # [example.tag.end]
+
+For C++ source files:
+
+.. code:: cpp
+
+  /// @skipline [example.tag.start]
+
+  /// ... code section that will be referenced ...
+
+  /// @skipline [example.tag.end]
+
+The tags then need to be supplied to the ``literalinclude`` directive:
+
+.. code:: rst
+
+    .. literalinclude::  relative/path/from/this/rst/file/to/the/source.cpp
+      :language: cpp
+      :start-after: example.tag.start
+      :end-before: example.tag.end
+
+See the Sphinx documentation
+`here <https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#directive-literalinclude>`__
+for more information.
+
+
+Adding LaTeX
+~~~~~~~~~~~~
+
+Math expressions with LaTeX can be added inline to Sphinx docs using the
+``math`` directive:
+
+.. code:: rst
+
+  Example text: :math:`k_{n+1} = n^2 + k_n^2 - k_{n-1}`
+
+The above example will be rendered as: :math:`k_{n+1} = n^2 + k_n^2 - k_{n-1}`.
+
+Math expressinos can also be inserted as a code block:
+
+.. code:: rst
+
+  .. math::
+
+    \int_a^bu \frac{d^2v}{dx^2} \,dx
+      = \left.u \frac{dv}{dx} \right|_a^b
+      - \int_a^b \frac{du}{dx} \frac{dv}{dx} \,dx
+
+.. math::
+
+  \int_a^bu \frac{d^2v}{dx^2} \,dx
+    = \left.u \frac{dv}{dx} \right|_a^b
+    - \int_a^b \frac{du}{dx} \frac{dv}{dx} \,dx
+
+See the Sphinx documentation
+`here <https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#math>`__
+and `here <https://www.sphinx-doc.org/en/master/usage/extensions/math.html#module-sphinx.ext.mathjax>`__
+for more information.
+
+
+Adding Graphs
+~~~~~~~~~~~~~
+
+Graphs can be generated in Sphinx using ``graphviz`` directive.  Graph
+descriptions can be added inside a block:
+
+.. code:: rst
+
+  .. graphviz::
+
+    digraph example {
+      "From" -> "To";
+    }
+
+.. graphviz::
+
+  digraph example {
+    "From" -> "To";
+  }
+
+Alternatively, they can be imported from an external ``.dot`` file:
+
+.. code:: rst
+
+  .. graphviz:: ExampleGraph.dot
+
+.. graphviz:: ExampleGraph.dot
+
+See the
+`Sphinx <https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html>`__
+and `Graphviz <https://graphviz.org/documentation/>`__ documentation more
+information.

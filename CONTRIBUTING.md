@@ -1,6 +1,6 @@
-# Contributing to FBGEMM and FBGEMM_GPU
+# Contributing
 
-We want to make contributing to this project as easy and transparent as
+We want to make contributing to FBGEMM and FBGEMM_GPU as easy and transparent as
 possible.
 
 ## Code of Conduct

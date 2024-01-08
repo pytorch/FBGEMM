@@ -21,7 +21,7 @@ Two notable examples of this type of input are:
 
 
 Jagged Tensor Format
--------------------
+--------------------
 
 Jagged tensors are effectively represented in FBGEMm_GPU as a three-tensor
 object.  The three tensors are: **Values**, **MaxLengths**, and **Offsets**.
@@ -293,7 +293,7 @@ Combined Arithmetic + Conversion Operations
 
 In some situations, we would like to perform the following operation:
 
-.. code:: cpp
+.. code:: text
 
   dense_tensor + jagged_tensor → dense_tensor (or jagged_tensor)
 

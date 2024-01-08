@@ -14,16 +14,17 @@
 # Configuration is based on:
 # https://github.com/pytorch/pytorch/blob/main/docs/cpp/source/conf.py
 
+import datetime
 import os
 import sys
 
 import pytorch_sphinx_theme
-
+import six
 
 # -- Project information -----------------------------------------------------
 
 project = "FBGEMM"
-copyright = "2023, FBGEMM Team"
+copyright = f"2020 - {datetime.date.today().year}, FBGEMM Team"
 author = "FBGEMM Team"
 
 # The short X.Y version.
@@ -90,37 +91,50 @@ todo_include_todos = True
 # found.
 nitpicky = True
 
+# A set or list of (type, target) tuples (by default empty) that should be
+# ignored when generating warnings in “nitpicky mode”. Note that type should
+# include the domain name if present.
+nitpick_ignore = []
+with open("nitpick.ignore") as file:
+    for line in file:
+        if line.strip() == "" or line.startswith("#"):
+            continue
+        dtype, target = line.split(None, 1)
+        nitpick_ignore.append((dtype, six.u(target.strip())))
+
 # Make sure the target is unique
 autosectionlabel_prefix_document = True
 
-# Add any Sphinx extension module names here, as strings. They can be
-# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
-# ones.
+# Add any Sphinx extension module names here, as strings. They can be extensions
+# coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
     "breathe",
     "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosectionlabel",
     "sphinx.ext.autosummary",
+    "sphinx.ext.graphviz",
     "sphinx.ext.intersphinx",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
+    "sphinx.ext.todo",
+    "sphinx.ext.viewcode",
 ]
 
 intersphinx_mapping = {
+    "numpy": ("https://numpy.org/doc/stable", None),
     "python": ("https://docs.python.org/3", None),
     "pytorch": ("https://pytorch.org/docs/main", None),
-    "numpy": ("https://numpy.org/doc/stable", None),
+    "libtorch": ("https://pytorch.org/cppdocs", None),
 }
-
-# Add any paths that contain templates here, relative to this directory.
-templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = []
-
+exclude_patterns = [
+    "pytorch-sphinx-theme/*.md",
+    "pytorch-sphinx-theme/docs/*",
+]
 
 # -- Breathe configuration ---------------------------------------------------
 
@@ -137,6 +151,11 @@ breathe_projects = {
 breathe_default_project = "FBGEMM"
 
 
+# -- GraphViz configuration --------------------------------------------------
+
+graphviz_output_format = "svg"
+
+
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -148,7 +167,7 @@ html_theme_path = [pytorch_sphinx_theme.get_html_theme_path()]
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 # NOTE: sharing python docs resources
-html_static_path = ["_static"]
+# html_static_path = ["_static"]
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the

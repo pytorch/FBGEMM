@@ -380,6 +380,32 @@ build cache:
 
   python setup.py clean
 
+.. _fbgemm-gpu.build.process.cpu:
+
+CPU-Only Build
+~~~~~~~~~~~~~~
+
+For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
+
+.. code:: sh
+
+  # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
+
+  export ARCH=$(uname -m)
+
+  python_tag=py310
+  package_name=fbgemm_gpu_cpu
+
+  # Build the wheel artifact only
+  python setup.py bdist_wheel \
+      --package_name="${package_name}" \
+      --package_variant=cpu \
+      --python-tag="${python_tag}" \
+      --plat-name="manylinux1_${ARCH}"
+
+  # Build and install the library into the Conda environment
+  python setup.py install --package_variant=cpu
+
 .. _fbgemm-gpu.build.process.cuda:
 
 CUDA Build
@@ -478,32 +504,6 @@ the package.
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
-
-.. _fbgemm-gpu.build.process.cpu:
-
-CPU-Only Build
-~~~~~~~~~~~~~~
-
-For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
-
-.. code:: sh
-
-  # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
-
-  export ARCH=$(uname -m)
-
-  python_tag=py310
-  package_name=fbgemm_gpu_cpu
-
-  # Build the wheel artifact only
-  python setup.py bdist_wheel \
-      --package_name="${package_name}" \
-      --package_variant=cpu \
-      --python-tag="${python_tag}" \
-      --plat-name="manylinux1_${ARCH}"
-
-  # Build and install the library into the Conda environment
-  python setup.py install --package_variant=cpu
 
 Post-Build Checks (For Developers)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

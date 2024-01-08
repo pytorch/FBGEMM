@@ -91,10 +91,10 @@ print_gpu_info () {
 
   (lspci -v | grep -e 'controller.*NVIDIA') || true
 
-  if [[ "${ENFORCE_NVIDIA_GPU}" ]]; then
+  if [[ "${ENFORCE_CUDA_DEVICE}" ]]; then
     # Ensure that nvidia-smi is available and returns GPU entries
     if ! nvidia-smi; then
-      echo "[CHECK] NVIDIA driver is required, but does not appear to have been installed.  This will cause FBGEMM_GPU installation to fail!"
+      echo "[CHECK] NVIDIA drivers and CUDA device are required for this workflow, but does not appear to be installed or available!"
       return 1
     fi
   else
@@ -111,10 +111,10 @@ print_gpu_info () {
 
   (lspci -v | grep -e 'Display controller: Advanced') || true
 
-  if [[ "${ENFORCE_AMD_GPU}" ]]; then
+  if [[ "${ENFORCE_ROCM_DEVICE}" ]]; then
     # Ensure that rocm-smi is available and returns GPU entries
     if ! rocm-smi; then
-      echo "[CHECK] AMD driver is required, but does not appear to have been installed.  This will cause FBGEMM_GPU installation to fail!"
+      echo "[CHECK] ROCm drivers and ROCm device are required for this workflow, but does not appear to be installed or available!"
       return 1
     fi
   else
