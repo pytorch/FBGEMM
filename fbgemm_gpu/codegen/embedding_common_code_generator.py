@@ -711,6 +711,7 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
     }
 
 
+# Deprecated, to be cleaned up
 def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
     rowwise_adagrad_with_weight_decay_args = rowwise_adagrad_with_weight_decay()
 
@@ -740,7 +741,7 @@ def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
             "split_weight_update_cpu"
         ],
         "has_cpu_support": False,
-        "has_gpu_support": True,
+        "has_gpu_support": False,
         "has_vbe_support": False,
     }
 
