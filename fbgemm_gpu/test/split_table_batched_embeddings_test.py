@@ -3690,10 +3690,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                         weights_ref = bs[t].weight.cpu() - lr * (
                             dense_cpu_grad / denom + weight_decay * bs[t].weight.cpu()
                         )
-                    elif weight_decay_mode == WeightDecayMode.L2:
-                        # pyre-fixme[58]: `/` is not supported for operand types `float`
-                        #  and `Tensor`.
-                        weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                     elif weight_decay_mode == WeightDecayMode.COUNTER:
                         max_counter = cc.max_counter.item()
                         weights_ref = self._get_wts_from_counter_adagrad_using_counter(
@@ -3720,6 +3716,10 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                             lr,
                             weight_decay,
                         )
+                    else:  # WeightDecayMode.L2 or WeightDecayMode.NONE
+                        # pyre-fixme[58]: `/` is not supported for operand types `float`
+                        #  and `Tensor`.
+                        weights_ref = bs[t].weight.cpu() - lr * dense_cpu_grad / denom
                 else:
                     # pyre-fixme[58]: `/` is not supported for operand types `float`
                     #  and `Tensor`.
