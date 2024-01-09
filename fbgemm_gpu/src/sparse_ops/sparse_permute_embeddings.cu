@@ -67,7 +67,9 @@ DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
 
   const auto T = permute.numel();
   const auto B = lengths.size(1);
-
+  if (T == 0 || B == 0) {
+    return {lengths.clone(), embeddings.clone()};
+  }
   permuted_lengths = at::empty({T, B}, lengths.options());
 
   // ignore the third element in the tuple
