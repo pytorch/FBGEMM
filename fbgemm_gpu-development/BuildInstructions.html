@@ -262,7 +262,7 @@
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../general/Documentation.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/documentation/Overview.html">Documentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
@@ -683,25 +683,46 @@ python<span class="w"> </span>setup.py<span class="w"> </span>clean
 </pre></div>
 </div>
 </section>
+<section id="set-wheel-build-variables">
+<h3>Set Wheel Build Variables<a class="headerlink" href="#set-wheel-build-variables" title="Permalink to this heading">¶</a></h3>
+<p>When building out the Python wheel, the package name, Python version tag, and
+Python platform name must first be properly set:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Set the package name depending on the build variant</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_<span class="o">{</span>cpu,<span class="w"> </span>cuda,<span class="w"> </span>rocm<span class="o">}</span>
+
+<span class="c1"># Set the Python version tag.  It should follow the convention `py&lt;major&gt;&lt;minor&gt;`,</span>
+<span class="c1"># e.g. Python 3.12 -&gt; py312</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_tag</span><span class="o">=</span>py312
+
+<span class="c1"># Determine the processor architecture</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
+
+<span class="c1"># Set the Python platform name for the Linux case</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_plat_name</span><span class="o">=</span><span class="s2">&quot;manylinux2014_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="c1"># For the macOS (x86_64) case</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_plat_name</span><span class="o">=</span><span class="s2">&quot;macosx_10_9_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="c1"># For the macOS (arm64) case</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_plat_name</span><span class="o">=</span><span class="s2">&quot;macosx_11_0_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="c1"># For the Windows case</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_plat_name</span><span class="o">=</span><span class="s2">&quot;win_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+</section>
 <section id="cpu-only-build">
 <span id="fbgemm-gpu-build-process-cpu"></span><h3>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this heading">¶</a></h3>
 <p>For CPU-only builds, the <code class="docutils literal notranslate"><span class="pre">--cpu_only</span></code> flag needs to be specified.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
-<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
-
-<span class="nv">python_tag</span><span class="o">=</span>py310
-<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_cpu
-
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Build and install the library into the Conda environment</span>
-python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span>--package_variant<span class="o">=</span>cpu
+python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cpu
 </pre></div>
 </div>
 </section>
@@ -711,9 +732,6 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 made available to the build through environment variables.  The presence of a
 CUDA device, however, is not required for building the package.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
-
-<span class="c1"># Determine the processor architecture</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
 
 <span class="c1"># [OPTIONAL] Specify the CUDA installation paths</span>
 <span class="c1"># This may be required if CMake is unable to find nvcc</span>
@@ -730,10 +748,6 @@ CUDA device, however, is not required for building the package.</p>
 <span class="c1"># Specify NVML path</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">NVML_LIB_PATH</span><span class="o">=</span>/path/to/libnvidia-ml.so
 
-<span class="c1"># Update to reflect the version of Python in the Conda environment</span>
-<span class="nv">python_tag</span><span class="o">=</span>py310
-<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu
-
 <span class="c1"># Build for SM70/80 (V100/A100 GPU); update as needed</span>
 <span class="c1"># If not specified, only the CUDA architecture supported by current system will be targeted</span>
 <span class="c1"># If not specified and no CUDA device is present either, all CUDA architectures will be targeted</span>
@@ -745,10 +759,10 @@ CUDA device, however, is not required for building the package.</p>
 
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cuda<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 
@@ -767,22 +781,18 @@ The presence of a ROCm device, however, is not required for building
 the package.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
-<span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">ROCM_PATH</span><span class="o">=</span>/path/to/rocm
 
 <span class="c1"># Build for the target architecture of the ROCm device installed on the machine (e.g. &#39;gfx906;gfx908;gfx90a&#39;)</span>
 <span class="c1"># See https://wiki.gentoo.org/wiki/ROCm for list</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">PYTORCH_ROCM_ARCH</span><span class="o">=</span><span class="k">$(</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span>/bin/rocminfo<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-o<span class="w"> </span>-m<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="s1">&#39;gfx.*&#39;</span><span class="k">)</span>
 
-<span class="nv">python_tag</span><span class="o">=</span>py310
-<span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_rocm
-
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>rocm<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;manylinux1_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span>
@@ -914,6 +924,7 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 <li><a class="reference internal" href="#build-the-fbgemm-gpu-package">Build the FBGEMM_GPU Package</a><ul>
 <li><a class="reference internal" href="#preparing-the-build">Preparing the Build</a></li>
 <li><a class="reference internal" href="#the-build-process">The Build Process</a></li>
+<li><a class="reference internal" href="#set-wheel-build-variables">Set Wheel Build Variables</a></li>
 <li><a class="reference internal" href="#cpu-only-build">CPU-Only Build</a></li>
 <li><a class="reference internal" href="#cuda-build">CUDA Build</a></li>
 <li><a class="reference internal" href="#rocm-build">ROCm Build</a></li>

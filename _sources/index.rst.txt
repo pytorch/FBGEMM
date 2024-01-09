@@ -27,7 +27,7 @@ Table of Contents
    :caption: General Info
 
    general/Contributing.rst
-   general/Documentation.rst
+   general/documentation/Overview.rst
    general/ContactUs.rst
    general/License.rst
 
