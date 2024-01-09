@@ -38,7 +38,6 @@ suppressed_list: List[HealthCheck] = (
     if getattr(HealthCheck, "not_a_test_method", False)
     else []
 ) + (
-    # pyre-fixme[16]: Module `HealthCheck` has no attribute `differing_executors`.
     [HealthCheck.differing_executors]
     if getattr(HealthCheck, "differing_executors", False)
     else []

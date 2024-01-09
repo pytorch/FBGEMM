@@ -47,7 +47,6 @@ except Exception:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
 
 suppressed_list: List[HealthCheck] = (
-    # pyre-fixme[16]: Module `HealthCheck` has no attribute `differing_executors`.
     [HealthCheck.differing_executors]
     if getattr(HealthCheck, "differing_executors", False)
     else []
