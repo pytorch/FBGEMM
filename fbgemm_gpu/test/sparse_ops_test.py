@@ -450,8 +450,8 @@ class SparseOpsTest(unittest.TestCase):
             return permute_fn(*args)
 
     @given(
-        B=st.integers(min_value=1, max_value=20),
-        T=st.integers(min_value=1, max_value=20),
+        B=st.integers(min_value=0, max_value=20),
+        T=st.integers(min_value=0, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
         permute_fn=st.sampled_from(
