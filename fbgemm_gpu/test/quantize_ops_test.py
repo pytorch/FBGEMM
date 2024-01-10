@@ -532,9 +532,12 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
     @given(
         nrows=st.integers(min_value=0, max_value=100),
         ncols=st.integers(min_value=0, max_value=100),
-        bit_rate=st.sampled_from([2, 4]),
-        is_output_half=st.booleans(),
-        test_float_or_half_op=st.booleans(),
+        bit_rate=st.sampled_from([2, 4, 8]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+        ),
+        test_generic_op=st.booleans(),
+        test_cuda=st.booleans(),
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
     def test_quantize_and_dequantize_op(
@@ -542,71 +545,88 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         nrows: int,
         ncols: int,
         bit_rate: int,
-        is_output_half: bool,
-        test_float_or_half_op: bool,
+        output_dtype: SparseType,
+        test_generic_op: bool,
+        test_cuda: bool,
     ) -> None:
         assert 8 % bit_rate == 0
         num_elem_per_byte = 8 // bit_rate
         input_data = torch.rand(nrows, ncols).float()
-        if is_output_half:
+        if output_dtype == SparseType.FP16:
             input_data = input_data.half()
+        elif output_dtype == SparseType.BF16:
+            input_data = input_data.bfloat16()
 
         assume(ncols % (2 * num_elem_per_byte) == 0)
 
-        if test_float_or_half_op:
-            quantized_data = (
-                torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
-                    input_data, bit_rate
-                )
-            )
-            dequantized_data = (
-                torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
-                    quantized_data,
-                    bit_rate,
-                    output_dtype=1 if is_output_half else 0,
-                )
-            )
-        else:
-            if not is_output_half:
+        if not test_cuda:
+            # cpu path does not support bf16
+            if output_dtype == SparseType.BF16:
+                return
+            if test_generic_op:
                 quantized_data = (
-                    torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                    torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
                         input_data, bit_rate
                     )
                 )
                 dequantized_data = (
-                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
-                        quantized_data, bit_rate
+                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                        quantized_data,
+                        bit_rate,
+                        output_dtype.as_int(),
                     )
                 )
             else:
-                quantized_data = torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
-                    input_data, bit_rate
-                )
-                dequantized_data = (
-                    torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToHalf(
-                        quantized_data, bit_rate
+                if output_dtype == SparseType.FP32:
+                    quantized_data = (
+                        torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                            input_data, bit_rate
+                        )
+                    )
+                    dequantized_data = (
+                        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloat(
+                            quantized_data, bit_rate
+                        )
+                    )
+                elif output_dtype == SparseType.FP16:
+                    quantized_data = (
+                        torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
+                            input_data, bit_rate
+                        )
+                    )
+                    dequantized_data = (
+                        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToHalf(
+                            quantized_data, bit_rate
+                        )
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Unsupported output dtype {output_dtype} for cpu ops"
+                    )
+            if nrows == 0 or ncols == 0:
+                assert dequantized_data.numel() == 0
+                return
+            if output_dtype == SparseType.FP32:
+                reference = torch.from_numpy(
+                    fused_rowwise_nbit_quantize_dequantize_reference(
+                        input_data.float().numpy(), bit_rate
                     )
                 )
-        if nrows == 0 or ncols == 0:
-            assert dequantized_data.numel() == 0
-            return
-        if not is_output_half:
-            reference = torch.from_numpy(
-                fused_rowwise_nbit_quantize_dequantize_reference(
-                    input_data.float().numpy(), bit_rate
+            elif output_dtype == SparseType.FP16:
+                reference = torch.from_numpy(
+                    fused_rowwise_nbit_quantize_dequantize_reference(
+                        input_data.float().numpy(), bit_rate
+                    )
+                ).half()
+            else:
+                raise NotImplementedError(
+                    f"Unsupported output dtype {output_dtype} for cpu ops"
                 )
-            )
-        else:
-            reference = torch.from_numpy(
-                fused_rowwise_nbit_quantize_dequantize_reference(
-                    input_data.float().numpy(), bit_rate
-                )
-            ).half()
-        torch.testing.assert_close(dequantized_data, reference)
+            torch.testing.assert_close(dequantized_data, reference)
 
-        if gpu_available:
+        if test_cuda and gpu_available:
             input_data_gpu = input_data.cuda()
-            if test_float_or_half_op:
+            if test_generic_op:
                 quantized_data_gpu = (
                     torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
                         input_data_gpu, bit_rate
@@ -616,11 +636,14 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                     torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
                         quantized_data_gpu,
                         bit_rate,
-                        output_dtype=1 if is_output_half else 0,
+                        output_dtype.as_int(),
                     )
                 )
             else:
-                if not is_output_half:
+                # legacy path does not support bf16
+                if SparseType.BF16 == output_dtype:
+                    return
+                if output_dtype == SparseType.FP32:
                     quantized_data_gpu = (
                         torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
                             input_data_gpu, bit_rate
@@ -631,7 +654,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                             quantized_data_gpu, bit_rate
                         )
                     )
-                else:
+                elif output_dtype == SparseType.FP16:
                     quantized_data_gpu = (
                         torch.ops.fbgemm.HalfToFusedNBitRowwiseQuantizedSBHalf(
                             input_data_gpu, bit_rate
@@ -642,10 +665,33 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                             quantized_data_gpu, bit_rate
                         )
                     )
+            if nrows == 0 or ncols == 0:
+                assert dequantized_data_gpu.numel() == 0
+                return
             # compare quantized data
-            torch.testing.assert_close(
-                dequantized_data_gpu.cpu().float(), dequantized_data.float()
-            )
+            if output_dtype == SparseType.FP32:
+                reference = torch.from_numpy(
+                    fused_rowwise_nbit_quantize_dequantize_reference(
+                        input_data.float().numpy(), bit_rate
+                    )
+                )
+            elif output_dtype == SparseType.FP16:
+                reference = torch.from_numpy(
+                    fused_rowwise_nbit_quantize_dequantize_reference(
+                        input_data.float().numpy(), bit_rate
+                    )
+                ).half()
+            elif output_dtype == SparseType.BF16:
+                reference = torch.from_numpy(
+                    fused_rowwise_nbit_quantize_dequantize_reference(
+                        input_data.float().numpy(), bit_rate
+                    )
+                ).bfloat16()
+            else:
+                raise NotImplementedError(
+                    f"Unsupported output dtype for gpu ops {output_dtype}"
+                )
+            torch.testing.assert_close(dequantized_data_gpu.cpu(), reference)
 
     @unittest.skipIf(no_long_tests, "Slow test, requires buck build to run.")  # noqa
     def test_quantize_and_dequantize_op_cuda_large_nrows(self) -> None:
