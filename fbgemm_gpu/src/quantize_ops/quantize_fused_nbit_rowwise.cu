@@ -145,7 +145,7 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
   const auto num_blocks = cuda_calc_xblock_count(nrows, threads_per_block);
   // think unsigned as we use 0, 255
 
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
       input.scalar_type(), "_float_to_fusednbitrowwise_cuda_kernel", [&] {
         _float_to_fusednbitrowwise_cuda_kernel<scalar_t>
             <<<num_blocks,
@@ -201,11 +201,11 @@ DLL_PUBLIC at::Tensor _half_to_fusednbitrowwise_gpu(
 ///
 /// @return A new tensor with values from the input tensor converted to
 /// fused N-bit rowwise.
-DLL_PUBLIC Tensor _float_or_half_to_fusednbitrowwise_gpu(
+DLL_PUBLIC Tensor _single_or_half_precision_to_fusednbitrowwise_gpu(
     const Tensor& input,
     const int64_t bit_rate) {
   Tensor output;
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
       input.scalar_type(),
       "float_or_half_to_fusednbitrowwise_cuda_kernel",
       [&] {
@@ -240,10 +240,16 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
     output = at::empty(
         {nrows, output_columns}, // 4 = sizeof(float)
         input.options().dtype(at::kFloat));
-  } else { // T = at::Half
+  } else if constexpr (std::is_same_v<output_t, at::Half>) {
     output = at::empty(
-        {nrows, output_columns}, // 4 = sizeof(float)
+        {nrows, output_columns}, // 2 = sizeof(half)
         input.options().dtype(at::kHalf));
+  } else if constexpr (std::is_same_v<output_t, at::BFloat16>) {
+    output = at::empty(
+        {nrows, output_columns}, // 2 = sizeof(bfloat16)
+        input.options().dtype(at::kBFloat16));
+  } else {
+    TORCH_CHECK(false, "Unsupported output dtype");
   }
 
   if (nrows == 0 || output_columns == 0) {
@@ -258,7 +264,7 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
       output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {
         _fusednbitrowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -304,7 +310,7 @@ DLL_PUBLIC at::Tensor _fusednbitrowwise_to_half_gpu(
 
 /// @ingroup quantize-ops-cuda
 /// Converts a tensor of fused N-bit rowwise values into a tensor of `float` or
-/// `at::Half` values.
+/// `at::Half` or `at::Bf16` values.
 ///
 /// @param input A tensor of fused N-bit rowwise values
 /// @param bit_rate
@@ -312,11 +318,11 @@ DLL_PUBLIC at::Tensor _fusednbitrowwise_to_half_gpu(
 ///                     representation of `SparseType` enum
 ///
 /// @return A new tensor with values from the input tensor converted to `float`
-/// or `at::Half`, depending on `output_dtype`.
+/// or `at::Half` or `at::Bf16`, depending on `output_dtype`.
 ///
 /// @throw c10::Error if `output_dtype` is not one of (`SparseType::FP32` or
-/// `SparseType::FP16`).
-DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_or_half_gpu(
+/// `SparseType::FP16` or `SparseType::BF16`).
+DLL_PUBLIC at::Tensor _fusednbitrowwise_to_single_or_half_precision_gpu(
     const at::Tensor& input,
     const int64_t bit_rate,
     const int64_t output_dtype) {
@@ -329,6 +335,9 @@ DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_or_half_gpu(
       break;
     case SparseType::FP16:
       output = _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
+      break;
+    case SparseType::BF16:
+      output = _fusednbitrowwise_to_float_gpu_t<at::BFloat16>(input, bit_rate);
       break;
     default:
       TORCH_CHECK(false);
@@ -350,7 +359,7 @@ FBGEMM_OP_DISPATCH(
 FBGEMM_OP_DISPATCH(
     CUDA,
     "FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf",
-    fbgemm_gpu::_float_or_half_to_fusednbitrowwise_gpu);
+    fbgemm_gpu::_single_or_half_precision_to_fusednbitrowwise_gpu);
 FBGEMM_OP_DISPATCH(
     CUDA,
     "FusedNBitRowwiseQuantizedSBHalfToFloat",
@@ -362,4 +371,4 @@ FBGEMM_OP_DISPATCH(
 FBGEMM_OP_DISPATCH(
     CUDA,
     "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
-    fbgemm_gpu::_fusednbitrowwise_to_float_or_half_gpu);
+    fbgemm_gpu::_fusednbitrowwise_to_single_or_half_precision_gpu);
