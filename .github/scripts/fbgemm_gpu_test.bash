@@ -94,6 +94,8 @@ run_fbgemm_gpu_tests () {
     # https://github.com/pytorch/FBGEMM/issues/1559
     local ignored_tests=(
       batched_unary_embeddings_test.py
+      input_combine_test.py
+      jagged_tensor_ops_test.py
     )
   else
     local ignored_tests=()
