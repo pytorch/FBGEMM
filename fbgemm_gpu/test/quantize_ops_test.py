@@ -724,6 +724,69 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             # compare quantized data
             torch.testing.assert_close(dequantized_data_gpu.cpu(), reference)
 
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        nrows=st.integers(min_value=0, max_value=100),
+        ncols=st.integers(min_value=0, max_value=100),
+        bit_rate=st.sampled_from([2, 4, 8]),
+        output_dtype=st.sampled_from(
+            # [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+            [SparseType.BF16]
+        ),
+    )
+    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
+    def test_quantize_and_dequantize_op_cpu_and_cuda(
+        self,
+        nrows: int,
+        ncols: int,
+        bit_rate: int,
+        output_dtype: SparseType,
+    ) -> None:
+        assert 8 % bit_rate == 0
+        num_elem_per_byte = 8 // bit_rate
+        input_data = torch.rand(nrows, ncols).float()
+
+        assume(ncols % (2 * num_elem_per_byte) == 0)
+
+        quantized_data = torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(
+            input_data, bit_rate
+        )
+        # CPU quantized data, then dequantize on CUDA.
+        quantized_data = quantized_data.cuda()
+        dequantized_data = (
+            torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                quantized_data,
+                bit_rate,
+                output_dtype.as_int(),
+            )
+        )
+        if nrows == 0 or ncols == 0:
+            self.assertEqual(dequantized_data.numel(), 0)
+            return
+        if output_dtype == SparseType.FP32:
+            reference = torch.from_numpy(
+                fused_rowwise_nbit_quantize_dequantize_reference(
+                    input_data.float().numpy(), bit_rate
+                )
+            )
+        elif output_dtype == SparseType.FP16:
+            reference = torch.from_numpy(
+                fused_rowwise_nbit_quantize_dequantize_reference(
+                    input_data.float().numpy(), bit_rate
+                )
+            ).half()
+        elif output_dtype == SparseType.BF16:
+            reference = torch.from_numpy(
+                fused_rowwise_nbit_quantize_dequantize_reference(
+                    input_data.float().numpy(), bit_rate
+                )
+            ).bfloat16()
+        else:
+            raise NotImplementedError(
+                f"Unsupported output dtype for gpu ops {output_dtype}"
+            )
+        torch.testing.assert_close(dequantized_data.cpu(), reference)
+
 
 class TestHFP8QuantizationConversion(unittest.TestCase):
     # min_pos is the minimal of denormal numbers
