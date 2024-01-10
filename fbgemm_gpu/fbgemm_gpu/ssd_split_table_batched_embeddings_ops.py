@@ -461,7 +461,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=lxu_cache_locations,
-            uvm_cache_stats=None,
             vbe_metadata=invokers.lookup_args.VBEMetadata(
                 B_offsets=None,
                 output_offsets_feature_rank=None,
