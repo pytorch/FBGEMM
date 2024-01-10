@@ -218,6 +218,7 @@ def invoke(
         indice_weights=common_args.indice_weights,
         feature_requires_grad=common_args.feature_requires_grad,
         lxu_cache_locations=common_args.lxu_cache_locations,
+        uvm_cache_stats=common_args.uvm_cache_stats,
         # VBE metadata
         B_offsets=vbe_metadata.B_offsets,
         vbe_output_offsets_feature_rank=vbe_metadata.output_offsets_feature_rank,
