@@ -595,7 +595,7 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
     @given(
-        n=st.integers(min_value=1, max_value=100),
+        n=st.integers(min_value=0, max_value=10),
         long_index=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -659,8 +659,8 @@ class SparseOpsTest(unittest.TestCase):
             )
 
     @given(
-        n=st.integers(min_value=1, max_value=600),
-        b=st.integers(min_value=1, max_value=10),
+        n=st.integers(min_value=0, max_value=60),
+        b=st.integers(min_value=0, max_value=10),
         long_index=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
