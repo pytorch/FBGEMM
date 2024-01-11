@@ -35,8 +35,12 @@ run_python_test () {
   if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
     echo ""
+    echo ""
+    echo ""
   else
     echo "[TEST] Python test suite FAILED: ${python_test_file}"
+    echo ""
+    echo ""
     echo ""
     return 1
   fi
@@ -80,20 +84,20 @@ run_fbgemm_gpu_tests () {
 
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
   local files_to_skip=(
-    test_utils.py
-    split_table_batched_embeddings_test.py
-    ssd_split_table_batched_embeddings_test.py
+    ./test_utils.py
+    ./split_table_batched_embeddings_test.py
+    ./ssd_split_table_batched_embeddings_test.py
   )
 
   if [ "$fbgemm_variant" == "cpu" ]; then
     # These are tests that are currently broken in FBGEMM_GPU-CPU
     local ignored_tests=(
-      uvm_test.py
+      ./uvm_test.py
     )
   elif [ "$fbgemm_variant" == "rocm" ]; then
     # https://github.com/pytorch/FBGEMM/issues/1559
     local ignored_tests=(
-      batched_unary_embeddings_test.py
+      ./batched_unary_embeddings_test.py
     )
   else
     local ignored_tests=()
@@ -108,11 +112,14 @@ run_fbgemm_gpu_tests () {
   (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
 
   echo "[TEST] Enumerating test files ..."
-  print_exec ls -lth ./*.py
+  # shellcheck disable=SC2155
+  local all_test_files=$(find . -type f -name '*_test.py' -print | sort)
+  for f in $all_test_files; do echo "$f"; done
+  echo ""
 
   # NOTE: Tests running on single CPU core with a less powerful testing GPU in
   # GHA can take up to 5 hours.
-  for test_file in *.py; do
+  for test_file in $all_test_files; do
     if echo "${files_to_skip[@]}" | grep "${test_file}"; then
       echo "[TEST] Skipping test file known to be broken: ${test_file}"
     elif echo "${ignored_tests[@]}" | grep "${test_file}"; then
