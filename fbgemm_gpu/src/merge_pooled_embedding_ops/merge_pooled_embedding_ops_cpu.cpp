@@ -12,6 +12,7 @@
 #include <torch/library.h>
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/ops_utils.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -48,6 +49,31 @@ Tensor merge_pooled_embeddings_cpu(
   return result;
 }
 
+Tensor sum_reduce_to_one_cpu(
+    std::vector<Tensor> embeddings,
+    at::Device target_device) {
+  auto cat_host_0 = [&](const std::vector<Tensor>& ts) {
+    TORCH_CHECK(ts.size() > 0);
+    TENSOR_ON_CPU(ts[0]);
+    Tensor r = ts[0];
+    for (auto i = 1UL; i < ts.size(); i++) {
+      TENSOR_ON_CPU(ts[i]);
+      r.add_(ts[i]);
+    }
+    return r;
+  };
+  auto result = cat_host_0(embeddings);
+
+  // There is some corner case, the target_device is not CPU. So we move the
+  // target results to the target device. This would allow sample inputs
+  // staying on CPU.
+  if (!target_device.is_cpu()) {
+    result = result.to(target_device, true);
+  }
+
+  return result;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -69,3 +95,5 @@ FBGEMM_OP_DISPATCH(
     CPU,
     "merge_pooled_embeddings",
     fbgemm_gpu::merge_pooled_embeddings_cpu);
+
+FBGEMM_OP_DISPATCH(CPU, "sum_reduce_to_one", fbgemm_gpu::sum_reduce_to_one_cpu);
