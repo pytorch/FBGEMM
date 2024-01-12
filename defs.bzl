@@ -79,6 +79,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/Types.h",
     ]
 
+# buildifier: disable=unused-variable
 def get_fbgemm_avx2_srcs(msvc = False):
     return [
         #All the source files that either use avx2 instructions statically
@@ -109,6 +110,7 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
         })
     return asm_srcs if not msvc else intrinsics_srcs
 
+# buildifier: disable=unused-variable
 def get_fbgemm_avx512_srcs(msvc = False):
     return [
         #All the source files that use avx512 instructions statically
@@ -138,5 +140,13 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
         })
     return asm_srcs if not msvc else intrinsics_srcs
 
+def get_fbgemm_autovec_srcs():
+    return [
+        "src/EmbeddingSpMDMAutovec.cc",
+    ]
+
 def get_fbgemm_tests(skip_tests = []):
     return native.glob(["test/*Test.cc"], exclude = skip_tests)
+
+def get_fbgemm_inference_mode():
+    return native.read_config("fbcode", "fbgemm_inference_mode", False)

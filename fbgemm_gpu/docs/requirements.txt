@@ -1,11 +1,16 @@
-sphinx
-numpy
-Jinja2==3.0.*
-breathe==4.25.0
-exhale==0.2.3
-docutils==0.16
+# Note: Sphinx 7+ currently runs into an `Undefinederror("'style' is undefined")`
+# We should eventually move to Sphinx 7+ to resolve
+# https://github.com/sphinx-doc/sphinx/issues/1514
+sphinx<7
+
 # PyTorch Theme
 -e git+https://github.com/pytorch/pytorch_sphinx_theme.git#egg=pytorch_sphinx_theme
+
+breathe
 bs4
+docutils
 lxml
+myst-parser
+sphinx-lint
+sphinx-serve
 six

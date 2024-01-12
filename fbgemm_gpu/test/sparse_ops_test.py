@@ -36,7 +36,11 @@ try:
     # pyre-ignore[21]
     from test_utils import gpu_available, gpu_unavailable, skipIfRocm
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
@@ -446,8 +450,8 @@ class SparseOpsTest(unittest.TestCase):
             return permute_fn(*args)
 
     @given(
-        B=st.integers(min_value=1, max_value=20),
-        T=st.integers(min_value=1, max_value=20),
+        B=st.integers(min_value=0, max_value=20),
+        T=st.integers(min_value=0, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         long_index=st.booleans(),
         permute_fn=st.sampled_from(
@@ -591,7 +595,7 @@ class SparseOpsTest(unittest.TestCase):
             torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
     @given(
-        n=st.integers(min_value=1, max_value=100),
+        n=st.integers(min_value=0, max_value=10),
         long_index=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -655,8 +659,8 @@ class SparseOpsTest(unittest.TestCase):
             )
 
     @given(
-        n=st.integers(min_value=1, max_value=600),
-        b=st.integers(min_value=1, max_value=10),
+        n=st.integers(min_value=0, max_value=60),
+        b=st.integers(min_value=0, max_value=10),
         long_index=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)

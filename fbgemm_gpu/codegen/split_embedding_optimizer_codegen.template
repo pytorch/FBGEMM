@@ -20,15 +20,25 @@ import logging
 
 {%- if is_fbcode %}
 torch.ops.load_library(
-    "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training"
-)
-torch.ops.load_library(
     "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training"
 )
-torch.ops.load_library(
-    "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
-)
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:optimizer_ops")
+
+if torch.version.hip:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings_hip"
+    )
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:optimizer_ops_hip")
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training"
+    )
+else:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings"
+    )
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:optimizer_ops")
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training"
+    )
 {%- endif %}
 
 

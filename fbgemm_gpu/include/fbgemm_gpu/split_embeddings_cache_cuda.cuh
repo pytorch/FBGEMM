@@ -10,7 +10,7 @@
 
 #include <ATen/ATen.h>
 
-///@defgroup table-batched-embed-cuda CUDA Operators
+/// @defgroup table-batched-embed-cuda CUDA Operators
 /// The following are CUDA Operators
 
 namespace fbgemm_gpu {

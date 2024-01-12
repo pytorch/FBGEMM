@@ -10,9 +10,6 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
 namespace {
@@ -332,16 +329,38 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of `float` values into a tensor of fused 8-bit rowwise
+/// values.
+///
+/// @param input A tensor of `float` values
+///
+/// @return A new tensor with values from the input tensor converted to
+/// fused 8-bit rowwise.
 DLL_PUBLIC Tensor _float_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<float>(input);
 }
 
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of `at::Half` values into a tensor of fused 8-bit rowwise
+/// values.
+///
+/// @param input A tensor of `at::Half` values
+///
+/// @return A new tensor with values from the input tensor converted to
+/// fused 8-bit rowwise.
 DLL_PUBLIC Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
   return _float_to_fused8bitrowwise_gpu_t<at::Half>(input);
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of `at::Single` or `at::Half` values into a tensor of
+/// fused 8-bit rowwise values.
+///
+/// @param input A tensor of `at::Single` or `at::Half` values
+///
+/// @return A new tensor with values from the input tensor converted to
+/// fused 8-bit rowwise.
 DLL_PUBLIC Tensor
 _single_or_half_precision_to_fused8bitrowwise_gpu(const Tensor& input) {
   Tensor output;
@@ -419,15 +438,42 @@ Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
   return output;
 }
 
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of fused 8-bit rowwise values into a tensor of `float`
+/// values.
+///
+/// @param input A tensor of fused 8-bit rowwise values
+///
+/// @return A new tensor with values from the input tensor converted to `float`.
 DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_gpu(const at::Tensor& input) {
   return _fused8bitrowwise_to_float_gpu_t<float>(input);
 }
 
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of fused 8-bit rowwise values into a tensor of `at::Half`
+/// values.
+///
+/// @param input A tensor of fused 8-bit rowwise values
+///
+/// @return A new tensor with values from the input tensor converted to
+/// `at::Half`.
 DLL_PUBLIC at::Tensor _fused8bitrowwise_to_half_gpu(const at::Tensor& input) {
   return _fused8bitrowwise_to_float_gpu_t<at::Half>(input);
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of fused 8-bit rowwise values into a tensor of `float`,
+/// `at::Half`, or `at::BFloat16` values.
+///
+/// @param input A tensor of fused 8-bit rowwise values
+/// @param output_dtype The target floating point type, specified as integer
+///                     representation of `SparseType` enum
+///
+/// @return A new tensor with values from the input tensor converted to `float`,
+/// `at::Half`, or `at::BFloat16`.
+///
+/// @throw c10::Error if `output_dtype` is not one of (`SparseType::FP32`,
+/// `SparseType::FP16`, or `SparseType::BF16`).
 DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu(
     const at::Tensor& input,
     const int64_t output_dtype) {
@@ -451,7 +497,20 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_single_or_half_precision_gpu(
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of fused 8-bit rowwise values into a tensor of
+/// `at::kFloat` or `at::kHalf` values.
+///
+/// @param input A tensor of fused 8-bit rowwise values
+/// @param D_offsets
+/// @param output_dtype The target floating point type, specified as integer
+///                     representation of `SparseType` enum
+///
+/// @return A new tensor with values from the input tensor converted to
+/// `at::kFloat` or `at::kHalf`.
+///
+/// @throw c10::Error if `output_dtype` is not one of (`SparseType::FP32`,
+/// `SparseType::FP16`)
 DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
     const at::Tensor& input,
     const at::Tensor& D_offsets,

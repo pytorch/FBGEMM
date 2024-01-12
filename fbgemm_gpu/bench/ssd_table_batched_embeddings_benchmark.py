@@ -27,9 +27,14 @@ from fbgemm_gpu.ssd_split_table_batched_embeddings_ops import (
 
 logging.basicConfig(level=logging.DEBUG)
 
-torch.ops.load_library(
-    "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-)
+if torch.version.hip:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
+    )
+else:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
+    )
 
 
 logging.basicConfig(level=logging.DEBUG)

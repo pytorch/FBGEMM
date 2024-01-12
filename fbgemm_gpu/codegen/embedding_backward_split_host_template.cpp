@@ -53,6 +53,7 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
     const Tensor& indice_weights,
     {%- endif %}
     const Tensor& lxu_cache_locations,
+    const Tensor& uvm_cache_stats,
     const int64_t output_dtype,
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
@@ -282,6 +283,13 @@ class {{ autograd_func }} :
     const auto& flatten_dev_weights = dev_weights;
     {%- endif %}
 
+
+
+
+    const auto uvm_cache_stats = at::empty({0}, uvm_weights.options().dtype(at::kInt));
+
+
+
     {%- if not nobag %}
     {%- for weighted in [False, True] %}
     {%- set wdesc = "weighted" if weighted else "unweighted" %}
@@ -316,6 +324,7 @@ class {{ autograd_func }} :
             *indice_weights,
             {%- endif %}
             lxu_cache_locations,
+            uvm_cache_stats,
             output_dtype,
             {%- if vbe %}
             vbe_row_output_offsets,
@@ -346,6 +355,7 @@ class {{ autograd_func }} :
         indices,
         offsets,
         lxu_cache_locations,
+        uvm_cache_stats,
         output_dtype,
         /*is_experimental=*/false
       )

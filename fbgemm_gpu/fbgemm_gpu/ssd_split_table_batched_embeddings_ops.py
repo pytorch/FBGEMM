@@ -30,6 +30,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     CounterBasedRegularizationDefinition,
+    CowClipDefinition,
     WeightDecayMode,
 )
 
@@ -37,9 +38,14 @@ from torch import nn, Tensor  # usort:skip
 from torch.autograd.profiler import record_function
 
 try:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-    )
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
+        )
 except OSError:
     # Keep for BC: will be deprecated soon.
     torch.ops.load_library(
@@ -98,6 +104,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         beta2: float = 0.999,  # used by LAMB and ADAM
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
+        ] = None,  # used by Rowwise Adagrad
+        cowclip_regularization: Optional[
+            CowClipDefinition
         ] = None,  # used by Rowwise Adagrad
         pooling_mode: PoolingMode = PoolingMode.SUM,
     ) -> None:
@@ -234,6 +243,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         counter_based_regularization = CounterBasedRegularizationDefinition()
 
+        if weight_decay_mode == WeightDecayMode.COWCLIP or cowclip_regularization:
+            raise AssertionError(
+                "weight_decay_mode = WeightDecayMode.COWCLIP is not supported for SSD TBE."
+            )
+        cowclip_regularization = CowClipDefinition()
+
         self.optimizer_args = invokers.lookup_args.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
@@ -256,6 +271,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 counter_based_regularization.tail_id_threshold.is_ratio
             ),
             total_hash_size=-1,  # Unused
+            weight_norm_coefficient=cowclip_regularization.weight_norm_coefficient,
+            lower_bound=cowclip_regularization.lower_bound,
+            regularization_mode=weight_decay_mode.value,
         )
         self.weights_dev = nn.Parameter(
             torch.empty((0,), device=self.current_device, dtype=torch.float32)
@@ -451,7 +469,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 max_B_feature_rank=-1,
                 output_size=-1,
             ),
+            # Unused arguments
             is_experimental=False,
+            use_uniq_cache_locations_bwd=False,
+            use_homogeneous_placements=True,
         )
 
         momentum1 = invokers.lookup_args.Momentum(

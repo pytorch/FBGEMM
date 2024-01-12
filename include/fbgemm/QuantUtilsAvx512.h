@@ -12,7 +12,14 @@
 #include "./FbgemmBuild.h"
 #include "./UtilsAvx2.h"
 
+/// @defgroup fbgemm-quant-utils-avx512 Quantization Utilities (AVX512)
+///
+
 namespace fbgemm {
+
+/// @ingroup fbgemm-quant-utils-avx512
+///
+/// Requantize with AVX512.
 template <
     bool A_SYMMETRIC,
     bool B_SYMMETRIC,
@@ -28,4 +35,4 @@ FBGEMM_API void requantizeOutputProcessingGConvAvx512(
     int ld_out,
     int ld_in,
     const requantizationParams_t<BIAS_TYPE>& r);
-}
+} // namespace fbgemm

@@ -14,11 +14,12 @@
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-///@defgroup permute-pooled-embs-gpu
-///@defgroup permute-pooled-embs-cpu
+/// @defgroup permute-pooled-embs-gpu Permute Pooled Embeddings Operators (CUDA)
+/// @defgroup permute-pooled-embs-cpu Permute Pooled Embeddings Operators (CPU)
 
 namespace fbgemm_gpu {
 
+///@ingroup permute-pooled-embs-cpu
 at::Tensor permute_pooled_embs_cpu_impl(
     const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const at::Tensor& offset_dim_list,

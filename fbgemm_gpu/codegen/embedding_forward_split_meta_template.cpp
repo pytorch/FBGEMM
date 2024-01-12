@@ -23,7 +23,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "codegen/embedding_op_registration.h"
+#include "fbgemm_gpu/embedding_op_registration.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
 ////////////////////////////////////////////////////////////////////////////////
@@ -72,6 +72,7 @@ Tensor
     {%- endif %}
     {%- if not dense %}
     const Tensor& lxu_cache_locations,
+    const Tensor& uvm_cache_stats,
     {%- endif %}
     const int64_t output_dtype,
     {%- if vbe %}

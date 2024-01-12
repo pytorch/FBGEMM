@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.11" ]
+        python-version: [ "3.12" ]
 
     steps:
     - name: Setup Build Container
@@ -67,7 +67,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install Documentation Tools
-      run: . $PRELUDE; install_docs_tools $BUILD_ENV
+      run: . $PRELUDE; cd fbgemm_gpu/docs; install_docs_tools $BUILD_ENV
 
     - name: Install PyTorch-CPU Nightly
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cpu

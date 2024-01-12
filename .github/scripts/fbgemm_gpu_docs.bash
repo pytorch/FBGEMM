@@ -34,13 +34,22 @@ install_docs_tools () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Installing docs tools ..."
+  echo "[INSTALL] Installing documentation tools ..."
+
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
-    doxygen) || return 1
+    doxygen \
+    graphviz \
+    make) || return 1
 
   # Check binaries are visible in the PATH
+  (test_binpath "${env_name}" dot) || return 1
   (test_binpath "${env_name}" doxygen) || return 1
+  (test_binpath "${env_name}" make) || return 1
+
+  echo "[BUILD] Installing docs-build dependencies ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
   echo "[INSTALL] Successfully installed all the docs tools"
 }
@@ -69,17 +78,31 @@ build_fbgemm_gpu_docs () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[BUILD] Installing docs-build dependencies ..."
+  echo "[DOCS] Running the first-pass build (i.e. documentation linting) ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
+  print_exec conda env config vars set ${env_prefix} SPHINX_LINT=1
 
-  echo "[BUILD] Running Doxygen build ..."
+  # Run the first build pass with linting enabled.  The purpose of this pass
+  # is only to perform the lint checks, as the generated output will be broken
+  # when linting is enabled.
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} doxygen Doxyfile.in) || return 1
+  if print_exec conda run ${env_prefix} make clean doxygen html; then
+    echo "[DOCS] Docs linting passed"
+  else
+    echo "[DOCS] Docs linting failed; showing build output ..."
+    # Show the buidl logs on error
+    cat build/html/output.txt || true
+    return 1
+  fi
 
-  echo "[BUILD] Building HTML pages ..."
+  echo "[DOCS] Running the second-pass documentation build ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} make html) || return 1
+  print_exec conda env config vars unset ${env_prefix} SPHINX_LINT
 
-  echo "[INSTALL] FBGEMM-GPU documentation build completed"
+  # Run the second build pass with linting disabled.  The generated output will
+  # then be used for publication.
+  # shellcheck disable=SC2086
+  (print_exec conda run ${env_prefix} make clean doxygen html) || return 1
+
+  echo "[DOCS] FBGEMM-GPU documentation build completed"
 }

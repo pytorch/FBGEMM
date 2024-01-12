@@ -10,12 +10,17 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+///
+/// Converts a tensor of `float` values into a tensor of Brain Floating Point
+/// (`bfloat16`) values.
+///
+/// @param input A tensor of `float` values
+///
+/// @return A new tensor with values from the input tensor converted to
+/// `bfloat16`.
 DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());
@@ -39,7 +44,14 @@ DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+///
+/// Converts a tensor of Brain Floating Point (`bfloat16`) values into a tensor
+/// of `float` values.
+///
+/// @param input A tensor of `bfloat16` values
+///
+/// @return A new tensor with values from the input tensor converted to `float`.
 DLL_PUBLIC at::Tensor _bfloat16_to_float_gpu(const at::Tensor& input) {
   at::cuda::OptionalCUDAGuard device_guard;
   device_guard.set_index(input.get_device());

@@ -182,14 +182,14 @@ set(GPU_ONLY_OPTIMIZERS
   partial_rowwise_adam
   partial_rowwise_lamb
   lars_sgd
-  rowwise_adagrad_with_weight_decay
-  approx_rowwise_adagrad_with_weight_decay
   none)
 
 set(DEPRECATED_OPTIMIZERS
   approx_sgd
   approx_rowwise_adagrad
-  approx_rowwise_adagrad_with_counter)
+  approx_rowwise_adagrad_with_counter
+  approx_rowwise_adagrad_with_weight_decay
+  rowwise_adagrad_with_weight_decay)
 
 set(ALL_OPTIMIZERS
   ${COMMON_OPTIMIZERS}
@@ -204,6 +204,7 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 # Optimizers with the VBE support
 set(VBE_OPTIMIZERS
     rowwise_adagrad
+    rowwise_adagrad_with_counter
     sgd)
 
 # Individual optimizers (not fused with SplitTBE backward)
@@ -353,7 +354,6 @@ set(embedding_codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_nobag_small_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_template_helpers.cuh
-    ${CMAKE_CODEGEN_DIR}/embedding_op_registration.h
     ${CMAKE_CODEGEN_DIR}/__init__.template
     ${CMAKE_CODEGEN_DIR}/lookup_args.py
     ${CMAKE_CODEGEN_DIR}/split_embedding_codegen_lookup_invoker.template
@@ -365,6 +365,7 @@ set(embedding_codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_inplace_update.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_op_registration.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
@@ -499,6 +500,7 @@ endif()
 
 set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDM.cc"
+  "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
   "${FBGEMM}/src/QuantUtils.cc"
   "${FBGEMM}/src/RefImplementations.cc"

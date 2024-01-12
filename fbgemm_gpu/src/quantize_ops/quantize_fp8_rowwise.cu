@@ -10,9 +10,6 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
 namespace {
@@ -327,7 +324,17 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of `float` values into a tensor of `fp8` values.
+///
+/// @param input A tensor of `float` values.  The dtype can be either
+///              `SparseType::FP32`, `SparseType::FP16`, or `SparseType::BF16`
+/// @param forward
+///
+/// @return A new tensor with values from the input tensor converted to `fp8`.
+///
+/// @throw c10::Error if `input.dtype` is not one of (`SparseType::FP32`,
+/// `SparseType::FP16`, or `SparseType::BF16`).
 DLL_PUBLIC Tensor
 _float_to_FP8rowwise_gpu(const Tensor& input, const bool forward) {
   auto input_type = input.dtype();
@@ -409,6 +416,20 @@ Tensor _FP8rowwise_to_float_gpu_t(
   return output;
 }
 
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of `fp8` values into a tensor of `float` values.
+///
+/// @param input A tensor of `fp8` values
+/// @param forward
+/// @param output_dtype The target floating point type, specified as integer
+///                     representation of `SparseType` enum
+///
+/// @return A new tensor with values from the input tensor converted to
+/// `float` (with `dtype` of either `SparseType::FP32`, `SparseType::FP16`, or
+/// `SparseType::BF16`).
+///
+/// @throw c10::Error if `output_dtype` is not one of (`SparseType::FP32`,
+/// `SparseType::FP16`, or `SparseType::BF16`).
 DLL_PUBLIC at::Tensor _FP8rowwise_to_float_gpu(
     const at::Tensor& input,
     bool forward,

@@ -309,7 +309,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 {% for params in emb_weight_type.template_params %}
 
 {% if output_type == 'at::BFloat16' %}
-#if !(                                                  \
+#if defined(USE_ROCM) || !(                             \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 {% endif %}
