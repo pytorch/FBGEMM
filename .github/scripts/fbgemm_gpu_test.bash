@@ -84,19 +84,19 @@ run_fbgemm_gpu_tests () {
 
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
   local files_to_skip=(
-    ./test_utils.py
-    ./split_table_batched_embeddings_test.py
+    ./tbe/split_table_batched_embeddings_test.py
     ./ssd_split_table_batched_embeddings_test.py
   )
 
   if [ "$fbgemm_variant" == "cpu" ]; then
     # These are tests that are currently broken in FBGEMM_GPU-CPU
     local ignored_tests=(
+      ./tbe/forward_test.py
       ./uvm_test.py
     )
   elif [ "$fbgemm_variant" == "rocm" ]; then
-    # https://github.com/pytorch/FBGEMM/issues/1559
     local ignored_tests=(
+      # https://github.com/pytorch/FBGEMM/issues/1559
       ./batched_unary_embeddings_test.py
     )
   else
