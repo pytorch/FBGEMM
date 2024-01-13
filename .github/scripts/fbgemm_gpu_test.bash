@@ -85,7 +85,7 @@ run_fbgemm_gpu_tests () {
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
   local files_to_skip=(
     ./test_utils.py
-    ./split_table_batched_embeddings_test.py
+    ./tbe/split_table_batched_embeddings_test.py
     ./ssd_split_table_batched_embeddings_test.py
   )
 
