@@ -63,6 +63,10 @@ namespace cub = hipcub;
 
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
+#define CUDA_DEVICE_GUARD(TENSOR)           \
+  at::cuda::OptionalCUDAGuard device_guard; \
+  device_guard.set_index(TENSOR.get_device())
+
 // Warp size
 #ifdef USE_ROCM
 static constexpr int32_t kWarpSize = 64;
