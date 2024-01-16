@@ -181,7 +181,7 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   x86::Assembler assembler(&code);
   x86::Emitter* a = assembler.as<x86::Emitter>();
 
-  typedef typename simd_info<INST_SET>::vec_reg_t vec_reg_t;
+  using vec_reg_t_2 = typename simd_info<INST_SET>::vec_reg_t;
 #if defined(FBGEMM_LOG_CODE)
   auto kernelSig = make_tuple(
       this->isAZeroPointZero_,
@@ -261,13 +261,13 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   // this in a register. It's generated again at
   // each use. Only used for the case of C_per_G == 2 or 4
   // gen8BitVectorOne(a, oneReg8Bit_V_);
-  gen16BitVectorOne<INST_SET, vec_reg_t>(a, oneReg16Bit_V_);
+  gen16BitVectorOne<INST_SET, vec_reg_t_2>(a, oneReg16Bit_V_);
 
   loopR1_ = a->gpz(14);
   loopR2_ = a->gpz(15);
 
   if (!this->isAZeroPointZero_) {
-    broadcast8Bit<vec_reg_t>(a, a_zero_pt_R_, zeroPTReg_V_);
+    broadcast8Bit<vec_reg_t_2>(a, a_zero_pt_R_, zeroPTReg_V_);
   }
 
   genConstForPermutations(a);
