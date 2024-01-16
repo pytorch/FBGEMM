@@ -12,6 +12,7 @@
 #include <torch/library.h>
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/ops_utils.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -48,6 +49,21 @@ Tensor merge_pooled_embeddings_cpu(
   return result;
 }
 
+Tensor sum_reduce_to_one_cpu(
+    std::vector<Tensor> input_tensors,
+    at::Device /* target_device */) {
+  TORCH_CHECK(input_tensors.size() > 0);
+  const auto input_0 = input_tensors[0];
+  TENSOR_ON_CPU(input_0);
+  Tensor result = at::zeros_like(input_0);
+  for (auto i = 0UL; i < input_tensors.size(); i++) {
+    TENSOR_ON_CPU(input_tensors[i]);
+    result.add_(input_tensors[i]);
+  }
+
+  return result;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -69,3 +85,5 @@ FBGEMM_OP_DISPATCH(
     CPU,
     "merge_pooled_embeddings",
     fbgemm_gpu::merge_pooled_embeddings_cpu);
+
+FBGEMM_OP_DISPATCH(CPU, "sum_reduce_to_one", fbgemm_gpu::sum_reduce_to_one_cpu);
