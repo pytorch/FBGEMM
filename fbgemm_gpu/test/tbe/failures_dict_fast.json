@@ -5,11 +5,11 @@
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::bounds_check_indices": {},
     "fbgemm::dense_embedding_codegen_lookup_function": {
-      "SplitTableBatchedEmbeddingsTest.test_autograd_registration__test_backward_dense": {
+      "BackwardDenseTest.test_autograd_registration__test_backward_dense": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_dense": {
+      "BackwardDenseTest.test_faketensor__test_backward_dense": {
         "comment": "",
         "status": "xfail"
       }
@@ -69,11 +69,11 @@
       }
     },
     "fbgemm::lfu_cache_populate": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd": {
         "comment": "",
         "status": "skip"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd_really_long_segments": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd_really_long_segments": {
         "comment": "",
         "status": "skip"
       },
@@ -117,11 +117,11 @@
         "comment": "",
         "status": "skip"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd_really_long_segments": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd_really_long_segments": {
         "comment": "",
         "status": "xfail"
       },
@@ -209,11 +209,11 @@
         "comment": "",
         "status": "skip"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd": {
         "comment": "",
         "status": "skip"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd_really_long_segments": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd_really_long_segments": {
         "comment": "",
         "status": "skip"
       },
@@ -286,11 +286,11 @@
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_backward_sgd_really_long_segments": {
+      "BackwardSGDTest.test_faketensor__test_backward_sgd_really_long_segments": {
         "comment": "",
         "status": "xfail"
       },
