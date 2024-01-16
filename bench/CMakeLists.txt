@@ -41,6 +41,8 @@ macro(add_benchmark BENCHNAME)
     BenchUtils.cc
     ../test/QuantizationHelpers.cc
     ../test/EmbeddingSpMDMTestUtils.cc)
+  # Ensure that we can include header files from the root directory.
+  target_include_directories(${BENCHNAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
   target_compile_options(${BENCHNAME} PRIVATE
     "-m64" "-mavx2" "-mfma" "-masm=intel")
   target_link_libraries(${BENCHNAME} fbgemm)

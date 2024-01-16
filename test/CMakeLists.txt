@@ -14,27 +14,31 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
-  #Download Googletest framework from github if
-  #GOOGLETEST_SOURCE_DIR is not specified.
-  if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
-    set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/third_party/googletest"
-      CACHE STRING "googletest source directory from submodules")
-  endif()
+if(USE_SYSTEM_GOOGLETEST)
+  find_package(GTest REQUIRED)
+else()
+  if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
+    #Download Googletest framework from github if
+    #GOOGLETEST_SOURCE_DIR is not specified.
+    if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
+      set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/third_party/googletest"
+        CACHE STRING "googletest source directory from submodules")
+    endif()
 
-  #build Googletest framework
-  #MSVC needs gtest_for_shared_crt to select right runtime lib
-  if (MSVC AND FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-    message(WARNING "gtest_force_shared_crt is ON")
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  else()
-    message(WARNING "gtest_force_shared_crt is OFF")
-  endif()
-  add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
-  # add flags required for mac build
-  if(NOT MSVC)
-    target_compile_options(gtest PRIVATE "-Wno-deprecated-copy")
-    target_compile_options(gmock PRIVATE "-Wno-deprecated-copy")
+    #build Googletest framework
+    #MSVC needs gtest_for_shared_crt to select right runtime lib
+    if (MSVC AND FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+      message(WARNING "gtest_force_shared_crt is ON")
+      set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    else()
+      message(WARNING "gtest_force_shared_crt is OFF")
+    endif()
+    add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
+    # add flags required for mac build
+    if(NOT MSVC)
+      target_compile_options(gtest PRIVATE "-Wno-deprecated-copy")
+      target_compile_options(gmock PRIVATE "-Wno-deprecated-copy")
+    endif()
   endif()
 endif()
 
@@ -52,6 +56,8 @@ macro(add_gtest TESTNAME)
     EmbeddingSpMDMTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
+  # Ensure that we can include header files from the root directory.
+  target_include_directories(${TESTNAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
   # To compile test files with AVX2 turned on
   # For static build, defining FBGEMM_STATIC to avoid generating
   # functions with _dllimport attributes.
@@ -78,7 +84,10 @@ macro(add_gtest TESTNAME)
     target_link_libraries(${TESTNAME} ${OpenMP_CXX_LIBRARIES})
   endif()
 
-  add_dependencies(${TESTNAME} gtest fbgemm)
+  if(NOT USE_SYSTEM_GOOGLETEST)
+    add_dependencies(${TESTNAME} gtest gmock)
+  endif()
+  add_dependencies(${TESTNAME} fbgemm)
   add_test(${TESTNAME} ${TESTNAME})
   set_target_properties(${TESTNAME} PROPERTIES FOLDER test)
 endmacro()
