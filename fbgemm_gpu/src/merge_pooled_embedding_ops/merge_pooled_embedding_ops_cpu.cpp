@@ -64,6 +64,15 @@ Tensor sum_reduce_to_one_cpu(
   return result;
 }
 
+std::vector<Tensor> all_to_one_device_cpu(
+    std::vector<Tensor> input_tensors,
+    at::Device /* target_device */) {
+  for (const auto& t : input_tensors) {
+    TENSOR_ON_CPU(t);
+  }
+  return input_tensors;
+}
+
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -87,3 +96,4 @@ FBGEMM_OP_DISPATCH(
     fbgemm_gpu::merge_pooled_embeddings_cpu);
 
 FBGEMM_OP_DISPATCH(CPU, "sum_reduce_to_one", fbgemm_gpu::sum_reduce_to_one_cpu);
+FBGEMM_OP_DISPATCH(CPU, "all_to_one_device", fbgemm_gpu::all_to_one_device_cpu);
