@@ -319,7 +319,10 @@ def index_select() -> None:
         )
 
     template = env.get_template("embedding_backward_split_grad_template.cu")
-    write("gen_embedding_backward_split_grad.cu", template.render())
+    write(
+        "gen_embedding_backward_split_grad_index_select.cu",
+        template.render(is_index_select=True),
+    )
 
 
 def forward_quantized() -> None:
@@ -461,7 +464,10 @@ def forward_quantized() -> None:
 def backward_grad() -> None:
     # Generate the common grad functions
     template = env.get_template("embedding_backward_split_grad_template.cu")
-    write("gen_embedding_backward_split_grad.cu", template.render())
+    write(
+        "gen_embedding_backward_split_grad_embedding_ops.cu",
+        template.render(is_index_select=False),
+    )
 
 
 def backward_indices() -> None:

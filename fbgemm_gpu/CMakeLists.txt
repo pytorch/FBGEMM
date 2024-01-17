@@ -228,7 +228,8 @@ set(gen_gpu_kernel_source_files
     "gen_batch_index_select_dim0_backward_codegen_cuda.cu"
     "gen_batch_index_select_dim0_backward_kernel_cta.cu"
     "gen_batch_index_select_dim0_backward_kernel_warp.cu"
-    "gen_embedding_backward_split_grad.cu"
+    "gen_embedding_backward_split_grad_embedding_ops.cu"
+    "gen_embedding_backward_split_grad_index_select.cu"
 )
 
 if(NOT USE_ROCM)

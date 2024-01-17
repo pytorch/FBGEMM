@@ -12,7 +12,15 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using Tensor = at::Tensor;
+
 using namespace fbgemm_gpu;
+
+{% if is_index_select %}
+namespace index_select {
+{% else %}
+namespace embedding_ops {
+{% endif %}
+
 
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_find_long_segments(
@@ -224,5 +232,7 @@ void grad_mean{{ vdesc }}_kernel
 );
 {% endfor %} // for grad_type in ['at::Half', 'float']
 {% endfor %} // for vbe in [True, False]
+
+}
 
 // clang-format on
