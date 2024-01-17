@@ -85,56 +85,41 @@ bool EmbeddingSpMDMNBit_autovec(
           input + input_stride * idx +
           (scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0));
 
-      float weight = 1.0f;
+      float scale = cpu_half2float(scale_bias[0]);
+      float bias = cpu_half2float(scale_bias[1]);
       if (weights) {
-        weight = weights[is_weight_positional ? i : current];
+        float weight = weights[is_weight_positional ? i : current];
+        scale *= weight;
+        bias *= weight;
       }
-      const float scale = weight * cpu_half2float(scale_bias[0]);
-      const float bias = weight * cpu_half2float(scale_bias[1]);
 
       const int64_t offset =
           input_stride * idx + (scale_bias_last ? 0 : scale_bias_offset);
       if (bit_rate == 4) {
         const size_t halfbufsz = (block_size + 1) / 2;
         assert(halfbufsz > 0);
-        thread_local vector<float> buf1;
-        thread_local vector<float> buf2;
-        buf1.resize(halfbufsz);
-        buf2.resize(halfbufsz);
-#pragma omp simd
         for (size_t j = 0; j < halfbufsz; ++j) {
-          uint8_t quantized1 = input[offset + j] & 0xf;
-          uint8_t quantized2 = input[offset + j] & 0xf0;
-          quantized2 = quantized2 >> 4;
-          buf1[j] = quantized1;
-          buf2[j] = quantized2;
-        }
-#pragma omp simd
-        for (size_t j = 0; j < halfbufsz; ++j) {
-          buf[j * 2] = std::fma(scale, buf1[j], buf[j * 2] + bias);
-          buf[j * 2 + 1] = std::fma(scale, buf2[j], buf[j * 2 + 1] + bias);
+          uint8_t tmp = input[offset + j];
+          float quantized1 = float(tmp & 0xf);
+          float quantized2 = float(tmp >> 4);
+          buf[j * 2] = std::fma(scale, quantized1, buf[j * 2] + bias);
+          buf[j * 2 + 1] = std::fma(scale, quantized2, buf[j * 2 + 1] + bias);
         }
       } else if (bit_rate == 2) {
         size_t qbufsz = (block_size + 3) / 4;
-        vector<vector<float>> qbufs(4);
-        for (int k = 0; k < 4; ++k) {
-          qbufs[k].resize(qbufsz);
-        }
-        vector<uint8_t> masks{0x3, 0xC, 0x30, 0xC0};
-#pragma omp simd collapse(2)
+        const uint8_t mask1 = 0x3;
+        const uint8_t mask2 = 0xC;
+        const uint8_t mask3 = 0x30;
         for (size_t j = 0; j < qbufsz; ++j) {
-          for (size_t k = 0; k < 4; ++k) {
-            uint8_t quantized = input[offset + j] & masks[k];
-            quantized = quantized >> (k * 2);
-            qbufs[k][j] = quantized;
-          }
-        }
-#pragma omp simd collapse(2)
-        for (size_t j = 0; j < qbufsz; ++j) {
-          for (size_t k = 0; k < 4; ++k) {
-            buf[j * 4 + k] =
-                std::fma(scale, qbufs[k][j], buf[j * 4 + k] + bias);
-          }
+          uint8_t tmp = input[offset + j];
+          float quantized1 = float(tmp & mask1);
+          buf[j * 4] = std::fma(scale, quantized1, buf[j * 4] + bias);
+          float quantized2 = float((tmp & mask2) >> 2);
+          buf[j * 4 + 1] = std::fma(scale, quantized2, buf[j * 4 + 1] + bias);
+          float quantized3 = float((tmp & mask3) >> 4);
+          buf[j * 4 + 2] = std::fma(scale, quantized3, buf[j * 4 + 2] + bias);
+          float quantized4 = float(tmp >> 6);
+          buf[j * 4 + 3] = std::fma(scale, quantized4, buf[j * 4 + 3] + bias);
         }
       }
       ++current;
