@@ -175,6 +175,13 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     {%- endif %}
 );
 
+{% if is_index_select %}
+namespace index_select {
+{% else %}
+namespace embedding_ops {
+{% endif %}
+
+
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_find_long_segments(
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
@@ -221,6 +228,14 @@ split_embedding_backward_count_unique_indices_kernel(
         dev_or_uvm_unique_indices,
     const int info_B_num_bits
 );
+
+}
+
+{% if is_index_select %}
+using namespace index_select;
+{% else %}
+using namespace embedding_ops;
+{% endif %}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Utility Macros
