@@ -427,8 +427,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     }
     {%- endif %}
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(dev_weights.get_device());
+    CUDA_DEVICE_GUARD(dev_weights);
 
     {%- if nobag and not is_index_select %}
     auto max_D = D;

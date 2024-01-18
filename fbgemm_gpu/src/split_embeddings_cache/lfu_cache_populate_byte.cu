@@ -165,8 +165,7 @@ void lfu_cache_insert_byte_cuda(
       lxu_cache_weights,
       lfu_state);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   const int32_t N = cache_set_sorted_unique_indices.numel();
 
@@ -231,8 +230,7 @@ DLL_PUBLIC void lfu_cache_populate_byte_cuda(
       lxu_cache_weights,
       lfu_state);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());

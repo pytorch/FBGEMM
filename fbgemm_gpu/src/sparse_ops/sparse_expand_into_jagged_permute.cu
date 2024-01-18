@@ -46,8 +46,7 @@ DLL_PUBLIC Tensor expand_into_jagged_permute_cuda(
   TORCH_CHECK(permute.numel() == input_offsets.numel() - 1);
   TORCH_CHECK(permute.numel() == output_offsets.numel() - 1);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(permute.get_device());
+  CUDA_DEVICE_GUARD(permute);
 
   const auto permute_contig = permute.contiguous();
   const auto permute_size = permute.numel();

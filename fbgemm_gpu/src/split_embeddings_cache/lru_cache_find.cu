@@ -47,8 +47,7 @@ DLL_PUBLIC Tensor emulate_cache_miss(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       lxu_cache_locations, uvm_cache_stats);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(lxu_cache_locations.get_device());
+  CUDA_DEVICE_GUARD(lxu_cache_locations);
 
   const auto N = lxu_cache_locations.numel();
   if (N == 0) {
@@ -170,8 +169,7 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
       uvm_cache_stats,
       lxu_cache_locking_counter);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(unique_indices.get_device());
+  CUDA_DEVICE_GUARD(unique_indices);
 
   // Fill with sentinel value
   auto cache_sets = full_like(

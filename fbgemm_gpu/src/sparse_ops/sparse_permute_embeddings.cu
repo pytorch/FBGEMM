@@ -52,8 +52,7 @@ DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
   // wrapper for permute_2D_sparse_data_cuda, kept for BC
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, embeddings);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(embeddings.get_device());
+  CUDA_DEVICE_GUARD(embeddings);
 
   TORCH_CHECK(
       lengths.dim() == 2,

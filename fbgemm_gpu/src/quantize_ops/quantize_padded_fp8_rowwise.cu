@@ -207,9 +207,7 @@ Tensor _float_to_paddedFP8rowwise_gpu_t(
     const bool forward,
     const int64_t row_dim) {
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(input);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
@@ -265,9 +263,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
     const int64_t output_dtype) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;

@@ -63,8 +63,7 @@ DLL_PUBLIC Tensor linearize_cache_indices_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cache_hash_size_cumsum, indices, offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(cache_hash_size_cumsum.get_device());
+  CUDA_DEVICE_GUARD(cache_hash_size_cumsum);
 
   const auto T = cache_hash_size_cumsum.size(0) - 1;
   TORCH_CHECK(T > 0);
@@ -146,8 +145,7 @@ DLL_PUBLIC Tensor linearize_cache_indices_from_row_idx_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cache_hash_size_cumsum, update_table_indices, update_row_indices);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(cache_hash_size_cumsum.get_device());
+  CUDA_DEVICE_GUARD(cache_hash_size_cumsum);
 
   const auto T = cache_hash_size_cumsum.size(0) - 1;
   TORCH_CHECK(T > 0);
@@ -188,8 +186,7 @@ get_unique_indices_cuda(
     bool compute_count) {
   TENSOR_ON_CUDA_GPU(linear_indices);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(linear_indices.get_device());
+  CUDA_DEVICE_GUARD(linear_indices);
 
   TORCH_CHECK(linear_indices.numel() < std::numeric_limits<int32_t>::max());
   const int32_t N = linear_indices.numel();

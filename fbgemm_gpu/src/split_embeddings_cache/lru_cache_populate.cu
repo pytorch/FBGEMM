@@ -209,8 +209,7 @@ void lru_cache_insert_cuda(
       uvm_cache_stats,
       lxu_cache_locking_counter);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   const int32_t N = cache_set_sorted_unique_indices.numel();
 
@@ -317,8 +316,7 @@ DLL_PUBLIC void lru_cache_populate_cuda(
     TENSOR_ON_CUDA_GPU(lxu_cache_locking_counter_);
   }
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());

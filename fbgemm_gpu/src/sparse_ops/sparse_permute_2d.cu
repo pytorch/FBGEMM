@@ -77,8 +77,7 @@ permute_2D_sparse_data_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
   TORCH_CHECK(lengths.dim() == 2);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(indices.get_device());
+  CUDA_DEVICE_GUARD(indices);
 
   const auto permute_contig = permute.contiguous();
   const auto lengths_contig = lengths.contiguous();
@@ -241,8 +240,7 @@ permute_sparse_features_cuda(
     const c10::optional<Tensor>& weights) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(indices.get_device());
+  CUDA_DEVICE_GUARD(indices);
 
   // the following implementation requires lengths and indices has the same
   // dtype if usecase comes up that requires different dtype (e.g. int32 for

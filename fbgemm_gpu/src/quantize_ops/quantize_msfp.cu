@@ -137,8 +137,7 @@ DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
   TORCH_CHECK(ebits > 0 && mbits > 0);
   TORCH_CHECK(min_pos > 0 && max_pos > 0 && max_pos > min_pos);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const int nrows = input.size(0);
   const int ncols = input.size(1);

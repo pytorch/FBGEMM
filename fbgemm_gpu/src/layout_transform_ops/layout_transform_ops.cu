@@ -37,8 +37,7 @@ Tensor recat_embedding_grad_output_cuda(
     const std::vector<int64_t>& num_features_per_rank) {
   TENSOR_ON_CUDA_GPU(grad_output);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   TORCH_CHECK(grad_output.is_contiguous());
   const auto B_local = grad_output.size(0);
@@ -82,8 +81,7 @@ Tensor recat_embedding_grad_output_mixed_D_cuda(
   TENSOR_ON_CUDA_GPU(grad_output);
   TORCH_CHECK(grad_output.is_contiguous());
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   const auto B_local = grad_output.size(0);
   const auto global_dim_sum = at::sum_integers(dim_sum_per_rank);
@@ -129,8 +127,7 @@ Tensor recat_embedding_grad_output_mixed_D_batch_cuda(
       grad_output, dim_sum_per_rank, cumsum_dim_sum_per_rank);
   TORCH_CHECK(grad_output.is_contiguous());
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   const auto B_local = grad_output.size(0);
   Tensor sharded_grad_output =

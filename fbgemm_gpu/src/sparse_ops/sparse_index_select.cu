@@ -53,8 +53,7 @@ DLL_PUBLIC Tensor index_select_cuda(
     const Tensor& indices,
     const Tensor& orig_indices,
     const bool indices_sorted) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const int N = indices.size(0);
   auto output_shape = input.sizes().vec();

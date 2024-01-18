@@ -31,9 +31,7 @@ DLL_PUBLIC at::Tensor _float_to_hfp8_gpu(
     const double max_pos) {
   TORCH_CHECK(ebits > 0);
   TORCH_CHECK(exponent_bias > 0);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   auto output = at::empty({}, input.options().dtype(at::kByte));
   output.resize_(0);
@@ -68,9 +66,7 @@ DLL_PUBLIC at::Tensor _hfp8_to_float_gpu(
     const int64_t exponent_bias) {
   TORCH_CHECK(ebits > 0);
   TORCH_CHECK(exponent_bias > 0);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   auto output = at::empty({}, input.options().dtype(at::kFloat));
   output.resize_(0);

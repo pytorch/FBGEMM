@@ -36,8 +36,7 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(B);
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(bias);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(A.get_device());
+  CUDA_DEVICE_GUARD(A);
 
   TENSORS_ON_SAME_DEVICE(A, B);
   TENSORS_ON_SAME_DEVICE(A, bias);

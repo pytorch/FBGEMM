@@ -190,8 +190,8 @@ block_bucketize_sparse_features_cuda(
     const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(lengths.get_device());
+  CUDA_DEVICE_GUARD(lengths);
+
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto T = block_sizes.numel();

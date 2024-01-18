@@ -29,8 +29,7 @@ Tensor dense_to_jagged_forward(
   auto values = at::empty_symint({total_L_computed, D}, dense.options());
   auto output = at::empty_like(values);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(dense.get_device());
+  CUDA_DEVICE_GUARD(dense);
 
 #define DISPATCH_DENSE_TO_JAGGED_CASE(TYPE)                          \
   AT_DISPATCH_CASE(TYPE, [&] {                                       \
