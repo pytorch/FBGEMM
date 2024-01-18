@@ -198,6 +198,14 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Werror")
   string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
+  if(MINGW)
+    if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
+    target_compile_definitions(fbgemm_generic PRIVATE ASMJIT_STATIC)
+    target_compile_definitions(fbgemm_avx2 PRIVATE ASMJIT_STATIC)
+    target_compile_definitions(fbgemm_avx512 PRIVATE ASMJIT_STATIC)
+    endif()
+  endif()
+
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
@@ -250,7 +258,7 @@ if(NOT TARGET asmjit)
 
   #build asmjit
   #For MSVC shared build, asmjit needs to be shared also.
-  if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+  if ((MSVC OR MINGW) AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
     set(ASMJIT_STATIC OFF)
   else()
     set(ASMJIT_STATIC ON)

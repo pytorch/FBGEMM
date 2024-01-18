@@ -433,7 +433,7 @@ void* fbgemmAlignedAlloc(
     bool raiseException /*=false*/) {
   void* aligned_mem = nullptr;
   int ret;
-#ifdef _MSC_VER
+#ifdef _WIN32
   aligned_mem = _aligned_malloc(size, align);
   ret = 0;
 #else
@@ -447,7 +447,7 @@ void* fbgemmAlignedAlloc(
 }
 
 void fbgemmAlignedFree(void* p) {
-#ifdef _MSC_VER
+#ifdef _WIN32
   _aligned_free(p);
 #else
   free(p);

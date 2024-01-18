@@ -167,19 +167,27 @@ void run_benchmark(
     }
   }
 
-  for (size_t i = 0; i < w.size(); ++i) {
-    assert(fabs(w[i] - w_ref[i]) < 1e-5);
-    if (fabs(w[i] - w_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%ld %f %f\n", i, w[i], w_ref[i]);
-    }
+for (size_t i = 0; i < w.size(); ++i) {
+  assert(fabs(w[i] - w_ref[i]) < 1e-5);
+  if (fabs(w[i] - w_ref[i]) >= 1e-5) {
+    #ifdef __MINGW32__
+      fprintf(stderr, "%llu %f %f\n", static_cast<unsigned long long>(i), w[i], w_ref[i]);
+    #else
+      fprintf(stderr, "%zu %f %f\n", i, w[i], w_ref[i]);
+    #endif
   }
+}
 
-  for (size_t i = 0; i < h.size(); ++i) {
-    assert(fabs(h[i] - h_ref[i]) < 1e-5);
-    if (fabs(h[i] - h_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%ld %f %f\n", i, h[i], h_ref[i]);
-    }
+for (size_t i = 0; i < h.size(); ++i) {
+  assert(fabs(h[i] - h_ref[i]) < 1e-5);
+  if (fabs(h[i] - h_ref[i]) >= 1e-5) {
+    #ifdef __MINGW32__
+      fprintf(stderr, "%llu %f %f\n", static_cast<unsigned long long>(i), h[i], h_ref[i]);
+    #else
+      fprintf(stderr, "%zu %f %f\n", i, h[i], h_ref[i]);
+    #endif
   }
+}
 
   cout << "indices: " << (isIndex64b ? " 64bits " : " 32bits ") << " | ";
   cout << "weight_decay: " << setw(1) << adjust_weight_decay << " | ";
