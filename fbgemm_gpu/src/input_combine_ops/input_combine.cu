@@ -105,8 +105,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cuda(
     const uint64_t max_list_size,
     const c10::DeviceIndex& device) {
   constexpr uint32_t IS_LONG_NUM_BITS = 32;
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(device);
+  at::cuda::OptionalCUDAGuard device_guard(device);
 
   // combined_indices and combined_legnths are int tensors
   const auto int_options = at::TensorOptions().dtype(at::kInt).device(

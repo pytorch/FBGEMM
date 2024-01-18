@@ -55,8 +55,7 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
     const Tensor& values) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(csr_seg, values);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(values.get_device());
+  CUDA_DEVICE_GUARD(values);
 
   auto output = at::empty(csr_seg.numel() - 1, values.options());
   constexpr uint32_t threads_per_block = 256;

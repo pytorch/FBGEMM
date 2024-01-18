@@ -104,8 +104,7 @@ Tensor direct_mapped_lru_cache_find_uncached_cuda(
       lru_state,
       lxu_cache_miss_timestamp);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(linear_cache_indices.get_device());
+  CUDA_DEVICE_GUARD(linear_cache_indices);
 
   const int32_t N = linear_cache_indices.numel();
 
@@ -391,8 +390,7 @@ void lru_cache_insert_byte_cuda(
       lru_state,
       uvm_cache_stats);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   const int32_t N = cache_set_sorted_unique_indices.numel();
 
@@ -463,8 +461,7 @@ void direct_mapped_lru_cache_insert_byte_cuda(
       linear_cache_indices,
       lxu_cache_miss_timestamp);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   const int32_t N = cache_sets.size(0);
 
@@ -542,8 +539,7 @@ DLL_PUBLIC void lru_cache_populate_byte_cuda(
     TENSOR_ON_CUDA_GPU(uvm_cache_stats_);
   }
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());
@@ -635,8 +631,7 @@ DLL_PUBLIC void direct_mapped_lru_cache_populate_byte_cuda(
   auto uvm_cache_stats_ = uvm_cache_stats.value_or(
       at::empty({0}, weights.options().dtype(at::kInt)));
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());

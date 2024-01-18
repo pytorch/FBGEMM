@@ -247,8 +247,8 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         TENSOR_ON_CUDA_GPU(feature_requires_grad);
     }
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(dev_weights.get_device());
+    CUDA_DEVICE_GUARD(dev_weights);
+
     const auto T = D_offsets.size(0) - 1;
     TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]

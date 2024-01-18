@@ -17,8 +17,7 @@ at::Tensor jagged_to_padded_dense_backward(
     const std::vector<Tensor>& offsets,
     at::SymInt total_L) {
   auto grad_padded_values = grad_output;
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_padded_values.get_device());
+  CUDA_DEVICE_GUARD(grad_padded_values);
 
   // Canonicalize padded_values by unsqueeze the last dim if the inner dense
   // dimension is 1 and folded.

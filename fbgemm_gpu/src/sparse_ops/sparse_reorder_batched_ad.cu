@@ -55,8 +55,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
     const bool broadcast_lengths) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(cat_ad_lengths, batch_offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(cat_ad_lengths.get_device());
+  CUDA_DEVICE_GUARD(cat_ad_lengths);
 
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = broadcast_lengths
@@ -190,8 +189,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cat_ad_offsets, cat_ad_indices, reordered_cat_ad_offsets, batch_offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(cat_ad_offsets.get_device());
+  CUDA_DEVICE_GUARD(cat_ad_offsets);
 
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = (reordered_cat_ad_offsets.numel() - 1) / num_ads_in_batch;

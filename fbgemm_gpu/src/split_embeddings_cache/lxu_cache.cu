@@ -104,8 +104,7 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
       lxu_cache_state,
       lxu_cache_weights);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(lxu_cache_weights.get_device());
+  CUDA_DEVICE_GUARD(lxu_cache_weights);
 
   const int32_t T = D_offsets.numel() - 1;
   const int32_t S = lxu_cache_weights.size(0);
@@ -194,8 +193,7 @@ void lxu_cache_locking_counter_decrement_cuda(
   TENSOR_ON_CUDA_GPU(lxu_cache_locking_counter);
   TENSOR_ON_CUDA_GPU(lxu_cache_locations);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(lxu_cache_locations.get_device());
+  CUDA_DEVICE_GUARD(lxu_cache_locations);
 
   const auto N = lxu_cache_locations.numel();
   if (N == 0) {
@@ -427,8 +425,7 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
     uvm_cache_stats_ = uvm_cache_stats.value();
   }
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(linear_cache_indices.get_device());
+  CUDA_DEVICE_GUARD(linear_cache_indices);
 
   const auto lxu_cache_locations =
       lxu_cache_locations_output.value_or(empty_like(
@@ -484,8 +481,7 @@ DLL_PUBLIC Tensor direct_mapped_lxu_cache_lookup_cuda(
   auto uvm_cache_stats_ = uvm_cache_stats.value_or(
       at::empty({0}, linear_cache_indices.options().dtype(at::kInt)));
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(linear_cache_indices.get_device());
+  CUDA_DEVICE_GUARD(linear_cache_indices);
 
   const auto N = linear_cache_indices.numel();
   auto lxu_cache_locations = empty_like(
@@ -549,8 +545,7 @@ DLL_PUBLIC void lxu_cache_locations_update_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       lxu_cache_locations, lxu_cache_locations_new, num_uniq_cache_indices);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(lxu_cache_locations.get_device());
+  CUDA_DEVICE_GUARD(lxu_cache_locations);
 
   const auto N = lxu_cache_locations.numel();
 

@@ -364,8 +364,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     }
     {%- endif %}
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(dev_weights.get_device());
+    CUDA_DEVICE_GUARD(dev_weights);
 
     {%- if not nobag %}
     int32_t T = D_offsets.numel() - 1;

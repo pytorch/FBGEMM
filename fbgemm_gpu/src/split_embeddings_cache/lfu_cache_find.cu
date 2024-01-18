@@ -82,8 +82,7 @@ void lfu_update_counts_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       unique_indices, unique_indices_length, unique_indices_count, lfu_state);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(unique_indices.get_device());
+  CUDA_DEVICE_GUARD(unique_indices);
 
   const int32_t N = unique_indices.size(0);
   AT_DISPATCH_INDEX_TYPES(
@@ -115,8 +114,7 @@ std::pair<Tensor, Tensor> lfu_cache_find_uncached_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       unique_indices, unique_indices_length, lxu_cache_state, lfu_state);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(unique_indices.get_device());
+  CUDA_DEVICE_GUARD(unique_indices);
 
   auto cache_sets = full_like(
       unique_indices,

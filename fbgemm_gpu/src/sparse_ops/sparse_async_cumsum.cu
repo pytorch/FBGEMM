@@ -14,8 +14,7 @@ namespace fbgemm_gpu {
 
 DLL_PUBLIC Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  CUDA_DEVICE_GUARD(t_in);
 
   if (t_in.numel() == 0) {
     return at::empty_like(t_in);
@@ -59,8 +58,7 @@ DLL_PUBLIC Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
 
 DLL_PUBLIC Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  CUDA_DEVICE_GUARD(t_in);
 
   if (t_in.numel() == 0) {
     return at::empty_like(t_in);
@@ -104,8 +102,8 @@ DLL_PUBLIC Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
 
 DLL_PUBLIC Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  CUDA_DEVICE_GUARD(t_in);
+
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
   TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);

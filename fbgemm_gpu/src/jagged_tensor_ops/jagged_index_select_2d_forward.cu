@@ -74,9 +74,7 @@ Tensor jagged_index_select_2d_forward_cuda(
     const int64_t num_dense_output_rows) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       values, indices, input_offsets, output_offsets);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(values.get_device());
+  CUDA_DEVICE_GUARD(values);
 
   auto num_cols = values.size(1);
 

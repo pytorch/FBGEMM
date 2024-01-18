@@ -218,8 +218,7 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
   TORCH_CHECK_EQ(dense_0.sizes(), dense_1.sizes());
   auto output = at::empty_like(x_values);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(dense_0.get_device());
+  CUDA_DEVICE_GUARD(dense_0);
 
   if (x_values.scalar_type() == at::ScalarType::BFloat16 &&
       dense_0.scalar_type() == at::ScalarType::BFloat16 &&

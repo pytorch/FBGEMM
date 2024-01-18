@@ -110,8 +110,7 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
     return;
   }
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(device);
+  at::cuda::OptionalCUDAGuard device_guard(device);
 
   // Partition work based on num_work_rows
   uint32_t num_warps_per_threadblock = kMaxThreads / kWarpSize;
