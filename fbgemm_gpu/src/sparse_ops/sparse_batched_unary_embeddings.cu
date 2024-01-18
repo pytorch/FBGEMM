@@ -54,9 +54,8 @@ Tensor batched_unary_embeddings_forward_cuda(
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(weight);
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(offsets);
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(indices);
+  CUDA_DEVICE_GUARD(weight);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weight.get_device());
   // N: number of tasks, T: number of tables, B: batch size
   const int32_t N = weight.size(0);
   const int32_t T = table_offsets.numel() - 1;
@@ -177,8 +176,7 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       grad_output, weight, table_offsets, offsets, indices);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   // N: number of tasks, T: number of tables, B: batch size
   const int32_t N = grad_output.size(0);

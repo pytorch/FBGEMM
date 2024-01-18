@@ -82,8 +82,7 @@ void split_embedding_{{ optimizer }}_update(
         return;
     }
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(dev_weights.get_device());
+    CUDA_DEVICE_GUARD(dev_weights);
 
     // Flatten dev_weights because it is currrently 2D
     dev_weights = dev_weights.flatten();

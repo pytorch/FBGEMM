@@ -67,8 +67,7 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
       "t_in must be of type float or double or half or bfloat16");
   TORCH_CHECK_GT(max_length, 0);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  CUDA_DEVICE_GUARD(t_in);
 
   const auto t_in_c = t_in.contiguous();
 

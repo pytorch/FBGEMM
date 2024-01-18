@@ -219,9 +219,7 @@ template <typename input_t>
 Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
@@ -375,9 +373,7 @@ template <typename output_t>
 Tensor _fused8bitrowwise_to_float_gpu_t(const Tensor& input) {
   TENSOR_ON_CUDA_GPU(input);
   TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const auto input_sizes = input.sizes();
   const auto last_dim = input_sizes.size() - 1;
@@ -520,9 +516,7 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
   // row of each table
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(input);
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(D_offsets);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const int64_t batch_size = input.size(0);
   const int qparam_size = 8;

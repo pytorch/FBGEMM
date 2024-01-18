@@ -60,8 +60,7 @@ DLL_PUBLIC Tensor pack_segments_backward_cuda(
       max_length == data.size(1),
       "max_length should be equal to the second dimension of the packed segments");
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(data.get_device());
+  CUDA_DEVICE_GUARD(data);
 
   Tensor unpacked_tensor; // The output tensor
 

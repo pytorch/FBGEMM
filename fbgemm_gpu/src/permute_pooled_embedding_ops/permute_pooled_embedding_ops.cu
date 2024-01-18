@@ -70,8 +70,8 @@ Tensor permute_pooled_embs_gpu_impl(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       pooled_embs, offset_dim_list, permute_list, inv_offset_dim_list);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(pooled_embs.get_device());
+  CUDA_DEVICE_GUARD(pooled_embs);
+
   // We couldn't pass the "pooled_embs.is_contiguous()" check in the backward
   // passs after D22767058. TODO: optimize and make sure pooled_embs is
   // contiguous.

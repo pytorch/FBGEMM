@@ -7,6 +7,7 @@
  */
 
 #include "common.cuh"
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
 using namespace at;
 
@@ -32,8 +33,7 @@ struct CUDAHostMappedContext {
       : ptr_(ptr), cuda_device_(cuda_device){};
 
   ~CUDAHostMappedContext() {
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(cuda_device_);
+    at::cuda::OptionalCUDAGuard device_guard(cuda_device_);
     AT_CUDA_CHECK(cudaHostUnregister(ptr_));
     free(ptr_);
   }
@@ -51,8 +51,7 @@ struct CUDAManagedContext {
       : ptr_(ptr), cuda_device_(cuda_device){};
 
   ~CUDAManagedContext() {
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(cuda_device_);
+    at::cuda::OptionalCUDAGuard device_guard(cuda_device_);
     AT_CUDA_CHECK(cudaFree(ptr_));
   }
 
@@ -88,8 +87,7 @@ std::vector<int64_t> defaultStrides(IntArrayRef sizes) {
 Tensor new_managed_tensor_internal(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(self.get_device());
+  CUDA_DEVICE_GUARD(self);
 
   auto strides = defaultStrides(sizes);
   size_t size_bytes =
@@ -150,8 +148,7 @@ std::tuple<void*, size_t> adjust_to_page_boundaries(void* ptr, size_t size) {
 Tensor new_managed_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(self.get_device());
+  CUDA_DEVICE_GUARD(self);
 
   Tensor t = new_managed_tensor_internal(self, sizes);
 
@@ -187,8 +184,7 @@ Tensor new_managed_tensor_meta(
 Tensor new_vanilla_managed_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(self.get_device());
+  CUDA_DEVICE_GUARD(self);
 
   return new_managed_tensor_internal(self, sizes);
 }
@@ -196,8 +192,7 @@ Tensor new_vanilla_managed_tensor(
 Tensor new_host_mapped_tensor(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(self.get_device());
+  CUDA_DEVICE_GUARD(self);
 
   auto strides = defaultStrides(sizes);
   size_t size_bytes =

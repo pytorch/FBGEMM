@@ -16,8 +16,7 @@ Tensor jagged_dense_elementwise_mul_forward(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(x_values.get_device());
+  CUDA_DEVICE_GUARD(x_values);
 
   Tensor output = at::empty_like(x_values);
 

@@ -140,8 +140,8 @@ Tensor pruned_hashmap_lookup_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       indices, offsets, hash_table, hash_table_offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(indices.get_device());
+  CUDA_DEVICE_GUARD(indices);
+
   auto dense_indices = at::empty_like(indices);
   const int32_t T = hash_table_offsets.size(0) - 1;
   const int32_t B = (offsets.size(0) - 1) / T;
@@ -179,8 +179,8 @@ Tensor pruned_array_lookup_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       indices, offsets, index_remappings, index_remappings_offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(indices.get_device());
+  CUDA_DEVICE_GUARD(indices);
+
   auto dense_indices = at::empty_like(indices);
   const int32_t T = index_remappings_offsets.size(0) - 1;
   TORCH_CHECK(

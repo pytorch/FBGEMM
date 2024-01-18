@@ -194,8 +194,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
           "weights size and values size must be the same");
     }
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(values.get_device());
+    CUDA_DEVICE_GUARD(values);
 
     const int num_batches = lengths.numel() / batch_size;
     const int num_output_lengths = num_batches * indices.numel();
@@ -380,8 +379,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     int64_t output_batch_size = ctx->saved_data["batch_size"].toInt();
     int64_t num_batches = ctx->saved_data["num_batches"].toInt();
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(grad.get_device());
+    CUDA_DEVICE_GUARD(grad);
 
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
     auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);

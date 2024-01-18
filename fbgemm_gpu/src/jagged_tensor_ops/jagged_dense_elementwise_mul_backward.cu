@@ -128,8 +128,7 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
     const std::vector<Tensor>& x_offsets,
     const Tensor& y,
     const Tensor& x_values) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   Tensor x_values_grad = at::empty_like(grad_output);
   Tensor y_grad = at::empty_like(y);

@@ -133,8 +133,7 @@ void embedding_inplace_update_cuda(
       lxu_cache_weights,
       lxu_cache_locations);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(dev_weights.get_device());
+  CUDA_DEVICE_GUARD(dev_weights);
 
   const int64_t N = update_row_idx.numel();
   if (N == 0) {
@@ -226,9 +225,8 @@ Tensor pruned_array_lookup_from_row_idx_cuda(
       update_table_indices,
       index_remappings,
       index_remappings_offsets);
+  CUDA_DEVICE_GUARD(update_table_indices);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(update_table_indices.get_device());
   auto dense_indices = at::empty_like(update_row_indices);
   const int32_t T = index_remappings_offsets.size(0) - 1;
 

@@ -244,8 +244,7 @@ at::Tensor batch_auc(
     block_sums = at::empty({grid_size * 2}, output_options);
   }
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   auto max_smem_size =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;

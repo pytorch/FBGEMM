@@ -22,8 +22,8 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  CUDA_DEVICE_GUARD(t_in);
+
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
   TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);

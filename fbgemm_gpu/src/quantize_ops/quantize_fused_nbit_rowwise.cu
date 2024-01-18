@@ -113,9 +113,7 @@ Tensor _float_to_fusednbitrowwise_gpu_t(
     const int64_t bit_rate) {
   TENSOR_ON_CUDA_GPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const int nrows = input.size(0);
   const int ncols = input.size(1);
@@ -220,9 +218,7 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
     const int64_t bit_rate) {
   TENSOR_ON_CUDA_GPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const int nrows = input.size(0);
   const int ncols = input.size(1);
