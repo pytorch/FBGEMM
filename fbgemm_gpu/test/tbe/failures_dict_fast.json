@@ -16,54 +16,42 @@
     },
     "fbgemm::direct_mapped_lru_cache_populate_byte": {},
     "fbgemm::direct_mapped_lxu_cache_lookup": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_direct_mapped_uvm_cache_stats": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xfail"
       }
     },
     "fbgemm::emb_inplace_update": {},
     "fbgemm::get_unique_indices": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_unique_lxu_cache_lookup": {
+      "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
         "comment": "",
         "status": "xfail"
       }
     },
     "fbgemm::int_nbit_split_embedding_codegen_lookup_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
+      "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
         "comment": "",
         "status": "xsuccess"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_cache_miss_counter": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_fused_pooled_emb_quant": {
         "comment": "",
         "status": "xsuccess"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_direct_mapped_uvm_cache_stats": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xsuccess"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_fused_pooled_emb_quant": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_uvm_cache_stats": {
+      "NBitSplitEmbeddingTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
         "status": "xsuccess"
       }
     },
     "fbgemm::int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
+      "NBitSplitEmbeddingTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_schema__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
+      "NBitSplitEmbeddingTest.test_schema__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
         "status": "xfail"
       }
@@ -76,18 +64,10 @@
       "BackwardSGDTest.test_faketensor__test_backward_sgd_really_long_segments": {
         "comment": "",
         "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_pipeline": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_schema__test_cache_pipeline": {
-        "comment": "",
-        "status": "skip"
       }
     },
     "fbgemm::lfu_cache_populate_byte": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xfail"
       }
@@ -125,61 +105,37 @@
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_miss_counter": {
+      "CacheTest.test_faketensor__test_cache_miss_counter": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_pipeline": {
+      "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline": {
+      "LinearizeCacheIndicesTest.test_faketensor__test_linearize_cache_indices": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_1": {
+      "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_2": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_linearize_cache_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_direct_mapped_uvm_cache_stats": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_uvm_cache_stats": {
+      "NBitSplitEmbeddingTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
         "status": "xfail"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_stb_uvm_cache_stats": {
         "comment": "",
         "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_unique_lxu_cache_lookup": {
-        "comment": "",
-        "status": "xfail"
       }
     },
     "fbgemm::linearize_cache_indices_from_row_idx": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_linearize_cache_indices_from_row_idx": {
+      "LinearizeCacheIndicesTest.test_faketensor__test_linearize_cache_indices_from_row_idx": {
         "comment": "",
         "status": "xfail"
       }
@@ -217,43 +173,11 @@
         "comment": "",
         "status": "skip"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_miss_counter": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_pipeline": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_1": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_2": {
+      "CacheTest.test_faketensor__test_cache_miss_counter": {
         "comment": "",
         "status": "skip"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_stb_uvm_cache_stats": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_schema__test_cache_pipeline": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_schema__test_cache_prefetch_pipeline": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_schema__test_cache_prefetch_pipeline_stream_1": {
-        "comment": "",
-        "status": "skip"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_schema__test_cache_prefetch_pipeline_stream_2": {
         "comment": "",
         "status": "skip"
       }
@@ -294,92 +218,64 @@
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_miss_counter": {
+      "CacheTest.test_faketensor__test_cache_miss_counter": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_pipeline": {
+      "LXUCacheTest.test_faketensor__test_lxu_cache_lookup": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline": {
+      "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_1": {
+      "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_cache_prefetch_pipeline_stream_2": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_lxu_cache_lookup": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_uvm_cache_stats": {
+      "NBitSplitEmbeddingTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
         "status": "xfail"
       },
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_stb_uvm_cache_stats": {
         "comment": "",
         "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_unique_lxu_cache_lookup": {
-        "comment": "",
-        "status": "xfail"
       }
     },
     "fbgemm::new_managed_tensor": {},
     "fbgemm::new_unified_tensor": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
+      "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_cache_miss_counter": {
+      "NBitCacheTest.test_faketensor__test_nbit_cache_update_function": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_cache_update_function": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_gpu_no_cache": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_direct_mapped_uvm_cache_stats": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_gpu_no_cache_fp8_2048": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_gpu_no_cache": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xfail"
       },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_gpu_no_cache_fp8_2048": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_uvm_cache_stats": {
+      "NBitSplitEmbeddingTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
         "status": "xfail"
       }
     },
     "fbgemm::pruned_array_lookup": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xfail"
       },
@@ -390,7 +286,7 @@
     },
     "fbgemm::pruned_hashmap_insert": {},
     "fbgemm::pruned_hashmap_lookup": {
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_nbit_forward_uvm_cache": {
+      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xfail"
       },
