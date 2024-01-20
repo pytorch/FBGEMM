@@ -44,7 +44,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 @optests.generate_opcheck_tests(fast=True)
-class NBitSplitEmbeddingTest(unittest.TestCase):
+class NBitSplitEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),

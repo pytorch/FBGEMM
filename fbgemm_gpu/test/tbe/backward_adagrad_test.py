@@ -70,7 +70,6 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 
 @optests.generate_opcheck_tests(fast=True)
-@unittest.skipIf(*gpu_unavailable)
 class BackwardAdagradTest(unittest.TestCase):
     def execute_backward_adagrad_(  # noqa C901
         self,
@@ -460,6 +459,7 @@ class BackwardAdagradTest(unittest.TestCase):
                     torch.zeros_like(table_indice_weight_grad_mask),
                 )
 
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=128),
@@ -530,6 +530,7 @@ class BackwardAdagradTest(unittest.TestCase):
             output_dtype,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=128),
@@ -600,6 +601,7 @@ class BackwardAdagradTest(unittest.TestCase):
             output_dtype,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=128),
@@ -805,6 +807,7 @@ class BackwardAdagradTest(unittest.TestCase):
             output_dtype,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=128),
