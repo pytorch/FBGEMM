@@ -84,14 +84,12 @@ run_fbgemm_gpu_tests () {
 
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
   local files_to_skip=(
-    ./tbe/split_table_batched_embeddings_test.py
     ./ssd_split_table_batched_embeddings_test.py
   )
 
   if [ "$fbgemm_variant" == "cpu" ]; then
     # These are tests that are currently broken in FBGEMM_GPU-CPU
     local ignored_tests=(
-      ./tbe/forward_test.py
       ./uvm_test.py
     )
   elif [ "$fbgemm_variant" == "rocm" ]; then
