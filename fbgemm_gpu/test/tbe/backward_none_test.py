@@ -74,8 +74,8 @@ additional_decorators: Dict[str, List[Callable]] = {
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
-@unittest.skipIf(*gpu_unavailable)
 class BackwardNoneTest(unittest.TestCase):
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -103,6 +103,7 @@ class BackwardNoneTest(unittest.TestCase):
     def test_backward_none(self, **kwargs: Any) -> None:
         self.execute_backward_none_(**kwargs)
 
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
