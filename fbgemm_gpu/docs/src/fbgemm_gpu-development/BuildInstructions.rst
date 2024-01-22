@@ -109,7 +109,8 @@ Install the full CUDA package through Conda, which includes
 
 .. code:: sh
 
-  cuda_version=11.7.1
+  # See https://anaconda.org/nvidia/cuda for all available versions of CUDA
+  cuda_version=12.1.0
 
   # Install the full CUDA package
   conda install -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}"
@@ -119,6 +120,7 @@ Verify that ``cuda_runtime.h`` and ``libnvidia-ml.so`` are found:
 .. code:: sh
 
   conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+
   find "${conda_prefix}" -name cuda_runtime.h
   find "${conda_prefix}" -name libnvidia-ml.so
 
@@ -133,7 +135,7 @@ cuDNN package for the given CUDA version:
 
   # cuDNN package URLs for each platform and CUDA version can be found in:
   # https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
-  cudnn_url=https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz
+  cudnn_url=https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
 
   # Download and unpack cuDNN
   wget -q "${cudnn_url}" -O cudnn.tar.xz
@@ -186,10 +188,10 @@ guide <https://rocm.docs.amd.com/en/latest/>`__:
   apt update
 
   # Download the installer
-  wget https://repo.radeon.com/amdgpu-install/5.6.1/ubuntu/focal/amdgpu-install_5.4.50403-1_all.deb
+  wget -q https://repo.radeon.com/amdgpu-install/5.6.1/ubuntu/focal/amdgpu-install_5.6.50601-1_all.deb -O amdgpu-install.deb
 
   # Run the installer
-  apt install ./amdgpu-install_5.4.50403-1_all.deb
+  apt install ./amdgpu-install.deb
 
   # Install ROCm
   amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms
@@ -356,7 +358,7 @@ Clone the repo along with its submodules, and install the
   # !! Run inside the Conda environment !!
 
   # Select a version tag
-  FBGEMM_VERSION=v0.4.0
+  FBGEMM_VERSION=v0.6.0
 
   # Clone the repo along with its submodules
   git clone --recursive -b ${FBGEMM_VERSION} https://github.com/pytorch/FBGEMM.git fbgemm_${FBGEMM_VERSION}
