@@ -26,6 +26,7 @@ class EmbeddingLocation(enum.IntEnum):
     MANAGED = 1
     MANAGED_CACHING = 2
     HOST = 3
+    MTIA = 4
 
 
 class CacheAlgorithm(enum.Enum):
