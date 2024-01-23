@@ -138,6 +138,9 @@ jobs:
       matrix:
         host-machine: [
           { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
+          # TODO: Enable when A100 machine queues are reasonably small enough for doing per-PR CI
+          # https://hud.pytorch.org/metrics
+          # { arch: x86, instance: "linux.gcp.a100" },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1" ]
