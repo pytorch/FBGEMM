@@ -30,6 +30,10 @@ DLL_PUBLIC Tensor invert_permute_cuda(const Tensor& permute) {
   const auto permute_size = permute.numel();
   Tensor inversed_permute = at::empty_like(permute);
 
+  if (permute_size == 0) {
+    return inversed_permute;
+  }
+
   constexpr int32_t threads_1 = kMaxThreads;
   const auto blocks_1 = cuda_calc_xblock_count(permute_size, threads_1);
   AT_DISPATCH_INDEX_TYPES(permute.scalar_type(), "invert_permute_kernel", [&] {
