@@ -24,6 +24,9 @@ on:
 
 jobs:
   build-docs:
+    permissions:
+      # Grant write permission here so that the generated docs can be pushed to `gh-pages` branch
+      contents: write
     runs-on: linux.2xlarge
     container:
       image: amazonlinux:2023
@@ -86,7 +89,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu/docs; build_fbgemm_gpu_docs $BUILD_ENV
 
     - name: Deploy FBGEMM_GPU Documentation
-      if: ${{ github.event_name != 'pull_request' }}
+      # if: ${{ github.event_name != 'pull_request' }}
       uses: JamesIves/github-pages-deploy-action@releases/v4
       with:
         branch: gh-pages                    # The branch the action should deploy to
