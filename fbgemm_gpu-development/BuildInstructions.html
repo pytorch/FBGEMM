@@ -457,7 +457,8 @@ reproducible build environment.</p>
 <span id="fbgemm-gpu-build-setup-cuda-install"></span><h3>Install CUDA<a class="headerlink" href="#install-cuda" title="Permalink to this heading">¶</a></h3>
 <p>Install the full CUDA package through Conda, which includes
 <a class="reference external" href="https://developer.nvidia.com/nvidia-management-library-nvml">NVML</a>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">cuda_version</span><span class="o">=</span><span class="m">11</span>.7.1
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># See https://anaconda.org/nvidia/cuda for all available versions of CUDA</span>
+<span class="nv">cuda_version</span><span class="o">=</span><span class="m">12</span>.1.0
 
 <span class="c1"># Install the full CUDA package</span>
 conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>cuda<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;nvidia/label/cuda-</span><span class="si">${</span><span class="nv">cuda_version</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -465,6 +466,7 @@ conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> <
 </div>
 <p>Verify that <code class="docutils literal notranslate"><span class="pre">cuda_runtime.h</span></code> and <code class="docutils literal notranslate"><span class="pre">libnvidia-ml.so</span></code> are found:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
+
 find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>cuda_runtime.h
 find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>libnvidia-ml.so
 </pre></div>
@@ -477,7 +479,7 @@ dependency for the CUDA variant of FBGEMM_GPU. Download and extract the
 cuDNN package for the given CUDA version:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># cuDNN package URLs for each platform and CUDA version can be found in:</span>
 <span class="c1"># https://github.com/pytorch/builder/blob/main/common/install_cuda.sh</span>
-<span class="nv">cudnn_url</span><span class="o">=</span>https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-linux-x86_64-8.7.0.84_cuda11-archive.tar.xz
+<span class="nv">cudnn_url</span><span class="o">=</span>https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
 
 <span class="c1"># Download and unpack cuDNN</span>
 wget<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cudnn_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-O<span class="w"> </span>cudnn.tar.xz
@@ -518,10 +520,10 @@ guide</a>:</p>
 apt<span class="w"> </span>update
 
 <span class="c1"># Download the installer</span>
-wget<span class="w"> </span>https://repo.radeon.com/amdgpu-install/5.6.1/ubuntu/focal/amdgpu-install_5.4.50403-1_all.deb
+wget<span class="w"> </span>-q<span class="w"> </span>https://repo.radeon.com/amdgpu-install/5.6.1/ubuntu/focal/amdgpu-install_5.6.50601-1_all.deb<span class="w"> </span>-O<span class="w"> </span>amdgpu-install.deb
 
 <span class="c1"># Run the installer</span>
-apt<span class="w"> </span>install<span class="w"> </span>./amdgpu-install_5.4.50403-1_all.deb
+apt<span class="w"> </span>install<span class="w"> </span>./amdgpu-install.deb
 
 <span class="c1"># Install ROCm</span>
 amdgpu-install<span class="w"> </span>-y<span class="w"> </span>--usecase<span class="o">=</span>hiplibsdk,rocm<span class="w"> </span>--no-dkms
@@ -659,7 +661,7 @@ find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</s
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
 <span class="c1"># Select a version tag</span>
-<span class="nv">FBGEMM_VERSION</span><span class="o">=</span>v0.4.0
+<span class="nv">FBGEMM_VERSION</span><span class="o">=</span>v0.6.0
 
 <span class="c1"># Clone the repo along with its submodules</span>
 git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="w"> </span>-b<span class="w"> </span><span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span><span class="w"> </span>https://github.com/pytorch/FBGEMM.git<span class="w"> </span>fbgemm_<span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span>
