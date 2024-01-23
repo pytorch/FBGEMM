@@ -342,7 +342,7 @@ class SparseOpsTest(unittest.TestCase):
         self.assertEqual(permuted_weights_ref, None)
 
     @given(
-        permute_size=st.integers(min_value=30, max_value=1000),
+        permute_size=st.integers(min_value=0, max_value=1000),
         long_index=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
