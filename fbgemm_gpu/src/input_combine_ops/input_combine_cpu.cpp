@@ -36,17 +36,22 @@ Tensor _cat_int_tensors(
           .device(tensor_list[0].device())
           .pinned_memory(use_pin_memory));
 
-  auto combined_tensors_acc = combined_tensors.accessor<int32_t, 1>();
+  auto* combined_tensors_data_ptr =
+      combined_tensors.mutable_data_ptr<int32_t>();
   size_t idx = 0;
 
-  for (size_t i = 0; i < tensor_list.size(); i++) {
-    AT_DISPATCH_INDEX_TYPES(
-        tensor_list[i].scalar_type(), "tbe_cat_inputs_", [&] {
-          auto indices_acc = tensor_list[i].accessor<index_t, 1>();
-          for (auto j = 0; j < tensor_list[i].numel(); j++) {
-            combined_tensors_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
-          }
-        });
+  for (const auto& tensor : tensor_list) {
+    AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
+      // Necessary to use data_ptr. Checked in caller, but let's
+      // be safe in case somebody changes that.
+      TORCH_INTERNAL_ASSERT_DEBUG_ONLY(tensor.is_contiguous());
+      auto* indices_data_ptr = tensor.const_data_ptr<index_t>();
+      const auto numel = tensor.numel();
+      for (auto j = 0; j < numel; j++) {
+        combined_tensors_data_ptr[idx++] =
+            static_cast<int32_t>(indices_data_ptr[j]);
+      }
+    });
   }
   return combined_tensors;
 }
@@ -63,17 +68,23 @@ Tensor _cat_int_tensors_with_padding(
           .device(tensor_list[0].device())
           .pinned_memory(use_pin_memory));
 
-  auto combined_tensors_acc = combined_tensors.accessor<int32_t, 1>();
+  auto* combined_tensors_data_ptr =
+      combined_tensors.mutable_data_ptr<int32_t>();
 
   for (size_t i = 0; i < tensor_list.size(); i++) {
     size_t idx = i * batch_size;
-    AT_DISPATCH_INDEX_TYPES(
-        tensor_list[i].scalar_type(), "tbe_cat_inputs_", [&] {
-          auto indices_acc = tensor_list[i].accessor<index_t, 1>();
-          for (auto j = 0; j < tensor_list[i].numel(); j++) {
-            combined_tensors_acc[idx++] = static_cast<int32_t>(indices_acc[j]);
-          }
-        });
+    const auto& tensor = tensor_list[i];
+    AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
+      // Necessary to use data_ptr. Checked in caller, but let's
+      // be safe in case somebody changes that.
+      TORCH_INTERNAL_ASSERT_DEBUG_ONLY(tensor.is_contiguous());
+      auto indices_data_ptr = tensor.const_data_ptr<index_t>();
+      const auto numel = tensor.numel();
+      for (auto j = 0; j < numel; j++) {
+        combined_tensors_data_ptr[idx++] =
+            static_cast<int32_t>(indices_data_ptr[j]);
+      }
+    });
   }
   return combined_tensors;
 }
@@ -89,7 +100,7 @@ Tensor _cat_per_sample_weights_list(
           .dtype(c10::kFloat)
           .device(per_sample_weights[0].device())
           .pinned_memory(use_pin_memory));
-  auto* combined_weights_ptr = combined_weights.data_ptr<float>();
+  auto* combined_weights_ptr = combined_weights.mutable_data_ptr<float>();
 
   for (size_t i = 0; i < per_sample_weights.size(); i++) {
     auto element_size = per_sample_weights[i].numel();
@@ -155,26 +166,27 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
           .device(offsets_list[0].device())
           .pinned_memory(pin_memory));
 
-  auto combined_offsets_acc = combined_offsets.accessor<int32_t, 1>();
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
   int32_t offset = 0;
   size_t offsets_acc_idx = 0;
-  combined_offsets_acc[offsets_acc_idx++] = 0;
+  combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
   for (size_t i = 0; i < offsets_list.size(); i++) {
     AT_DISPATCH_INDEX_TYPES(
         offsets_list[i].scalar_type(), "tbe_input_offsets_", [&] {
-          auto offsets_acc = offsets_list[i].accessor<index_t, 1>();
+          // TORCH_CHECKed to be contiguous above, so data_ptr is safe.
+          auto offsets_data_ptr = offsets_list[i].const_data_ptr<index_t>();
           for (int64_t j = 1,
                        size = offsets_list[i].numel() -
                    (include_last_offsets_acc[i] ? 1 : 0);
                j < size;
                j++) {
-            combined_offsets_acc[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_acc[j]);
+            combined_offsets_data_ptr[offsets_acc_idx++] =
+                offset + static_cast<int32_t>(offsets_data_ptr[j]);
           }
 
           offset += static_cast<int32_t>(indices_list[i].numel());
-          combined_offsets_acc[offsets_acc_idx++] = offset;
+          combined_offsets_data_ptr[offsets_acc_idx++] = offset;
         });
   }
 
@@ -290,24 +302,25 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
           .device(offsets_list[0].device())
           .pinned_memory(pin_memory));
 
-  auto combined_offsets_acc = combined_offsets.accessor<int32_t, 1>();
+  auto combined_offsets_data_ptr = combined_offsets.mutable_data_ptr<int32_t>();
   int32_t offset = 0;
   size_t offsets_acc_idx = 0;
-  combined_offsets_acc[offsets_acc_idx++] = 0;
+  combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
   for (size_t i = 0; i < offsets_list.size(); i++) {
     AT_DISPATCH_INDEX_TYPES(
         offsets_list[i].scalar_type(), "tbe_input_offsets_", [&] {
-          auto offsets_acc = offsets_list[i].accessor<index_t, 1>();
+          // TORCH_CHECKed to be contiguous above, so data_ptr is safe.
+          auto* offsets_data_ptr = offsets_list[i].const_data_ptr<index_t>();
           int64_t offsets_size =
               offsets_list[i].numel() - (include_last_offsets_acc[i] ? 1 : 0);
           for (const auto j : c10::irange(1, offsets_size)) {
-            combined_offsets_acc[offsets_acc_idx++] =
-                offset + static_cast<int32_t>(offsets_acc[j]);
+            combined_offsets_data_ptr[offsets_acc_idx++] =
+                offset + static_cast<int32_t>(offsets_data_ptr[j]);
           }
           offset += static_cast<int32_t>(indices_list[i].numel());
           for (int64_t j = offsets_size; j <= batch_size; j++) {
-            combined_offsets_acc[offsets_acc_idx++] = offset;
+            combined_offsets_data_ptr[offsets_acc_idx++] = offset;
           }
         });
   }
