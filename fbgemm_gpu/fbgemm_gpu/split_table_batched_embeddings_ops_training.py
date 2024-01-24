@@ -1282,8 +1282,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.gather_uvm_cache_stats:
             # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
-            # We may wanna do this accumulation atomically, but as it's only for monitoring,
-            # slightly inaccurate result may be acceptable.
+            # We may want to do this accumulation atomically, but as it's only
+            # for monitoring, slightly inaccurate result may be acceptable.
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
