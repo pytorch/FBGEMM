@@ -534,6 +534,102 @@ def reorder_batched_ad_lengths_bench(
 
 
 @cli.command()
+@click.option(
+    "--batch-size", default=32
+)  # 32 is the representative inference batch size
+@click.option("--table-size", default=20)
+@click.option("--length", default=512)  # long sequence representative case
+@click.option("--num-items", default=100)
+@click.option("--dim", default=256)
+@click.option("--dtype", type=click.Choice(["half", "float"]), default="half")
+@click.option("--itype", type=click.Choice(["int", "long"]), default="int")
+@click.option("--device", type=str, default="cpu")
+def reorder_batched_sequence_embeddings_bench(
+    batch_size: int,
+    table_size: int,
+    length: int,
+    num_items: int,
+    dim: int,
+    dtype: str,
+    itype: str,
+    device: str,
+) -> None:
+    assert (
+        dtype == "float" or dtype == "half"
+    ), "Only 32/16bits floating point number are supported"
+    data_type = torch.half if dtype == "half" else torch.float
+
+    assert itype == "int" or itype == "long", "Only int and long are supported"
+    index_type = torch.int64 if itype == "long" else torch.int32
+
+    cat_sequence_embeddings = torch.random(
+        size=(batch_size * table_size * num_items * length * dim),
+        dtype=data_type,
+    ).to(device)
+    cat_sequence_embeddings_lengths = (
+        torch.cat(
+            [
+                torch.tensor([length for _ in range(table_size * num_items)])
+                for _ in range(batch_size)
+            ],
+            0,
+        )
+        .to(index_type)
+        .to(device)
+    )
+
+    batch_offsets = (
+        (torch.tensor([num_items * b for b in range(batch_size + 1)]).cuda())
+        .to(index_type)
+        .to(device)
+    )
+    num_items_in_batch = batch_size * num_items
+    reordered_cat_sequence_embeddings_lengths = (
+        torch.ops.fbgemm.reorder_batched_ad_lengths(
+            cat_sequence_embeddings_lengths,
+            batch_offsets,
+            num_items_in_batch,
+        ).to(device)
+    )
+
+    cat_sequence_embeddings_offsets = (
+        torch.ops.fbgemm.asynchronous_complete_cumsum(cat_sequence_embeddings_lengths)
+        .to(index_type)
+        .to(device)
+    )
+    reordered_cat_sequence_embeddings_offsets = (
+        torch.ops.fbgemm.asynchronous_complete_cumsum(
+            reordered_cat_sequence_embeddings_lengths
+        )
+        .to(index_type)
+        .to(device)
+    )
+    time, _ = benchmark_torch_function(
+        torch.ops.fbgemm.reorder_batched_sequence_embeddings,
+        (
+            cat_sequence_embeddings_offsets,
+            cat_sequence_embeddings,
+            reordered_cat_sequence_embeddings_offsets,
+            batch_offsets,
+            num_items_in_batch,
+            batch_size * table_size * num_items * length,
+        ),
+        num_warmups=100,
+        iters=1000,
+    )
+    num_bytes = (
+        batch_size
+        * table_size
+        * num_items
+        * length
+        * cat_sequence_embeddings.element_size()
+    )
+    logging.info(
+        f"fbgemm_gpu time: {time * 1000:.5f} ms ({num_bytes / time / 1e9:.5f} GB/s)"
+    )
+
+
+@cli.command()
 @click.option("--num-inputs", default=1024)
 @click.option("--rows", default=100)
 @click.option("--columns", default=128)
