@@ -1457,6 +1457,107 @@ void cat_reorder_batched_ad_indices_cpu_(
       });
 }
 
+template <typename index_t, typename scalar_t>
+void reorder_batched_sequence_embeddings_cpu_(
+    const Tensor& cat_sequence_embeddings_offsets,
+    const Tensor& cat_sequence_embeddings,
+    const Tensor& reordered_cat_sequence_embeddings_offsets,
+    const Tensor& batch_offsets,
+    const int64_t num_items_in_batch,
+    const int32_t dim,
+    Tensor& output) {
+  const int64_t nB = batch_offsets.numel() - 1;
+  const int64_t nT = (reordered_cat_sequence_embeddings_offsets.numel() - 1) /
+      num_items_in_batch;
+
+  const auto* batch_offsets_data = batch_offsets.data_ptr<index_t>();
+  const auto* cat_sequence_embeddings_offsets_data =
+      cat_sequence_embeddings_offsets.data_ptr<index_t>();
+  const auto* reordered_cat_sequence_embeddings_offsets_data =
+      reordered_cat_sequence_embeddings_offsets.data_ptr<index_t>();
+  const auto* cat_sequence_embeddings_data =
+      cat_sequence_embeddings.data_ptr<scalar_t>();
+  auto* output_data = output.data_ptr<scalar_t>();
+  at::parallel_for(
+      0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
+        auto b_begin = tb_begin / nT;
+        auto b_end = (tb_end + nT - 1) / nT;
+
+        for (const auto b : c10::irange(b_begin, b_end)) {
+          const auto num_ads_b =
+              batch_offsets_data[b + 1] - batch_offsets_data[b];
+          int64_t t_begin = (b == b_begin) ? tb_begin % nT : 0;
+          int64_t t_end =
+              (b == b_end - 1 && tb_end % nT != 0) ? tb_end % nT : nT;
+          for (const auto t : c10::irange(t_begin, t_end)) {
+            const auto output_segment_offset_start =
+                t * num_items_in_batch + batch_offsets_data[b];
+            const auto output_segment_start =
+                reordered_cat_sequence_embeddings_offsets_data
+                    [output_segment_offset_start] *
+                dim;
+            const int32_t input_segment_offset_start =
+                nT * batch_offsets_data[b] + t * num_ads_b;
+            const int32_t input_segment_offset_end =
+                input_segment_offset_start + num_ads_b;
+            const auto input_segment_start =
+                cat_sequence_embeddings_offsets_data
+                    [input_segment_offset_start] *
+                dim;
+            const auto input_segment_end =
+                cat_sequence_embeddings_offsets_data[input_segment_offset_end] *
+                dim;
+            const auto num_elements = (input_segment_end - input_segment_start);
+
+            for (auto i : c10::irange(num_elements)) {
+              // TODO memcpy once this path is heavily used?
+              output_data[output_segment_start + i] =
+                  cat_sequence_embeddings_data[input_segment_start + i];
+            }
+          }
+        }
+      });
+}
+
+Tensor reorder_batched_sequence_embeddings_cpu(
+    const Tensor& cat_sequence_embeddings_offsets,
+    const Tensor& cat_sequence_embeddings,
+    const Tensor& reordered_cat_sequence_embeddings_offsets,
+    const Tensor& batch_offsets,
+    const int64_t num_items_in_batch) {
+  TENSOR_ON_CPU(cat_sequence_embeddings_offsets);
+  TENSOR_ON_CPU(cat_sequence_embeddings);
+  TENSOR_ON_CPU(reordered_cat_sequence_embeddings_offsets);
+  TENSOR_ON_CPU(batch_offsets);
+  TORCH_CHECK(cat_sequence_embeddings.dim() == 2);
+  // reorder embeddings from (ragged) [B x T x #num_ads_B_{i} x length_{B_{i},
+  // t, a})x D] to [T][B][#num_ads_b][length_{b, t, a}][D], i.e.
+  // [sum(length_{B_{i}, t, a}), D]
+  Tensor reordered_cat_ad_indices = at::empty_like(
+      cat_sequence_embeddings, cat_sequence_embeddings.options());
+
+  AT_DISPATCH_INDEX_TYPES(
+      cat_sequence_embeddings_offsets.scalar_type(),
+      "reorder_batched_sequence_embeddings_cpu_kernel_1",
+      [&] {
+        AT_DISPATCH_ALL_TYPES(
+            cat_sequence_embeddings.scalar_type(),
+            "reorder_eorder_batched_sequence_embeddings_cpu_kernel_2",
+            [&] {
+              reorder_batched_sequence_embeddings_cpu_<index_t, scalar_t>(
+                  cat_sequence_embeddings_offsets,
+                  cat_sequence_embeddings,
+                  reordered_cat_sequence_embeddings_offsets,
+                  batch_offsets,
+                  num_items_in_batch,
+                  cat_sequence_embeddings.size(1),
+                  reordered_cat_ad_indices);
+            });
+      });
+
+  return reordered_cat_ad_indices;
+}
+
 Tensor reorder_batched_ad_indices_cpu(
     const Tensor& cat_ad_offsets,
     const Tensor& cat_ad_indices,
@@ -2753,6 +2854,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "asynchronous_complete_cumsum(Tensor t_in) -> Tensor",
       {PT2_COMPLIANT_TAG});
   m.def(
+      "reorder_batched_sequence_embeddings(Tensor cat_sequence_embeddings_offsets, Tensor cat_sequence_embeddings, Tensor reordered_cat_sequence_embeddings_offsets, Tensor batch_offsets, SymInt num_items_in_batch) -> Tensor");
+  m.def(
       "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor batch_offsets, SymInt num_ads_in_batch, bool broadcast_lengths=False) -> Tensor");
   m.def(
       "reorder_batched_ad_indices(Tensor cat_ad_offsets, Tensor cat_ad_indices, Tensor reordered_cat_ad_offsets, Tensor batch_offsets, SymInt num_ads_in_batch, bool broadcast_indices=False, SymInt num_indices_after_broadcast=-1) -> Tensor");
@@ -2856,6 +2959,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "cat_reorder_batched_ad_indices",
       fbgemm_gpu::cat_reorder_batched_ad_indices_cpu);
+  DISPATCH_TO_CPU(
+      "reorder_batched_sequence_embeddings",
+      fbgemm_gpu::reorder_batched_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("offsets_range", fbgemm_gpu::offsets_range_cpu);
   DISPATCH_TO_CPU(
       "batched_unary_embeddings",

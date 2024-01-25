@@ -351,6 +351,14 @@ at::Tensor reorder_batched_ad_indices_gpu(
     const bool broadcast_indices = false,
     const int64_t num_indices_after_broadcast = -1);
 
+///@ingroup sparse-data-cuda
+at::Tensor reorder_batched_sequence_embeddings_gpu(
+    const at::Tensor& cat_sequence_embeddings_offsets,
+    const at::Tensor& cat_sequence_embeddings,
+    const at::Tensor& reordered_cat_sequence_embeddings_offsets,
+    const at::Tensor& batch_offsets,
+    const int64_t num_items_in_batch);
+
 ///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_lengths_cpu(
     const at::Tensor& cat_ad_lengths,
@@ -366,6 +374,13 @@ at::Tensor reorder_batched_ad_indices_cpu(
     const int64_t num_ads_in_batch,
     const bool broadcast_indices = false,
     const int64_t num_indices_after_broadcast = -1);
+///@ingroup sparse-data-cpu
+at::Tensor reorder_batched_sequence_embeddings_cpu(
+    const at::Tensor& cat_sequence_embeddings_offsets,
+    const at::Tensor& cat_sequence_embeddings,
+    const at::Tensor& reordered_cat_sequence_embeddings_offsets,
+    const at::Tensor& batch_offsets,
+    const int64_t num_items_in_batch);
 ///@ingroup sparse-data-cpu
 at::Tensor cat_reorder_batched_ad_indices_cpu(
     const at::Tensor& cat_ad_offsets,

@@ -992,6 +992,182 @@ class SparseOpsTest(unittest.TestCase):
             else cat_ad_indices.view(B, T, A, L),
         )
 
+    @given(
+        B=st.integers(min_value=1, max_value=20),
+        R=st.integers(min_value=1, max_value=20),
+        T=st.integers(min_value=1, max_value=20),
+        L=st.integers(min_value=2, max_value=20),
+        index_dtype=st.sampled_from([torch.int32, torch.int64]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    def test_reorder_batched_sequence_embeddings_cpu(
+        self,
+        B: int,
+        R: int,
+        T: int,
+        L: int,
+        index_dtype: torch.dtype,
+    ) -> None:
+        MAX_H = 1000
+        DIM = 32
+        ref_embeddings = torch.rand(MAX_H, DIM, dtype=torch.float, device="cpu")
+        feature_lengths = [
+            torch.randint(1, L, (T, random.randint(1, B + 1)), dtype=index_dtype)
+            for _ in range(R)
+        ]
+        feature_indices = [
+            torch.randint(
+                0, MAX_H, (int(feature_length.sum().item()),), dtype=index_dtype
+            )
+            for feature_length in feature_lengths
+        ]
+        cat_feature_indices = torch.cat(feature_indices, 0)
+        num_items_in_batch = sum(
+            feature_length.size(1) for feature_length in feature_lengths
+        )
+        num_items_in_batch_list = torch.tensor(
+            [feature_length.size(1) for feature_length in feature_lengths],
+            dtype=index_dtype,
+        )
+        embeddings = [
+            ref_embeddings[feature_indice] for feature_indice in feature_indices
+        ]
+        cat_sequence_embeddings = torch.cat(embeddings, 0)
+        cat_sequence_embeddings_lengths = torch.cat(
+            [feature_length.view(-1) for feature_length in feature_lengths], 0
+        ).to(index_dtype)
+        cat_sequence_embeddings_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            cat_sequence_embeddings_lengths
+        )
+        batch_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            num_items_in_batch_list
+        )
+
+        reordered_cat_sequence_embeddings_lengths = (
+            torch.ops.fbgemm.reorder_batched_ad_lengths(
+                cat_sequence_embeddings_lengths, batch_offsets, num_items_in_batch
+            )
+        )
+        reordered_cat_sequence_embeddings_offsets = (
+            torch.ops.fbgemm.asynchronous_complete_cumsum(
+                reordered_cat_sequence_embeddings_lengths
+            )
+        )
+        reordered_cat_sequence_embeddings = (
+            torch.ops.fbgemm.reorder_batched_sequence_embeddings(
+                cat_sequence_embeddings_offsets,
+                cat_sequence_embeddings,
+                reordered_cat_sequence_embeddings_offsets,
+                batch_offsets,
+                num_items_in_batch,
+            )
+        )
+        reordered_cat_ad_indices = torch.ops.fbgemm.reorder_batched_ad_indices(
+            cat_sequence_embeddings_offsets,
+            cat_feature_indices,
+            reordered_cat_sequence_embeddings_offsets,
+            batch_offsets.int(),
+            num_items_in_batch,
+        )
+        reordered_sequence_embedding_from_indices = ref_embeddings[
+            reordered_cat_ad_indices
+        ]
+        torch.testing.assert_close(
+            reordered_sequence_embedding_from_indices, reordered_cat_sequence_embeddings
+        )
+
+    @given(
+        B=st.integers(min_value=1, max_value=20),
+        R=st.integers(min_value=1, max_value=20),
+        T=st.integers(min_value=1, max_value=20),
+        L=st.integers(min_value=2, max_value=20),
+        index_dtype=st.sampled_from([torch.int32, torch.int64]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    def test_reorder_batched_sequence_embeddings(
+        self,
+        B: int,
+        R: int,
+        T: int,
+        L: int,
+        index_dtype: torch.dtype,
+    ) -> None:
+        MAX_H = 1000
+        DIM = 32
+        device = torch.device("cuda")
+        ref_embeddings = torch.rand(MAX_H, DIM, dtype=torch.float, device=device)
+        feature_lengths = [
+            torch.randint(
+                1, L, (T, random.randint(1, B + 1)), dtype=index_dtype, device=device
+            )
+            for _ in range(R)
+        ]
+        feature_indices = [
+            torch.randint(
+                0,
+                MAX_H,
+                (int(feature_length.sum().item()),),
+                dtype=index_dtype,
+                device=device,
+            )
+            for feature_length in feature_lengths
+        ]
+        cat_feature_indices = torch.cat(feature_indices, 0)
+        num_items_in_batch = sum(
+            feature_length.size(1) for feature_length in feature_lengths
+        )
+        num_items_in_batch_list = torch.tensor(
+            [feature_length.size(1) for feature_length in feature_lengths],
+            dtype=index_dtype,
+            device=device,
+        )
+        embeddings = [
+            ref_embeddings[feature_indice] for feature_indice in feature_indices
+        ]
+        cat_sequence_embeddings = torch.cat(embeddings, 0)
+        cat_sequence_embeddings_lengths = torch.cat(
+            [feature_length.view(-1) for feature_length in feature_lengths], 0
+        ).to(index_dtype)
+        cat_sequence_embeddings_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            cat_sequence_embeddings_lengths
+        )
+        batch_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
+            num_items_in_batch_list
+        )
+
+        reordered_cat_sequence_embeddings_lengths = (
+            torch.ops.fbgemm.reorder_batched_ad_lengths(
+                cat_sequence_embeddings_lengths, batch_offsets.int(), num_items_in_batch
+            )
+        )
+        reordered_cat_sequence_embeddings_offsets = (
+            torch.ops.fbgemm.asynchronous_complete_cumsum(
+                reordered_cat_sequence_embeddings_lengths
+            )
+        )
+        reordered_cat_sequence_embeddings = (
+            torch.ops.fbgemm.reorder_batched_sequence_embeddings(
+                cat_sequence_embeddings_offsets,
+                cat_sequence_embeddings,
+                reordered_cat_sequence_embeddings_offsets,
+                batch_offsets,
+                num_items_in_batch,
+            )
+        )
+        reordered_cat_ad_indices = torch.ops.fbgemm.reorder_batched_ad_indices(
+            cat_sequence_embeddings_offsets,
+            cat_feature_indices,
+            reordered_cat_sequence_embeddings_offsets,
+            batch_offsets.int(),
+            num_items_in_batch,
+        )
+        reordered_sequence_embedding_from_indices = ref_embeddings[
+            reordered_cat_ad_indices
+        ]
+        torch.testing.assert_close(
+            reordered_sequence_embedding_from_indices, reordered_cat_sequence_embeddings
+        )
+
     def test_segment_sum_csr(self) -> None:
         segment_sum_cpu = torch.ops.fbgemm.segment_sum_csr(
             2,
