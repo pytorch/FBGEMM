@@ -1652,8 +1652,8 @@
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
             <span class="c1"># Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).</span>
-            <span class="c1"># We may want to do this accumulation atomically, but as it&#39;s only</span>
-            <span class="c1"># for monitoring, slightly inaccurate result may be acceptable.</span>
+            <span class="c1"># We may wanna do this accumulation atomically, but as it&#39;s only for monitoring,</span>
+            <span class="c1"># slightly inaccurate result may be acceptable.</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">add</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span>
             <span class="p">)</span>
