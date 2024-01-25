@@ -814,10 +814,10 @@ std::pair<K*, V*> radix_sort_parallel(
 }
 
 #define FORALL_INT_TYPES_AND_KEY(key_t, _) \
-  _(key_t, uint8_t)                        \
-  _(key_t, int8_t)                         \
-  _(key_t, int16_t)                        \
-  _(key_t, int)                            \
+  _(key_t, uint8_t);                       \
+  _(key_t, int8_t);                        \
+  _(key_t, int16_t);                       \
+  _(key_t, int);                           \
   _(key_t, int64_t)
 
 #define INSTANTIATE(key_t, val_t)                                    \
@@ -828,7 +828,7 @@ std::pair<K*, V*> radix_sort_parallel(
       val_t* const tmp_value_buf,                                    \
       const int64_t elements_count,                                  \
       const int64_t max_value,                                       \
-      const bool maybe_with_neg_vals);
+      const bool maybe_with_neg_vals)
 
 FORALL_INT_TYPES_AND_KEY(uint8_t, INSTANTIATE);
 FORALL_INT_TYPES_AND_KEY(int8_t, INSTANTIATE);
