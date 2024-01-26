@@ -167,6 +167,7 @@ class {{ autograd_func }} :
     const c10::optional<Tensor>& feature_requires_grad,
     {%- endif %}
     const Tensor& lxu_cache_locations,
+    c10::optional<Tensor> uvm_cache_stats,
     {%- if optimizer != "none" %}
     const bool gradient_clipping,
     const double max_gradient,
@@ -195,6 +196,11 @@ class {{ autograd_func }} :
     {%- else %}
     const auto max_B_ = offsets.sym_size(0) / T;
     {%- endif %}
+
+    // NOTE: The `local_uvm_cache_stats` variable held by the nn.Module has dtype int32_t
+    // TODO: Hook up with frontend code
+    const auto uvm_cache_stats_ = uvm_cache_stats
+      .value_or(at::empty({0}, uvm_weights.options().dtype(at::kInt)));
 
     // TODO: don't guard here
     auto [info_B_num_bits, info_B_mask] = adjust_info_B_num_bits(max_B_.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
@@ -283,13 +289,6 @@ class {{ autograd_func }} :
     const auto& flatten_dev_weights = dev_weights;
     {%- endif %}
 
-
-
-
-    const auto uvm_cache_stats = at::empty({0}, uvm_weights.options().dtype(at::kInt));
-
-
-
     {%- if not nobag %}
     {%- for weighted in [False, True] %}
     {%- set wdesc = "weighted" if weighted else "unweighted" %}
@@ -324,7 +323,7 @@ class {{ autograd_func }} :
             *indice_weights,
             {%- endif %}
             lxu_cache_locations,
-            uvm_cache_stats,
+            uvm_cache_stats_,
             output_dtype,
             {%- if vbe %}
             vbe_row_output_offsets,
@@ -355,7 +354,7 @@ class {{ autograd_func }} :
         indices,
         offsets,
         lxu_cache_locations,
-        uvm_cache_stats,
+        uvm_cache_stats_,
         output_dtype,
         /*is_experimental=*/false
       )
@@ -555,6 +554,7 @@ class {{ autograd_func }} :
         grad_indice_weights, // indice_weights
         Variable(), // feature_requires_grad
         Variable(), // lxu_cache_locations
+        Variable(), // uvm_cache_stats
         {%- if optimizer != "none" %}
         Variable(), // gradient_clipping
         Variable(), // max_gradient
@@ -628,6 +628,7 @@ class {{ autograd_func }} :
         Variable(), // indices
         Variable(), // offsets
         Variable(), // lxu_cache_locations
+        Variable(), // uvm_cache_stats
         {%- if optimizer != "none" %}
         Variable(), // gradient_clipping
         Variable(), // max_gradient
@@ -688,7 +689,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const int64_t vbe_output_size = -1,
     const bool is_experimental = false,
     const bool use_uniq_cache_locations_bwd = false,
-    const bool use_homogeneous_placements = false
+    const bool use_homogeneous_placements = false,
+    const c10::optional<Tensor>& uvm_cache_stats = c10::optional<Tensor>()
 ) {
   {%- if has_gpu_support %}
   {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
@@ -738,6 +740,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           feature_requires_grad,
           {%- endif %}
           lxu_cache_locations,
+          uvm_cache_stats,
           {%- if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
@@ -802,7 +805,9 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    int vbe_output_size=-1, "
           "    bool is_experimental=False, "
           "    bool use_uniq_cache_locations_bwd=False, "
-          "    bool use_homogeneous_placements=False) -> Tensor",
+          "    bool use_homogeneous_placements=False, "
+          "    Tensor? uvm_cache_stats=None"
+          ") -> Tensor",
           {PT2_COMPLIANT_TAG});
     // We're playing a funny trick here: we're using the autograd
     // implementation of the operator at all the dispatch keys.  This is OK
