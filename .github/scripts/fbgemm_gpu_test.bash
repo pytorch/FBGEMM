@@ -117,11 +117,21 @@ run_fbgemm_gpu_tests () {
 
   # NOTE: Tests running on single CPU core with a less powerful testing GPU in
   # GHA can take up to 5 hours.
+  # Starting from MI250 AMD GPUs support per process XNACK mode change.
   for test_file in $all_test_files; do
     if echo "${files_to_skip[@]}" | grep "${test_file}"; then
       echo "[TEST] Skipping test file known to be broken: ${test_file}"
     elif echo "${ignored_tests[@]}" | grep "${test_file}"; then
       echo "[TEST] Skipping test file: ${test_file}"
+    elif [ "$fbgemm_variant" == "rocm" ]; then
+      export ROCM_VERSION=$(awk -F'[.-]' '{print $1 * 10000 + $2 * 100 + $3}' /opt/rocm/.info/version-dev)
+      if [ "$ROCM_VERSION" -ge 50700 ] && [ "${test_file}" == "uvm_test.py" ]; then
+        export HSA_XNACK=1
+        if run_python_test "${env_name}" "${test_file}"; then
+          echo ""
+        fi
+        export HSA_XNACK=0
+      fi
     elif run_python_test "${env_name}" "${test_file}"; then
       echo ""
     else

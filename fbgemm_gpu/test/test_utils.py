@@ -340,6 +340,23 @@ def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") ->
 
     return skipIfRocmDecorator
 
+def skipIfRocmLessThan(version):
+    def skipIfRocmDecorator(fn: Callable) -> Any:
+        @wraps(fn)
+        # pyre-fixme[3]: Return annotation cannot be `Any`.
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            with open('/opt/rocm/.info/version-dev', 'r') as file:
+                rocmVer = file.read().strip()
+            rocmVer = rocmVer.replace('-', '').split('.')
+            rocmVer = int(rocmVer[0]) * 10000 + int(rocmVer[1]) * 100 + int(rocmVer[2])
+            if TEST_WITH_ROCM and rocmVer < version:
+                raise unittest.SkipTest("skip the test since rocm version is less than " + str(version))
+            else:
+                fn(*args, **kwargs)
+
+        return wrapper
+
+    return skipIfRocmDecorator
 
 def symint_vector_unsupported() -> Tuple[bool, str]:
     major, minor = torch.__version__.split(".")[0:2]
