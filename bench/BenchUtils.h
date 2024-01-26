@@ -46,6 +46,10 @@ void randFill(aligned_vector<T>& vec, T low, T high);
 
 void llc_flush(std::vector<char>& llc);
 
+#ifdef __aarch64__
+void aarch64_flush_cache_line(void* addr);
+#endif // __aarch64__
+
 // Same as omp_get_max_threads() when OpenMP is available, otherwise 1
 int fbgemm_get_max_threads();
 // Same as omp_get_num_threads() when OpenMP is available, otherwise 1
@@ -73,6 +77,8 @@ NOINLINE float cache_evict(const T& vec) {
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
     _mm_clflush(&data[i]);
+#elif defined(__aarch64__)
+    aarch64_flush_cache_line((char*)&data[i]);
 #else
     __builtin___clear_cache(
         (char*)&data[i], (char*)(&data[i] + CACHE_LINE_SIZE));
