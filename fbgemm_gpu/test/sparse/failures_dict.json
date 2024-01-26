@@ -6,15 +6,15 @@
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},
     "fbgemm::batch_index_select_dim0": {
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_batch_index_select_dim0": {
+      "IndexSelectTest.test_aot_dispatch_dynamic__test_batch_index_select_dim0": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_autograd_registration__test_batch_index_select_dim0": {
+      "IndexSelectTest.test_autograd_registration__test_batch_index_select_dim0": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_batch_index_select_dim0": {
+      "IndexSelectTest.test_faketensor__test_batch_index_select_dim0": {
         "comment": "",
         "status": "xfail"
       }
@@ -75,11 +75,11 @@
       }
     },
     "fbgemm::cat_reorder_batched_ad_indices": {
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_cat_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_cat_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_cat_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_faketensor__test_cat_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       }
@@ -105,11 +105,11 @@
       }
     },
     "fbgemm::group_index_select_dim0": {
-      "SparseOpsTest.test_autograd_registration__test_group_index_select_dim0": {
+      "IndexSelectTest.test_autograd_registration__test_group_index_select_dim0": {
         "comment": "",
         "status": "xsuccess"
       },
-      "SparseOpsTest.test_faketensor__test_group_index_select_dim0": {
+      "IndexSelectTest.test_faketensor__test_group_index_select_dim0": {
         "comment": "",
         "status": "xsuccess"
       }
@@ -382,71 +382,121 @@
     "fbgemm::permute_pooled_embs": {},
     "fbgemm::permute_pooled_embs_auto_grad": {},
     "fbgemm::permute_sequence_embeddings": {
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_permute_embeddings": {
+      "PermuteEmbeddingsTest.test_aot_dispatch_dynamic__test_permute_embeddings": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_permute_embeddings": {
+      "PermuteEmbeddingsTest.test_faketensor__test_permute_embeddings": {
         "comment": "",
         "status": "xfail"
       }
     },
     "fbgemm::reorder_batched_ad_indices": {
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_reorder_batched_ad_indices": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_sequence_embeddings": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_sequence_embeddings_cpu": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_ad_indices": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_ad_indices_cpu": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_sequence_embeddings": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_sequence_embeddings_cpu": {
         "comment": "",
         "status": "xfail"
       }
     },
     "fbgemm::reorder_batched_ad_lengths": {
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_cat_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_cat_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_lengths": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_lengths": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_lengths_cpu": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_ad_lengths_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_cat_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_sequence_embeddings": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_reorder_batched_ad_indices": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_sequence_embeddings_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_reorder_batched_ad_indices_cpu": {
+      "ReorderBatchedTest.test_faketensor__test_cat_reorder_batched_ad_indices_cpu": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_reorder_batched_ad_lengths": {
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_ad_indices": {
         "comment": "",
         "status": "xfail"
       },
-      "SparseOpsTest.test_faketensor__test_reorder_batched_ad_lengths_cpu": {
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_ad_indices_cpu": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_ad_lengths": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_ad_lengths_cpu": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_sequence_embeddings": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_sequence_embeddings_cpu": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::reorder_batched_sequence_embeddings": {
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_sequence_embeddings": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_aot_dispatch_dynamic__test_reorder_batched_sequence_embeddings_cpu": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_sequence_embeddings": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ReorderBatchedTest.test_faketensor__test_reorder_batched_sequence_embeddings_cpu": {
         "comment": "",
         "status": "xfail"
       }
