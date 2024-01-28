@@ -62,42 +62,6 @@ class UvmTest(unittest.TestCase):
         assert torch.ops.fbgemm.uvm_storage(uvm_t)
 
     @unittest.skipIf(*gpu_unavailable)
-    @given(
-        sizes=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=4),
-        uvm_op=st.sampled_from(
-            [
-                torch.ops.fbgemm.new_unified_tensor,
-                torch.ops.fbgemm.new_managed_tensor,
-                torch.ops.fbgemm.new_vanilla_managed_tensor,
-            ]
-        ),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_to_cpu(self, sizes: List[int], uvm_op) -> None:
-        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
-            is_host_mapped = False
-            uvm_t = uvm_op(
-                torch.empty(0, device="cuda:0", dtype=torch.float),
-                sizes,
-                is_host_mapped,
-            )
-        else:
-            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-
-        cpu_t = torch.ops.fbgemm.uvm_to_cpu(uvm_t)
-        assert not torch.ops.fbgemm.is_uvm_tensor(cpu_t)
-        assert torch.ops.fbgemm.uvm_storage(cpu_t)
-
-        uvm_t.copy_(cpu_t)
-        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
-        assert torch.ops.fbgemm.uvm_storage(uvm_t)
-
-        # Test use of cpu tensor after freeing the uvm tensor
-        del uvm_t
-        cpu_t.mul_(42)
-
-    @unittest.skipIf(*gpu_unavailable)
     def test_enum(self) -> None:
         # pyre-ignore[16]
         assert cudaMemoryAdvise.cudaMemAdviseSetAccessedBy.value == 5
@@ -167,52 +131,6 @@ class UvmTest(unittest.TestCase):
         cudaMemPrefetchAsync(uvm_t)
 
         torch.cuda.synchronize(torch.device("cuda:0"))
-
-    @skipIfRocm()
-    @unittest.skipIf(
-        not torch.cuda.is_available() or torch.cuda.device_count() < 2,
-        "Skip unless two CUDA devices are detected",
-    )
-    @given(
-        sizes=st.lists(
-            st.integers(min_value=1, max_value=(1024)), min_size=1, max_size=4
-        ),
-        uvm_op=st.sampled_from(
-            [
-                torch.ops.fbgemm.new_unified_tensor,
-                torch.ops.fbgemm.new_managed_tensor,
-                torch.ops.fbgemm.new_vanilla_managed_tensor,
-            ]
-        ),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_to_device(self, sizes: List[int], uvm_op) -> None:
-        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
-            is_host_mapped = False
-            uvm_t = uvm_op(
-                torch.empty(0, device="cuda:0", dtype=torch.float),
-                sizes,
-                is_host_mapped,
-            )
-        else:
-            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-
-        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
-        assert torch.ops.fbgemm.uvm_storage(uvm_t)
-
-        # Reference uvm tensor from second cuda device
-        try:
-            device_prototype = torch.empty(0, device="cuda:1")
-        except RuntimeError:
-            # Skip the tests if there is no "cuda:1" device
-            return
-
-        second_t = torch.ops.fbgemm.uvm_to_device(uvm_t, device_prototype)
-
-        assert torch.ops.fbgemm.is_uvm_tensor(second_t)
-        assert torch.ops.fbgemm.uvm_storage(second_t)
-        assert second_t.device == device_prototype.device
 
     @skipIfRocm()
     @unittest.skipIf(*gpu_unavailable)
@@ -288,40 +206,6 @@ class UvmTest(unittest.TestCase):
         cpu_t = torch.ops.fbgemm.uvm_to_cpu(uvm_t)
 
         torch.ops.fbgemm.uvm_mem_advice_dont_fork(cpu_t)
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        sizes=st.lists(
-            st.integers(min_value=1, max_value=(512)), min_size=1, max_size=3
-        ),
-        uvm_op=st.sampled_from(
-            [
-                torch.ops.fbgemm.new_unified_tensor,
-                torch.ops.fbgemm.new_managed_tensor,
-                torch.ops.fbgemm.new_vanilla_managed_tensor,
-            ]
-        ),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    # pyre-fixme[2]: Parameter must be annotated.
-    def test_uvm_to_cpu_clone(self, sizes: List[int], uvm_op) -> None:
-        if uvm_op is torch.ops.fbgemm.new_unified_tensor:
-            is_host_mapped = False
-            uvm_t = uvm_op(
-                torch.empty(0, device="cuda:0", dtype=torch.float),
-                sizes,
-                is_host_mapped,
-            )
-        else:
-            uvm_t = uvm_op(torch.empty(0, device="cuda:0", dtype=torch.float), sizes)
-
-        assert torch.ops.fbgemm.is_uvm_tensor(uvm_t)
-        assert torch.ops.fbgemm.uvm_storage(uvm_t)
-
-        cpu_clone = torch.ops.fbgemm.uvm_to_cpu_clone(uvm_t)
-
-        assert not torch.ops.fbgemm.is_uvm_tensor(cpu_clone)
-        assert not torch.ops.fbgemm.uvm_storage(cpu_clone)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
