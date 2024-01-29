@@ -45,7 +45,7 @@ std::pair<at::Tensor, at::Tensor> run_emulate_cache_miss(
   return {lxu_cache_location_with_cache_misses.cpu(), uvm_cache_stats.cpu()};
 }
 
-TEST(uvm_cache_miss_emulate_test, no_cache_miss) {
+TEST(UvmCacheMissEmulateTest, no_cache_miss) {
   constexpr int64_t num_requests = 10000;
   constexpr int64_t num_sets = 32768;
   constexpr int64_t associativity = 32;
@@ -60,7 +60,7 @@ TEST(uvm_cache_miss_emulate_test, no_cache_miss) {
       at::equal(lxu_cache_locations_cpu, lxu_cache_location_with_cache_misses));
 }
 
-TEST(uvm_cache_miss_emulate_test, enforced_cache_miss) {
+TEST(UvmCacheMissEmulateTest, enforced_cache_miss) {
   constexpr int64_t num_requests = 10000;
   constexpr int64_t num_sets = 32768;
   constexpr int64_t associativity = 32;

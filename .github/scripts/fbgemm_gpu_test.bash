@@ -88,9 +88,10 @@ run_fbgemm_gpu_tests () {
   )
 
   if [ "$fbgemm_variant" == "cpu" ]; then
-    # These are tests that are currently broken in FBGEMM_GPU-CPU
+    # These tests have non-CPU operators referenced in @given
     local ignored_tests=(
-      ./uvm_test.py
+      ./uvm/copy_test.py
+      ./uvm/uvm_test.py
     )
   elif [ "$fbgemm_variant" == "rocm" ]; then
     local ignored_tests=(
