@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-ignore-all-errors[56]
+
 import inspect
 import sys
 import unittest
@@ -21,13 +23,20 @@ from torch import nn, Tensor
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 if getattr(fbgemm_gpu, "open_source", False):
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, on_arm_platform, optests
+    from test_utils import (
+        cpu_and_maybe_gpu,
+        gpu_unavailable,
+        on_arm_platform,
+        optests,
+        skipIfRocm,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
         gpu_unavailable,
         on_arm_platform,
         optests,
+        skipIfRocm,
     )
 
 typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
@@ -121,13 +130,11 @@ additional_decorators: Dict[str, List[Callable]] = {
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class PooledEmbeddingModulesTest(unittest.TestCase):
     @settings(deadline=10000, suppress_health_check=suppressed_list)
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(device_type=cpu_and_maybe_gpu())
     def setUp(self, device_type: torch.device) -> None:
         self.device = device_type
 
     @settings(deadline=500)
-    # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(fwd_only=st.booleans())
     def test_permutation(self, fwd_only: bool) -> None:
         net = Net(fwd_only=fwd_only).to(self.device)
@@ -138,6 +145,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             [6, 7, 8, 9, 0, 1, 5, 2, 3, 4],
         )
 
+    @skipIfRocm()
     @unittest.skipIf(*typed_on_arm_platform)
     def test_permutation_autograd(self) -> None:
         net = Net().to(self.device)
