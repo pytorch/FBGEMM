@@ -13,6 +13,10 @@ if [[ "$working_dir" == "$FBGEMM_REPO" ]]; then cd fbgemm_gpu || echo "Failed to
 ## Build clean/wheel will be done in pre-script. Set flag such that setup.py will skip these steps in Nova workflow
 export BUILD_FROM_NOVA=1
 
+## Override existing ENV VAR in Nova for Release
+export CHANNEL="test"
+export PIP_INSTALL_TORCH="pip install torch --index-url https://download.pytorch.org/whl/${CU_VERSION}"
+
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
 if [[ "$CU_VERSION" == "cu118" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0' && echo "$TORCH_CUDA_ARCH_LIST"; fi
