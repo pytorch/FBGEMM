@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
-TEST(tensor_assert_test, gpu_asserts) {
+TEST(TensorAssertTest, gpu_asserts) {
   at::Tensor on_cpu_empty;
 
   ASSERT_EQ(on_cpu_empty.numel(), 0);

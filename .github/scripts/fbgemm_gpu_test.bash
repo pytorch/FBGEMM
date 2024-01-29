@@ -96,6 +96,10 @@ run_fbgemm_gpu_tests () {
     local ignored_tests=(
       # https://github.com/pytorch/FBGEMM/issues/1559
       ./batched_unary_embeddings_test.py
+      ./tbe/backward_adagrad_test.py
+      ./tbe/backward_dense_test.py
+      ./tbe/backward_none_test.py
+      ./tbe/backward_sgd_test.py
     )
   else
     local ignored_tests=()

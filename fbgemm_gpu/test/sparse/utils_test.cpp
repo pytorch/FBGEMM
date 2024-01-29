@@ -22,7 +22,7 @@ at::Tensor get_valid_cpu_tensor() {
       test_data.data(), {static_cast<long>(test_data.size())}, torch::kInt);
 }
 
-TEST(sparse_ops_utils_test, undefined_tensors_do_not_trigger) {
+TEST(SparseOpsUtilsTest, undefined_tensors_do_not_trigger) {
   const auto ten1 = at::Tensor();
   const auto ten2 = at::Tensor();
   const auto func = [&]() {
@@ -31,7 +31,7 @@ TEST(sparse_ops_utils_test, undefined_tensors_do_not_trigger) {
   EXPECT_NO_THROW(func());
 }
 
-TEST(sparse_ops_utils_test, cpu_tensors_fail) {
+TEST(SparseOpsUtilsTest, cpu_tensors_fail) {
   const auto ten1 = get_valid_cpu_tensor();
   const auto ten2 = get_valid_cpu_tensor();
   const auto func = [&]() {
@@ -46,7 +46,7 @@ TEST(sparse_ops_utils_test, cpu_tensors_fail) {
               "Not all tensors were on the same GPU: ten1(CPU:-1),  ten2(CPU:-1)"))));
 }
 
-TEST(sparse_ops_utils_test, gpu_tensors_pass) {
+TEST(SparseOpsUtilsTest, gpu_tensors_pass) {
   const auto ten1 = get_valid_cpu_tensor().cuda();
   const auto ten2 = get_valid_cpu_tensor().cuda();
   const auto func = [&]() {
@@ -55,7 +55,7 @@ TEST(sparse_ops_utils_test, gpu_tensors_pass) {
   EXPECT_NO_THROW(func());
 }
 
-TEST(sparse_ops_utils_test, optional_tensor_passes) {
+TEST(SparseOpsUtilsTest, optional_tensor_passes) {
   const auto ten1 = get_valid_cpu_tensor().cuda();
   const c10::optional<at::Tensor> ten2;
   const auto func = [&]() {

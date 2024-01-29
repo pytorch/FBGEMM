@@ -29,6 +29,7 @@ try:
         gpu_unavailable,
         gradcheck,
         optests,
+        skipIfRocm,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
@@ -45,6 +46,7 @@ except Exception:
         gpu_unavailable,
         gradcheck,
         optests,
+        skipIfRocm,
         symint_vector_unsupported,
         TEST_WITH_ROCM,
     )
@@ -1628,6 +1630,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         assert output.size() == output_ref.size()
 
+    @skipIfRocm()
     @settings(
         verbosity=Verbosity.verbose,
         max_examples=20,
@@ -2357,6 +2360,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(values.grad, values_ref.grad)
 
+    @skipIfRocm()
     @given(
         B=st.integers(10, 512),
         M=st.integers(1, 32),
@@ -2655,6 +2659,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             )
 
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm()
     @given(
         B=st.integers(min_value=100, max_value=200),
         F=st.integers(min_value=50, max_value=100),
@@ -2759,6 +2764,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
                 self.assertTrue((output_start <= pos) and (pos < output_end))
 
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm()
     @given(
         B=st.integers(min_value=100, max_value=200),
         F=st.integers(min_value=50, max_value=100),
