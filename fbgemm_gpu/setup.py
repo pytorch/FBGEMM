@@ -260,6 +260,7 @@ class FbgemmGpuInstaller(PipInstall):
             # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
             # Then remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
             version = re.sub(".post0$", "", gitversion.version_from_git().split("+")[0])
+        version = 0.6.0
         version = str(version) + variant_version
         print(f"[SETUP.PY] Setting the full package version string: {version}")
         return version

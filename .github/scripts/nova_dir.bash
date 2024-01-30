@@ -16,7 +16,7 @@ export BUILD_FROM_NOVA=1
 ## Override existing ENV VAR in Nova for Release
 export CHANNEL="test"
 export PIP_INSTALL_TORCH="pip install torch --index-url https://download.pytorch.org/whl/${CU_VERSION}"
-export PYTORCH_S3_BUCKET_PATH="s3://pytorch/whl/test/${CU_VERSION}/"
+export PYTORCH_S3_BUCKET_PATH="s3://pytorch/whl/${CU_VERSION}/"
 
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
