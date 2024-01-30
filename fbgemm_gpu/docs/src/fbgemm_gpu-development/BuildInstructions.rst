@@ -2,7 +2,7 @@ Build Instructions
 ==================
 
 **Note:** The most up-to-date build instructions are embedded in a set of
-scripts bundled in the FBGEMM_GPU repo under
+scripts bundled in the FBGEMM repo under
 `setup_env.bash <https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash>`_.
 
 The general steps for building FBGEMM_GPU are as follows:

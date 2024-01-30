@@ -2,7 +2,7 @@ Installation Instructions
 =========================
 
 **Note:** The most up-to-date installation instructions are embedded in a set
-of scripts bundled in the FBGEMM_GPU repo under
+of scripts bundled in the FBGEMM repo under
 `setup_env.bash <https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash>`_.
 
 The general steps for installing FBGEMM_GPU are as follows:

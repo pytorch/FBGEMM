@@ -31,6 +31,14 @@ Table of Contents
    general/ContactUs.rst
    general/License.rst
 
+.. _fbgemm.toc.development:
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM Development
+
+   fbgemm-development/BuildInstructions.rst
+
 .. _fbgemm-gpu.toc.development:
 
 .. toctree::
