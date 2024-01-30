@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Combine Input Operators &mdash; FBGEMM 0.6.0 documentation</title>
+  <title>Build Instructions &mdash; FBGEMM 0.6.0 documentation</title>
   
 
   
@@ -33,8 +33,8 @@
   <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Layout Transformation Operators" href="layout_transform_ops.html" />
-    <link rel="prev" title="CUDA Memory Operators" href="memory_utils.html" />
+    <link rel="next" title="Build Instructions" href="../fbgemm_gpu-development/BuildInstructions.html" />
+    <link rel="prev" title="License" href="../general/License.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -267,8 +267,8 @@
 <li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Development</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Build Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul>
@@ -285,16 +285,16 @@
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Combine Input Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
@@ -340,13 +340,13 @@
       </li>
 
         
-      <li>Combine Input Operators</li>
+      <li>Build Instructions</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/fbgemm_gpu-cpp-api/input_combine.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/fbgemm-development/BuildInstructions.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -376,18 +376,169 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="combine-input-operators">
-<h1>Combine Input Operators<a class="headerlink" href="#combine-input-operators" title="Permalink to this heading">¶</a></h1>
-<dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv421tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE">
-<span id="_CPPv321tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE"></span><span id="_CPPv221tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE"></span><span id="tbe_input_combine_cpu__std::vector:at::Tensor:CR.std::vector:at::Tensor:CR.std::vector:at::Tensor:CR.at::TensorCR"></span><span class="target" id="group__input-combine_1ga4f8f3f8b825c9d7639c1e45e8dc8b689"></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">tuple</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">tbe_input_combine_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">indices_list</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">offsets_list</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">per_sample_weights</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">include_last_offsets</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv421tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE" title="Permalink to this definition">¶</a><br /></dt>
-<dd></dd></dl>
+  <section id="build-instructions">
+<h1>Build Instructions<a class="headerlink" href="#build-instructions" title="Permalink to this heading">¶</a></h1>
+<p><strong>Note:</strong> The most up-to-date build instructions are embedded in a set of
+scripts bundled in the FBGEMM repo under
+<a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash">setup_env.bash</a>.</p>
+<p>The general steps for building FBGEMM_GPU are as follows:</p>
+<ol class="arabic simple">
+<li><p>Set up an isolated build environment.</p></li>
+<li><p>Set up the toolchain.</p></li>
+<li><p>Run the build script.</p></li>
+</ol>
+<section id="fbgemm-requirements">
+<h2>FBGEMM Requirements<a class="headerlink" href="#fbgemm-requirements" title="Permalink to this heading">¶</a></h2>
+<section id="hardware-requirements">
+<h3>Hardware Requirements<a class="headerlink" href="#hardware-requirements" title="Permalink to this heading">¶</a></h3>
+<p>Building and running FBGEMM requires a CPU with support for AVX2 instruction set
+or higher.</p>
+<p>In general, FBGEMM does not have any dependency on Intel MKL. However, for
+performance comparisons, some benchmarks use MKL functions. If MKL is found or
+the MKL path is provided through the <code class="docutils literal notranslate"><span class="pre">INTEL_MKL_DIR</span></code> environment variable, the
+benchmarks will be built with MKL and performance numbers will be reported for
+MKL functions. Otherwise, this subset of benchmarks will not built.</p>
+</section>
+<section id="software-dependencies">
+<h3>Software Dependencies<a class="headerlink" href="#software-dependencies" title="Permalink to this heading">¶</a></h3>
+<p>All three dependencies are provided through the FBGEMM repo’s git submodules.
+However, if a custom version is desired, they can be set in the build using the
+environment variables <code class="docutils literal notranslate"><span class="pre">ASMJIT_SRC_DIR</span></code>, <code class="docutils literal notranslate"><span class="pre">CPUINFO_SRC_DIR</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">GOOGLETEST_SOURCE_DIR</span></code>.</p>
+<section id="asmjit">
+<h4>asmjit<a class="headerlink" href="#asmjit" title="Permalink to this heading">¶</a></h4>
+<p>With inner kernels, FBGEMM takes a “one size doesn’t fit all” approach, so the
+implementation dynamically generates efficient matrix-shape specific vectorized
+code using a third-party library called <a class="reference external" href="https://github.com/asmjit/asmjit">asmjit</a>.</p>
+</section>
+<section id="cpuinfo">
+<h4>cpuinfo<a class="headerlink" href="#cpuinfo" title="Permalink to this heading">¶</a></h4>
+<p>FBGEMM detects CPU instruction set support at runtime using the
+<a class="reference external" href="https://github.com/pytorch/cpuinfo">cpuinfo</a> library provided by the PyTorch
+project, and dispatches optimized kernels for the detected instruction set.</p>
+</section>
+<section id="googletest">
+<h4>GoogleTest<a class="headerlink" href="#googletest" title="Permalink to this heading">¶</a></h4>
+<p><a class="reference external" href="https://github.com/google/googletest">GoogleTest</a> is required to build and
+run FBGEMM’s tests. However, GoogleTest is not required if you don’t want to run
+FBGEMM tests. Tests are built together with the library by default; to turn this
+off, simply set <code class="docutils literal notranslate"><span class="pre">FBGEMM_BUILD_TESTS=0</span></code>.</p>
+</section>
+</section>
+</section>
+<section id="set-up-an-isolated-build-environment">
+<span id="fbgemm-build-setup-env"></span><h2>Set Up an Isolated Build Environment<a class="headerlink" href="#set-up-an-isolated-build-environment" title="Permalink to this heading">¶</a></h2>
+<p>Follow the instructions for setting up the Conda environment at
+<a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>.</p>
+</section>
+<section id="install-the-build-tools">
+<h2>Install the Build Tools<a class="headerlink" href="#install-the-build-tools" title="Permalink to this heading">¶</a></h2>
+<section id="c-c-compiler">
+<h3>C/C++ Compiler<a class="headerlink" href="#c-c-compiler" title="Permalink to this heading">¶</a></h3>
+<p>For Linux and macOS platforms, Install a version of the GCC toolchain
+<strong>that supports C++17</strong>. The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code> package will also need to be installed
+to avoid issues with missing versioned symbols with <code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> when compiling FBGEMM:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="m">10</span>.4.0<span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17<span class="w"> </span>-c<span class="w"> </span>conda-forge
+</pre></div>
+</div>
+<p>While newer versions of GCC can be used, binaries compiled under newer versions
+of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
+Stream 8, because the compiled library will reference symbols from versions of
+<code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> that the system’s <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> will not support. To see what
+versions of GLIBC and GLIBCXX the available <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> supports:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">libcxx_path</span><span class="o">=</span>/path/to/libstdc++.so.6
 
-<dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv435padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t">
-<span id="_CPPv335padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t"></span><span id="_CPPv235padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t"></span><span id="padding_fused_tbe_input_combine_cpu__std::vector:at::Tensor:CR.std::vector:at::Tensor:CR.std::vector:at::Tensor:CR.at::TensorCR.int64_t"></span><span class="target" id="group__input-combine_1ga9ab60fbe75053c2f31f7d3f16dfa476f"></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">tuple</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">padding_fused_tbe_input_combine_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">indices_list</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">offsets_list</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">per_sample_weights</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">include_last_offsets</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">batch_size</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv435padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t" title="Permalink to this definition">¶</a><br /></dt>
-<dd></dd></dl>
+<span class="c1"># Print supported for GLIBC versions</span>
+objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">libcxx_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>GLIBC_<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">&#39;s/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-Vu<span class="w"> </span><span class="p">|</span><span class="w"> </span>cat
 
+<span class="c1"># Print supported for GLIBCXX versions</span>
+objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">libcxx_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>GLIBCXX_<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">&#39;s/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-Vu<span class="w"> </span><span class="p">|</span><span class="w"> </span>cat
+</pre></div>
+</div>
+<p>For builds on Windows machines, Microsoft Visual Studio 2019 or newer is
+recommended.  Follow the installation instructions provided by Microsoft.</p>
+</section>
+<section id="other-build-tools">
+<h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this heading">¶</a></h3>
+<p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>bazel<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>make<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>ninja<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>openblas-dev
+</pre></div>
+</div>
+<p>Note that the <cite>bazel</cite> package is only necessary for Bazel builds, and the
+<cite>ninja</cite> package is only necessary for Windows builds.</p>
+</section>
+</section>
+<section id="build-the-fbgemm-library">
+<h2>Build the FBGEMM Library<a class="headerlink" href="#build-the-fbgemm-library" title="Permalink to this heading">¶</a></h2>
+<section id="preparing-the-build">
+<h3>Preparing the Build<a class="headerlink" href="#preparing-the-build" title="Permalink to this heading">¶</a></h3>
+<p>Clone the repo along with its submodules:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># Clone the repo and its submodules</span>
+git<span class="w"> </span>clone<span class="w"> </span>--recurse-submodules<span class="w"> </span>https://github.com/pytorch/FBGEMM.git
+<span class="nb">cd</span><span class="w"> </span>FBGEMM
+</pre></div>
+</div>
+</section>
+<section id="building-on-linux-and-macos-cmake">
+<h3>Building on Linux and macOS (CMake)<a class="headerlink" href="#building-on-linux-and-macos-cmake" title="Permalink to this heading">¶</a></h3>
+<p>Assuming a Conda environment with all the tools installed, the CMake build
+process is straightforward:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># Create a build directory</span>
+mkdir<span class="w"> </span>build
+<span class="nb">cd</span><span class="w"> </span>build
+
+<span class="c1"># Set up the build</span>
+<span class="c1"># To generate Doxygen documentation, add `-DFBGEMM_BUILD_DOCS=ON`</span>
+cmake<span class="w"> </span>-DUSE_SANITIZER<span class="o">=</span>address<span class="w"> </span>-DFBGEMM_LIBRARY_TYPE<span class="o">=</span>shared<span class="w"> </span>-DPYTHON_EXECUTABLE<span class="o">=</span><span class="sb">`</span>which<span class="w"> </span>python3<span class="sb">`</span><span class="w"> </span>..
+
+<span class="c1"># Build the library</span>
+make<span class="w"> </span>-j<span class="w"> </span><span class="nv">VERBOSE</span><span class="o">=</span><span class="m">1</span>
+
+<span class="c1"># Run all tests</span>
+make<span class="w"> </span><span class="nb">test</span>
+
+<span class="c1"># Install the library</span>
+make<span class="w"> </span>install
+</pre></div>
+</div>
+</section>
+<section id="building-on-linux-bazel">
+<h3>Building on Linux (Bazel)<a class="headerlink" href="#building-on-linux-bazel" title="Permalink to this heading">¶</a></h3>
+<p>Likewise, a Bazel build is also very straightforward:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># Build the library</span>
+bazel<span class="w"> </span>build<span class="w"> </span>-s<span class="w"> </span>:*
+
+<span class="c1"># Run all tests</span>
+bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-s<span class="w"> </span>:*
+</pre></div>
+</div>
+</section>
+<section id="building-on-windows">
+<h3>Building on Windows<a class="headerlink" href="#building-on-windows" title="Permalink to this heading">¶</a></h3>
+<div class="highlight-powershell notranslate"><div class="highlight"><pre><span></span><span class="c"># Specify the target architecture to bc x64</span>
+<span class="n">call</span> <span class="s2">&quot;C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat&quot;</span> <span class="n">x64</span>
+
+<span class="c"># Create a build directory</span>
+<span class="n">mkdir</span> <span class="k">%</span><span class="n">BUILD_DIR</span><span class="p">%</span>
+<span class="nb">cd </span><span class="k">%</span><span class="n">BUILD_DIR</span><span class="p">%</span>
+
+<span class="n">cmake</span> <span class="n">-G</span> <span class="n">Ninja</span> <span class="n">-DFBGEMM_BUILD_BENCHMARKS</span><span class="p">=</span><span class="n">OFF</span> <span class="n">-DFBGEMM_LIBRARY_TYPE</span><span class="p">=${{</span> <span class="n">matrix</span><span class="p">.</span><span class="n">library-type</span> <span class="p">}}</span> <span class="n">-DCMAKE_BUILD_TYPE</span><span class="p">=</span><span class="n">Release</span> <span class="n">-DCMAKE_C_COMPILER</span><span class="p">=</span><span class="s2">&quot;cl.exe&quot;</span> <span class="n">-DCMAKE_CXX_COMPILER</span><span class="p">=</span><span class="s2">&quot;cl.exe&quot;</span> <span class="p">..</span>
+<span class="n">ninja</span> <span class="n">-v</span> <span class="n">all</span>
+</pre></div>
+</div>
+</section>
+</section>
 </section>
 
 
@@ -398,10 +549,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="layout_transform_ops.html" class="btn btn-neutral float-right" title="Layout Transformation Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="../fbgemm_gpu-development/BuildInstructions.html" class="btn btn-neutral float-right" title="Build Instructions" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="memory_utils.html" class="btn btn-neutral" title="CUDA Memory Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="../general/License.html" class="btn btn-neutral" title="License" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -433,7 +584,32 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Combine Input Operators</a></li>
+<li><a class="reference internal" href="#">Build Instructions</a><ul>
+<li><a class="reference internal" href="#fbgemm-requirements">FBGEMM Requirements</a><ul>
+<li><a class="reference internal" href="#hardware-requirements">Hardware Requirements</a></li>
+<li><a class="reference internal" href="#software-dependencies">Software Dependencies</a><ul>
+<li><a class="reference internal" href="#asmjit">asmjit</a></li>
+<li><a class="reference internal" href="#cpuinfo">cpuinfo</a></li>
+<li><a class="reference internal" href="#googletest">GoogleTest</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#set-up-an-isolated-build-environment">Set Up an Isolated Build Environment</a></li>
+<li><a class="reference internal" href="#install-the-build-tools">Install the Build Tools</a><ul>
+<li><a class="reference internal" href="#c-c-compiler">C/C++ Compiler</a></li>
+<li><a class="reference internal" href="#other-build-tools">Other Build Tools</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#build-the-fbgemm-library">Build the FBGEMM Library</a><ul>
+<li><a class="reference internal" href="#preparing-the-build">Preparing the Build</a></li>
+<li><a class="reference internal" href="#building-on-linux-and-macos-cmake">Building on Linux and macOS (CMake)</a></li>
+<li><a class="reference internal" href="#building-on-linux-bazel">Building on Linux (Bazel)</a></li>
+<li><a class="reference internal" href="#building-on-windows">Building on Windows</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 
             </div>
