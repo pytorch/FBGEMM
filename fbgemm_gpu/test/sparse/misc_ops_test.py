@@ -12,18 +12,12 @@ import random
 import unittest
 from typing import Type, Union
 
-import fbgemm_gpu
-
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from hypothesis import given, settings, Verbosity
 
-from .common import extend_test_class
-
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
