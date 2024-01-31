@@ -8,14 +8,11 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-
 from typing import Callable, Dict, List
 
-import fbgemm_gpu
 import hypothesis.strategies as st
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import get_table_batched_offsets_from_dense
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
@@ -26,14 +23,10 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
-
 from hypothesis import given, settings, Verbosity
 
-from . import common  # noqa E402,F401
-from .common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING  # noqa E402
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from . import common  # noqa E402
+from .common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]

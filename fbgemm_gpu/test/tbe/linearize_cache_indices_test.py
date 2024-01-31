@@ -9,15 +9,11 @@
 
 import unittest
 
-import fbgemm_gpu
 import torch
-
 from hypothesis import Verbosity
 
-from . import common  # noqa E402,F401
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from . import common  # noqa E402
+from .common import open_source
 
 if open_source:
     # pyre-ignore[21]
