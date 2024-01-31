@@ -25,9 +25,7 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
 
 if gpu_available:
-    # pyre-ignore[21]
-    from fbgemm_gpu.uvm import cudaMemAdvise, cudaMemoryAdvise, cudaMemPrefetchAsync
-
+    import fbgemm_gpu.uvm
 
 MAX_EXAMPLES = 40
 

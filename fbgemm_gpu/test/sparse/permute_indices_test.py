@@ -12,16 +12,16 @@ import unittest
 from itertools import accumulate
 from typing import List, Optional
 
-import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings, Verbosity
 
-from .common import extend_test_class, permute_indices_ref_, permute_scripted
-
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from .common import (
+    extend_test_class,
+    open_source,
+    permute_indices_ref_,
+    permute_scripted,
+)
 
 if open_source:
     # pyre-ignore[21]
