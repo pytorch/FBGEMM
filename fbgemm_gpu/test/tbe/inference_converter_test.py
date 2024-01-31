@@ -12,12 +12,9 @@ import random
 import unittest
 from typing import Optional, Tuple
 
-import fbgemm_gpu
-
 import hypothesis.strategies as st
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_configs import (
     EmbOptimType as OptimType,
     FP8QuantizationConfig,
@@ -36,12 +33,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-
 from hypothesis import given, settings, Verbosity
 from torch import nn
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from . import common  # noqa E402
+from .common import open_source
+
 
 if open_source:
     # pyre-ignore[21]

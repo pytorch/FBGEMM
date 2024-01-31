@@ -9,26 +9,19 @@
 
 import random
 import unittest
-
 from itertools import accumulate
 from typing import Tuple
 
-import fbgemm_gpu
 import hypothesis.strategies as st
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_utils import to_device
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
-
 from hypothesis import given, settings, Verbosity
 from torch import Tensor
 
-from . import common  # noqa E402,F401
-from .common import MAX_EXAMPLES  # noqa E402
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from . import common  # noqa E402
+from .common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
