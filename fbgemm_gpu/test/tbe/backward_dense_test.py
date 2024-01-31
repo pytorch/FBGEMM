@@ -10,11 +10,9 @@
 import copy
 import unittest
 
-import fbgemm_gpu
 import hypothesis.strategies as st
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
@@ -26,13 +24,10 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     DenseTableBatchedEmbeddingBagsCodegen,
 )
-
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
-from . import common  # noqa E402,F401
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from . import common  # noqa E402
+from .common import open_source
 
 if open_source:
     # pyre-ignore[21]

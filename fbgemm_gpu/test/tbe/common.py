@@ -7,12 +7,20 @@
 
 from typing import List, Tuple
 
+import fbgemm_gpu
 import numpy as np
 import torch
-
 from hypothesis import settings, Verbosity
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+if not open_source:
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
+
 torch.ops.import_module("fbgemm_gpu.sparse_ops")
+settings.register_profile("derandomize", derandomize=True)
+settings.load_profile("derandomize")
 
 
 MAX_EXAMPLES = 40
@@ -20,12 +28,7 @@ MAX_EXAMPLES = 40
 # For long running tests reduce the number of iterations to reduce timeout errors.
 MAX_EXAMPLES_LONG_RUNNING = 15
 
-
 VERBOSITY: Verbosity = Verbosity.verbose
-
-
-settings.register_profile("derandomize", derandomize=True)
-settings.load_profile("derandomize")
 
 
 def gen_mixed_B_batch_sizes(B: int, T: int) -> Tuple[List[List[int]], List[int]]:

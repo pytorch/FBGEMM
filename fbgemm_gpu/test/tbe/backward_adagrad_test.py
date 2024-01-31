@@ -10,11 +10,9 @@
 import copy
 import unittest
 
-import fbgemm_gpu
 import hypothesis.strategies as st
 import numpy as np
 import torch
-
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
@@ -32,20 +30,15 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
     WeightDecayMode,
 )
-
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
-from . import common  # noqa E402,F401
+from . import common  # noqa E402
 from .common import (  # noqa E402
     format_ref_tensors_in_mixed_B_layout,
     gen_mixed_B_batch_sizes,
     MAX_EXAMPLES_LONG_RUNNING,
+    open_source,
 )
-
-torch.ops.import_module("fbgemm_gpu.sparse_ops")
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]

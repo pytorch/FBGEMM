@@ -8,10 +8,8 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-
 from typing import Callable, Dict, List, Optional, Tuple
 
-import fbgemm_gpu
 import hypothesis.strategies as st
 import numpy as np
 import torch
@@ -31,14 +29,10 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-
 from hypothesis import given, settings, Verbosity
 
-from . import common  # noqa E402,F401
-from .common import MAX_EXAMPLES  # noqa E402
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from . import common  # noqa E402
+from .common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
@@ -50,40 +44,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-# pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
-    #     "test_schema__test_backward_none_with_rowwise_adagrad": [
-    #         unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    #     ],
-    #     "test_faketensor__test_backward_none_with_rowwise_adagrad": [
-    #         unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    #     ],
-    #     "test_autograd_registration__test_backward_none_with_rowwise_adagrad": [
-    #         unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    #     ],
-    #     "test_faketensor__test_nbit_uvm_cache_stats": [
-    #         unittest.skip("very slow"),
-    #     ],
-    #     "test_faketensor__test_nbit_direct_mapped_uvm_cache_stats": [
-    #         unittest.skip("very slow"),
-    #     ],
-    #     # Implement the operator registrations later
-    #     "test_faketensor__test_forward_cpu_int8": [
-    #         unittest.skip("Operator not implemented for Meta tensors"),
-    #     ],
-    #     "test_faketensor__test_forward_fused_pooled_emb_quant": [
-    #         unittest.skip("Operator not implemented for Meta tensors"),
-    #     ],
-    #     "test_faketensor__test_forward_gpu_no_cache_int8": [
-    #         unittest.skip("Operator not implemented for Meta tensors"),
-    #     ],
-    #     "test_faketensor__test_forward_gpu_uvm_cache_int8": [
-    #         unittest.skip("Operator not implemented for Meta tensors"),
-    #     ],
-}
-
-
-@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
+@optests.generate_opcheck_tests(fast=True)
 class CacheTest(unittest.TestCase):
     def _generate_cache_tbes(
         self,
