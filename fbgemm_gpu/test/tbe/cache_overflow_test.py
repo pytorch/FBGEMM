@@ -45,9 +45,7 @@ class CacheOverflowTest(unittest.TestCase):
         cc, cc_ref, _, _ = generate_cache_tbes(
             T=1,
             D=D_fac,
-            B=128,
             log_E=1,
-            L=1,
             mixed=False,
             prefetch_pipeline=True,
             cache_sets=cache_sets,
