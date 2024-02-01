@@ -40,9 +40,7 @@ VERBOSITY: Verbosity = Verbosity.verbose
 def generate_cache_tbes(
     T: int,
     D: int,
-    B: int,
     log_E: int,
-    L: int,
     mixed: bool,
     cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
     prefetch_pipeline: bool = False,
