@@ -60,7 +60,7 @@ class CacheTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
     ) -> None:
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
-            T, D, B, log_E, L, mixed, cache_algorithm
+            T, D, log_E, mixed, cache_algorithm
         )
         iters = 3
         requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
@@ -101,7 +101,13 @@ class CacheTest(unittest.TestCase):
 
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
-            T, D, B, log_E, L, mixed, CacheAlgorithm.LRU, True, True
+            T,
+            D,
+            log_E,
+            mixed,
+            CacheAlgorithm.LRU,
+            prefetch_pipeline=True,
+            use_int_weight=True,
         )
         iters = 5
         requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
