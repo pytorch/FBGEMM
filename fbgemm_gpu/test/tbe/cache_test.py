@@ -46,6 +46,11 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 @optests.generate_opcheck_tests(fast=True)
 class CacheTest(unittest.TestCase):
+    def assert_torch_equal(
+        self, tensor_a: torch.Tensor, tensor_b: torch.Tensor
+    ) -> None:
+        self.assertTrue(torch.equal(tensor_a, tensor_b))
+
     def _generate_cache_tbes(
         self,
         T: int,
@@ -96,6 +101,9 @@ class CacheTest(unittest.TestCase):
             prefetch_pipeline=False,
             learning_rate=lr,
         )
+        # Init the embedding weights
+        cc_ref.init_embedding_weights_uniform(-10.0, 10.0)
+
         cc = SplitTableBatchedEmbeddingBagsCodegen(
             [(E, D, M, ComputeDevice.CUDA) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
@@ -159,12 +167,12 @@ class CacheTest(unittest.TestCase):
         for indices, offsets, _ in requests:
             output = cc(indices, offsets)
             output_ref = cc_ref(indices, offsets)
-            torch.testing.assert_close(output, output_ref)
+            self.assert_torch_equal(output, output_ref)
             output.backward(grad_output)
             output_ref.backward(grad_output)
         cc.flush()
         for t in range(T):
-            torch.testing.assert_close(
+            self.assert_torch_equal(
                 cc.split_embedding_weights()[t], cc_ref.split_embedding_weights()[t]
             )
 
@@ -247,11 +255,11 @@ class CacheTest(unittest.TestCase):
             output_ref.backward(grad_output)
 
         for t in range(T):
-            torch.testing.assert_close(
+            self.assert_torch_equal(
                 cc.split_embedding_weights()[t], cc_ref.split_embedding_weights()[t]
             )
 
-        torch.testing.assert_close(output, output_ref)
+        self.assert_torch_equal(output, output_ref)
         self.assertTrue(torch.all(cc.lxu_cache_locking_counter == 0))
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
