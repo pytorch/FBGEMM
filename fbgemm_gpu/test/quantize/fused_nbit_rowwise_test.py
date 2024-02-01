@@ -12,30 +12,20 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, HealthCheck, settings
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
+from . import common  # noqa E402
+from .common import (
+    bytes_to_half_floats,
+    fused_rowwise_nbit_quantize_dequantize_reference,
+    fused_rowwise_nbit_quantize_reference,
+    open_source,
+)
 
+if open_source:
     # pyre-ignore[21]
-    from test_utils import (
-        bytes_to_half_floats,
-        fused_rowwise_nbit_quantize_dequantize_reference,
-        fused_rowwise_nbit_quantize_reference,
-        gpu_available,
-    )
-except Exception:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    from test_utils import gpu_available
+else:
+    from fbgemm_gpu.test.test_utils import gpu_available
 
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-    from fbgemm_gpu.test.test_utils import (
-        bytes_to_half_floats,
-        fused_rowwise_nbit_quantize_dequantize_reference,
-        fused_rowwise_nbit_quantize_reference,
-        gpu_available,
-    )
 
 no_long_tests: bool = False
 

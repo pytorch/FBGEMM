@@ -8,7 +8,7 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np

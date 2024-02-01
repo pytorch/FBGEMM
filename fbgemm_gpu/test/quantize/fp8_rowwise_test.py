@@ -15,24 +15,13 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import given, settings, Verbosity
 
+from . import common  # noqa E402
+from .common import open_source
 
-try:
+if open_source:
     # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-
-    # pyre-ignore[21]
-    from test_utils import (  # noqa: F401
-        gpu_unavailable,
-        optests,
-        symint_vector_unsupported,
-    )
-except Exception:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    from test_utils import gpu_unavailable, optests, symint_vector_unsupported
+else:
     from fbgemm_gpu.test.test_utils import (
         gpu_unavailable,
         optests,
