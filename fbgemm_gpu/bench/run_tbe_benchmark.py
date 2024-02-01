@@ -15,6 +15,8 @@ def run(args):
         shapes = json.load(f)
 
     num_embeddings_list = ",".join([str(shape[0]) for shape in shapes])
+    bag_sizes = [args.bag_size] * len(shapes)
+    bag_size_list = ",".join([str(bag_size) for bag_size in bag_sizes])
     embedding_dims_list = ",".join([str(shape[1]) for shape in shapes])
 
     cmds = [
@@ -24,7 +26,7 @@ def run(args):
         "--batch-size",
         str(args.batch_size),
         "--bag-size-list",
-        str(args.bag_size),
+        bag_size_list,
         "--embedding-dim-list",
         embedding_dims_list,
         "--num-embeddings-list",
