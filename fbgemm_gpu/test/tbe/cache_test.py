@@ -17,7 +17,6 @@ import torch
 from fbgemm_gpu.split_embedding_utils import (
     generate_requests,
     get_table_batched_offsets_from_dense,
-    round_up,
     to_device,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
@@ -29,104 +28,15 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-from hypothesis import given, settings, Verbosity
+from hypothesis import given, settings
 
-from . import common  # noqa E402
-from .common import MAX_EXAMPLES, open_source
+from .cache_common import generate_cache_tbes, gpu_unavailable, optests, VERBOSITY
 
-if open_source:
-    # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
-else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests
-
-
-VERBOSITY: Verbosity = Verbosity.verbose
+from .common import assert_torch_equal, MAX_EXAMPLES  # noqa E402
 
 
 @optests.generate_opcheck_tests(fast=True)
 class CacheTest(unittest.TestCase):
-    def _generate_cache_tbes(
-        self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        mixed: bool,
-        cache_algorithm: CacheAlgorithm = CacheAlgorithm.LRU,
-        prefetch_pipeline: bool = False,
-        use_int_weight: bool = False,
-    ) -> Tuple[
-        SplitTableBatchedEmbeddingBagsCodegen,
-        SplitTableBatchedEmbeddingBagsCodegen,
-        int,
-        int,
-    ]:
-        lr = 1.0 if use_int_weight else 0.02
-        E = int(10**log_E)
-        D = D * 4
-        if not mixed:
-            Ds = [D] * T
-            Es = [E] * T
-        else:
-            Ds = [
-                round_up(np.random.randint(low=int(0.25 * D), high=int(1.0 * D)), 4)
-                for _ in range(T)
-            ]
-            Es = [
-                np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)
-            ]
-        managed = [EmbeddingLocation.MANAGED_CACHING] * T
-        if mixed:
-            average_D = sum(Ds) // T
-            for t, d in enumerate(Ds):
-                managed[t] = EmbeddingLocation.DEVICE if d < average_D else managed[t]
-        cc_ref = SplitTableBatchedEmbeddingBagsCodegen(
-            [
-                (
-                    E,
-                    D,
-                    EmbeddingLocation.DEVICE,
-                    ComputeDevice.CUDA,
-                )
-                for (E, D) in zip(Es, Ds)
-            ],
-            stochastic_rounding=False,
-            prefetch_pipeline=False,
-            learning_rate=lr,
-        )
-        cc = SplitTableBatchedEmbeddingBagsCodegen(
-            [(E, D, M, ComputeDevice.CUDA) for (E, D, M) in zip(Es, Ds, managed)],
-            cache_algorithm=cache_algorithm,
-            stochastic_rounding=False,
-            prefetch_pipeline=prefetch_pipeline,
-            learning_rate=lr,
-        )
-
-        if use_int_weight:
-            min_val = -20
-            max_val = +20
-            for param in cc_ref.split_embedding_weights():
-                p = torch.randint(
-                    int(min_val),
-                    int(max_val) + 1,
-                    size=param.shape,
-                    device=param.device,
-                )
-                param.data.copy_(p)
-
-        for t in range(T):
-            self.assertEqual(
-                cc.split_embedding_weights()[t].size(),
-                cc_ref.split_embedding_weights()[t].size(),
-            )
-            cc.split_embedding_weights()[t].data.copy_(
-                cc_ref.split_embedding_weights()[t]
-            )
-
-        return (cc, cc_ref, min(Es), sum(Ds))
-
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -149,7 +59,7 @@ class CacheTest(unittest.TestCase):
         mixed: bool,
         cache_algorithm: CacheAlgorithm,
     ) -> None:
-        cc, cc_ref, min_Es, sum_Ds = self._generate_cache_tbes(
+        cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T, D, B, log_E, L, mixed, cache_algorithm
         )
         iters = 3
@@ -159,12 +69,12 @@ class CacheTest(unittest.TestCase):
         for indices, offsets, _ in requests:
             output = cc(indices, offsets)
             output_ref = cc_ref(indices, offsets)
-            torch.testing.assert_close(output, output_ref)
+            assert_torch_equal(output, output_ref)
             output.backward(grad_output)
             output_ref.backward(grad_output)
         cc.flush()
         for t in range(T):
-            torch.testing.assert_close(
+            assert_torch_equal(
                 cc.split_embedding_weights()[t], cc_ref.split_embedding_weights()[t]
             )
 
@@ -190,7 +100,7 @@ class CacheTest(unittest.TestCase):
         """
 
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
-        cc, cc_ref, min_Es, sum_Ds = self._generate_cache_tbes(
+        cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T, D, B, log_E, L, mixed, CacheAlgorithm.LRU, True, True
         )
         iters = 5
@@ -247,11 +157,11 @@ class CacheTest(unittest.TestCase):
             output_ref.backward(grad_output)
 
         for t in range(T):
-            torch.testing.assert_close(
+            assert_torch_equal(
                 cc.split_embedding_weights()[t], cc_ref.split_embedding_weights()[t]
             )
 
-        torch.testing.assert_close(output, output_ref)
+        assert_torch_equal(output, output_ref)
         self.assertTrue(torch.all(cc.lxu_cache_locking_counter == 0))
 
     @optests.dontGenerateOpCheckTests("Serial OOM")

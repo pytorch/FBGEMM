@@ -62,3 +62,7 @@ def format_ref_tensors_in_mixed_B_layout(
     for r in range(num_ranks):
         concat_list += split_tensors[r]
     return torch.cat(concat_list, dim=0)
+
+
+def assert_torch_equal(tensor_a: torch.Tensor, tensor_b: torch.Tensor) -> None:
+    assert torch.equal(tensor_a, tensor_b)
