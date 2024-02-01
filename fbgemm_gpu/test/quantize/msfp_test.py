@@ -10,20 +10,13 @@ import hypothesis.strategies as st
 import torch
 from hypothesis import given, HealthCheck, settings
 
+from . import common  # noqa E402
+from .common import open_source
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-
+if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
-except Exception:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 

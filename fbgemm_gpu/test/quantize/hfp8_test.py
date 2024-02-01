@@ -12,18 +12,7 @@ import torch
 from hypothesis import given, HealthCheck, settings
 from torch import Tensor
 
-
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
-
-except Exception:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+from . import common  # noqa E402
 
 
 class TestHFP8QuantizationConversion(unittest.TestCase):
