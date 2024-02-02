@@ -24,8 +24,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 )
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
-from . import common  # noqa E402
-from .common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
+from .. import common  # noqa E402
+from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 
 if open_source:
     # pyre-ignore[21]

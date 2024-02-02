@@ -30,9 +30,9 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 )
 from hypothesis import given, settings
 
-from .cache_common import generate_cache_tbes, gpu_unavailable, optests, VERBOSITY
+from ..common import assert_torch_equal, MAX_EXAMPLES  # noqa E402
 
-from .common import assert_torch_equal, MAX_EXAMPLES  # noqa E402
+from .cache_common import generate_cache_tbes, gpu_unavailable, optests, VERBOSITY
 
 
 @optests.generate_opcheck_tests(fast=True)

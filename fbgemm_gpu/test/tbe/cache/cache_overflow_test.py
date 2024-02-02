@@ -15,9 +15,8 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import to_device
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
 
+from ..common import assert_torch_equal
 from .cache_common import generate_cache_tbes, gpu_unavailable
-
-from .common import assert_torch_equal
 
 
 class CacheOverflowTest(unittest.TestCase):
