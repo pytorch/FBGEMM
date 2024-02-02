@@ -25,7 +25,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 
 from hypothesis import Verbosity
 
-from .common import open_source
+from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]

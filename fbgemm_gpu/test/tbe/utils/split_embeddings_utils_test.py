@@ -21,8 +21,8 @@ from fbgemm_gpu import sparse_ops  # noqa: F401
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import BoundsCheckMode
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
-from . import common  # noqa E402
-from .common import MAX_EXAMPLES, open_source
+from .. import common  # noqa E402
+from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
@@ -490,6 +490,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         )
 
         if use_cpu_hashtable:
+            # pyre-ignore[16]
             ht = torch.classes.fbgemm.PrunedMapCPU()
             ht.insert(indices, dense_indices, offsets, T)
 
@@ -578,6 +579,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             torch.testing.assert_close(dense_indices.clone().fill_(-1), dense_indices_)
 
     def test_pickle(self) -> None:
+        # pyre-ignore[16]
         tensor_queue = torch.classes.fbgemm.TensorQueue(torch.empty(0))
         pickled = pickle.dumps(tensor_queue)
         unpickled = pickle.loads(pickled)  # noqa: F841

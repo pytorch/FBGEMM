@@ -15,7 +15,7 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "torch/types.h" // @manual=//caffe2:torch-cpp-cpu
 
-TEST(cpu_kernel_test, csr2csc_test) {
+TEST(CpuKernelTest, csr2csc_test) {
   internal::HyperCompressedSparseColumn csc;
   int B = 2;
   at::Tensor offsets = torch::tensor({0, 4, 8});
