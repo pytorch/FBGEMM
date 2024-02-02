@@ -32,8 +32,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 )
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
-from . import common  # noqa E402
-from .common import (  # noqa E402
+from .. import common  # noqa E402
+from ..common import (  # noqa E402
     format_ref_tensors_in_mixed_B_layout,
     gen_mixed_B_batch_sizes,
     MAX_EXAMPLES_LONG_RUNNING,

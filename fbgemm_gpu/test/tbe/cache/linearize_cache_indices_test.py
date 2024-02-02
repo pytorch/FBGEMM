@@ -12,8 +12,8 @@ import unittest
 import torch
 from hypothesis import Verbosity
 
-from . import common  # noqa E402
-from .common import open_source
+from .. import common  # noqa E402
+from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]

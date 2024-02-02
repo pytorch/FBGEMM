@@ -36,8 +36,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 from hypothesis import given, settings, Verbosity
 from torch import nn
 
-from . import common  # noqa E402
-from .common import open_source
+from .. import common  # noqa E402
+from ..common import open_source
 
 
 if open_source:
