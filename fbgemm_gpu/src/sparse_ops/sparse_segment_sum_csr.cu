@@ -57,7 +57,14 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
 
   CUDA_DEVICE_GUARD(values);
 
+  TORCH_CHECK(csr_seg.numel() >= 1, "The csr_seg tensor should not be empty")
+
   auto output = at::empty(csr_seg.numel() - 1, values.options());
+
+  if (csr_seg.numel() == 1) {
+    return output;
+  }
+
   constexpr uint32_t threads_per_block = 256;
   const uint32_t num_blocks = csr_seg.numel() - 1;
 
