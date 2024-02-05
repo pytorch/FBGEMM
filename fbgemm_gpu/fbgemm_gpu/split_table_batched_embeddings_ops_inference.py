@@ -756,9 +756,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
-        if self.timestep_prefetch_size.get() <= 0:
-            self.prefetch(indices, offsets)
-        self.timestep_prefetch_size.decrement()
+        if self.lxu_cache_weights.numel() > 0:
+            if self.timestep_prefetch_size.get() <= 0:
+                self.prefetch(indices, offsets)
+            self.timestep_prefetch_size.decrement()
 
         lxu_cache_locations = self.lxu_cache_locations_list.pop()
 
