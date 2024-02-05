@@ -98,9 +98,11 @@ def construct_cache_state(
         start, end = _cache_hash_size_cumsum[t_], _cache_hash_size_cumsum[t_ + 1]
         cache_index_table_map[start:end] = [t] * (end - start)
     cache_hash_size_cumsum = [
-        _cache_hash_size_cumsum[t_]
-        if location_list[t_] == EmbeddingLocation.MANAGED_CACHING
-        else -1
+        (
+            _cache_hash_size_cumsum[t_]
+            if location_list[t_] == EmbeddingLocation.MANAGED_CACHING
+            else -1
+        )
         for t_ in feature_table_map
     ]
     cache_hash_size_cumsum.append(total_cache_hash_size)
