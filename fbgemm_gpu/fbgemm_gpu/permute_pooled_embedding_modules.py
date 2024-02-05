@@ -20,11 +20,11 @@ except Exception:
     )
     if torch.version.hip:
         torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_hip"
+            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_hip"
         )
     else:
         torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
+            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cuda"
         )
 
 
