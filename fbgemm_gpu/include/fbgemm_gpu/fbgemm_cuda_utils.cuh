@@ -1348,7 +1348,7 @@ struct WeightRow {
   int dim_;
   StochasticRoundingRNGState* stoc_rounding_state_;
 
-  // load from cache if resident; else load from embedding
+  // Load from cache if resident; else load from embedding
   DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {
     if (cache_row_) {
       return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
@@ -1357,7 +1357,7 @@ struct WeightRow {
     }
   }
 
-  // write back weight (high precision) to cache if resident; else write to
+  // Write back weight (high precision) to cache if resident; else write to
   // embedding assume dst_t is higher precision than cache_t and emb_t
   DEVICE_INLINE void
   store(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
@@ -1368,10 +1368,34 @@ struct WeightRow {
     }
   }
 
-  // evict cached row into embedding row (high prec -> low prec)
-  DEVICE_INLINE void
-  evict(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
-    quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
+  // Copy vector from src_vec to dst_vec (both are float)
+  DEVICE_INLINE void same_type_vector_copy(
+      float* dst_vec,
+      const float* src_vec) {
+    *reinterpret_cast<float4*>(dst_vec) =
+        *reinterpret_cast<const float4*>(src_vec);
+  }
+
+  // Copy vector from src_vec to dst_vec (both are at::Half)
+  DEVICE_INLINE void same_type_vector_copy(
+      at::Half* dst_vec,
+      const at::Half* src_vec) {
+    *reinterpret_cast<float2*>(dst_vec) =
+        *reinterpret_cast<const float2*>(src_vec);
+  }
+
+  // Evict cached row into embedding row (high prec -> low prec)
+  DEVICE_INLINE void evict_cache(const int32_t d, const float2 qparams) {
+    if constexpr (std::is_same_v<emb_t, cache_t>) {
+      // No conversion required when emb_t and cache_t are the same type
+      same_type_vector_copy(
+          reinterpret_cast<cache_t*>(row_ + d),
+          reinterpret_cast<const cache_t*>(cache_row_ + d));
+    } else {
+      // Does 2-step conversion: cache_t -> FP32 -> weight_t
+      const auto cache_slice = load(d, qparams);
+      quantize_store(row_ + d, cache_slice, stoc_rounding_state_, qparams);
+    }
   }
 
   DEVICE_INLINE void store_qparams(const float2 qparams) {
@@ -1386,22 +1410,31 @@ struct WeightRow {
     }
   }
 
-  DEVICE_INLINE void warp_copy_to(
-      WeightRow<emb_t, cache_t, cache_t>& target,
+  DEVICE_INLINE void warp_copy_to_cache(
+      cache_t* dst_row,
       const int32_t dim_length,
       const int32_t num_lanes,
-      const int32_t lane_id) const {
-    // Load quantization params from embedding row
-    const auto qparams = load_qparams();
+      const int32_t lane_id) {
+    if constexpr (std::is_same_v<emb_t, cache_t>) {
+      // No conversion required when emb_t and cache_t are the same type
+      for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+        same_type_vector_copy(
+            dst_row + d, reinterpret_cast<const cache_t*>(row_ + d));
+      }
+    } else {
+      // Load quantization params from embedding row
+      const auto qparams = load_qparams();
 
-    // Copy over for each warp-sized slice of Vec4's
-    for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
-      const auto slice = load(d * 4, qparams);
-      target.store(slice, d * 4, qparams);
+      // Copy over for each warp-sized slice of Vec4's
+      // Does 2-step conversion: weight_t -> FP32 -> cache_t
+      for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+        const auto slice = load(d, qparams);
+        quantize_store(dst_row + d, slice, stoc_rounding_state_, qparams);
+      }
     }
   }
 
-  DEVICE_INLINE void warp_evict(
+  DEVICE_INLINE void warp_evict_cache(
       const int32_t dim_length,
       const int32_t num_lanes,
       const int32_t lane_id) {
@@ -1428,11 +1461,9 @@ struct WeightRow {
       }
     }
 
-    for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
-      // Dequantize-load a slice of the cache row
-      const auto cache_slice = load(d * 4, qparams);
-      // and evict the slice into the embedding row
-      evict(cache_slice, d * 4, qparams); // FP32 -> FP16/FP32
+    for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+      // Evict the slice into the embedding row
+      evict_cache(d, qparams);
     }
   }
 
