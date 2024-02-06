@@ -947,7 +947,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ], "Only 1-way or 32-way(64-way for AMD) implmeneted for now"
 
         self.cache_algorithm = cache_algorithm
+        # pyre-ignore[16]
         self.timestep_counter = torch.classes.fbgemm.AtomicCounter()
+        # pyre-ignore[16]
         self.timestep_prefetch_size = torch.classes.fbgemm.AtomicCounter()
 
         self.max_prefetch_depth = MAX_PREFETCH_DEPTH
@@ -959,6 +961,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_locations_empty = torch.empty(
                 0, device=self.current_device, dtype=torch.int32
             ).fill_(-1)
+        # pyre-ignore[16]
         self.lxu_cache_locations_list = torch.classes.fbgemm.TensorQueue(
             lxu_cache_locations_empty
         )
@@ -1100,9 +1103,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "lxu_state",
             torch.zeros(
-                size=(self.total_cache_hash_size + 1,)
-                if cache_algorithm == CacheAlgorithm.LFU
-                else (cache_sets, self.cache_assoc),
+                size=(
+                    (self.total_cache_hash_size + 1,)
+                    if cache_algorithm == CacheAlgorithm.LFU
+                    else (cache_sets, self.cache_assoc)
+                ),
                 device=self.current_device,
                 dtype=torch.int64,
             ),
@@ -1294,7 +1299,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def split_embedding_weights(
         self,
-        split_scale_shifts: bool = True
+        split_scale_shifts: bool = True,
         # When true, return list of two tensors, the first with weights and
         # the second with scale_bias.
         # This should've been named as split_scale_bias.
@@ -1303,11 +1308,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Returns a list of weights, split by table
         """
-        splits: List[
-            Tuple[Tensor, Optional[Tensor], Optional[Tensor]]
-        ] = self.split_embedding_weights_with_scale_bias(
-            split_scale_bias_mode=(1 if split_scale_shifts else 0)
+        # fmt: off
+        splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = (
+            self.split_embedding_weights_with_scale_bias(
+                split_scale_bias_mode=(1 if split_scale_shifts else 0)
+            )
         )
+        # fmt: on
         return [
             (split_weight_scale_bias[0], split_weight_scale_bias[1])
             for split_weight_scale_bias in splits
@@ -1411,9 +1418,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Hash mapping pruning
         if not use_array_for_index_remapping:
             capacities = [
-                round_up(int(row * 1.0 / pruning_hash_load_factor), 32)
-                if index_remap is not None
-                else 0
+                (
+                    round_up(int(row * 1.0 / pruning_hash_load_factor), 32)
+                    if index_remap is not None
+                    else 0
+                )
                 for (index_remap, row) in zip(index_remapping, rows)
             ]
             hash_table = torch.empty(
@@ -1445,6 +1454,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             if self.use_cpu:
                 self.index_remapping_hash_table_cpu = (
+                    # pyre-ignore[16]
                     torch.classes.fbgemm.PrunedMapCPU()
                 )
                 self.index_remapping_hash_table_cpu.insert(

@@ -646,9 +646,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         embedding_specs,
                         rowwise=rowwise,
                         cacheable=False,
-                        placement=EmbeddingLocation.MANAGED
-                        if ((not rowwise) and uvm_non_rowwise_momentum)
-                        else None,
+                        placement=(
+                            EmbeddingLocation.MANAGED
+                            if ((not rowwise) and uvm_non_rowwise_momentum)
+                            else None
+                        ),
                     ),
                     prefix="momentum1",
                     # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
@@ -671,9 +673,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         embedding_specs,
                         rowwise=rowwise,
                         cacheable=False,
-                        placement=EmbeddingLocation.MANAGED
-                        if ((not rowwise) and uvm_non_rowwise_momentum)
-                        else None,
+                        placement=(
+                            EmbeddingLocation.MANAGED
+                            if ((not rowwise) and uvm_non_rowwise_momentum)
+                            else None
+                        ),
                     ),
                     prefix="momentum2",
                     # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
@@ -1411,9 +1415,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             or self.optimizer == OptimType.EXACT_ADAGRAD
         ):
             list_of_state_dict = [
-                {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
-                if self._used_rowwise_adagrad_with_counter
-                else {"sum": states[0]}
+                (
+                    {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
+                    if self._used_rowwise_adagrad_with_counter
+                    else {"sum": states[0]}
+                )
                 for states in split_optimizer_states
             ]
         elif self.optimizer == OptimType.SGD or self.optimizer == OptimType.EXACT_SGD:
@@ -1741,9 +1747,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "lxu_state",
             torch.zeros(
-                size=(self.total_cache_hash_size + 1,)
-                if cache_algorithm == CacheAlgorithm.LFU
-                else (cache_sets, DEFAULT_ASSOC),
+                size=(
+                    (self.total_cache_hash_size + 1,)
+                    if cache_algorithm == CacheAlgorithm.LFU
+                    else (cache_sets, DEFAULT_ASSOC)
+                ),
                 device=self.current_device,
                 dtype=torch.int64,
             ),
