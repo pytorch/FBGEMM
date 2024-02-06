@@ -122,9 +122,11 @@ class TBEInputPrepareReference(torch.nn.Module):
         if per_sample_weights is not None:
             for i in range(len(self.include_last_offsets)):
                 if per_sample_weights_list[i].size(0) > 0:
-                    per_sample_weights[
-                        offsets_accs[i] : offsets_accs[i + 1]
-                    ] = per_sample_weights_list[i][:]
+                    # fmt: off
+                    per_sample_weights[offsets_accs[i] : offsets_accs[i + 1]] = (
+                        per_sample_weights_list[i][:]
+                    )
+                    # fmt: on
 
         # indices and offsets are required to be int32 for TBE
         return combined_indices, combined_offsets, per_sample_weights

@@ -532,9 +532,11 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                         Ds[t], weights_ty_list[t]
                     ),
                 ] = weights  # q_weights
-                copy_byte_tensor[
-                    :, : emb.scale_bias_size_in_bytes
-                ] = scale_shift  # q_scale_shift
+                # fmt: off
+                copy_byte_tensor[:, : emb.scale_bias_size_in_bytes] = (
+                    scale_shift  # q_scale_shift
+                )
+                # fmt: on
 
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
@@ -686,9 +688,11 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                         Ds[t], weights_ty_list[t]
                     ),
                 ] = weights  # q_weights
-                copy_byte_tensor[
-                    :, : emb.scale_bias_size_in_bytes
-                ] = scale_shift  # q_scale_shift
+                # fmt: off
+                copy_byte_tensor[:, : emb.scale_bias_size_in_bytes] = (
+                    scale_shift  # q_scale_shift
+                )
+                # fmt: on
 
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),

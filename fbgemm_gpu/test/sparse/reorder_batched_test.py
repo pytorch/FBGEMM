@@ -206,9 +206,11 @@ class ReorderBatchedTest(unittest.TestCase):
         )
         torch.testing.assert_close(
             reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
-            cat_ad_indices.view(B, T, 1, L).tile([1, 1, A, 1])
-            if broadcast_indices
-            else cat_ad_indices.view(B, T, A, L),
+            (
+                cat_ad_indices.view(B, T, 1, L).tile([1, 1, A, 1])
+                if broadcast_indices
+                else cat_ad_indices.view(B, T, A, L)
+            ),
         )
 
     @given(
@@ -293,9 +295,11 @@ class ReorderBatchedTest(unittest.TestCase):
         )
         torch.testing.assert_close(
             reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
-            cat_ad_indices.view(B, T, 1, L).tile([1, 1, A, 1])
-            if broadcast_indices
-            else cat_ad_indices.view(B, T, A, L),
+            (
+                cat_ad_indices.view(B, T, 1, L).tile([1, 1, A, 1])
+                if broadcast_indices
+                else cat_ad_indices.view(B, T, A, L)
+            ),
         )
 
     @given(
@@ -371,9 +375,11 @@ class ReorderBatchedTest(unittest.TestCase):
         )
         torch.testing.assert_close(
             reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
-            cat_ad_indices.view(B, T, 1, L).tile([1, 1, A, 1])
-            if broadcast_indices
-            else cat_ad_indices.view(B, T, A, L),
+            (
+                cat_ad_indices.view(B, T, 1, L).tile([1, 1, A, 1])
+                if broadcast_indices
+                else cat_ad_indices.view(B, T, A, L)
+            ),
         )
 
     @given(

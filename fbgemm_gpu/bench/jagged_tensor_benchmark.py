@@ -397,9 +397,9 @@ def keyed_jagged_index_select_dim1(
                         key_weights, key_lengths, indices
                     )[0].view(-1)
                 )
-        return torch.concat(outputs), torch.concat(
-            output_weights
-        ) if has_weights else torch.empty(0)
+        return torch.concat(outputs), (
+            torch.concat(output_weights) if has_weights else torch.empty(0)
+        )
 
     time_ref, output_ref = benchmark_torch_function(
         keyed_jagged_index_select_dim1_ref, (ref_inputs, has_weights)

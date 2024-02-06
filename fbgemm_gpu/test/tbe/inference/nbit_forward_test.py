@@ -113,22 +113,24 @@ class NBitFowardTest(unittest.TestCase):
                 # SparseType.INT2,
             ]
         ),
-        output_dtype=st.sampled_from(
-            [
-                SparseType.FP16,
-                SparseType.BF16,
-                SparseType.INT8,
-                # SparseType.INT4,
-            ]
-        )
-        if not TEST_WITH_ROCM
-        else st.sampled_from(
-            [
-                SparseType.FP16,
-                # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
-                SparseType.INT8,
-                # SparseType.INT4,
-            ]
+        output_dtype=(
+            st.sampled_from(
+                [
+                    SparseType.FP16,
+                    SparseType.BF16,
+                    SparseType.INT8,
+                    # SparseType.INT4,
+                ]
+            )
+            if not TEST_WITH_ROCM
+            else st.sampled_from(
+                [
+                    SparseType.FP16,
+                    # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
+                    SparseType.INT8,
+                    # SparseType.INT4,
+                ]
+            )
         ),
     )
     @settings(
@@ -242,20 +244,24 @@ class NBitFowardTest(unittest.TestCase):
                 lowp_pooled_output, lowp_pooled_emb_split, dim=1
             )
             deq_lowp_pooled_output_per_table = [
-                torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(t.contiguous())
-                if output_dtype == SparseType.INT8
-                else t.float()
+                (
+                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(t.contiguous())
+                    if output_dtype == SparseType.INT8
+                    else t.float()
+                )
                 for t in lowp_pooled_output_per_table
             ]
             fp32_pooled_output_per_table = torch.split(fp32_pooled_output, Ds, dim=1)
             dq_fp32_pooled_output_per_table = [
-                torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
-                    torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
-                        t.contiguous()
+                (
+                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                            t.contiguous()
+                        ).contiguous()
                     ).contiguous()
-                ).contiguous()
-                if output_dtype == SparseType.INT8
-                else t.half().float()
+                    if output_dtype == SparseType.INT8
+                    else t.half().float()
+                )
                 for t in fp32_pooled_output_per_table
             ]
             cat_deq_lowp_pooled_output = torch.cat(
@@ -448,12 +454,12 @@ class NBitFowardTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
             output_dtype=output_dtype,
-            fp8_exponent_bits=fp8_config.get("exponent_bits")
-            if has_fp8_weight
-            else None,
-            fp8_exponent_bias=fp8_config.get("exponent_bias")
-            if has_fp8_weight
-            else None,
+            fp8_exponent_bits=(
+                fp8_config.get("exponent_bits") if has_fp8_weight else None
+            ),
+            fp8_exponent_bias=(
+                fp8_config.get("exponent_bias") if has_fp8_weight else None
+            ),
         )
         # Initialize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
