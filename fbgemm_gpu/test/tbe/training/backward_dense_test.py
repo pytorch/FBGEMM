@@ -31,12 +31,20 @@ from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gradcheck, optests, TEST_WITH_ROCM
+    from test_utils import (
+        gpu_available,
+        gradcheck,
+        optests,
+        running_on_github,
+        TEST_WITH_ROCM,
+    )
+
 else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gradcheck,
         optests,
+        running_on_github,
         TEST_WITH_ROCM,
     )
 
@@ -76,6 +84,7 @@ class BackwardDenseTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
+    @unittest.skipIf(*running_on_github)
     def test_backward_dense(  # noqa C901
         self,
         T: int,
