@@ -11,7 +11,7 @@ import copy
 import random
 import unittest
 
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -89,6 +89,9 @@ additional_decorators: Dict[str, List[Callable]] = {
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
     "test_faketensor__test_nbit_forward_gpu_no_cache_fp8_2048": [
+        unittest.skip("Operator not implemented for Meta tensors"),
+    ],
+    "test_faketensor__test_nbit_forward_cpu_seq_int8": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
 }
@@ -837,6 +840,99 @@ class NBitFowardTest(unittest.TestCase):
             output = cc(indices, offsets)
             output_ref = cc_ref(indices, offsets)
             torch.testing.assert_close(output, output_ref, equal_nan=True)
+
+    @given(
+        D=st.sampled_from([32, 256, 384, 512, 1024]),
+        B=st.integers(min_value=8, max_value=32),
+        T=st.integers(min_value=10, max_value=20),
+        L=st.integers(min_value=10, max_value=100),
+        MAXH=st.integers(min_value=50, max_value=100),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_nbit_forward_cpu_seq_int8(
+        self,
+        D: int,
+        B: int,
+        T: int,
+        L: int,
+        MAXH: int,
+    ) -> None:
+        """
+        we init a quant table split embedding bag with int8 weights and scale of 1 and 0 bias
+        and compare brute force table lookup vs tbe based int8 output lookup.
+        """
+        pooling_mode = PoolingMode.NONE
+
+        nbit_weights_ty = SparseType.INT8
+        D_alignment = (
+            1
+            if nbit_weights_ty.bit_rate() % 8 == 0
+            else int(8 / nbit_weights_ty.bit_rate())
+        )
+        D = round_up(D, D_alignment)
+        T_H = [np.random.randint(low=1, high=MAXH + 1) for _ in range(T)]
+        quant_cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    H,
+                    D,
+                    nbit_weights_ty,
+                    EmbeddingLocation.HOST,
+                )
+                for H in T_H
+            ],
+            pooling_mode=pooling_mode,
+            device="cpu",
+            output_dtype=nbit_weights_ty,
+        )
+        # Initialize the random weights for int nbit table split embedding bag
+        quant_cc.fill_random_weights()
+        raw_embedding_weights = quant_cc.split_embedding_weights()
+        # we mimic 1.0 scale, 0.0 bias for better results comparison
+        embedding_weights: List[Tuple[torch.Tensor, Optional[torch.Tensor]]] = [
+            (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
+            for table_weight, _ in raw_embedding_weights
+        ]
+        # Initialize the random weights for int8 nbit table split embedding bag
+        quant_cc.assign_embedding_weights(embedding_weights)
+        lengths_list = [
+            torch.randint(
+                1,
+                L + 1,
+                (B,),
+            )
+            for _ in range(T)
+        ]
+        indices_list = [
+            torch.randint(0, H, (int(length.sum().item()),))
+            for length, H in zip(lengths_list, T_H)
+        ]
+        indices = torch.cat(indices_list, 0)
+        lengths = torch.cat(lengths_list, 0)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        quant_cc_output = quant_cc(indices.int(), offsets.int())
+        tables_rows = [
+            T for T, _, _ in quant_cc.split_embedding_weights_with_scale_bias(0)
+        ]
+        ref_output = torch.cat(
+            [
+                table_rows[indice_table]
+                for indice_table, table_rows in zip(indices_list, tables_rows)
+            ],
+            dim=0,
+        )
+        torch.testing.assert_close(
+            quant_cc_output.cpu(),
+            ref_output.cpu(),
+            rtol=1e-2,
+            atol=1e-2,
+            equal_nan=False,
+        )
 
 
 if __name__ == "__main__":
