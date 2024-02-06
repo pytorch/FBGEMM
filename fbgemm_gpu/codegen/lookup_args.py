@@ -38,6 +38,7 @@ class CommonArgs(NamedTuple):
     indice_weights: Optional[torch.Tensor]
     feature_requires_grad: Optional[torch.Tensor]
     lxu_cache_locations: torch.Tensor
+    uvm_cache_stats: Optional[torch.Tensor]
     output_dtype: int
     vbe_metadata: VBEMetadata
     is_experimental: bool
