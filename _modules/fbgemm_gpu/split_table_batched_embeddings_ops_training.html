@@ -1020,9 +1020,11 @@
                         <span class="n">embedding_specs</span><span class="p">,</span>
                         <span class="n">rowwise</span><span class="o">=</span><span class="n">rowwise</span><span class="p">,</span>
                         <span class="n">cacheable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                        <span class="n">placement</span><span class="o">=</span><span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">MANAGED</span>
-                        <span class="k">if</span> <span class="p">((</span><span class="ow">not</span> <span class="n">rowwise</span><span class="p">)</span> <span class="ow">and</span> <span class="n">uvm_non_rowwise_momentum</span><span class="p">)</span>
-                        <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                        <span class="n">placement</span><span class="o">=</span><span class="p">(</span>
+                            <span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">MANAGED</span>
+                            <span class="k">if</span> <span class="p">((</span><span class="ow">not</span> <span class="n">rowwise</span><span class="p">)</span> <span class="ow">and</span> <span class="n">uvm_non_rowwise_momentum</span><span class="p">)</span>
+                            <span class="k">else</span> <span class="kc">None</span>
+                        <span class="p">),</span>
                     <span class="p">),</span>
                     <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;momentum1&quot;</span><span class="p">,</span>
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
@@ -1045,9 +1047,11 @@
                         <span class="n">embedding_specs</span><span class="p">,</span>
                         <span class="n">rowwise</span><span class="o">=</span><span class="n">rowwise</span><span class="p">,</span>
                         <span class="n">cacheable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                        <span class="n">placement</span><span class="o">=</span><span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">MANAGED</span>
-                        <span class="k">if</span> <span class="p">((</span><span class="ow">not</span> <span class="n">rowwise</span><span class="p">)</span> <span class="ow">and</span> <span class="n">uvm_non_rowwise_momentum</span><span class="p">)</span>
-                        <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                        <span class="n">placement</span><span class="o">=</span><span class="p">(</span>
+                            <span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">MANAGED</span>
+                            <span class="k">if</span> <span class="p">((</span><span class="ow">not</span> <span class="n">rowwise</span><span class="p">)</span> <span class="ow">and</span> <span class="n">uvm_non_rowwise_momentum</span><span class="p">)</span>
+                            <span class="k">else</span> <span class="kc">None</span>
+                        <span class="p">),</span>
                     <span class="p">),</span>
                     <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;momentum2&quot;</span><span class="p">,</span>
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
@@ -1785,9 +1789,11 @@
             <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span>
         <span class="p">):</span>
             <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
-                <span class="p">{</span><span class="s2">&quot;sum&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;prev_iter&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="s2">&quot;row_counter&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">2</span><span class="p">]}</span>
-                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span>
-                <span class="k">else</span> <span class="p">{</span><span class="s2">&quot;sum&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span>
+                <span class="p">(</span>
+                    <span class="p">{</span><span class="s2">&quot;sum&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;prev_iter&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="s2">&quot;row_counter&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">2</span><span class="p">]}</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span>
+                    <span class="k">else</span> <span class="p">{</span><span class="s2">&quot;sum&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span>
+                <span class="p">)</span>
                 <span class="k">for</span> <span class="n">states</span> <span class="ow">in</span> <span class="n">split_optimizer_states</span>
             <span class="p">]</span>
         <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">SGD</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">:</span>
@@ -2115,9 +2121,11 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
             <span class="s2">&quot;lxu_state&quot;</span><span class="p">,</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
-                <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,)</span>
-                <span class="k">if</span> <span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LFU</span>
-                <span class="k">else</span> <span class="p">(</span><span class="n">cache_sets</span><span class="p">,</span> <span class="n">DEFAULT_ASSOC</span><span class="p">),</span>
+                <span class="n">size</span><span class="o">=</span><span class="p">(</span>
+                    <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,)</span>
+                    <span class="k">if</span> <span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LFU</span>
+                    <span class="k">else</span> <span class="p">(</span><span class="n">cache_sets</span><span class="p">,</span> <span class="n">DEFAULT_ASSOC</span><span class="p">)</span>
+                <span class="p">),</span>
                 <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
                 <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
             <span class="p">),</span>
