@@ -153,7 +153,7 @@ static void print_benchmark_results() {
       << "autovec b/w (GB/s), autovec effective b/w (GB/s), autovec time, "
       << "ref b/w (GB/s), ref effective b/w (GB/s), ref time, "
       << "asmjit speedup ratio, autovec speedup ratio" << std::endl;
-  for (int i = 0; i < benchmarks.size(); ++i) {
+  for (size_t i = 0; i < benchmarks.size(); ++i) {
     BenchmarkSpec& spec = benchmarks[i].first;
     BenchmarkResult& res = benchmarks[i].second;
     float asmjit_speedup = res.ref_bw > 0.0 ? res.asmjit_bw / res.ref_bw : 0;

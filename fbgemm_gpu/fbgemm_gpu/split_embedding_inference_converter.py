@@ -130,9 +130,11 @@ class SplitEmbInferenceConverter:
                             pruned_weight.size()[0],
                             D,
                             weight_ty,
-                            EmbeddingLocation.HOST
-                            if use_cpu
-                            else EmbeddingLocation.DEVICE,
+                            (
+                                EmbeddingLocation.HOST
+                                if use_cpu
+                                else EmbeddingLocation.DEVICE
+                            ),
                         )
                     )
                     index_remapping_list.append(index_remapping)
@@ -144,19 +146,23 @@ class SplitEmbInferenceConverter:
 
                 q_child = IntNBitTableBatchedEmbeddingBagsCodegen(
                     embedding_specs=new_embedding_specs,
-                    index_remapping=index_remapping_list
-                    if self.pruning_ratio is not None
-                    else None,
+                    index_remapping=(
+                        index_remapping_list if self.pruning_ratio is not None else None
+                    ),
                     pooling_mode=child.pooling_mode,
                     device="cpu" if use_cpu else torch.cuda.current_device(),
                     weight_lists=weight_lists,
                     use_array_for_index_remapping=self.use_array_for_index_remapping,
-                    fp8_exponent_bits=self._get_quantization_config("exponent_bits")
-                    if is_fp8_weight
-                    else None,
-                    fp8_exponent_bias=self._get_quantization_config("exponent_bias")
-                    if is_fp8_weight
-                    else None,
+                    fp8_exponent_bits=(
+                        self._get_quantization_config("exponent_bits")
+                        if is_fp8_weight
+                        else None
+                    ),
+                    fp8_exponent_bias=(
+                        self._get_quantization_config("exponent_bias")
+                        if is_fp8_weight
+                        else None
+                    ),
                 )
                 setattr(model, name, q_child)
             else:

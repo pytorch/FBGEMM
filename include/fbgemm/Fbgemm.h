@@ -139,6 +139,11 @@ class PackMatrix {
       int cols = 0,
       const BlockingFactors* params = nullptr);
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winfinite-recursion"
+#endif
+
   /**
    * @return Pointer to a buffer containing row offset results. Some packing
    *         objects fuse row offset computation for later requantization step.
@@ -146,6 +151,10 @@ class PackMatrix {
   std::int32_t* getRowOffsetBuffer() const {
     return static_cast<const PT*>(this)->getRowOffsetBuffer();
   }
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
   /**
    * @brief When k loop is also tiled/blocked, this function is used to check if
