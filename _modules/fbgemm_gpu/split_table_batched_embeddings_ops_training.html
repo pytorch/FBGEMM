@@ -1389,6 +1389,11 @@
             <span class="n">indice_weights</span><span class="o">=</span><span class="n">per_sample_weights</span><span class="p">,</span>
             <span class="n">feature_requires_grad</span><span class="o">=</span><span class="n">feature_requires_grad</span><span class="p">,</span>
             <span class="n">lxu_cache_locations</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations</span><span class="p">,</span>
+            <span class="c1"># Pass the local_uvm_cache_stats bc only that information is</span>
+            <span class="c1"># relevant for the current iteration</span>
+            <span class="n">uvm_cache_stats</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span>
+            <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
             <span class="n">output_dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">,</span>
             <span class="n">vbe_metadata</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="p">,</span>
             <span class="n">is_experimental</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">is_experimental</span><span class="p">,</span>
@@ -1584,6 +1589,12 @@
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
             <span class="k">return</span>
 
+        <span class="c1"># Clear the local_uvm_cache_stats before the prefetch instead of after</span>
+        <span class="c1"># the prefetch step, since it will be used in the CommonArgs in the</span>
+        <span class="c1"># forward step</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
+
         <span class="n">linear_cache_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">linearize_cache_indices</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
             <span class="n">indices</span><span class="p">,</span>
@@ -1665,7 +1676,6 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">add</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span>
             <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
 
     <span class="k">def</span> <span class="nf">_prefetch_tensors_record_stream</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">forward_stream</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span>
