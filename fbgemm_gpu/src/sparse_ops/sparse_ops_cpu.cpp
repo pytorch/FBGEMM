@@ -2925,7 +2925,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "bottom_k_per_row(Tensor input, Tensor k_offsets, bool requires_unique) -> Tensor");
   m.def(
-      "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, SymInt batch_size, Tensor? weights=None) -> Tensor[]");
+      "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, SymInt batch_size, Tensor? weights=None, SymInt? selected_lengths_sum=None) -> Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

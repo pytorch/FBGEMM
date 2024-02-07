@@ -2164,6 +2164,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         ),
         has_weights=st.booleans(),
         check_non_contiguous=st.booleans(),
+        use_selected_lengths_sum=st.booleans(),
     )
     @settings(max_examples=20, deadline=None)
     def test_keyed_jagged_index_select_dim1(
@@ -2176,6 +2177,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         jagged_tensor_dtype: torch.dtype,
         has_weights: bool,
         check_non_contiguous: bool,
+        use_selected_lengths_sum: bool,
     ) -> None:
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
         lengths = torch.randint(
@@ -2229,13 +2231,29 @@ class JaggedTensorOpsTest(unittest.TestCase):
         else:
             weights = None
 
+        if use_selected_lengths_sum:
+            length_indices = torch.cat(
+                [indices + i * input_batch_size for i in range(num_batches)]
+            )
+            selected_lengths_sum = (
+                torch.index_select(lengths, 0, length_indices).sum().item()
+            )
+        else:
+            selected_lengths_sum = None
+
         # Only float tensors can require grad
         if is_float:
             values.requires_grad = True
             values_ref.requires_grad = True
 
         index_select_output = torch.ops.fbgemm.keyed_jagged_index_select_dim1(
-            values, lengths, offsets, indices, input_batch_size, weights
+            values,
+            lengths,
+            offsets,
+            indices,
+            input_batch_size,
+            weights,
+            selected_lengths_sum,
         )
         output = index_select_output[0]
         if has_weights:

@@ -288,6 +288,7 @@ def masked_select_jagged_1d(
 @click.option("--jagged-tensor-type", type=str, default="float")
 @click.option("--has-weights", is_flag=True, default=False)
 @click.option("--weight-type", type=str, default="float")
+@click.option("--use-selected-lengths-sum", is_flag=True, default=False)
 def keyed_jagged_index_select_dim1(
     num_batches: int,
     max_seq_length: int,
@@ -296,6 +297,7 @@ def keyed_jagged_index_select_dim1(
     jagged_tensor_type: str,
     has_weights: bool,
     weight_type: str,
+    use_selected_lengths_sum: bool,
 ) -> None:
     jagged_tensor_types = {
         "float": torch.float,
@@ -353,13 +355,31 @@ def keyed_jagged_index_select_dim1(
         else None
     )
 
+    if use_selected_lengths_sum:
+        length_indices = torch.cat(
+            [indices + i * input_batch_size for i in range(num_batches)]
+        )
+        selected_lengths_sum = (
+            torch.index_select(lengths, 0, length_indices).sum().item()
+        )
+    else:
+        selected_lengths_sum = None
+
     # Only float tensors can require grad
     if is_float:
         values.requires_grad = True
 
     time, output = benchmark_torch_function(
         torch.ops.fbgemm.keyed_jagged_index_select_dim1,
-        (values, lengths, offsets, indices, input_batch_size, weights),
+        (
+            values,
+            lengths,
+            offsets,
+            indices,
+            input_batch_size,
+            weights,
+            selected_lengths_sum,
+        ),
         iters=1000,
     )
     output = output[0]
