@@ -1210,14 +1210,17 @@ bool EmbeddingSpMDM_ref(
     bool no_bag /*=false*/,
     bool is_bf16_out /*=false*/,
     bool is_bf16_in /*=false*/) {
-  bool is8bit = is_same<InType, uint8_t>::value;
+  const bool isWeight8bit = is_same<InType, uint8_t>::value;
+  const bool isOutput8bit = is_same<OutType, uint8_t>::value;
   if (output_stride == -1) {
     output_stride = block_size;
   }
-
+  if constexpr (isOutput8bit) {
+    assert(input_stride == output_stride);
+  }
   vector<float> buf(block_size);
 
-  if (is8bit) {
+  if (isWeight8bit) {
     // block_size is the number of elements and fused_block_size is the size of
     // an entire row, including scale and bias.
     if (input_stride == -1) {
@@ -1231,42 +1234,46 @@ bool EmbeddingSpMDM_ref(
 
     if (no_bag) {
       for (int m = 0; m < output_size; ++m) {
-        memset(buf.data(), 0, sizeof(float) * block_size);
         int64_t idx = indices[m];
 
         if (idx < 0 || idx >= data_size) {
           return false;
         }
-
-        const float* scale_bias = reinterpret_cast<const float*>(
-            input + input_stride * idx + (scale_bias_last ? block_size : 0));
-
-        float weight = 1.0f;
-        if (weights) {
-          weight = weights[m];
-        }
-
-        float scale, bias;
-        if (scale_bias_last) {
-          scale = weight * scale_bias[0];
-          bias = weight * scale_bias[1];
+        if constexpr (isOutput8bit) {
+          const InType* input_row_ptr = input + input_stride * idx;
+          memcpy(out, input_row_ptr, sizeof(InType) * input_stride);
         } else {
-          scale = weight *
-              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[0]);
-          bias = weight *
-              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
-        }
+          memset(buf.data(), 0, sizeof(float) * block_size);
+          const float* scale_bias = reinterpret_cast<const float*>(
+              input + input_stride * idx + (scale_bias_last ? block_size : 0));
 
-        for (int j = 0; j < block_size; ++j) {
-          buf[j] = std::fma(
-              scale,
-              input
-                  [input_stride * idx + j +
-                   (scale_bias_last ? 0 : 2 * sizeof(float16))],
-              buf[j] + bias);
-        }
-        for (int j = 0; j < block_size; ++j) {
-          out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+          float weight = 1.0f;
+          if (weights) {
+            weight = weights[m];
+          }
+
+          float scale, bias;
+          if (scale_bias_last) {
+            scale = weight * scale_bias[0];
+            bias = weight * scale_bias[1];
+          } else {
+            scale = weight *
+                cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[0]);
+            bias = weight *
+                cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
+          }
+
+          for (int j = 0; j < block_size; ++j) {
+            buf[j] = std::fma(
+                scale,
+                input
+                    [input_stride * idx + j +
+                     (scale_bias_last ? 0 : 2 * sizeof(float16))],
+                buf[j] + bias);
+          }
+          for (int j = 0; j < block_size; ++j) {
+            out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+          }
         }
         out += output_stride;
       } // m
@@ -2056,22 +2063,23 @@ template FBGEMM_API void transposeConvWeights(
       bool is_bf16_out,                                                    \
       bool is_bf16_in);
 
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)   \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)   \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16) \
-  template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(         \
-      const int64_t block_size,                                     \
-      const int64_t output_size,                                    \
-      const int64_t index_size,                                     \
-      const int64_t uncompressed_data_size,                         \
-      const IN_TYPE* input,                                         \
-      const INDEX_TYPE* indices,                                    \
-      const int32_t* compressed_indices_table,                      \
-      const OFFSET_TYPE* offsets_or_lengths,                        \
-      const float* weights,                                         \
-      bool normalize_by_lengths,                                    \
-      float* out,                                                   \
-      bool is_weight_positional,                                    \
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
+  template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_ref(              \
+      const int64_t block_size,                                          \
+      const int64_t output_size,                                         \
+      const int64_t index_size,                                          \
+      const int64_t uncompressed_data_size,                              \
+      const IN_TYPE* input,                                              \
+      const INDEX_TYPE* indices,                                         \
+      const int32_t* compressed_indices_table,                           \
+      const OFFSET_TYPE* offsets_or_lengths,                             \
+      const float* weights,                                              \
+      bool normalize_by_lengths,                                         \
+      float* out,                                                        \
+      bool is_weight_positional,                                         \
       bool use_offsets);
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
