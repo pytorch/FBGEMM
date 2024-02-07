@@ -1017,9 +1017,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_locations=self.lxu_cache_locations,
             # Pass the local_uvm_cache_stats bc only that information is
             # relevant for the current iteration
-            uvm_cache_stats=self.local_uvm_cache_stats
-            if self.gather_uvm_cache_stats
-            else None,
+            uvm_cache_stats=(
+                self.local_uvm_cache_stats if self.gather_uvm_cache_stats else None
+            ),
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
             is_experimental=self.is_experimental,

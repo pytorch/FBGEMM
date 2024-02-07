@@ -230,9 +230,11 @@ def print_p2p_bandwidth(
         for j in range(num_gpus):
             with torch.cuda.device(i):
                 t, _ = benchmark_torch_function(
-                    lambda: pooled_ad_embeddings[i].copy_(pooled_ad_embeddings[j])
-                    if i != j
-                    else pooled_ad_embeddings[i].clone(),
+                    lambda: (
+                        pooled_ad_embeddings[i].copy_(pooled_ad_embeddings[j])
+                        if i != j
+                        else pooled_ad_embeddings[i].clone()
+                    ),
                     (),
                     flush_gpu_cache_size_mb=0,
                     iters=iters,
@@ -359,10 +361,12 @@ def benchmark(  # noqa C901
             for t in embedding_results:
                 t_split_by_table = torch.split(t, embedding_dimension, dim=1)
                 quantized_split_by_table = [
-                    torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(t.float())
-                    if data_type == "INT8"
-                    else torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
-                        t.float(), 4
+                    (
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(t.float())
+                        if data_type == "INT8"
+                        else torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                            t.float(), 4
+                        )
                     )
                     for t in t_split_by_table
                 ]

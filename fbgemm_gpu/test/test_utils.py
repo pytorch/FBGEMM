@@ -171,6 +171,16 @@ def cpu_only() -> st.SearchStrategy[List[torch.device]]:
     return st.sampled_from([torch.device("cpu")])
 
 
+def use_cpu_strategy() -> st.SearchStrategy[bool]:
+    return (
+        st.booleans()
+        if (gpu_available and not TEST_WITH_ROCM)
+        # fmt: off
+        else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True)
+        # fmt: on
+    )
+
+
 # pyre-fixme[3]: Return annotation cannot be `Any`.
 def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") -> Any:
     # pyre-fixme[3]: Return annotation cannot be `Any`.

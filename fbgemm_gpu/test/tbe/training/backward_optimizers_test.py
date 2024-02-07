@@ -49,13 +49,13 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM, use_cpu_strategy
 else:
     from fbgemm_gpu.test.test_utils import (
-        gpu_available,
         gpu_unavailable,
         optests,
         TEST_WITH_ROCM,
+        use_cpu_strategy,
     )
 
 
@@ -228,6 +228,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["eps"] = eps
             optimizer_kwargs["weight_decay"] = weight_decay
             optimizer_kwargs["weight_decay_mode"] = weight_decay_mode
+
             if weight_decay_mode == WeightDecayMode.COUNTER:
                 counter_based_regularization = CounterBasedRegularizationDefinition(
                     counter_weight_decay_mode=CounterWeightDecayMode.DECOUPLE,
@@ -238,10 +239,12 @@ class BackwardOptimizersTest(unittest.TestCase):
                     grad_sum_decay=GradSumDecay.NO_DECAY,
                     tail_id_threshold=TailIdThreshold(val=1000, is_ratio=False),
                 )
+                # fmt: off
+                optimizer_kwargs["counter_based_regularization"] = (
+                    counter_based_regularization
+                )
+                # fmt: on
 
-                optimizer_kwargs[
-                    "counter_based_regularization"
-                ] = counter_based_regularization
             if weight_decay_mode == WeightDecayMode.COWCLIP:
                 cowclip_regularization = CowClipDefinition(
                     counter_weight_decay_mode=CounterWeightDecayMode.DECOUPLE,
@@ -374,9 +377,11 @@ class BackwardOptimizersTest(unittest.TestCase):
                         ) = self._get_grad_from_counter_adagrad(
                             dense_cpu_grad,
                             bs[t].weight.cpu(),
-                            counter_based_regularization
-                            if weight_decay_mode == WeightDecayMode.COUNTER
-                            else cowclip_regularization,
+                            (
+                                counter_based_regularization
+                                if weight_decay_mode == WeightDecayMode.COUNTER
+                                else cowclip_regularization
+                            ),
                             row_counter.cpu(),
                             prev_iter.cpu(),
                             iter_,
@@ -768,11 +773,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         uvm_non_rowwise_momentum=st.booleans(),
     )
     @settings(
@@ -840,11 +841,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         weight_decay_mode=st.sampled_from(
             [
                 WeightDecayMode.NONE,
@@ -921,11 +918,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -980,11 +973,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 PoolingMode.NONE,
             ]
         ),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
     )
     @settings(
         verbosity=VERBOSITY,

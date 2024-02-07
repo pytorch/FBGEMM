@@ -48,6 +48,7 @@ if open_source:
         gradcheck,
         optests,
         TEST_WITH_ROCM,
+        use_cpu_strategy,
     )
 else:
     from fbgemm_gpu.test.test_utils import (
@@ -56,6 +57,7 @@ else:
         gradcheck,
         optests,
         TEST_WITH_ROCM,
+        use_cpu_strategy,
     )
 
 
@@ -468,11 +470,7 @@ class BackwardAdagradTest(unittest.TestCase):
         mixed_B=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -539,11 +537,7 @@ class BackwardAdagradTest(unittest.TestCase):
         mixed_B=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -609,11 +603,7 @@ class BackwardAdagradTest(unittest.TestCase):
         mixed=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -675,11 +665,7 @@ class BackwardAdagradTest(unittest.TestCase):
         mixed_B=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -745,11 +731,7 @@ class BackwardAdagradTest(unittest.TestCase):
         mixed_B=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
@@ -815,11 +797,7 @@ class BackwardAdagradTest(unittest.TestCase):
         mixed=st.booleans(),
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(
