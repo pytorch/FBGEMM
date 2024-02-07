@@ -166,20 +166,22 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }
 
     Tensor output;
-    const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8 || o_dtype == SparseType::BF16);
     bool output_is_bf16 = o_dtype == SparseType::BF16;
+    bool output_is_int8 = o_dtype == SparseType::INT8;
     {% if not nobag %}
+    const int kINT8QparamsBytes = 8;
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
       total_adjusted_D += T * kINT8QparamsBytes;
     }
     output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
     {% else %}
+    const int kINT8QparamsBytes = 4; // no bag int8 output aligns with fbgemm weights storage size and layout
     int64_t adjusted_D = D;
     if (o_dtype == SparseType::INT8) {
-      adjusted_D += T * kINT8QparamsBytes;
+      adjusted_D += kINT8QparamsBytes;
     }
     output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
 
@@ -202,11 +204,15 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
         using float16 = uint16_t;
         using bfloat16 = uint16_t;
-        using fbgemm_out_t = typename std::conditional<
+        using int8 = uint8_t;
+        using base_fbgemm_out_t = typename std::conditional<
+            std::is_same<output_t, at::Half>::value,
+            float16,
+            std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, std::conditional<std::is_same<output_t, float>::value, float, int8>::type> ::type >::type;
+        using other_fbgemm_out_t = typename std::conditional<
             std::is_same<output_t, at::Half>::value,
             float16,
             std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, float>::type >::type;
-
         AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_", [&] {
             const auto* indices_acc = indices.data_ptr<index_t>();
             const auto* offsets_acc = offsets.data_ptr<index_t>();
@@ -224,7 +230,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const int32_t D_end = D_offsets_acc[t + 1];
                 const int32_t D = D_end - D_start;
                 {% else %}
-                const int32_t D_start = offsets_acc[t * B] * D;
+                const int32_t D_start = offsets_acc[t * B] * adjusted_D;
                 {% endif %}
 
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
@@ -233,6 +239,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 weights_acc = weight_tensor.data_ptr<uint8_t>();
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
                 const auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
+                if (output_is_int8) {
+                    TORCH_CHECK(weight_ty == SparseType::INT8, "int8 output are only supported for int8 weights");
+                }
                 // default to 1 byte alignment for CPU TBE
                 const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
@@ -246,6 +255,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 const bool normalize_by_lengths = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
 
                 const index_t index_size = offsets_acc[(t + 1) * B] - *offsets_begin_ptr;
+                const int32_t output_stride = {{ "total_D" if not nobag else "adjusted_D" }};
 
                 {% if nobag %}
                 // Create virtual offsets for the nobag case. Lengths are all ones.
@@ -256,6 +266,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 {% endif %}
 
                 const float* indice_weights_ptr = nullptr;
+                // int8 output only enabled for nobag case with ref impl
+                const bool nobag_op = {{ "false" if not nobag else "output_is_int8" }};
                 {% if weighted %}
                 indice_weights_ptr = indice_weights_acc + *offsets_begin_ptr;
                 {% endif %}
@@ -266,6 +278,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     if use_base else ("GenerateEmbeddingSpMDMNBitWithStrides"
                     if use_nbit else "GenerateEmbeddingSpMDMFP8WithStrides")
                  %}
+                using fbgemm_out_t = {{ "base_fbgemm_out_t" if use_base else "other_fbgemm_out_t" }};
+                // TODO: merge nobag int8 path with normal asmjit dispatch
+                {% if nobag %}
+                    const index_t* offset_ptr = (output_is_int8)? offsets_begin_ptr: offsets_nobag_ptr;
+                {% else %}
+                    const index_t* offset_ptr = offsets_begin_ptr;
+                {% endif %}
                 const auto kernel = fbgemm::{{ kernel_name }}<
                     {% if use_base %}
                     {{ weight_type }},
@@ -292,7 +311,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     {% endif %}
                     /*is_weight_positional=*/false,
                     /*use_offsets=*/true,
-                    /*output_stride=*/{{ "total_D" if not nobag else "D" }},
+                    /*output_stride=*/output_stride,
                     /*input_stride=*/D_bytes / sizeof({{ weight_type }}),
                     {% if use_fp8 %}
                     /*exponent_bits=*/fp8_exponent_bits,
@@ -302,7 +321,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     /*scale_bias_last=*/false,
                     {% endif %}
                     {% if use_base %}
-                    /*no_bag=*/false,
+                    /*no_bag=*/nobag_op,
                     {% endif %}
                     /*is_bf16_out=*/output_is_bf16
                 );
@@ -312,7 +331,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     num_rows,
                     reinterpret_cast<const {{ weight_type }}*>(weights),
                     indices_acc + *offsets_begin_ptr,
-                    {{ "offsets_begin_ptr" if not nobag else "offsets_nobag_ptr" }},
+                    offset_ptr,
                     indice_weights_ptr,
                     reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
                 {% endmacro %}
