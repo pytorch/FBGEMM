@@ -332,6 +332,8 @@ def device(  # noqa C901
 @click.option("--cache-algorithm", default="lru")
 @click.option("--cache-load-factor", default=0.2)
 @click.option("--enforce-hbm", is_flag=True, default=False)
+@click.option("--no-conflict-misses", is_flag=True, default=False)
+@click.option("--all-conflict-misses", is_flag=True, default=False)
 def uvm(
     alpha: bool,
     bag_size: int,
@@ -356,6 +358,10 @@ def uvm(
     cache_algorithm: str,
     cache_load_factor: float,
     enforce_hbm: bool,
+    # Simulate a UVM cache with a cache conflict miss rate of 0%
+    no_conflict_misses: bool,
+    # Simulate a UVM cache with a cache conflict miss rate of 100%
+    all_conflict_misses: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -371,6 +377,7 @@ def uvm(
     ), f"T_uvm specified {T_uvm} <= 0. If not testing UVM, please use device benchmark."
     T_gpu = T - T_uvm
     L_uvm = uvm_bag_size
+    eval_conflict_misses: bool = no_conflict_misses or all_conflict_misses
 
     cache_alg = CacheAlgorithm.LRU if cache_algorithm == "lru" else CacheAlgorithm.LFU
     managed_type = (
@@ -385,6 +392,7 @@ def uvm(
         D = np.average(Ds)
     else:
         Ds = [D] * T
+
     emb_uvm = SplitTableBatchedEmbeddingBagsCodegen(
         [
             (
@@ -483,13 +491,73 @@ def uvm(
         + param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm
     )
 
-    time_per_iter = benchmark_requests(
-        requests_uvm,
-        lambda indices, offsets, per_sample_weights: emb_uvm.forward(
+    if eval_conflict_misses:
+        assert (
+            use_cache
+        ), "--use-cache is required for --no-conflict-misses or all-conflict-misses"
+        assert (no_conflict_misses and not all_conflict_misses) or (
+            not no_conflict_misses and all_conflict_misses
+        ), "Cannot use both --no-conflict-misses and --all-conflict-misses at the same time!"
+        logging.info(
+            "Evaluate {}: Cache shape {}".format(
+                "no_conflict_misses" if no_conflict_misses else "all_conflict_misses",
+                emb_uvm.lxu_cache_weights.shape,
+            )
+        )
+        num_cache_slots = emb_uvm.lxu_cache_weights.shape[0]
+        for it, (indices, offsets, _) in enumerate(requests_uvm):
+            num_uniq = 0
+            all_inverse = []
+            for t in range(T_uvm):
+                uniq, inverse = indices[offsets[t * B] : offsets[(t + 1) * B]].unique(
+                    return_inverse=True
+                )
+                all_inverse.append(inverse + num_uniq)
+                num_uniq += uniq.numel()
+            assert (
+                num_cache_slots >= num_uniq
+            ), "num_cache_slots < num_uniq: Please increase --cache-load-factor"
+
+            # Intercept prefetch
+            if no_conflict_misses:
+                locations = np.random.choice(
+                    np.arange(num_cache_slots), size=num_uniq, replace=False
+                )
+                locations = (
+                    torch.from_numpy(locations).to(torch.int32).to(indices.device)
+                )
+                locations = locations.index_select(
+                    dim=0, index=torch.concat(all_inverse)
+                )
+                assert (
+                    locations.numel() == indices.numel()
+                ), "The number of elements in locations and indices tensors are not the same!"
+            else:
+                locations = torch.full_like(
+                    indices, -1, dtype=torch.int32, device=indices.device
+                )
+            emb_uvm.lxu_cache_locations_list.append(locations)
+            emb_uvm.timesteps_prefetched.append(it)
+
+    # pyre-ignore[53]
+    def run_bench(indices: Tensor, offsets: Tensor, per_sample_weights: Tensor) -> None:
+        if eval_conflict_misses:
+            # Set uvm_cache_stats
+            assert (
+                emb_uvm.local_uvm_cache_stats.numel() == emb_uvm.uvm_cache_stats_size
+            ), "The number of elements in the local_uvm_cache_stats tensor is not equal to its declared size!"
+            # Use uvm_cache_stats_index::num_conflict_unique_misses
+            emb_uvm.local_uvm_cache_stats[4] = 0 if no_conflict_misses else 1
+
+        emb_uvm.forward(
             indices.long(),
             offsets.long(),
             per_sample_weights,
-        ),
+        )
+
+    time_per_iter = benchmark_requests(
+        requests_uvm,
+        run_bench,
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         num_warmups=warmup_runs,
     )
@@ -498,6 +566,9 @@ def uvm(
         f"E: {E}, T: {T_uvm}, D: {D}, L: {L_uvm}, W: {weighted}, "
         f"BW: {read_write_bytes_uvm / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+    print(
+        f"|{uvm_tables}|{embedding_dim}|{read_write_bytes_uvm / time_per_iter / 1.0e9: .2f}|"
     )
 
     if T_gpu > 0:

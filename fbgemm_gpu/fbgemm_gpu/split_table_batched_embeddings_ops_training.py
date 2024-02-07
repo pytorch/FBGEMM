@@ -1168,17 +1168,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uvm_cache_stats.zero_()
         self.local_uvm_cache_stats.zero_()
 
-    def get_uvm_cache_stats(self) -> Tensor:
+    def get_uvm_cache_stats(self, use_local_cache: bool = False) -> Tensor:
         assert (
             self.gather_uvm_cache_stats
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        return self.uvm_cache_stats
+        return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
-    def print_uvm_cache_stats(self) -> None:
-        assert (
-            self.gather_uvm_cache_stats
-        ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        uvm_cache_stats: List[float] = self.uvm_cache_stats.tolist()
+    def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
+        uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
+            use_local_cache
+        ).tolist()
         logging.info(
             f"N_called: {uvm_cache_stats[0]}\n"
             f"N_requested_indices: {uvm_cache_stats[1]}\n"
