@@ -128,7 +128,7 @@ Tensor pack_segments_autograd(
 Tensor native_empty_like(const Tensor& self) {
   return at::native::empty_like(
       self,
-      optTypeMetaToScalarType(self.options().dtype_opt()),
+      c10::optTypeMetaToScalarType(self.options().dtype_opt()),
       self.options().layout_opt(),
       self.options().device_opt(),
       self.options().pinned_memory_opt(),
