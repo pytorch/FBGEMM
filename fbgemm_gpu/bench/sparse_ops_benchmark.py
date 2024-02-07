@@ -1013,17 +1013,21 @@ def block_bucketize_sparse_features_bench(
                 True,
                 block_sizes if device == "cpu" else block_sizes.to(device),
                 bucket_num,
-                weights
-                if device == "cpu"
-                else (weights.to(device) if weights is not None else None),
+                (
+                    weights
+                    if device == "cpu"
+                    else (weights.to(device) if weights is not None else None)
+                ),
                 None,
                 -1,  # unused
-                is_block_bucketize_pos
-                if device == "cpu"
-                else (
-                    [i.to(device) for i in is_block_bucketize_pos]
-                    if is_block_bucketize_pos is not None
-                    else None
+                (
+                    is_block_bucketize_pos
+                    if device == "cpu"
+                    else (
+                        [i.to(device) for i in is_block_bucketize_pos]
+                        if is_block_bucketize_pos is not None
+                        else None
+                    )
                 ),
             ),
             iters=100,

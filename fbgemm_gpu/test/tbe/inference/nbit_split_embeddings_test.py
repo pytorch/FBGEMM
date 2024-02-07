@@ -55,20 +55,22 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 SparseType.INT2,
             ]
         ),
-        output_dtype=st.sampled_from(
-            [
-                SparseType.FP16,
-                SparseType.BF16,
-                SparseType.INT8,
-            ]
-        )
-        if not TEST_WITH_ROCM
-        else st.sampled_from(
-            [
-                SparseType.FP16,
-                # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
-                SparseType.INT8,
-            ]
+        output_dtype=(
+            st.sampled_from(
+                [
+                    SparseType.FP16,
+                    SparseType.BF16,
+                    SparseType.INT8,
+                ]
+            )
+            if not TEST_WITH_ROCM
+            else st.sampled_from(
+                [
+                    SparseType.FP16,
+                    # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
+                    SparseType.INT8,
+                ]
+            )
         ),
     )
     @settings(
@@ -248,9 +250,9 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             # using weights and other params from cc_ref, but
             # cache states from cc.
             output_uvm_caching = torch.ops.fbgemm.int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
-                dev_weights=cc_ref.weights_host
-                if cc_ref.host_size > 0
-                else cc_ref.weights_dev,
+                dev_weights=(
+                    cc_ref.weights_host if cc_ref.host_size > 0 else cc_ref.weights_dev
+                ),
                 uvm_weights=cc_ref.weights_uvm,
                 weights_placements=cc_ref.weights_placements,
                 weights_offsets=cc_ref.weights_offsets,
@@ -308,9 +310,9 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
 
             # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM.
             output_uvm = torch.ops.fbgemm.int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
-                dev_weights=cc_ref.weights_host
-                if cc_ref.host_size > 0
-                else cc_ref.weights_dev,
+                dev_weights=(
+                    cc_ref.weights_host if cc_ref.host_size > 0 else cc_ref.weights_dev
+                ),
                 uvm_weights=cc_ref.weights_uvm,
                 weights_placements=placement_uvm,  # all UVM weights placement.
                 weights_offsets=cc_ref.weights_offsets,

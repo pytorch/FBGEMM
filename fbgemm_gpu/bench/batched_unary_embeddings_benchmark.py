@@ -32,7 +32,7 @@ else:
 
 def generate_unary_feature(
     batch_size: int,
-    num_embeddings: int
+    num_embeddings: int,
     # pyre-fixme[24]: Generic type `list` expects 1 type parameter, use
     #  `typing.List[<element type>]` to avoid runtime subscripting errors.
 ) -> Tuple[List, List, List]:

@@ -38,14 +38,9 @@ from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import gpu_unavailable, optests, use_cpu_strategy
 else:
-    from fbgemm_gpu.test.test_utils import (
-        gpu_available,
-        gpu_unavailable,
-        optests,
-        TEST_WITH_ROCM,
-    )
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, use_cpu_strategy
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -231,11 +226,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 SparseType.INT8,
             ]
         ),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         test_internal=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
@@ -339,9 +330,11 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
             update_weights = []
             for row_idx in update_row_indices[i]:
                 update_weights.append(ref_weights[row_idx].tolist())
-                update_weights_tensor2[
-                    update_offsets : update_offsets + D_bytes
-                ] = ref_weights[row_idx]
+                # fmt: off
+                update_weights_tensor2[update_offsets : update_offsets + D_bytes] = (
+                    ref_weights[row_idx]
+                )
+                # fmt: on
                 update_offsets += D_bytes
 
             update_weights_tensor = torch.tensor(

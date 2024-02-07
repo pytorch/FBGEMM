@@ -26,13 +26,9 @@ from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, TEST_WITH_ROCM
+    from test_utils import gpu_unavailable, use_cpu_strategy
 else:
-    from fbgemm_gpu.test.test_utils import (
-        gpu_available,
-        gpu_unavailable,
-        TEST_WITH_ROCM,
-    )
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, use_cpu_strategy
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -220,11 +216,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 BoundsCheckMode.IGNORE,
             ]
         ),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         weighted=st.booleans(),
         dtype=st.sampled_from(
             [
@@ -430,11 +422,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=5),
         B=st.integers(min_value=1, max_value=8),
         L=st.integers(min_value=0, max_value=8),
-        use_cpu=st.booleans()
-        if (gpu_available and not TEST_WITH_ROCM)
-        else st.just(False)
-        if (gpu_available and TEST_WITH_ROCM)
-        else st.just(True),
+        use_cpu=use_cpu_strategy(),
         use_cpu_hashtable=st.booleans(),
         use_array_for_index_remapping=st.booleans(),
     )

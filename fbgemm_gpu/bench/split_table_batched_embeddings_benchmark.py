@@ -203,9 +203,11 @@ def device(  # noqa C901
                     E,
                     d,
                     managed_option,
-                    ComputeDevice.CUDA
-                    if torch.cuda.is_available()
-                    else ComputeDevice.CPU,
+                    (
+                        ComputeDevice.CUDA
+                        if torch.cuda.is_available()
+                        else ComputeDevice.CPU
+                    ),
                 )
                 for d in Ds
             ],
