@@ -51,7 +51,7 @@ For questions, support, news updates, or feature requests, please feel free to:
 * Post a discussion in [GitHub Discussions](https://github.com/pytorch/FBGEMM/discussions)
 * Reach out to us on the `#fbgemm` channel in [PyTorch Slack](https://bit.ly/ptslack)
 
-For contributions, please see the [`CONTRIBUTING`](../CONTRIBUTING.md) file for
+For contributions, please see the [`CONTRIBUTING`](./CONTRIBUTING.md) file for
 ways to help out.
 
 
