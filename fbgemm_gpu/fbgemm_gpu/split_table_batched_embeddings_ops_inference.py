@@ -761,7 +761,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.prefetch(indices, offsets)
             self.timestep_prefetch_size.decrement()
 
-        lxu_cache_locations = self.lxu_cache_locations_list.pop()
+            lxu_cache_locations = self.lxu_cache_locations_list.pop()
+        else:
+            lxu_cache_locations = self.lxu_cache_locations_empty
 
         # Second bound check: check if the indices/offsets are within the boundary
         # of the pruned embedding rows after pruning.
@@ -956,15 +958,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.current_device.type == "meta":
             # To reslove "Cannot copy out of meta tensor; no data!" error
-            lxu_cache_locations_empty = torch.empty(0, dtype=torch.int32).fill_(-1)
+            self.lxu_cache_locations_empty = torch.empty(0, dtype=torch.int32).fill_(-1)
         else:
-            lxu_cache_locations_empty = torch.empty(
+            self.lxu_cache_locations_empty = torch.empty(
                 0, device=self.current_device, dtype=torch.int32
             ).fill_(-1)
-        # pyre-ignore[16]
-        self.lxu_cache_locations_list = torch.classes.fbgemm.TensorQueue(
-            lxu_cache_locations_empty
-        )
 
         # NOTE: no cache for CPU mode!
         if cache_state.total_cache_hash_size == 0 or self.use_cpu:
@@ -1027,6 +1025,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 persistent=False,
             )
             return
+
+        # pyre-ignore[16]
+        self.lxu_cache_locations_list = torch.classes.fbgemm.TensorQueue(
+            self.lxu_cache_locations_empty
+        )
 
         assert cache_load_factor > 0
         if cache_sets <= 0:
