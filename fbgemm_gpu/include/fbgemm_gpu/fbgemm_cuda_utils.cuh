@@ -1334,15 +1334,41 @@ template <typename emb_t, typename cache_t, typename dst_t>
 // TODO: pass in dimension info and calculate qparams for rowwise integer
 // quantization
 struct WeightRow {
+  // Constructor for no stochastic rounding
+  DEVICE_INLINE WeightRow(emb_t* row, cache_t* cache_row, int dim)
+      : row_(row),
+        cache_row_(cache_row),
+        dim_(dim),
+        stoc_rounding_state_(nullptr) {}
+
+  // Constructor for stochastic rounding
   DEVICE_INLINE WeightRow(
       emb_t* row,
       cache_t* cache_row,
       int dim,
-      StochasticRoundingRNGState* stoc_rounding_state)
-      : row_(row),
-        cache_row_(cache_row),
-        dim_(dim),
-        stoc_rounding_state_(stoc_rounding_state) {}
+      StochasticRoundingRNGState* stoc_rounding_state,
+      const at::PhiloxCudaState* stochastic_rounding_philox_args,
+      const uint64_t salt_value)
+      : row_(row), cache_row_(cache_row), dim_(dim) {
+    // Set the internal stoc_rounding_state_
+    stoc_rounding_state_ = stoc_rounding_state;
+
+    if constexpr (!std::is_same_v<emb_t, float>) {
+      if (stoc_rounding_state != nullptr) {
+        const auto stochastic_rounding_seeds =
+            at::cuda::philox::unpack(*stochastic_rounding_philox_args);
+
+        stochastic_rounding_init(
+            std::get<0>(stochastic_rounding_seeds) ^
+                std::get<1>(stochastic_rounding_seeds),
+            // The salt value should be different for every *run* and every
+            // *thread*.
+            salt_value,
+            stoc_rounding_state);
+      }
+    }
+  }
+
   emb_t* row_;
   cache_t* cache_row_;
   int dim_;
@@ -1464,30 +1490,6 @@ struct WeightRow {
     for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
       // Evict the slice into the embedding row
       evict_cache(d, qparams);
-    }
-  }
-
-  DEVICE_INLINE void set_stochastic_rounding(
-      const bool stochastic_rounding,
-      const at::PhiloxCudaState stochastic_rounding_philox_args,
-      const uint64_t salt_value) {
-    if constexpr (!std::is_same_v<emb_t, float>) {
-      if (stochastic_rounding) {
-        StochasticRoundingRNGState state;
-        const auto stochastic_rounding_seeds =
-            at::cuda::philox::unpack(stochastic_rounding_philox_args);
-
-        stochastic_rounding_init(
-            std::get<0>(stochastic_rounding_seeds) ^
-                std::get<1>(stochastic_rounding_seeds),
-            // The salt value should be different for every *run* and every
-            // *thread*.
-            salt_value,
-            &state);
-
-        // Set the internal stoc_rounding_state_
-        stoc_rounding_state_ = &state;
-      }
     }
   }
 };

@@ -154,8 +154,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
                         const_cast<emb_t*>(&weights[idx_j * D_emb]),
                         nullptr,
-                        D,
-                        nullptr);
+                        D);
                     float2 qparams;
                     if (std::is_same<emb_t, uint8_t>::value) {
                         qparams = weight_row.load_qparams();
@@ -174,8 +173,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                 auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
                     const_cast<emb_t*>(&weights[idx_j * D_emb]),
                     nullptr,
-                    D,
-                    nullptr);
+                    D);
                 float2 qparams;
                 if (std::is_same<emb_t, uint8_t>::value) {
                     qparams = weight_row.load_qparams();

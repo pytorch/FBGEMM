@@ -1090,7 +1090,7 @@ def lamb() -> Dict[str, Any]:
     split_precomputation = """
   at::acc_type<cache_t, true> weight_sum_sq = 0.0;
   at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
-  auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+  auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D);
   float2 qparams;
   if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
     qparams = weight_row.load_qparams();
@@ -1187,7 +1187,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
 
     at::acc_type<cache_t, true> weight_sum_sq = 0.0;
     at::acc_type<cache_t, true> rtw_sum_sq = 0.0;
-    auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+    auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D);
     float2 qparams;
     if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
         qparams = weight_row.load_qparams();
@@ -1375,7 +1375,7 @@ def lars_sgd() -> Dict[str, Any]:
   at::acc_type<cache_t, true> weight_sum_sq = 0.0;
   at::acc_type<cache_t, true> grad_sum_sq = 0.0;
 
-  auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D, nullptr);
+  auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(weights, cache_weights, D);
   float2 qparams;
   if (std::is_same<emb_t, uint8_t>::value && !cache_weights) {
       qparams = weight_row.load_qparams();
