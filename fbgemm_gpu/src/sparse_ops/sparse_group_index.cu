@@ -6,7 +6,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#if (defined(USE_ROCM))
+#include <hip/hip_bfloat16.h>
+#elif (                                                \
+    (defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+    (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800)))
 #include <cuda_bf16.h>
+#endif
 #include "common.cuh"
 
 using Tensor = at::Tensor;
