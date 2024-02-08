@@ -6,7 +6,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#ifdef USE_ROCM
+#include <hip/hip_bf16.h>
+#else
 #include <cuda_bf16.h>
+#endif // USE_ROCM
+
 #include "common.cuh"
 
 using Tensor = at::Tensor;
