@@ -20,32 +20,29 @@ concurrency:
 
 jobs:
   build-linux:
-    runs-on: ${{ matrix.host-machine }}
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: ${{ matrix.container-image }}
+      image: amazonlinux:2023
       options: --user root
     defaults:
       run:
         shell: bash
     env:
       PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_${{ matrix.library-type }}
       BUILD_DIR: build_${{ matrix.library-type }}
-      DEBIAN_FRONTEND: noninteractive
     strategy:
       fail-fast: false
       matrix:
         host-machine: [
-          "linux.12xlarge",     # x86 machine
+          { arch: x86, instance: "linux.12xlarge" },
         ]
-        container-image: [ "ubuntu:20.04" ]
         library-type: [ static, shared ]
+        compiler: [ "gcc", "clang" ]
 
     steps:
     - name: Setup Build Container
-      run: |
-        apt update -y
-        apt install -y binutils build-essential cmake git libblas-dev pciutils python3 sudo wget
-        git config --global --add safe.directory '*'
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
@@ -55,19 +52,23 @@ jobs:
     - name: Display System Info
       run: . $PRELUDE; print_system_info
 
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.12
+
+    - name: Install C/C++ Compilers
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
     - name: Build FBGEMM Library (${{ matrix.library-type }})
-      run: |
-        set -e
-        mkdir $BUILD_DIR; cd $BUILD_DIR
-        cmake --version
-        cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DPYTHON_EXECUTABLE=/usr/bin/python3 ..
-        make -j VERBOSE=1
+      run: . $PRELUDE; build_fbgemm_library $BUILD_ENV $BUILD_DIR ${{ matrix.library-type }} ${{ matrix.compiler }}
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
-      run: |
-        set -e
-        cd $BUILD_DIR
-        ctest --rerun-failed --output-on-failure
+      run: . $PRELUDE; test_fbgemm_library $BUILD_ENV $BUILD_DIR
 
 
   build-macos:
