@@ -10,18 +10,25 @@
 import logging
 import unittest
 
+import hypothesis.strategies as st
+
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import to_device
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
+from hypothesis import given, settings
 
-from ..common import assert_torch_equal
-from .cache_common import generate_cache_tbes, gpu_unavailable
+from ..common import assert_torch_equal, MAX_EXAMPLES
+from .cache_common import assert_cache, generate_cache_tbes, gpu_unavailable, VERBOSITY
 
 
 class CacheOverflowTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
-    def test_cache_int32_overflow(self) -> None:
+    @given(
+        stochastic_rounding=st.booleans(),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_cache_int32_overflow(self, stochastic_rounding: bool) -> None:
         """
         The unit test verifies that TBE with UVM caching can handle the cache
         access correctly when the cache access offset is larger than max int32
@@ -48,7 +55,8 @@ class CacheOverflowTest(unittest.TestCase):
             mixed=False,
             prefetch_pipeline=True,
             cache_sets=cache_sets,
-            weights_precision=SparseType.FP16,
+            weights_cache_precision=SparseType.FP16,
+            stochastic_rounding=stochastic_rounding,
         )
 
         # Accessing the last cache slot
@@ -87,8 +95,10 @@ class CacheOverflowTest(unittest.TestCase):
         output.backward(grad_output)
         output_ref.backward(grad_output)
         cc.flush()
-        assert_torch_equal(
-            cc.split_embedding_weights()[0], cc_ref.split_embedding_weights()[0]
+        assert_cache(
+            cc.split_embedding_weights()[0],
+            cc_ref.split_embedding_weights()[0],
+            stochastic_rounding,
         )
 
 
