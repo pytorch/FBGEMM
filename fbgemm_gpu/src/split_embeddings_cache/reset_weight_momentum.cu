@@ -179,7 +179,7 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
 
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-            weights, cache_weights, D, nullptr);
+            weights, cache_weights, D);
 
     // reset momentum1
     const int32_t d = (i % chunk4s_per_row) * 4;

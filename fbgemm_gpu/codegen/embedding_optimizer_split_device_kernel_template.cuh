@@ -73,15 +73,16 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> weight_update_buffer;
     Vec4T<at::acc_type<cache_t, true>>* shared_weight_update_row =
         is_int8 ? weight_update_buffer.getPointer() : nullptr;
+
+    StochasticRoundingRNGState state;
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-            weights, cache_weights, D, nullptr);
-
-    weight_row_template.set_stochastic_rounding(
-      stochastic_rounding,
-      stochastic_rounding_philox_args,
-      threadIdx.x + run_id * blockDim.x
-    );
+            weights,
+            cache_weights,
+            D,
+            stochastic_rounding ? &state : nullptr,
+            &stochastic_rounding_philox_args,
+            threadIdx.x + run_id * blockDim.x);
 
     float2 qparams_template;
     if (is_int8 && !cache_weights) {
