@@ -116,15 +116,13 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
         if constexpr (std::is_same_v<emb_t, uint8_t>) {
           D_emb += kINT8QparamsBytes;
         }
+        StochasticRoundingRNGState state;
         auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
             &weights[weights_offset_current + idx_current * D_emb + 0],
             &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
             D_current,
-            nullptr);
-
-        weight_row.set_stochastic_rounding(
-            stochastic_rounding,
-            stochastic_rounding_philox_args,
+            stochastic_rounding ? &state : nullptr,
+            &stochastic_rounding_philox_args,
             (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
              threadIdx.x) *
                     kWarpSize +
@@ -142,8 +140,7 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
       auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
           &weights[weights_offset_insert + idx_insert * D_emb + 0],
           nullptr,
-          D_insert,
-          nullptr);
+          D_insert);
 
       weight_row_emb.warp_copy_to_cache(
           &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],

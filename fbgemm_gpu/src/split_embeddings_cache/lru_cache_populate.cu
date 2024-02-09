@@ -78,6 +78,9 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
     BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
     const int32_t sorted_slot = slots[0];
     const int64_t sorted_lru_cost = costs[0];
+    const auto stoc_rounding_salt = kWarpSize *
+        (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
+         threadIdx.x);
 
     for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
       const int32_t insert_slot = shfl_sync(sorted_slot, l);
@@ -120,19 +123,14 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
           D_emb += kINT8QparamsBytes;
         }
 
+        StochasticRoundingRNGState state;
         auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
             &weights[weights_offset_current + idx_current * D_emb + 0],
             &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
             D_current,
-            nullptr);
-
-        weight_row.set_stochastic_rounding(
-            stochastic_rounding,
-            stochastic_rounding_philox_args,
-            (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
-             threadIdx.x) *
-                    kWarpSize +
-                l);
+            stochastic_rounding ? &state : nullptr,
+            &stochastic_rounding_philox_args,
+            stoc_rounding_salt + l);
 
         weight_row.warp_evict_cache(D_current, blockDim.x, threadIdx.x);
       }
@@ -145,8 +143,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
       auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
           &weights[weights_offset_insert + idx_insert * D_emb + 0],
           nullptr,
-          D_insert,
-          nullptr);
+          D_insert);
 
       weight_row_emb.warp_copy_to_cache(
           &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],

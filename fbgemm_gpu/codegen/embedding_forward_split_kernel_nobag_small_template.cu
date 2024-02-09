@@ -153,8 +153,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
             auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
                 const_cast<emb_t*>(&weights[idx_j * D_emb]),
                 nullptr,
-                D,
-                nullptr);
+                D);
             [[maybe_unused]] float2 qparams_emb;
             if (std::is_same<emb_t, uint8_t>::value) {
                 qparams_emb = weight_row_emb.load_qparams();
@@ -166,8 +165,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
                     auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
                         const_cast<emb_t*>(&weights[idx_j * D_emb]),
                         const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
-                        D,
-                        nullptr);
+                        D);
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     weight.store(&output[output_j][d]);
                 } else {
