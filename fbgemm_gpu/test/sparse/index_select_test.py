@@ -97,8 +97,7 @@ class IndexSelectTest(unittest.TestCase):
         num_indices=st.integers(1, 32),
         max_num_input_rows=st.integers(1, 32),
         shape=st.lists(st.integers(1, 32), min_size=1, max_size=2),
-        # TODO: Add torch.bfloat16
-        dtype=st.sampled_from([torch.float, torch.half]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         num_groups=st.integers(1, 32),
         use_var_cols=st.booleans(),
@@ -216,7 +215,6 @@ class IndexSelectTest(unittest.TestCase):
                         f"FAILED: group {i} {tensor_type} ({dtype}), "
                         f"input shape {input_group[i].shape}, indices "
                         f"{indices_group[i]}, test {test}, ref {ref}"
-                        f"input {grad_group[i]}"
                     )
             assert (
                 passed
@@ -231,7 +229,7 @@ class IndexSelectTest(unittest.TestCase):
             # pyre-ignore [6]
             [i.grad for i in input_ref_group],
             "gradient",
-            {"rtol": 1e-02, "atol": 1e-02} if dtype != torch.float else {},
+            {"rtol": 1e-02, "atol": 1e-02} if dtype == torch.half else {},
         )
 
     @given(
