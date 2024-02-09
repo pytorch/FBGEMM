@@ -70,8 +70,7 @@ permute_1D_sparse_data_cuda(
     const c10::optional<int64_t>& permuted_lengths_sum) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(indices.get_device());
+  CUDA_DEVICE_GUARD(indices);
 
   const auto permute_contig = permute.contiguous();
   const auto lengths_contig = lengths.contiguous();
@@ -85,7 +84,11 @@ permute_1D_sparse_data_cuda(
 
   if (permuted_lengths_size == 0 || lengths_size == 0) {
     // Permutation will not be performed.  Return the input tensors
-    return {lengths.view({-1}), indices, weights};
+    return {
+        lengths.view({-1}).clone(),
+        indices.clone(),
+        weights.has_value() ? c10::make_optional(weights->clone())
+                            : c10::nullopt};
   }
 
   Tensor permuted_lengths;

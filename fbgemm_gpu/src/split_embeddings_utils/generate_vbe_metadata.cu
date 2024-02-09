@@ -95,6 +95,8 @@ __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
 ///                                    nobag is true.
 /// @param nobag                       A boolean to indicate if TBE is pooled
 ///                                    (false) or sequence (true).
+/// @param max_B_feature_rank          Maximum number of batches for feature
+///                                    ranking
 /// @param info_B_num_bits             The number of bits used to encode a
 ///                                    sample ID. (Used for populating b_t_map).
 /// @param total_B                     The total number of samples (i.e., the
@@ -128,8 +130,7 @@ generate_vbe_metadata(
   TORCH_CHECK(B_offsets_rank_per_feature.size(0) == T);
   TORCH_CHECK(output_offsets_feature_rank.numel() == num_ranks * T + 1);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(B_offsets.get_device());
+  CUDA_DEVICE_GUARD(B_offsets);
 
   Tensor row_output_offsets =
       at::empty({total_B}, output_offsets_feature_rank.options());

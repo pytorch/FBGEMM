@@ -63,6 +63,10 @@ namespace cub = hipcub;
 
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
+#define CUDA_DEVICE_GUARD(TENSOR)           \
+  at::cuda::OptionalCUDAGuard device_guard; \
+  device_guard.set_index(TENSOR.get_device())
+
 // Warp size
 #ifdef USE_ROCM
 static constexpr int32_t kWarpSize = 64;
@@ -924,7 +928,7 @@ DEVICE_INLINE void syncwarp() {
 #endif
 }
 
-/// Warp bitonic K/V sorting code from @jhj
+/// Warp bitonic K/V sorting code
 template <typename T>
 struct Comparator {
   __device__ static inline bool lt(T a, T b) {
@@ -1330,21 +1334,47 @@ template <typename emb_t, typename cache_t, typename dst_t>
 // TODO: pass in dimension info and calculate qparams for rowwise integer
 // quantization
 struct WeightRow {
+  // Constructor for no stochastic rounding
+  DEVICE_INLINE WeightRow(emb_t* row, cache_t* cache_row, int dim)
+      : row_(row),
+        cache_row_(cache_row),
+        dim_(dim),
+        stoc_rounding_state_(nullptr) {}
+
+  // Constructor for stochastic rounding
   DEVICE_INLINE WeightRow(
       emb_t* row,
       cache_t* cache_row,
       int dim,
-      StochasticRoundingRNGState* stoc_rounding_state)
-      : row_(row),
-        cache_row_(cache_row),
-        dim_(dim),
-        stoc_rounding_state_(stoc_rounding_state) {}
+      StochasticRoundingRNGState* stoc_rounding_state,
+      const at::PhiloxCudaState* stochastic_rounding_philox_args,
+      const uint64_t salt_value)
+      : row_(row), cache_row_(cache_row), dim_(dim) {
+    // Set the internal stoc_rounding_state_
+    stoc_rounding_state_ = stoc_rounding_state;
+
+    if constexpr (!std::is_same_v<emb_t, float>) {
+      if (stoc_rounding_state != nullptr) {
+        const auto stochastic_rounding_seeds =
+            at::cuda::philox::unpack(*stochastic_rounding_philox_args);
+
+        stochastic_rounding_init(
+            std::get<0>(stochastic_rounding_seeds) ^
+                std::get<1>(stochastic_rounding_seeds),
+            // The salt value should be different for every *run* and every
+            // *thread*.
+            salt_value,
+            stoc_rounding_state);
+      }
+    }
+  }
+
   emb_t* row_;
   cache_t* cache_row_;
   int dim_;
   StochasticRoundingRNGState* stoc_rounding_state_;
 
-  // load from cache if resident; else load from embedding
+  // Load from cache if resident; else load from embedding
   DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {
     if (cache_row_) {
       return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
@@ -1353,7 +1383,7 @@ struct WeightRow {
     }
   }
 
-  // write back weight (high precision) to cache if resident; else write to
+  // Write back weight (high precision) to cache if resident; else write to
   // embedding assume dst_t is higher precision than cache_t and emb_t
   DEVICE_INLINE void
   store(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
@@ -1364,10 +1394,34 @@ struct WeightRow {
     }
   }
 
-  // evict cached row into embedding row (high prec -> low prec)
-  DEVICE_INLINE void
-  evict(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
-    quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
+  // Copy vector from src_vec to dst_vec (both are float)
+  DEVICE_INLINE void same_type_vector_copy(
+      float* dst_vec,
+      const float* src_vec) {
+    *reinterpret_cast<float4*>(dst_vec) =
+        *reinterpret_cast<const float4*>(src_vec);
+  }
+
+  // Copy vector from src_vec to dst_vec (both are at::Half)
+  DEVICE_INLINE void same_type_vector_copy(
+      at::Half* dst_vec,
+      const at::Half* src_vec) {
+    *reinterpret_cast<float2*>(dst_vec) =
+        *reinterpret_cast<const float2*>(src_vec);
+  }
+
+  // Evict cached row into embedding row (high prec -> low prec)
+  DEVICE_INLINE void evict_cache(const int32_t d, const float2 qparams) {
+    if constexpr (std::is_same_v<emb_t, cache_t>) {
+      // No conversion required when emb_t and cache_t are the same type
+      same_type_vector_copy(
+          reinterpret_cast<cache_t*>(row_ + d),
+          reinterpret_cast<const cache_t*>(cache_row_ + d));
+    } else {
+      // Does 2-step conversion: cache_t -> FP32 -> weight_t
+      const auto cache_slice = load(d, qparams);
+      quantize_store(row_ + d, cache_slice, stoc_rounding_state_, qparams);
+    }
   }
 
   DEVICE_INLINE void store_qparams(const float2 qparams) {
@@ -1382,22 +1436,31 @@ struct WeightRow {
     }
   }
 
-  DEVICE_INLINE void warp_copy_to(
-      WeightRow<emb_t, cache_t, cache_t>& target,
+  DEVICE_INLINE void warp_copy_to_cache(
+      cache_t* dst_row,
       const int32_t dim_length,
       const int32_t num_lanes,
-      const int32_t lane_id) const {
-    // Load quantization params from embedding row
-    const auto qparams = load_qparams();
+      const int32_t lane_id) {
+    if constexpr (std::is_same_v<emb_t, cache_t>) {
+      // No conversion required when emb_t and cache_t are the same type
+      for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+        same_type_vector_copy(
+            dst_row + d, reinterpret_cast<const cache_t*>(row_ + d));
+      }
+    } else {
+      // Load quantization params from embedding row
+      const auto qparams = load_qparams();
 
-    // Copy over for each warp-sized slice of Vec4's
-    for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
-      const auto slice = load(d * 4, qparams);
-      target.store(slice, d * 4, qparams);
+      // Copy over for each warp-sized slice of Vec4's
+      // Does 2-step conversion: weight_t -> FP32 -> cache_t
+      for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+        const auto slice = load(d, qparams);
+        quantize_store(dst_row + d, slice, stoc_rounding_state_, qparams);
+      }
     }
   }
 
-  DEVICE_INLINE void warp_evict(
+  DEVICE_INLINE void warp_evict_cache(
       const int32_t dim_length,
       const int32_t num_lanes,
       const int32_t lane_id) {
@@ -1424,35 +1487,39 @@ struct WeightRow {
       }
     }
 
-    for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
-      // Dequantize-load a slice of the cache row
-      const auto cache_slice = load(d * 4, qparams);
-      // and evict the slice into the embedding row
-      evict(cache_slice, d * 4, qparams); // FP32 -> FP16/FP32
+    for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+      // Evict the slice into the embedding row
+      evict_cache(d, qparams);
+    }
+  }
+};
+
+template <typename emb_t, typename cache_t, typename dst_t, bool uses_cache>
+struct WeightRowAccessor {
+  emb_t* row_;
+  cache_t* cache_row_;
+  int dim_;
+
+  DEVICE_INLINE WeightRowAccessor(
+      emb_t* row,
+      cache_t* cache_row,
+      int dim,
+      StochasticRoundingRNGState* stoc_rounding_state)
+      : row_(row), cache_row_(cache_row), dim_(dim) {}
+
+  DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {
+    if constexpr (uses_cache) {
+      return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
+    } else {
+      return dequantize_load<dst_t, emb_t>(row_ + d, qparams);
     }
   }
 
-  DEVICE_INLINE void set_stochastic_rounding(
-      const bool stochastic_rounding,
-      const at::PhiloxCudaState stochastic_rounding_philox_args,
-      const uint64_t salt_value) {
-    if constexpr (!std::is_same_v<emb_t, float>) {
-      if (stochastic_rounding) {
-        StochasticRoundingRNGState state;
-        const auto stochastic_rounding_seeds =
-            at::cuda::philox::unpack(stochastic_rounding_philox_args);
-
-        stochastic_rounding_init(
-            std::get<0>(stochastic_rounding_seeds) ^
-                std::get<1>(stochastic_rounding_seeds),
-            // The salt value should be different for every *run* and every
-            // *thread*.
-            salt_value,
-            &state);
-
-        // Set the internal stoc_rounding_state_
-        stoc_rounding_state_ = &state;
-      }
+  DEVICE_INLINE float2 load_qparams() const {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
+      return load_qparams_from_row<emb_t>(row_ + dim_);
+    } else {
+      return make_float2(0.0f, 0.0f);
     }
   }
 };
@@ -1621,9 +1688,9 @@ struct __align__(4) __nv_bfloat162 {
 };
 #endif
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 struct __align__(8) bfloat16_4 {
   __host__ __device__ bfloat16_4() {}
   __nv_bfloat162 vals[2];
@@ -1741,9 +1808,9 @@ static DEVICE_INLINE void quantize_float_store(
   *output = input;
 }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 DEVICE_INLINE __nv_bfloat16 to_bfloat16(float v) {
   return __float2bfloat16(v);
 }
@@ -2317,9 +2384,9 @@ struct VecNT<1, PrimitiveType::FP> {
     *reinterpret_cast<__half*>(output_ptr) = val;
   }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 1) {
@@ -2410,9 +2477,9 @@ struct VecNT<2, PrimitiveType::FP> {
     }
   }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 2) {
@@ -2548,9 +2615,9 @@ struct VecNT<4, PrimitiveType::FP> {
     }
   }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 4) {
@@ -2703,9 +2770,9 @@ struct VecNT<4, PrimitiveType::INT> {
     }
   }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 4) {
@@ -2873,9 +2940,9 @@ struct VecNT<8, PrimitiveType::INT> {
     }
   }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 8) {
@@ -3060,9 +3127,9 @@ struct VecNT<16, PrimitiveType::INT> {
     }
   }
 
-#if !(                                                  \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#if defined(USE_ROCM) ||                                  \
+    !(((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+       (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
   DEVICE_INLINE void store(
       at::BFloat16* output_ptr,
       const int num_valid_outputs = 16) {

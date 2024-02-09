@@ -5,12 +5,12 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
 
 import unittest
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from fbgemm_gpu import sparse_ops  # noqa: F401
 from hypothesis import given, settings
 
 try:
@@ -18,11 +18,14 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu
+    from test_utils import cpu_and_maybe_gpu, optests
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
-    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu
+    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, optests
 
 DEFAULT_DEVICE = torch.device("cpu")
 
@@ -119,15 +122,36 @@ class TBEInputPrepareReference(torch.nn.Module):
         if per_sample_weights is not None:
             for i in range(len(self.include_last_offsets)):
                 if per_sample_weights_list[i].size(0) > 0:
-                    per_sample_weights[
-                        offsets_accs[i] : offsets_accs[i + 1]
-                    ] = per_sample_weights_list[i][:]
+                    # fmt: off
+                    per_sample_weights[offsets_accs[i] : offsets_accs[i + 1]] = (
+                        per_sample_weights_list[i][:]
+                    )
+                    # fmt: on
 
         # indices and offsets are required to be int32 for TBE
         return combined_indices, combined_offsets, per_sample_weights
 
 
+# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
+# Please avoid putting tests here, you should put operator-specific
+# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
+# pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add_jagged_output": [
+        # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+}
+
+
+@optests.generate_opcheck_tests(additional_decorators=additional_decorators)
 class InputCombineTest(unittest.TestCase):
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def _get_inputs(self, dtypes, device=DEFAULT_DEVICE):
         indices_list = [
             torch.tensor([1, 2, 3], dtype=dtypes[0], device=device),
@@ -154,6 +178,7 @@ class InputCombineTest(unittest.TestCase):
             include_last_offsets,
         )
 
+    # pyre-fixme[2]: Parameter must be annotated.
     def _run_test(self, dtypes) -> None:
         (
             indices_list,
@@ -191,6 +216,7 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(outputs[1].dtype == torch.int32)
         self.assertTrue(outputs[-1].size(0) == 0)
 
+    # pyre-fixme[2]: Parameter must be annotated.
     def _run_padding_fused_test(self, dtypes, batch_size) -> None:
         (
             indices_list,
@@ -234,8 +260,17 @@ class InputCombineTest(unittest.TestCase):
         self.assertTrue(outputs[1].dtype == torch.int32)
         self.assertTrue(outputs[-1].size(0) == 0)
 
+    # pyre-fixme[3]: Return type must be annotated.
     def _offsets_to_lengths(
-        self, offsets, indices, include_last_offsets, device=DEFAULT_DEVICE
+        self,
+        # pyre-fixme[2]: Parameter must be annotated.
+        offsets,
+        # pyre-fixme[2]: Parameter must be annotated.
+        indices,
+        # pyre-fixme[2]: Parameter must be annotated.
+        include_last_offsets,
+        # pyre-fixme[2]: Parameter must be annotated.
+        device=DEFAULT_DEVICE,
     ):
         if include_last_offsets:
             offsets_complete = offsets
@@ -248,6 +283,7 @@ class InputCombineTest(unittest.TestCase):
             )
         return offsets_complete[1:] - offsets_complete[:-1]
 
+    # pyre-fixme[2]: Parameter must be annotated.
     def _run_test_with_length(self, dtypes, device=DEFAULT_DEVICE) -> None:
         (
             indices_list,
@@ -279,6 +315,7 @@ class InputCombineTest(unittest.TestCase):
         ref_lengths = self._offsets_to_lengths(ref_outputs[1], ref_outputs[0], True)
         self.assertTrue(ref_lengths.allclose(outputs[1]))
 
+    # pyre-fixme[2]: Parameter must be annotated.
     def _run_padding_fused_test_with_length(self, dtypes, batch_size) -> None:
         (
             indices_list,
@@ -322,16 +359,22 @@ class InputCombineTest(unittest.TestCase):
     def test_input_combined_mix(self) -> None:
         self._run_test((torch.int64, torch.int32))
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `test_utils.cpu_and_maybe_gpu()` to decorator factory `hypothesis.given`.
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
     def test_input_combine_int64_with_length(self, device: torch.device) -> None:
         self._run_test_with_length((torch.int64, torch.int64), device=device)
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `test_utils.cpu_and_maybe_gpu()` to decorator factory `hypothesis.given`.
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
     def test_input_combine_int32_with_length(self, device: torch.device) -> None:
         self._run_test_with_length((torch.int32, torch.int32), device=device)
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `test_utils.cpu_and_maybe_gpu()` to decorator factory `hypothesis.given`.
     @given(device=cpu_and_maybe_gpu())
     @settings(deadline=None)
     def test_input_combine_mix_with_length(self, device: torch.device) -> None:

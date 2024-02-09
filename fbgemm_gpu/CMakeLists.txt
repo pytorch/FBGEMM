@@ -182,14 +182,14 @@ set(GPU_ONLY_OPTIMIZERS
   partial_rowwise_adam
   partial_rowwise_lamb
   lars_sgd
-  rowwise_adagrad_with_weight_decay
-  approx_rowwise_adagrad_with_weight_decay
   none)
 
 set(DEPRECATED_OPTIMIZERS
   approx_sgd
   approx_rowwise_adagrad
-  approx_rowwise_adagrad_with_counter)
+  approx_rowwise_adagrad_with_counter
+  approx_rowwise_adagrad_with_weight_decay
+  rowwise_adagrad_with_weight_decay)
 
 set(ALL_OPTIMIZERS
   ${COMMON_OPTIMIZERS}
@@ -204,6 +204,7 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 # Optimizers with the VBE support
 set(VBE_OPTIMIZERS
     rowwise_adagrad
+    rowwise_adagrad_with_counter
     sgd)
 
 # Individual optimizers (not fused with SplitTBE backward)
@@ -227,7 +228,8 @@ set(gen_gpu_kernel_source_files
     "gen_batch_index_select_dim0_backward_codegen_cuda.cu"
     "gen_batch_index_select_dim0_backward_kernel_cta.cu"
     "gen_batch_index_select_dim0_backward_kernel_warp.cu"
-    "gen_embedding_backward_split_grad.cu"
+    "gen_embedding_backward_split_grad_embedding_ops.cu"
+    "gen_embedding_backward_split_grad_index_select.cu"
 )
 
 if(NOT USE_ROCM)
@@ -353,7 +355,6 @@ set(embedding_codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_nobag_small_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_template_helpers.cuh
-    ${CMAKE_CODEGEN_DIR}/embedding_op_registration.h
     ${CMAKE_CODEGEN_DIR}/__init__.template
     ${CMAKE_CODEGEN_DIR}/lookup_args.py
     ${CMAKE_CODEGEN_DIR}/split_embedding_codegen_lookup_invoker.template
@@ -365,6 +366,7 @@ set(embedding_codegen_dependencies
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_inplace_update.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_op_registration.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
@@ -432,10 +434,22 @@ else()
     DEPENDS "${optimizer_codegen_dependencies}")
 endif()
 
+set(AVX2_FLAGS "-mavx2;-mf16c;-mfma;-fopenmp")
+if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+  # NVCC in WSL complains about unknown -mavx options
+  # https://github.com/pytorch/FBGEMM/issues/2135
+  set(AVX2_FLAGS "-Xcompiler;-mavx;-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-fopenmp")
+endif()
+
+set(AVX512_FLAGS "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl;-fopenmp")
+if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+  set(AVX512_FLAGS "-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-Xcompiler;-mavx512f;-Xcompiler;-mavx512bw;-Xcompiler;-mavx512dq;-Xcompiler;-mavx512vl;-fopenmp")
+endif()
+
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${gen_cpu_source_files}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma;-fopenmp")
+    "${AVX2_FLAGS}")
 else()
   set_source_files_properties(${gen_cpu_source_files}
     PROPERTIES COMPILE_OPTIONS
@@ -487,6 +501,7 @@ endif()
 
 set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDM.cc"
+  "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
   "${FBGEMM}/src/QuantUtils.cc"
   "${FBGEMM}/src/RefImplementations.cc"
@@ -504,13 +519,13 @@ set(fbgemm_sources_avx512
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${fbgemm_sources_avx2}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma")
+    "${AVX2_FLAGS}")
 endif()
 
 if(CXX_AVX512_FOUND)
   set_source_files_properties(${fbgemm_sources_avx512}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl")
+    "${AVX512_FLAGS}")
 endif()
 
 set(fbgemm_sources ${fbgemm_sources_normal})
@@ -589,6 +604,7 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/embedding_bounds_check_host.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
+    src/memory_utils/memory_utils_ops_cpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
@@ -618,7 +634,7 @@ endif()
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
     PROPERTIES COMPILE_OPTIONS
-    "-mavx;-mf16c;-mfma;-mavx2;-fopenmp")
+    "${AVX2_FLAGS}")
 else()
   set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
     PROPERTIES COMPILE_OPTIONS

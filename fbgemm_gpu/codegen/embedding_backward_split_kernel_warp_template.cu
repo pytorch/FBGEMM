@@ -8,7 +8,9 @@
 
 // clang-format off
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
-{%- set vbe_desc = "_vbe" if vbe else "" %}
+{%- set ndesc = "_nobag" if nobag else "" %}
+{%- set vdesc = "_vbe" if vbe else "" %}
+
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
@@ -33,7 +35,7 @@ __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
 {%- else %}
-split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1(
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -60,6 +62,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const bool use_uniq_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
@@ -222,10 +226,10 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
               stochastic_rounding,
               stochastic_rounding_philox_args,
               run_id,
+              use_uniq_cache_locations ? (run_id - table_unique_indices_offsets[t_0]) : segment_start,
               D,
               t_0,
               idx,
-              segment_start,
               shfl_sync_mask,
               threadIdx.y * kMaxVecsPerThread * kThreadGroupSize, // shared_weight_offset
               {{ args.split_function_arg_names | join(", ") }});
@@ -268,7 +272,7 @@ template __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 {%- else %}
-split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vbe_desc }}_kernel_warp_per_row_1
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1
 {%- endif %}
 < {{ emb_type }},
   {{ grad_type }},
@@ -301,6 +305,8 @@ split_embedding{{ "_nobag" if nobag else "" }}_backward_codegen_{{ optimizer }}_
     {%- endif %}
     {%- if not dense %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const bool use_uniq_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
     {%- if weighted %}
     const pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,

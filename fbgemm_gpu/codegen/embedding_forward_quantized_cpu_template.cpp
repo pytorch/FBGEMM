@@ -166,20 +166,22 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     }
 
     Tensor output;
-    const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8 || o_dtype == SparseType::BF16);
     bool output_is_bf16 = o_dtype == SparseType::BF16;
+    bool output_is_int8 = o_dtype == SparseType::INT8;
     {% if not nobag %}
+    const int kINT8QparamsBytes = 8;
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
       total_adjusted_D += T * kINT8QparamsBytes;
     }
     output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
     {% else %}
+    const int kINT8QparamsBytes = 4; // no bag int8 output aligns with fbgemm weights storage size and layout
     int64_t adjusted_D = D;
     if (o_dtype == SparseType::INT8) {
-      adjusted_D += T * kINT8QparamsBytes;
+      adjusted_D += kINT8QparamsBytes;
     }
     output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)).pinned_memory(pinned_memory));
 
@@ -200,6 +202,17 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         const float* indice_weights_acc = indice_weights.data_ptr<float>();
         {% endif %}
 
+        using float16 = uint16_t;
+        using bfloat16 = uint16_t;
+        using int8 = uint8_t;
+        using base_fbgemm_out_t = typename std::conditional<
+            std::is_same<output_t, at::Half>::value,
+            float16,
+            std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, std::conditional<std::is_same<output_t, float>::value, float, int8>::type> ::type >::type;
+        using other_fbgemm_out_t = typename std::conditional<
+            std::is_same<output_t, at::Half>::value,
+            float16,
+            std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, float>::type >::type;
         AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_", [&] {
             const auto* indices_acc = indices.data_ptr<index_t>();
             const auto* offsets_acc = offsets.data_ptr<index_t>();
@@ -208,17 +221,16 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
             auto* output_acc = output.data_ptr<output_t>();
             int32_t num_indices_m_1 = indices.numel() - 1;
-
             int32_t D_start_ = 0;
-for (const auto t : c10::irange(T)) {
 
+            for (const auto t : c10::irange(T)) {
                 {% if not nobag %}
                 const auto* D_offsets_acc = D_offsets.data_ptr<int32_t>();
                 const int32_t D_start = D_offsets_acc[t];
                 const int32_t D_end = D_offsets_acc[t + 1];
                 const int32_t D = D_end - D_start;
                 {% else %}
-                const int32_t D_start = offsets_acc[t * B] * D;
+                const int32_t D_start = offsets_acc[t * B] * adjusted_D;
                 {% endif %}
 
                 const auto placement = static_cast<PlacementType>(weights_placements_ptr[t]);
@@ -226,164 +238,113 @@ for (const auto t : c10::irange(T)) {
                 const auto& weight_tensor = (placement == PlacementType::HOST) ? dev_weights : uvm_weights;
                 weights_acc = weight_tensor.data_ptr<uint8_t>();
                 const uint8_t* weights = &weights_acc[weights_offsets_acc[t]];
-                auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
+                const auto weight_ty = static_cast<SparseType>(weights_tys_acc[t]);
+                if (output_is_int8) {
+                    TORCH_CHECK(weight_ty == SparseType::INT8, "int8 output are only supported for int8 weights");
+                }
                 // default to 1 byte alignment for CPU TBE
                 const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
-                size_t num_rows = ((tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t]) / D_bytes;
+                const size_t num_rows = ((tt == T ? weight_tensor.numel() : weights_offsets_acc[tt]) - weights_offsets_acc[t]) / D_bytes;
                 const index_t* offsets_begin_ptr = offsets_acc + t * B;
 
-                using float16 = uint16_t;
-                using bfloat16 = uint16_t;
-                using fbgemm_out_t = typename std::conditional<
-                    std::is_same<output_t, at::Half>::value,
-                    float16,
-                    std::conditional<std::is_same<output_t, at::BFloat16>::value, bfloat16, float>::type >::type;
-
                 bool success = true;
-                bool has_weight = {{ "true" if weighted else "false" }};
-                bool normalize_by_lengths = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
+                const bool has_weight = {{ "true" if weighted else "false" }};
+                const bool normalize_by_lengths = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
 
-                index_t index_size = offsets_acc[(t + 1) * B] - *offsets_begin_ptr;
+                const index_t index_size = offsets_acc[(t + 1) * B] - *offsets_begin_ptr;
+                const int32_t output_stride = {{ "total_D" if not nobag else "adjusted_D" }};
+
+                {% if nobag %}
+                // Create virtual offsets for the nobag case. Lengths are all ones.
+                const auto offsets_nobag = at::arange(*offsets_begin_ptr, offsets_acc[(t + 1) * B] + 1, offsets.options());
+                const index_t* offsets_nobag_ptr = offsets_nobag.data_ptr<index_t>();
+                TORCH_CHECK(offsets_nobag.numel() == index_size + 1);
+                TORCH_CHECK(offsets_nobag_ptr[index_size] - offsets_nobag_ptr[0] == index_size);
+                {% endif %}
+
                 const float* indice_weights_ptr = nullptr;
+                // int8 output only enabled for nobag case with ref impl
+                const bool nobag_op = {{ "false" if not nobag else "output_is_int8" }};
                 {% if weighted %}
                 indice_weights_ptr = indice_weights_acc + *offsets_begin_ptr;
                 {% endif %}
+
+                {% macro generate_and_exec_kernel(weight_type, use_base, use_nbit, use_fp8) %}
+                {% set has_asmjit = use_base or use_nbit %}
+                {% set kernel_name = "GenerateEmbeddingSpMDMWithStrides"
+                    if use_base else ("GenerateEmbeddingSpMDMNBitWithStrides"
+                    if use_nbit else "GenerateEmbeddingSpMDMFP8WithStrides")
+                 %}
+                using fbgemm_out_t = {{ "base_fbgemm_out_t" if use_base else "other_fbgemm_out_t" }};
+                // TODO: merge nobag int8 path with normal asmjit dispatch
+                {% if nobag %}
+                    const index_t* offset_ptr = (output_is_int8)? offsets_begin_ptr: offsets_nobag_ptr;
+                {% else %}
+                    const index_t* offset_ptr = offsets_begin_ptr;
+                {% endif %}
+                const auto kernel = fbgemm::{{ kernel_name }}<
+                    {% if use_base %}
+                    {{ weight_type }},
+                    {% endif %}
+                    index_t,
+                    index_t,
+                    {% if has_asmjit %}
+                    fbgemm_out_t,
+                    /*THREAD_LOCAL=*/true
+                    {% else %}
+                    fbgemm_out_t
+                    {% endif %}
+                >(
+                    {% if use_nbit %}
+                    /*bit_rate=*/bit_rate,
+                    {% endif %}
+                    D,
+                    {% if has_asmjit %}
+                    has_weight,
+                    {% endif %}
+                    normalize_by_lengths,
+                    {% if has_asmjit %}
+                    /*prefetch=*/16,
+                    {% endif %}
+                    /*is_weight_positional=*/false,
+                    /*use_offsets=*/true,
+                    /*output_stride=*/output_stride,
+                    /*input_stride=*/D_bytes / sizeof({{ weight_type }}),
+                    {% if use_fp8 %}
+                    /*exponent_bits=*/fp8_exponent_bits,
+                    /*exponent_bias=*/fp8_exponent_bias,
+                    {% endif %}
+                    {% if has_asmjit %}
+                    /*scale_bias_last=*/false,
+                    {% endif %}
+                    {% if use_base %}
+                    /*no_bag=*/nobag_op,
+                    {% endif %}
+                    /*is_bf16_out=*/output_is_bf16
+                );
+                success = kernel(
+                    {{ "B" if not nobag else "index_size"}},
+                    index_size,
+                    num_rows,
+                    reinterpret_cast<const {{ weight_type }}*>(weights),
+                    indices_acc + *offsets_begin_ptr,
+                    offset_ptr,
+                    indice_weights_ptr,
+                    reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                {% endmacro %}
+
                 if (weight_ty == SparseType::FP32) {
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
-                        D,
-                        has_weight,
-                        normalize_by_lengths,
-                        /*prefetch=*/16,
-                        /*is_weight_positional=*/false,
-                        /*use_offsets=*/true,
-                        {% if not nobag %}
-                        /*output_stride=*/total_D,
-                        {% else %}
-                        /*output_stride=*/D,
-                        {% endif %}
-                        /*input_stride=*/D_bytes / sizeof(float),
-                        {% if not nobag %}
-                        /*scale_bias_last=*/false,
-                        /*no_bag=*/false,
-                        /*is_bf16_out=*/output_is_bf16);
-                        {% else %}
-                        /*scale_bias_last=*/false,
-                        /*no_bag=*/true,
-                        /*is_bf16_out=*/output_is_bf16);
-                        {% endif %}
-                    success = kernel(
-                        {% if not nobag %}
-                        B,
-                        {% else %}
-                        index_size,
-                        {% endif %}
-                        index_size,
-                        num_rows,
-                        reinterpret_cast<const float*>(weights),
-                        indices_acc + *offsets_begin_ptr,
-                        offsets_begin_ptr,
-                        indice_weights_ptr,
-                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                    {{ generate_and_exec_kernel("float", True, False, False) }}
                 } else if (weight_ty == SparseType::FP16) {
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<float16, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
-                        D,
-                        has_weight,
-                        normalize_by_lengths,
-                        /*prefetch=*/16,
-                        /*is_weight_positional=*/false,
-                        /*use_offsets=*/true,
-                        {% if not nobag %}
-                        /*output_stride=*/total_D,
-                        {% else %}
-                        /*output_stride=*/D,
-                        {% endif %}
-                        /*input_stride=*/D_bytes / sizeof(float16),
-                        {% if not nobag %}
-                        /*scale_bias_last=*/false,
-                        /*no_bag=*/false,
-                        /*is_bf16_out=*/output_is_bf16);
-                        {% else %}
-                        /*scale_bias_last=*/false,
-                        /*no_bag=*/true,
-                        /*is_bf16_out=*/output_is_bf16);
-                        {% endif %}
-                    success = kernel(
-                        {% if not nobag %}
-                        B,
-                        {% else %}
-                        index_size,
-                        {% endif %}
-                        index_size,
-                        num_rows,
-                        reinterpret_cast<const float16*>(weights),
-                        indices_acc + *offsets_begin_ptr,
-                        offsets_begin_ptr,
-                        indice_weights_ptr,
-                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                    {{ generate_and_exec_kernel("float16", True, False, False) }}
+                } else if (weight_ty == SparseType::INT8) {
+                    {{ generate_and_exec_kernel("uint8_t", True, False, False) }}
                 } else if (weight_ty == SparseType::FP8) {
                     assert(fp8_exponent_bits > 0 && fp8_exponent_bias > 0);
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMFP8WithStrides<index_t, index_t, fbgemm_out_t>(
-                        D,
-                        normalize_by_lengths,
-                        /*is_weight_positional=*/false,
-                        /*use_offsets=*/true,
-                        {% if not nobag %}
-                        /*output_stride=*/total_D,
-                        {% else %}
-                        /*output_stride=*/D,
-                        {% endif %}
-                        /*input_stride=*/D_bytes / sizeof(uint8_t),
-                        /*exponent_bits=*/fp8_exponent_bits,
-                        /*exponent_bias=*/fp8_exponent_bias,
-                        /*is_bf16_out=*/output_is_bf16);
-                    success = kernel(
-                        B,
-                        index_size,
-                        num_rows,
-                        weights,
-                        indices_acc + *offsets_begin_ptr,
-                        offsets_begin_ptr,
-                        indice_weights_ptr,
-                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
-                } else if (weight_ty == SparseType::INT8) {
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<uint8_t, index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
-                        D,
-                        has_weight,
-                        normalize_by_lengths,
-                        /*prefetch=*/16,
-                        /*is_weight_positional=*/false,
-                        /*use_offsets=*/true,
-                        {% if not nobag %}
-                        /*output_stride=*/total_D,
-                        {% else %}
-                        /*output_stride=*/D,
-                        {% endif %}
-                        /*input_stride=*/D_bytes / sizeof(uint8_t),
-                        {% if not nobag %}
-                        /*scale_bias_last=*/false,
-                        /*no_bag=*/false,
-                        /*is_bf16_out=*/output_is_bf16);
-                        {% else %}
-                        /*scale_bias_last=*/false,
-                        /*no_bag=*/true,
-                        /*is_bf16_out=*/output_is_bf16);
-                        {% endif %}
-                    success = kernel(
-                        {% if not nobag %}
-                        B,
-                        {% else %}
-                        index_size,
-                        {% endif %}
-                        index_size,
-                        num_rows,
-                        weights,
-                        indices_acc + *offsets_begin_ptr,
-                        offsets_begin_ptr,
-                        indice_weights_ptr,
-                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                    {{ generate_and_exec_kernel("uint8_t", False, False, True) }}
                 } else if (weight_ty == SparseType::INT4 || weight_ty == SparseType::INT2) {
                     int bit_rate;
                     switch (weight_ty) {
@@ -394,35 +355,13 @@ for (const auto t : c10::irange(T)) {
                           bit_rate = 2;
                           break;
                         default:
-                          throw std::logic_error("Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
+                          throw std::logic_error(
+                              "Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
                     }
-                    auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<index_t, index_t, fbgemm_out_t, /*THREAD_LOCAL=*/true>(
-                        /*bit_rate=*/bit_rate,
-                        D,
-                        has_weight,
-                        normalize_by_lengths,
-                        /*prefetch=*/16,
-                        /*is_weight_positional=*/false,
-                        /*use_offsets=*/true,
-                        {% if not nobag %}
-                        /*output_stride=*/total_D,
-                        {% else %}
-                        /*output_stride=*/D,
-                        {% endif %}
-                        /*input_stride=*/D_bytes / sizeof(uint8_t),
-                        /*scale_bias_last=*/false,
-                        /*is_bf16_out=*/output_is_bf16);
-                    success = kernel(
-                        B,
-                        index_size,
-                        num_rows,
-                        weights,
-                        indices_acc + *offsets_begin_ptr,
-                        offsets_begin_ptr,
-                        indice_weights_ptr,
-                        reinterpret_cast<fbgemm_out_t*>(output_acc + D_start));
+                    {{ generate_and_exec_kernel("uint8_t", False, True, False) }}
                 } else {
-                    throw std::logic_error("Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
+                    throw std::logic_error(
+                        "Unsupported SparseType: " + std::to_string(static_cast<int>(weight_ty)));
                 }
                 if (!success) {
                     fbgemm_gpu::report_embedding_error(

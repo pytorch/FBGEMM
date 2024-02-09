@@ -306,7 +306,8 @@ void _block_bucketize_sparse_features_cpu(
   const index_t* const block_sizes_data = block_sizes.data_ptr<index_t>();
   offset_t* batch_sizes_data = nullptr;
   const auto variable_batch_size = batch_size_per_feature.has_value();
-  const auto variable_bucket_sizes = block_bucketize_pos.has_value();
+  const auto variable_bucket_sizes = block_bucketize_pos.has_value() &&
+      block_bucketize_pos.value().size() != 0;
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
   std::vector<int64_t> lower_bounds(indices.numel(), 0);
@@ -354,7 +355,7 @@ void _block_bucketize_sparse_features_cpu(
         if (variable_bucket_sizes) {
           int64_t lb = std::upper_bound(
                            bucketize_offset,
-                           bucketize_offset + bucket_size,
+                           bucketize_offset + static_cast<index_t>(bucket_size),
                            indices_data[i]) -
               bucketize_offset - 1;
           lower_bounds[i] = lb;
@@ -1454,6 +1455,107 @@ void cat_reorder_batched_ad_indices_cpu_(
           }
         }
       });
+}
+
+template <typename index_t, typename scalar_t>
+void reorder_batched_sequence_embeddings_cpu_(
+    const Tensor& cat_sequence_embeddings_offsets,
+    const Tensor& cat_sequence_embeddings,
+    const Tensor& reordered_cat_sequence_embeddings_offsets,
+    const Tensor& batch_offsets,
+    const int64_t num_items_in_batch,
+    const int32_t dim,
+    Tensor& output) {
+  const int64_t nB = batch_offsets.numel() - 1;
+  const int64_t nT = (reordered_cat_sequence_embeddings_offsets.numel() - 1) /
+      num_items_in_batch;
+
+  const auto* batch_offsets_data = batch_offsets.data_ptr<index_t>();
+  const auto* cat_sequence_embeddings_offsets_data =
+      cat_sequence_embeddings_offsets.data_ptr<index_t>();
+  const auto* reordered_cat_sequence_embeddings_offsets_data =
+      reordered_cat_sequence_embeddings_offsets.data_ptr<index_t>();
+  const auto* cat_sequence_embeddings_data =
+      cat_sequence_embeddings.data_ptr<scalar_t>();
+  auto* output_data = output.data_ptr<scalar_t>();
+  at::parallel_for(
+      0, nB * nT, FALSE_SHARING_PAD, [&](int64_t tb_begin, int64_t tb_end) {
+        auto b_begin = tb_begin / nT;
+        auto b_end = (tb_end + nT - 1) / nT;
+
+        for (const auto b : c10::irange(b_begin, b_end)) {
+          const auto num_ads_b =
+              batch_offsets_data[b + 1] - batch_offsets_data[b];
+          int64_t t_begin = (b == b_begin) ? tb_begin % nT : 0;
+          int64_t t_end =
+              (b == b_end - 1 && tb_end % nT != 0) ? tb_end % nT : nT;
+          for (const auto t : c10::irange(t_begin, t_end)) {
+            const auto output_segment_offset_start =
+                t * num_items_in_batch + batch_offsets_data[b];
+            const auto output_segment_start =
+                reordered_cat_sequence_embeddings_offsets_data
+                    [output_segment_offset_start] *
+                dim;
+            const int32_t input_segment_offset_start =
+                nT * batch_offsets_data[b] + t * num_ads_b;
+            const int32_t input_segment_offset_end =
+                input_segment_offset_start + num_ads_b;
+            const auto input_segment_start =
+                cat_sequence_embeddings_offsets_data
+                    [input_segment_offset_start] *
+                dim;
+            const auto input_segment_end =
+                cat_sequence_embeddings_offsets_data[input_segment_offset_end] *
+                dim;
+            const auto num_elements = (input_segment_end - input_segment_start);
+
+            for (auto i : c10::irange(num_elements)) {
+              // TODO memcpy once this path is heavily used?
+              output_data[output_segment_start + i] =
+                  cat_sequence_embeddings_data[input_segment_start + i];
+            }
+          }
+        }
+      });
+}
+
+Tensor reorder_batched_sequence_embeddings_cpu(
+    const Tensor& cat_sequence_embeddings_offsets,
+    const Tensor& cat_sequence_embeddings,
+    const Tensor& reordered_cat_sequence_embeddings_offsets,
+    const Tensor& batch_offsets,
+    const int64_t num_items_in_batch) {
+  TENSOR_ON_CPU(cat_sequence_embeddings_offsets);
+  TENSOR_ON_CPU(cat_sequence_embeddings);
+  TENSOR_ON_CPU(reordered_cat_sequence_embeddings_offsets);
+  TENSOR_ON_CPU(batch_offsets);
+  TORCH_CHECK(cat_sequence_embeddings.dim() == 2);
+  // reorder embeddings from (ragged) [B x T x #num_ads_B_{i} x length_{B_{i},
+  // t, a})x D] to [T][B][#num_ads_b][length_{b, t, a}][D], i.e.
+  // [sum(length_{B_{i}, t, a}), D]
+  Tensor reordered_cat_ad_indices = at::empty_like(
+      cat_sequence_embeddings, cat_sequence_embeddings.options());
+
+  AT_DISPATCH_INDEX_TYPES(
+      cat_sequence_embeddings_offsets.scalar_type(),
+      "reorder_batched_sequence_embeddings_cpu_kernel_1",
+      [&] {
+        AT_DISPATCH_ALL_TYPES(
+            cat_sequence_embeddings.scalar_type(),
+            "reorder_eorder_batched_sequence_embeddings_cpu_kernel_2",
+            [&] {
+              reorder_batched_sequence_embeddings_cpu_<index_t, scalar_t>(
+                  cat_sequence_embeddings_offsets,
+                  cat_sequence_embeddings,
+                  reordered_cat_sequence_embeddings_offsets,
+                  batch_offsets,
+                  num_items_in_batch,
+                  cat_sequence_embeddings.size(1),
+                  reordered_cat_ad_indices);
+            });
+      });
+
+  return reordered_cat_ad_indices;
 }
 
 Tensor reorder_batched_ad_indices_cpu(
@@ -2729,12 +2831,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
   m.def(
-      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+      {PT2_COMPLIANT_TAG});
   m.def(
-      "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+      "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+      {PT2_COMPLIANT_TAG});
   m.def("invert_permute(Tensor permute) -> Tensor");
   m.def(
-      "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, SymInt output_size) -> Tensor");
+      "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, SymInt output_size) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
@@ -2748,6 +2853,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "asynchronous_complete_cumsum(Tensor t_in) -> Tensor",
       {PT2_COMPLIANT_TAG});
+  m.def(
+      "reorder_batched_sequence_embeddings(Tensor cat_sequence_embeddings_offsets, Tensor cat_sequence_embeddings, Tensor reordered_cat_sequence_embeddings_offsets, Tensor batch_offsets, SymInt num_items_in_batch) -> Tensor");
   m.def(
       "reorder_batched_ad_lengths(Tensor cat_ad_lengths, Tensor batch_offsets, SymInt num_ads_in_batch, bool broadcast_lengths=False) -> Tensor");
   m.def(
@@ -2765,7 +2872,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "generic_histogram_binning_calibration_by_feature(Tensor logit, Tensor segment_value, Tensor segment_lengths, SymInt num_segments, Tensor bin_num_examples, Tensor bin_num_positives, Tensor bin_boundaries, float positive_weight, SymInt bin_ctr_in_use_after, float bin_ctr_weight_value) -> (Tensor, Tensor)");
   m.def(
-      "segment_sum_csr(SymInt batch_size, Tensor csr_seg, Tensor values) -> Tensor");
+      "segment_sum_csr(SymInt batch_size, Tensor csr_seg, Tensor values) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   m.def(
       "embedding_bag_rowwise_prune(Tensor weight, Tensor indicator, float threshold, ScalarType compressed_indices_dtype, bool abs=True, SymInt min_num_rows=0, float? min_save_ratio=1.0) -> (Tensor, Tensor)");
   m.def("lengths_range(Tensor t_in, SymInt[]? shape=None) -> Tensor");
@@ -2805,7 +2913,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "index_select_dim0(Tensor input, Tensor indices, SymInt? consecutive_range_start=0, SymInt? consecutive_range_length=0, bool? skip_indices_sorting_fwd=None) -> Tensor");
   m.def(
-      "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]");
+      "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]",
+      {PT2_COMPLIANT_TAG});
   // This is an one-off op to be used in split_embedding_utils.py for zipf
   // generation w/o replacement along dim=-1. If requires_unique=True, find
   // smallest unique k.  If the number of unique elements is less than k,
@@ -2816,7 +2925,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "bottom_k_per_row(Tensor input, Tensor k_offsets, bool requires_unique) -> Tensor");
   m.def(
-      "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, SymInt batch_size, Tensor? weights=None) -> Tensor[]");
+      "keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, SymInt batch_size, Tensor? weights=None, SymInt? selected_lengths_sum=None) -> Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -2850,6 +2959,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU(
       "cat_reorder_batched_ad_indices",
       fbgemm_gpu::cat_reorder_batched_ad_indices_cpu);
+  DISPATCH_TO_CPU(
+      "reorder_batched_sequence_embeddings",
+      fbgemm_gpu::reorder_batched_sequence_embeddings_cpu);
   DISPATCH_TO_CPU("offsets_range", fbgemm_gpu::offsets_range_cpu);
   DISPATCH_TO_CPU(
       "batched_unary_embeddings",

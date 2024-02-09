@@ -31,3 +31,5 @@
 #define QUANTIZE_OPS_MIN(a, b) ((a) < (b) ? (a) : (b))
 
 using Tensor = at::Tensor;
+
+/// @defgroup quantize-ops-cuda Quantization Operators (CUDA)

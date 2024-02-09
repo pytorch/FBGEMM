@@ -5,7 +5,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-unsafe
 
 import logging
 import signal
@@ -38,12 +37,20 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
+        )
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
     )
 
 
+# pyre-fixme[2]: Parameter must be annotated.
 def get_gpu_device(gpu_num) -> torch.device:
     return torch.device(f"cuda:{gpu_num}")
 
@@ -53,6 +60,7 @@ def get_gpu_device(gpu_num) -> torch.device:
 # Reference: https://fburl.com/code/5ueyfv5j
 def get_table_batched_offsets_from_dense(
     merged_indices: torch.Tensor,
+    # pyre-fixme[2]: Parameter must be annotated.
     gpu_num,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     (T, B, L) = merged_indices.size()
@@ -95,6 +103,7 @@ def generate_requests(
     return rs
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def _get_random_tensor(
     num_ads: int,
     embedding_dimension: int,
@@ -140,7 +149,9 @@ def _get_random_tensor(
     return result_tensor
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def generate_tbe(
+    # pyre-fixme[2]: Parameter must be annotated.
     batch_indices,
     num_ads: int,
     embedding_dimension: int,
@@ -204,7 +215,14 @@ def generate_tbe(
 
 
 def print_p2p_bandwidth(
-    num_gpus, iters, pooled_ad_embeddings, bytes_per_element
+    # pyre-fixme[2]: Parameter must be annotated.
+    num_gpus,
+    # pyre-fixme[2]: Parameter must be annotated.
+    iters,
+    # pyre-fixme[2]: Parameter must be annotated.
+    pooled_ad_embeddings,
+    # pyre-fixme[2]: Parameter must be annotated.
+    bytes_per_element,
 ) -> None:
     print("Pairwise GPU Copy Bandwidth (GB/s)")
     p2p_copy_bw = np.zeros((num_gpus, num_gpus))
@@ -212,9 +230,11 @@ def print_p2p_bandwidth(
         for j in range(num_gpus):
             with torch.cuda.device(i):
                 t, _ = benchmark_torch_function(
-                    lambda: pooled_ad_embeddings[i].copy_(pooled_ad_embeddings[j])
-                    if i != j
-                    else pooled_ad_embeddings[i].clone(),
+                    lambda: (
+                        pooled_ad_embeddings[i].copy_(pooled_ad_embeddings[j])
+                        if i != j
+                        else pooled_ad_embeddings[i].clone()
+                    ),
                     (),
                     flush_gpu_cache_size_mb=0,
                     iters=iters,
@@ -289,12 +309,23 @@ def benchmark(  # noqa C901
     if p2p_bw:
         print_p2p_bandwidth(num_gpus, iters, pooled_ad_embeddings, bytes_per_element)
 
+    # pyre-fixme[53]: Captured variable `emb` is not annotated.
+    # pyre-fixme[53]: Captured variable `pooled_ad_embeddings` is not annotated.
+    # pyre-fixme[53]: Captured variable `requests` is not annotated.
+    # pyre-fixme[53]: Captured variable `tbe_offset` is not annotated.
+    # pyre-fixme[3]: Return type must be annotated.
     def pool_func_with_quantization(
+        # pyre-fixme[2]: Parameter must be annotated.
         batch_indices,
+        # pyre-fixme[2]: Parameter must be annotated.
         include_quantization,
+        # pyre-fixme[2]: Parameter must be annotated.
         include_tbe,
+        # pyre-fixme[2]: Parameter must be annotated.
         fused_tbe,
+        # pyre-fixme[2]: Parameter must be annotated.
         skip_dequantization,
+        # pyre-fixme[2]: Parameter must be annotated.
         data_type,
     ):
         if include_tbe:
@@ -330,10 +361,12 @@ def benchmark(  # noqa C901
             for t in embedding_results:
                 t_split_by_table = torch.split(t, embedding_dimension, dim=1)
                 quantized_split_by_table = [
-                    torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(t.float())
-                    if data_type == "INT8"
-                    else torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
-                        t.float(), 4
+                    (
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(t.float())
+                        if data_type == "INT8"
+                        else torch.ops.fbgemm.FloatToFusedNBitRowwiseQuantizedSBHalf(
+                            t.float(), 4
+                        )
                     )
                     for t in t_split_by_table
                 ]
@@ -477,7 +510,8 @@ def main(
         "output size (MB), all-to-one BW (GB/s), link BW (GB/s), t (ms)"
     )
     if sweep:
-
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def handler(signum, frame):
             logging.error("timeout")
             raise TimeoutError()

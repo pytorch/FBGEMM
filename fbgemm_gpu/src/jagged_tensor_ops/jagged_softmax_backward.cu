@@ -96,9 +96,7 @@ Tensor jagged_softmax_backward_cuda(
     const Tensor& offsets,
     const int64_t max_L) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(grad_output, output, offsets);
-
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   const auto B = offsets.numel() - 1;
   const auto D = grad_output.size(1);

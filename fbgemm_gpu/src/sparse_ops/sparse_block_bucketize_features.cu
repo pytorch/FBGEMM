@@ -48,13 +48,18 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const offset_t* const __restrict__ offsets_data,
     const index_t* const __restrict__ indices_data,
     offset_t* const __restrict__ new_lengths_data,
-    offset_t* __restrict__ length_to_feature_idx) {
+    offset_t* __restrict__ length_to_feature_idx,
+    const offset_t* const __restrict__ block_bucketize_pos_concat,
+    const offset_t* const __restrict__ block_bucketize_pos_offsets,
+    offset_t* __restrict__ indices_to_lb) {
   using uindex_t = std::make_unsigned_t<index_t>;
   CUDA_KERNEL_LOOP(b_t, lengths_size) {
     const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
     index_t blk_size = block_sizes_data[t];
     offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     offset_t rowend = offsets_data[b_t];
+    const auto use_block_bucketize_pos =
+        (block_bucketize_pos_concat != nullptr);
     for (index_t i = rowstart; i < rowend; ++i) {
       // We have use cases using none-hashed raw indices that can be either
       // negative or larger than embedding table hash_size (blk_size *
@@ -63,7 +68,27 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
       // range of blk_size, we expect the later embedding module to take care
       // of hashing indices calculation.
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
-      uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+      uindex_t p = 0;
+      if (!use_block_bucketize_pos) {
+        p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+      } else {
+        index_t first = block_bucketize_pos_offsets[t];
+        index_t last = block_bucketize_pos_offsets[t + 1];
+
+        while (first < last) {
+          index_t middle = first + ((last - first) / 2);
+          if (static_cast<uindex_t>(block_bucketize_pos_concat[middle]) <=
+              idx) {
+            first = ++middle;
+          } else {
+            last = middle;
+          }
+        }
+        uindex_t lb =
+            static_cast<uindex_t>(first - block_bucketize_pos_offsets[t] - 1);
+        indices_to_lb[i] = lb;
+        p = lb < my_size ? lb : idx % my_size;
+      }
       new_lengths_data[p * lengths_size + b_t]++;
     }
   }
@@ -95,7 +120,10 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     scalar_t* __restrict__ new_weights_data,
     index_t* __restrict__ new_pos_data,
     index_t* const __restrict__ unbucketize_permute_data,
-    const offset_t* const __restrict__ length_to_feature_idx) {
+    const offset_t* const __restrict__ length_to_feature_idx,
+    const offset_t* const __restrict__ block_bucketize_pos_concat,
+    const offset_t* const __restrict__ block_bucketize_pos_offsets,
+    const offset_t* const __restrict__ indices_to_lb) {
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
   CUDA_KERNEL_LOOP(b_t, lengths_size) {
@@ -103,6 +131,8 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     index_t blk_size = block_sizes_data[t];
     offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     offset_t rowend = offsets_data[b_t];
+    const auto use_block_bucketize_pos =
+        (block_bucketize_pos_concat != nullptr);
     for (index_t i = rowstart; i < rowend; ++i) {
       // We have use cases using none-hashed raw indices that can be either
       // negative or larger than embedding table hash_size (blk_size *
@@ -111,9 +141,18 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
       // range of blk_size, we expect the later embedding module to take care
       // of hashing indices calculation.
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
-      uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-      uindex_t new_idx =
-          idx < blk_size * my_size ? idx % blk_size : idx / my_size;
+      uindex_t p = 0;
+      uindex_t new_idx = 0;
+      if (!use_block_bucketize_pos) {
+        p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        new_idx = idx < blk_size * my_size ? idx % blk_size : idx / my_size;
+      } else {
+        uindex_t lb = indices_to_lb[i];
+        p = lb < my_size ? lb : idx % my_size;
+        new_idx = lb < my_size ? idx -
+                block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]]
+                               : idx / my_size;
+      }
       uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
       new_indices_data[pos] = new_idx;
       new_offsets_data[p * lengths_size + b_t]++;
@@ -148,13 +187,11 @@ block_bucketize_sparse_features_cuda(
     const c10::optional<Tensor>& weights,
     const c10::optional<Tensor>& batch_size_per_feature,
     const int64_t max_B,
-    const c10::optional<std::vector<
-        at::Tensor>>& /*block_bucketize_pos*/ // Only used in CPU variant
-) {
+    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(lengths.get_device());
+  CUDA_DEVICE_GUARD(lengths);
+
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto T = block_sizes.numel();
@@ -184,6 +221,7 @@ block_bucketize_sparse_features_cuda(
   }
   auto length_to_feature_idx =
       at::empty({lengths_size}, lengths_contig.options());
+  auto indices_to_lb = at::empty_like(indices);
   if (batch_size_per_feature.has_value()) {
     constexpr auto threads_per_block = 256;
     const auto num_blocks =
@@ -207,6 +245,27 @@ block_bucketize_sparse_features_cuda(
         });
   }
 
+  at::Tensor block_bucketize_pos_concat =
+      at::empty({1}, lengths_contig.options());
+  at::Tensor block_bucketize_pos_offsets =
+      at::empty({1}, lengths_contig.options());
+
+  if (block_bucketize_pos.has_value()) {
+    block_bucketize_pos_concat = at::cat(block_bucketize_pos.value(), 0);
+    std::vector<int64_t> sizes_;
+    sizes_.reserve(block_bucketize_pos.value().size() + 1);
+    for (auto const& t : block_bucketize_pos.value()) {
+      sizes_.push_back(t.numel());
+    }
+    sizes_.push_back(0);
+    at::Tensor sizes_vec =
+        at::tensor(sizes_, at::TensorOptions().dtype(lengths_contig.dtype()));
+    block_bucketize_pos_offsets = asynchronous_exclusive_cumsum_cpu(
+        sizes_vec); // expect sizes_vec to be a small tensor, using cpu instead
+                    // of gpu for cumsum
+    block_bucketize_pos_offsets = block_bucketize_pos_offsets.to(
+        block_bucketize_pos_concat.device(), true);
+  }
   constexpr auto threads_per_block = 256;
   const auto num_blocks =
       cuda_calc_xblock_count(lengths_size, threads_per_block);
@@ -233,6 +292,15 @@ block_bucketize_sparse_features_cuda(
                   new_lengths.data_ptr<offset_t>(),
                   batch_size_per_feature.has_value()
                       ? length_to_feature_idx.data_ptr<offset_t>()
+                      : static_cast<offset_t*>(nullptr),
+                  block_bucketize_pos.has_value()
+                      ? block_bucketize_pos_concat.data_ptr<offset_t>()
+                      : static_cast<offset_t*>(nullptr),
+                  block_bucketize_pos.has_value()
+                      ? block_bucketize_pos_offsets.data_ptr<offset_t>()
+                      : static_cast<offset_t*>(nullptr),
+                  block_bucketize_pos.has_value()
+                      ? indices_to_lb.data_ptr<offset_t>()
                       : static_cast<offset_t*>(nullptr));
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
@@ -286,6 +354,17 @@ block_bucketize_sparse_features_cuda(
                                 unbucketize_permute.data_ptr<index_t>(),
                                 batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_concat
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_offsets
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? indices_to_lb.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
@@ -333,6 +412,17 @@ block_bucketize_sparse_features_cuda(
                                 unbucketize_permute.data_ptr<index_t>(),
                                 batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_concat
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_offsets
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? indices_to_lb.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
@@ -374,6 +464,15 @@ block_bucketize_sparse_features_cuda(
                           unbucketize_permute.data_ptr<index_t>(),
                           batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_concat.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_offsets.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? indices_to_lb.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
@@ -413,6 +512,15 @@ block_bucketize_sparse_features_cuda(
                           unbucketize_permute.data_ptr<index_t>(),
                           batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_concat.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_offsets.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? indices_to_lb.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
@@ -462,6 +570,17 @@ block_bucketize_sparse_features_cuda(
                                 nullptr,
                                 batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_concat
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_offsets
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? indices_to_lb.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
@@ -509,6 +628,17 @@ block_bucketize_sparse_features_cuda(
                                 nullptr,
                                 batch_size_per_feature.has_value()
                                     ? length_to_feature_idx.data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_concat
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? block_bucketize_pos_offsets
+                                          .data_ptr<offset_t>()
+                                    : static_cast<offset_t*>(nullptr),
+                                block_bucketize_pos.has_value()
+                                    ? indices_to_lb.data_ptr<offset_t>()
                                     : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
@@ -550,6 +680,15 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_concat.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_offsets.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? indices_to_lb.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
@@ -589,6 +728,15 @@ block_bucketize_sparse_features_cuda(
                           nullptr,
                           batch_size_per_feature.has_value()
                               ? length_to_feature_idx.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_concat.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? block_bucketize_pos_offsets.data_ptr<offset_t>()
+                              : static_cast<offset_t*>(nullptr),
+                          block_bucketize_pos.has_value()
+                              ? indices_to_lb.data_ptr<offset_t>()
                               : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });

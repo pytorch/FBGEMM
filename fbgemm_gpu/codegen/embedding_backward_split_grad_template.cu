@@ -12,7 +12,15 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using Tensor = at::Tensor;
+
 using namespace fbgemm_gpu;
+
+{% if is_index_select %}
+namespace index_select {
+{% else %}
+namespace embedding_ops {
+{% endif %}
+
 
 __global__ __launch_bounds__(kMaxThreads) void
 split_embedding_backward_codegen_find_long_segments(
@@ -57,10 +65,83 @@ split_embedding_backward_codegen_find_long_segments(
   }
 }
 
+template <typename info_pta_t, typename info_t, bool nobag>
+__global__ __launch_bounds__(kMaxThreads)
+void split_embedding_backward_count_unique_indices_kernel(
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_num_runs,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_cumulative_run_lengths,
+    const pta::PackedTensorAccessor32<info_pta_t, 1, at::RestrictPtrTraits>
+        sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        weights_placements,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        dev_or_uvm_unique_indices,
+    const int info_B_num_bits
+) {
+  const int32_t num_runs = sorted_linear_indices_num_runs[0];
+  const auto T = weights_placements.size(0);
+  for (auto run_id = blockIdx.x * blockDim.x + threadIdx.x;
+       run_id < num_runs;
+       run_id += blockDim.x * gridDim.x) {
+    // Obtain the associated table id of the run id
+    const auto segment_start = sorted_linear_indices_cumulative_run_lengths[run_id];
+    const auto info = reinterpret_cast<const info_t*>(&sorted_infos[0])[segment_start];
+    const auto t = nobag ? (info % T) : (info >> info_B_num_bits);
+
+    int32_t t_next = -1;
+    const auto unique_count_offset = run_id + 1;
+    if (unique_count_offset < num_runs) {
+      const auto segment_start_next = sorted_linear_indices_cumulative_run_lengths[unique_count_offset];
+      const auto info_next = reinterpret_cast<const info_t*>(&sorted_infos[0])[segment_start_next];
+      t_next = nobag ? (info_next % T) : (info_next >> info_B_num_bits);
+    }
+
+    if (t != t_next) {
+      const auto placement = static_cast<PlacementType>(weights_placements[t]);
+      if (placement != PlacementType::MANAGED_CACHING) {
+        // Record num unique indices for PlacementType::DEVICE from unique_count_offset
+        gpuAtomicAdd(&dev_or_uvm_unique_indices[t], unique_count_offset);
+      }
+      if (t_next != -1) {
+        const auto placement_next = static_cast<PlacementType>(weights_placements[t_next]);
+        if (placement_next != PlacementType::MANAGED_CACHING) {
+          // Record num unique indices for PlacementType::DEVICE from unique_count_offset
+          gpuAtomicAdd(&dev_or_uvm_unique_indices[t_next], -unique_count_offset);
+        }
+      }
+    }
+  }
+}
+
+{% for nobag in [True, False] %}
+{% set info_pta_t = "int64_t" if nobag else "int32_t" %}
+template __global__ __launch_bounds__(kMaxThreads)
+void split_embedding_backward_count_unique_indices_kernel
+<
+  {{ info_pta_t }},
+  {{ "int64_t" if nobag else "uint32_t" }},
+  {{ "true" if nobag else "false" }}
+> (
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_num_runs,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        sorted_linear_indices_cumulative_run_lengths,
+    const pta::PackedTensorAccessor32<{{ info_pta_t }}, 1, at::RestrictPtrTraits>
+        sorted_infos,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        weights_placements,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        dev_or_uvm_unique_indices,
+    const int info_B_num_bits
+);
+{% endfor %}
+
 {% for vbe in [True, False] %}
-{% set vbe_desc = "_vbe" if vbe else "" %}
+{% set vdesc = "_vbe" if vbe else "" %}
 template <typename grad_t>
-__global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
+__global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
     pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean,
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
@@ -78,7 +159,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
 ) {
   int32_t T = D_offsets.size(0) - 1;
   int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
-  int32_t b;
+  [[maybe_unused]] int32_t b;
   int32_t t;
   const auto total_B = offsets.size(0) - 1;
 
@@ -132,7 +213,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vbe_desc }}_kernel(
 
 {% for grad_type in ['at::Half', 'float'] %}
 template __global__ __launch_bounds__(kMaxThreads)
-void grad_mean{{ vbe_desc }}_kernel
+void grad_mean{{ vdesc }}_kernel
 <{{ grad_type }}> (
     pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output_mean,
@@ -151,5 +232,7 @@ void grad_mean{{ vbe_desc }}_kernel
 );
 {% endfor %} // for grad_type in ['at::Half', 'float']
 {% endfor %} // for vbe in [True, False]
+
+}
 
 // clang-format on

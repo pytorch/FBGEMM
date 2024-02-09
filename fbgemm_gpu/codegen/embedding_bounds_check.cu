@@ -190,8 +190,7 @@ void bounds_check_indices_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       rows_per_table, indices, offsets, warning, weights, B_offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(rows_per_table.get_device());
+  CUDA_DEVICE_GUARD(rows_per_table);
 
   const int32_t T = rows_per_table.size(0);
   const int32_t total_B = offsets.size(0) - 1;

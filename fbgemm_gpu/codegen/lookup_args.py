@@ -38,9 +38,12 @@ class CommonArgs(NamedTuple):
     indice_weights: Optional[torch.Tensor]
     feature_requires_grad: Optional[torch.Tensor]
     lxu_cache_locations: torch.Tensor
+    uvm_cache_stats: Optional[torch.Tensor]
     output_dtype: int
     vbe_metadata: VBEMetadata
     is_experimental: bool
+    use_uniq_cache_locations_bwd: bool
+    use_homogeneous_placements: bool
 
 
 class OptimizerArgs(NamedTuple):
@@ -63,6 +66,9 @@ class OptimizerArgs(NamedTuple):
     tail_id_threshold: float
     is_tail_id_thresh_ratio: int
     total_hash_size: int  # Required for OptimType.NONE
+    weight_norm_coefficient: float
+    lower_bound: float
+    regularization_mode: int
 
 
 class Momentum(NamedTuple):

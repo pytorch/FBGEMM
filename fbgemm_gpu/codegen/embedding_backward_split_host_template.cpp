@@ -12,6 +12,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
@@ -52,6 +53,7 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
     const Tensor& indice_weights,
     {%- endif %}
     const Tensor& lxu_cache_locations,
+    const Tensor& uvm_cache_stats,
     const int64_t output_dtype,
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
@@ -98,6 +100,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
     {%- endif %}
+    const bool use_uniq_cache_locations,
+    const bool use_homogeneous_placements,
     {{ args.split_function_args | join(", ") }});
 
 {%- endfor %} {#-/*for nobag*/#}
@@ -163,6 +167,7 @@ class {{ autograd_func }} :
     const c10::optional<Tensor>& feature_requires_grad,
     {%- endif %}
     const Tensor& lxu_cache_locations,
+    c10::optional<Tensor> uvm_cache_stats,
     {%- if optimizer != "none" %}
     const bool gradient_clipping,
     const double max_gradient,
@@ -177,6 +182,8 @@ class {{ autograd_func }} :
     const int64_t vbe_output_size,
     {%- endif %}
     const bool is_experimental,
+    const bool use_uniq_cache_locations_bwd,
+    const bool use_homogeneous_placements,
     {{ args.split_function_args | join(", ") }}) {
 
     const auto T = weights_offsets.sym_numel();
@@ -189,6 +196,11 @@ class {{ autograd_func }} :
     {%- else %}
     const auto max_B_ = offsets.sym_size(0) / T;
     {%- endif %}
+
+    // NOTE: The `local_uvm_cache_stats` variable held by the nn.Module has dtype int32_t
+    // TODO: Hook up with frontend code
+    const auto uvm_cache_stats_ = uvm_cache_stats
+      .value_or(at::empty({0}, uvm_weights.options().dtype(at::kInt)));
 
     // TODO: don't guard here
     auto [info_B_num_bits, info_B_mask] = adjust_info_B_num_bits(max_B_.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
@@ -263,6 +275,8 @@ class {{ autograd_func }} :
     ctx->saved_data["info_B_num_bits"] = info_B_num_bits;
     const auto info_B_mask_int64 = static_cast<int64_t>(info_B_mask);
     ctx->saved_data["info_B_mask"] = info_B_mask_int64;
+    ctx->saved_data["use_uniq_cache_locations_bwd"] = use_uniq_cache_locations_bwd;
+    ctx->saved_data["use_homogeneous_placements"] = use_homogeneous_placements;
 
     {%- for (var, _) in args.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
@@ -309,6 +323,7 @@ class {{ autograd_func }} :
             *indice_weights,
             {%- endif %}
             lxu_cache_locations,
+            uvm_cache_stats_,
             output_dtype,
             {%- if vbe %}
             vbe_row_output_offsets,
@@ -339,6 +354,7 @@ class {{ autograd_func }} :
         indices,
         offsets,
         lxu_cache_locations,
+        uvm_cache_stats_,
         output_dtype,
         /*is_experimental=*/false
       )
@@ -392,6 +408,10 @@ class {{ autograd_func }} :
     {%- endif %} {#-/* if optimizer != "none" */#}
     const int32_t info_B_num_bits = ctx->saved_data["info_B_num_bits"].toInt();
     const int64_t info_B_mask_int64 = ctx->saved_data["info_B_mask"].toInt();
+    const auto use_uniq_cache_locations_bwd =
+      ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
+    const auto use_homogeneous_placements =
+      ctx->saved_data["use_homogeneous_placements"].toBool();
 
     {%- for (var, ivalue_cast) in args.saved_data %}
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
@@ -510,6 +530,8 @@ class {{ autograd_func }} :
           vbe_row_output_offsets,
           vbe_b_t_map,
           {%- endif %}
+          use_uniq_cache_locations_bwd,
+          use_homogeneous_placements,
           {{ args.split_function_arg_names | join(", ") }}
       ) {{ ":" if not weighted else ";" }}
       {%- endfor %} {#-/* for weighted in [False, True] */#}
@@ -532,6 +554,7 @@ class {{ autograd_func }} :
         grad_indice_weights, // indice_weights
         Variable(), // feature_requires_grad
         Variable(), // lxu_cache_locations
+        Variable(), // uvm_cache_stats
         {%- if optimizer != "none" %}
         Variable(), // gradient_clipping
         Variable(), // max_gradient
@@ -546,6 +569,8 @@ class {{ autograd_func }} :
         Variable(), // vbe_output_size
         {%- endif %}
         Variable(), // is_experimental
+        Variable(), // use_uniq_cache_locations_bwd
+        Variable(), // use_homogeneous_placements
         {{ args.split_variables | join(", ") }}
     };
     {%- else %}
@@ -585,6 +610,8 @@ class {{ autograd_func }} :
         vbe_row_output_offsets,
         vbe_b_t_map,
         {%- endif %}
+        use_uniq_cache_locations_bwd,
+        use_homogeneous_placements,
         {{ args.split_function_arg_names | join(", ") }}
     );
     return {
@@ -601,6 +628,7 @@ class {{ autograd_func }} :
         Variable(), // indices
         Variable(), // offsets
         Variable(), // lxu_cache_locations
+        Variable(), // uvm_cache_stats
         {%- if optimizer != "none" %}
         Variable(), // gradient_clipping
         Variable(), // max_gradient
@@ -615,6 +643,8 @@ class {{ autograd_func }} :
         Variable(), // vbe_output_size
         {%- endif %}
         Variable(), // is_experimental
+        Variable(), // use_uniq_cache_locations_bwd
+        Variable(), // use_homogeneous_placements
         {{ args.split_variables | join(", ") }}
     };
     {%- endif %}
@@ -657,7 +687,10 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const int64_t max_B = -1,
     const int64_t max_B_feature_rank = -1,
     const int64_t vbe_output_size = -1,
-    const bool is_experimental = false
+    const bool is_experimental = false,
+    const bool use_uniq_cache_locations_bwd = false,
+    const bool use_homogeneous_placements = false,
+    const c10::optional<Tensor>& uvm_cache_stats = c10::optional<Tensor>()
 ) {
   {%- if has_gpu_support %}
   {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
@@ -707,6 +740,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           feature_requires_grad,
           {%- endif %}
           lxu_cache_locations,
+          uvm_cache_stats,
           {%- if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
@@ -721,6 +755,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           vbe_output_size,
           {%- endif %}
           is_experimental,
+          use_uniq_cache_locations_bwd,
+          use_homogeneous_placements,
           {{ args.split_function_arg_names | join(", ") }})[0];
     }
     {%- endfor %} {#-/* for nobag */#}
@@ -767,7 +803,12 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    int max_B=-1, "
           "    int max_B_feature_rank=-1, "
           "    int vbe_output_size=-1, "
-          "    bool is_experimental=False) -> Tensor");
+          "    bool is_experimental=False, "
+          "    bool use_uniq_cache_locations_bwd=False, "
+          "    bool use_homogeneous_placements=False, "
+          "    Tensor? uvm_cache_stats=None"
+          ") -> Tensor",
+          {PT2_COMPLIANT_TAG});
     // We're playing a funny trick here: we're using the autograd
     // implementation of the operator at all the dispatch keys.  This is OK
     // because autograd.Function works even in a context where there is

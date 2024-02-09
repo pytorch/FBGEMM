@@ -1,6 +1,10 @@
 [build]
   base = "fbgemm_gpu/docs"
 
+  # Unconditionally rebuild the docs
+  # https://docs.netlify.com/configure-builds/ignore-builds/
+  ignore = "/bin/false"
+
 [context.deploy-preview]
   publish = "build/html"
   command = """
@@ -9,21 +13,21 @@
     . ../../.github/scripts/setup_env.bash
 
     # Set up Conda environment
-    setup_miniconda           $HOME/miniconda
-    create_conda_environment  $BUILD_ENV 3.11
+    setup_miniconda             $HOME/miniconda
+    create_conda_environment    $BUILD_ENV 3.12
 
     # Install tools
-    install_cxx_compiler      $BUILD_ENV
-    install_build_tools       $BUILD_ENV
-    install_docs_tools        $BUILD_ENV
-    install_pytorch_pip       $BUILD_ENV nightly cpu
+    install_cxx_compiler        $BUILD_ENV
+    install_build_tools         $BUILD_ENV
+    install_docs_tools          $BUILD_ENV
+    install_pytorch_pip         $BUILD_ENV nightly cpu
 
     # Build the code
     cd ..
-    prepare_fbgemm_gpu_build  $BUILD_ENV
-    build_fbgemm_gpu_install  $BUILD_ENV cpu
+    prepare_fbgemm_gpu_build    $BUILD_ENV
+    build_fbgemm_gpu_install    $BUILD_ENV cpu
 
     # Build the docs
     cd docs
-    build_fbgemm_gpu_docs     $BUILD_ENV
+    build_fbgemm_gpu_docs       $BUILD_ENV
     """

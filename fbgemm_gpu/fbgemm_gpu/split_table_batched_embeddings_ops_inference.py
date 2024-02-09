@@ -30,9 +30,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 
 try:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
-    )
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
+        )
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
     )
@@ -95,8 +100,8 @@ def nbit_construct_split_state(
             placements.append(EmbeddingLocation.HOST)
             offsets.append(host_size)
             host_size += state_size
-        elif location == EmbeddingLocation.DEVICE:
-            placements.append(EmbeddingLocation.DEVICE)
+        elif location == EmbeddingLocation.DEVICE or location == EmbeddingLocation.MTIA:
+            placements.append(location)
             offsets.append(dev_size)
             dev_size += state_size
         else:
@@ -505,10 +510,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.lxu_cache_weights.numel():
             return
 
-        # FIXME: check the int32_t range failure in https://fburl.com/gdoc/kcdnrnvg .
-        # The real failure should be in cache handling in https://fburl.com/ox3f26r0 .
-        indices, offsets = indices.long(), offsets.long()
-
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             indices,
@@ -755,9 +756,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
-        if self.timestep_prefetch_size.get() <= 0:
-            self.prefetch(indices, offsets)
-        self.timestep_prefetch_size.decrement()
+        if self.lxu_cache_weights.numel() > 0:
+            if self.timestep_prefetch_size.get() <= 0:
+                self.prefetch(indices, offsets)
+            self.timestep_prefetch_size.decrement()
 
         lxu_cache_locations = self.lxu_cache_locations_list.pop()
 
@@ -843,26 +845,36 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def reset_weights_placements_and_offsets(
         self, device: torch.device, location: int
     ) -> None:
-        # Reset device/location denoted in embedding specs
-        self.reset_embedding_spec_location(device, location)
-        # Initialize all physical/logical weights placements and offsets without initializing large dev weights tensor
-        self.initialize_physical_weights_placements_and_offsets()
-        self.initialize_logical_weights_placements_and_offsets()
-
-    def reset_embedding_spec_location(
-        self, device: torch.device, location: int
-    ) -> None:
         # Overwrite location in embedding_specs with new location
         # Use map since can't script enum call (ie. EmbeddingLocation(value))
         INT_TO_EMBEDDING_LOCATION = {
-            0: EmbeddingLocation.DEVICE,
-            1: EmbeddingLocation.MANAGED,
-            2: EmbeddingLocation.MANAGED_CACHING,
-            3: EmbeddingLocation.HOST,
+            EmbeddingLocation.DEVICE.value: EmbeddingLocation.DEVICE,
+            EmbeddingLocation.MANAGED.value: EmbeddingLocation.MANAGED,
+            EmbeddingLocation.MANAGED_CACHING.value: EmbeddingLocation.MANAGED_CACHING,
+            EmbeddingLocation.HOST.value: EmbeddingLocation.HOST,
+            EmbeddingLocation.MTIA.value: EmbeddingLocation.MTIA,
         }
+        # Reset device/location denoted in embedding specs
         target_location = INT_TO_EMBEDDING_LOCATION[location]
+        if target_location == EmbeddingLocation.MTIA:
+            self.scale_bias_size_in_bytes = 8
+        self.reset_embedding_spec_location(device, target_location)
+        # Initialize all physical/logical weights placements and offsets without initializing large dev weights tensor
+        self.initialize_physical_weights_placements_and_offsets(
+            cacheline_alignment=target_location != EmbeddingLocation.MTIA
+        )
+        self.initialize_logical_weights_placements_and_offsets()
+
+    def reset_embedding_spec_location(
+        self, device: torch.device, target_location: EmbeddingLocation
+    ) -> None:
         self.current_device = device
-        self.row_alignment = 1 if target_location == EmbeddingLocation.HOST else 16
+        self.row_alignment = (
+            1
+            if target_location == EmbeddingLocation.HOST
+            or target_location == EmbeddingLocation.MTIA
+            else 16
+        )
         self.embedding_specs = [
             (spec[0], spec[1], spec[2], spec[3], target_location)
             for spec in self.embedding_specs
@@ -935,7 +947,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ], "Only 1-way or 32-way(64-way for AMD) implmeneted for now"
 
         self.cache_algorithm = cache_algorithm
+        # pyre-ignore[16]
         self.timestep_counter = torch.classes.fbgemm.AtomicCounter()
+        # pyre-ignore[16]
         self.timestep_prefetch_size = torch.classes.fbgemm.AtomicCounter()
 
         self.max_prefetch_depth = MAX_PREFETCH_DEPTH
@@ -947,6 +961,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_locations_empty = torch.empty(
                 0, device=self.current_device, dtype=torch.int32
             ).fill_(-1)
+        # pyre-ignore[16]
         self.lxu_cache_locations_list = torch.classes.fbgemm.TensorQueue(
             lxu_cache_locations_empty
         )
@@ -1088,9 +1103,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "lxu_state",
             torch.zeros(
-                size=(self.total_cache_hash_size + 1,)
-                if cache_algorithm == CacheAlgorithm.LFU
-                else (cache_sets, self.cache_assoc),
+                size=(
+                    (self.total_cache_hash_size + 1,)
+                    if cache_algorithm == CacheAlgorithm.LFU
+                    else (cache_sets, self.cache_assoc)
+                ),
                 device=self.current_device,
                 dtype=torch.int64,
             ),
@@ -1165,7 +1182,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = []
         for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
             placement = self.weights_physical_placements[t]
-            if placement == EmbeddingLocation.DEVICE.value:
+            if (
+                placement == EmbeddingLocation.DEVICE.value
+                or placement == EmbeddingLocation.MTIA.value
+            ):
                 weights = self.weights_dev
             elif placement == EmbeddingLocation.HOST.value:
                 weights = self.weights_host
@@ -1279,7 +1299,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def split_embedding_weights(
         self,
-        split_scale_shifts: bool = True
+        split_scale_shifts: bool = True,
         # When true, return list of two tensors, the first with weights and
         # the second with scale_bias.
         # This should've been named as split_scale_bias.
@@ -1288,11 +1308,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Returns a list of weights, split by table
         """
-        splits: List[
-            Tuple[Tensor, Optional[Tensor], Optional[Tensor]]
-        ] = self.split_embedding_weights_with_scale_bias(
-            split_scale_bias_mode=(1 if split_scale_shifts else 0)
+        # fmt: off
+        splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = (
+            self.split_embedding_weights_with_scale_bias(
+                split_scale_bias_mode=(1 if split_scale_shifts else 0)
+            )
         )
+        # fmt: on
         return [
             (split_weight_scale_bias[0], split_weight_scale_bias[1])
             for split_weight_scale_bias in splits
@@ -1396,9 +1418,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Hash mapping pruning
         if not use_array_for_index_remapping:
             capacities = [
-                round_up(int(row * 1.0 / pruning_hash_load_factor), 32)
-                if index_remap is not None
-                else 0
+                (
+                    round_up(int(row * 1.0 / pruning_hash_load_factor), 32)
+                    if index_remap is not None
+                    else 0
+                )
                 for (index_remap, row) in zip(index_remapping, rows)
             ]
             hash_table = torch.empty(
@@ -1430,6 +1454,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             if self.use_cpu:
                 self.index_remapping_hash_table_cpu = (
+                    # pyre-ignore[16]
                     torch.classes.fbgemm.PrunedMapCPU()
                 )
                 self.index_remapping_hash_table_cpu.insert(

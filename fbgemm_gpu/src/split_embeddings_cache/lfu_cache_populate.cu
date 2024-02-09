@@ -116,21 +116,19 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
         if constexpr (std::is_same_v<emb_t, uint8_t>) {
           D_emb += kINT8QparamsBytes;
         }
+        StochasticRoundingRNGState state;
         auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
             &weights[weights_offset_current + idx_current * D_emb + 0],
             &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
             D_current,
-            nullptr);
-
-        weight_row.set_stochastic_rounding(
-            stochastic_rounding,
-            stochastic_rounding_philox_args,
+            stochastic_rounding ? &state : nullptr,
+            &stochastic_rounding_philox_args,
             (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
              threadIdx.x) *
                     kWarpSize +
                 l);
 
-        weight_row.warp_evict(D_current, blockDim.x, threadIdx.x);
+        weight_row.warp_evict_cache(D_current, blockDim.x, threadIdx.x);
       }
 
       // insert into cache
@@ -139,20 +137,16 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
         D_emb += kINT8QparamsBytes;
       }
 
-      auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-          &weights[weights_offset_insert + idx_insert * D_emb + 0],
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-          D_insert,
-          nullptr);
-
       auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
           &weights[weights_offset_insert + idx_insert * D_emb + 0],
           nullptr,
-          D_insert,
-          nullptr);
+          D_insert);
 
-      weight_row_emb.warp_copy_to(
-          weight_row_cache, D_insert, blockDim.x, threadIdx.x);
+      weight_row_emb.warp_copy_to_cache(
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+          D_insert,
+          blockDim.x,
+          threadIdx.x);
 
       if (threadIdx.x == 0) {
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
@@ -187,8 +181,7 @@ void lfu_cache_insert_cuda(
       lxu_cache_weights,
       lfu_state);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   const int32_t N = cache_set_sorted_unique_indices.numel();
 
@@ -197,8 +190,14 @@ void lfu_cache_insert_cuda(
       lxu_cache_weights.scalar_type(),
       "lfu_cache_insert_kernel_2",
       ([&] {
+        // Stochastic rounding is required only when emb_t and cache_t are
+        // not the same type and emb_t is not float
+        const bool stochastic_rounding_ = stochastic_rounding &&
+            !std::is_same<emb_t, float>::value &&
+            !std::is_same<emb_t, cache_t>::value;
+
         at::PhiloxCudaState rng_engine_inputs;
-        if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
+        if (stochastic_rounding_) {
           auto gen = at::cuda::detail::getDefaultCUDAGenerator();
           std::lock_guard<std::mutex> lock(gen.mutex());
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
@@ -231,7 +230,7 @@ void lfu_cache_insert_cuda(
                 MAKE_PTA_WITH_NAME(
                     func_name, lxu_cache_weights, cache_t, 2, 64),
                 MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64),
-                stochastic_rounding,
+                stochastic_rounding_,
                 rng_engine_inputs);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
@@ -262,8 +261,7 @@ DLL_PUBLIC void lfu_cache_populate_cuda(
       lxu_cache_weights,
       lfu_state);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(weights.get_device());
+  CUDA_DEVICE_GUARD(weights);
 
   TORCH_CHECK(
       linear_cache_indices.numel() < std::numeric_limits<int32_t>::max());

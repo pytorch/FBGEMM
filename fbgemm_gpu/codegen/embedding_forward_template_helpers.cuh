@@ -42,6 +42,21 @@
 constexpr int32_t kCacheLocationMissing = -1;
 constexpr size_t kForwardMaxThreads = 512;
 
+namespace fbgemm_gpu {
+
+enum cache_conflict_miss_rate {
+  // Cache conflict misses will sometimes occur
+  mixed = 0,
+  // Cache conflict misses will always occur, i.e. every weight row to be
+  // accessed is NOT in the cache
+  all = 1,
+  // Cache conflict misses will never occur, i.e. every weight row to be
+  // accessed IS in the cache
+  zero = 2,
+};
+
+} // namespace fbgemm_gpu
+
 namespace nbit {
 // "Effective" number of elements in the row when we include the row-wise
 // quantization parameters.
@@ -130,7 +145,7 @@ __device__ __forceinline__ void cp_async_fence() {
 
 /// Partial specialization
 
-/// Blocks until all but <N> previous cp.async.commit_group operations have
+/// Blocks until all but N previous cp.async.commit_group operations have
 /// committed.
 
 template <int N>

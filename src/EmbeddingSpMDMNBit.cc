@@ -20,6 +20,7 @@
 #include <string>
 #include <tuple>
 #include "./CodeCache.h"
+#include "./EmbeddingSpMDMAutovec.h"
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
 #include "fbgemm/SimdUtils.h"
@@ -1013,6 +1014,75 @@ GenEmbeddingSpMDMNBitLookup<
 
 } // namespace
 
+/**
+ * Choosing which kernel (autovec/asmjit/ref) to use for nbit-CPU-TBE
+ * Available kernels:
+ *   * ref: non-optimized, reference implementation that focuses on
+ *      correctness, not performance
+ *   * asmjit: hand-optimized kernel by having asmjit emit SIMD
+ *      instructions during runtime. Only supports x86_64 CPUs with
+ *      AVX2/AVX512 instruction sets
+ *   * autovec: the kernel written in regular C++ code but in a
+ *      way that makes compilers easier to generate vectorized SIMD
+ *      instructions out of it. Supports both x86_64 and aarch64 CPUs.
+ *      Currently only available on Linux.
+ * How to set environment variables:
+ *   * No environment variables: on x86_64 we will default to asmjit
+ *      kernel, and on aarch64 and linux we will default to autovec.
+ *      On non-linux aarch64 we will fall back to ref.
+ *   * Set FBGEMM_NO_AUTOVEC: on aarch64 linux we will use ref. On other
+ *      platforms this will have no effect.
+ *   * Set FBGEMM_NO_ASMJIT: on x86_64 we will use ref. On other
+ *      platforms this will have no effect.
+ *   * Set FBGEMM_NO_ASMJIT AND FBGEMM_FORCE_AUTOVEC: on x86_64 we will
+ *      use autovec if these two variables are set at the same time.
+ *      No effect on other platforms.
+ *   * FBGEMM_FORCE_AUTOVEC will override FBGEMM_NO_AUTOVEC if they
+ *      are set at the same time.
+ *   * These variables are considered set as long as they exist regardless
+ *      of content. That means assigning values like "1", "true", "y", "0",
+ *      "false" or "no" has the same effect. The easiest way of setting a
+ *      variable is to prepend `<VARIABLE>=1` before the benchmarking command.
+ */
+
+#ifdef __linux__
+static inline bool is_autovec_disabled() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_NO_AUTOVEC");
+  res = (env_val != nullptr);
+  return res;
+}
+
+static inline bool is_autovec_forced() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
+  res = (env_val != nullptr);
+  return res;
+}
+#endif // #ifdef __linux__
+
+static inline bool is_asmjit_disabled() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_NO_ASMJIT");
+  res = (env_val != nullptr);
+  return res;
+}
+
 template <
     typename indxType,
     typename offsetType,
@@ -1045,7 +1115,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     input_stride =
         ceil_div(block_size, num_elem_per_byte) + 2 * sizeof(uint16_t);
   }
-  if (fbgemmHasAvx512Support()) {
+  if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
     static GenEmbeddingSpMDMNBitLookup<
         indxType,
         offsetType,
@@ -1085,7 +1155,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
           out,
           nullptr /* mask not used in avx512 */);
     };
-  } else if (fbgemmHasAvx2Support()) {
+  } else if (fbgemmHasAvx2Support() && !is_asmjit_disabled()) {
     static GenEmbeddingSpMDMNBitLookup<
         indxType,
         offsetType,
@@ -1125,6 +1195,38 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
           out,
           internal::avx2_ps_or_epi32_combined_mask);
     };
+#ifdef __linux__
+  } else if (
+      (fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
+      is_autovec_forced()) {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const uint8_t* input,
+               const indxType* indices,
+               const offsetType* offsets_or_lengths,
+               const float* weights,
+               outType* out) {
+      return EmbeddingSpMDMNBit_autovec(
+          bit_rate,
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          is_bf16_out);
+    };
+#endif // #ifdef __linux__
   } else {
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";

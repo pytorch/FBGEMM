@@ -36,8 +36,7 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(B);
   TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(bias);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(A.get_device());
+  CUDA_DEVICE_GUARD(A);
 
   TENSORS_ON_SAME_DEVICE(A, B);
   TENSORS_ON_SAME_DEVICE(A, bias);
@@ -79,7 +78,13 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
   auto ldc = n * batch_size;
   auto strideC = n;
 
+  // computeType is hipblasComputeType_t (e.g., HIPBLAS_COMPUTE_32F) instead of
+  // hipDataType (e.g., HIPBLAS_R_32F) after RoCM 6.0
+#if defined(USE_ROCM) && ROCM_VERSION >= 60000 && defined(HIPBLAS_V2)
+  auto computeType = HIPBLAS_COMPUTE_32F;
+#else
   auto computeType = HIPBLAS_R_32F;
+#endif
 
   auto result = hipblasGemmStridedBatchedEx(
       handle,

@@ -24,11 +24,15 @@ __global__ __launch_bounds__(kMaxThreads) void invert_permute_kernel(
 
 DLL_PUBLIC Tensor invert_permute_cuda(const Tensor& permute) {
   TENSOR_ON_CUDA_GPU(permute);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(permute.get_device());
+  CUDA_DEVICE_GUARD(permute);
+
   const auto permute_contig = permute.contiguous();
   const auto permute_size = permute.numel();
   Tensor inversed_permute = at::empty_like(permute);
+
+  if (permute_size == 0) {
+    return inversed_permute;
+  }
 
   constexpr int32_t threads_1 = kMaxThreads;
   const auto blocks_1 = cuda_calc_xblock_count(permute_size, threads_1);

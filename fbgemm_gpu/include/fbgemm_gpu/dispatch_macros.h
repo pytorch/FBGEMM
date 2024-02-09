@@ -6,6 +6,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// This is NECESSARY for the PT2_COMPLIANT_TAG macro to work.
+#include <torch/library.h>
+
 #define PRIVATE_CASE_TYPE_CACHE(enum_type, type, ...) \
   case enum_type: {                                   \
     using cache_t = type;                             \
@@ -203,8 +206,10 @@
       TYPE, NAME, FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16_CASE(__VA_ARGS__))
 
 // We can cleanup the following once fbgemm uses PyTorch 2.2 in January 2024.
+#ifndef PT2_COMPLIANT_TAG
 #ifdef HAS_PT2_COMPLIANT_TAG
 #define PT2_COMPLIANT_TAG at::Tag::pt2_compliant_tag
 #else
 #define PT2_COMPLIANT_TAG
+#endif
 #endif

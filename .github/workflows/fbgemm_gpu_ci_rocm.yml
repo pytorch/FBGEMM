@@ -1,0 +1,197 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# This workflow is used for FBGEMM_GPU-ROCm CI as well as nightly builds of
+# FBGEMM_GPU-ROCm against PyTorch-ROCm Nightly.
+name: FBGEMM_GPU-ROCm CI
+
+on:
+  # PR Trigger (enabled for regression checks and debugging)
+  #
+  pull_request:
+    branches:
+      - main
+
+  # Push Trigger (enable to catch errors coming out of multiple merges)
+  #
+  push:
+    branches:
+      - main
+
+  # Cron Trigger (UTC)
+  #
+  # Based on the Conda page for PyTorch-nightly, the GPU nightly releases appear
+  # around 02:30 PST every day (roughly 2 hours after the CPU releases)
+  #
+  schedule:
+    - cron:  '45 12 * * *'
+
+  # Manual Trigger
+  #
+  workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: Publish Artifact to PyPI
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  # Cancel previous runs in the PR if a new commit is pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build on CPU hosts and upload to GHA
+  build_artifact:
+    runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: ${{ matrix.container-image }}
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+    strategy:
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.24xlarge" },
+        ]
+        container-image: [ "ubuntu:20.04" ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        rocm-version: [ "5.7" ]
+
+    steps:
+    - name: Setup Build Container
+      run: |
+        apt update -y
+        apt install -y binutils git pciutils sudo wget
+        git config --global --add safe.directory '*'
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Free Disk Space
+      run: . $PRELUDE; free_disk_space
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install ROCm
+      run: . $PRELUDE; install_rocm_ubuntu $BUILD_ENV ${{ matrix.rocm-version }}
+
+    - name: Install C/C++ Compilers
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install PyTorch-ROCm Nightly
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm/${{ matrix.rocm-version }}
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build FBGEMM_GPU Wheel
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly rocm
+
+    - name: Upload Built Wheel as GHA Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
+        path: fbgemm_gpu/dist/fbgemm_gpu_nightly_rocm-*.whl
+
+
+  # Download the built artifact from GHA, test on GPU, and push to PyPI
+  test_and_publish_artifact:
+    runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
+      options: --user root --device=/dev/kfd --device=/dev/dri --ipc=host --shm-size 16G --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+      ENFORCE_ROCM_DEVICE: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { arch: x86, instance: "rocm" },
+        ]
+        # ROCm machines are limited, so we only test a subset of Python versions
+        python-version: [ "3.11", "3.12" ]
+        rocm-version: [ "5.7" ]
+    needs: build_artifact
+
+    steps:
+    - name: Setup Build Container
+      run: |
+        apt update -y
+        apt install -y git wget
+        git config --global --add safe.directory '*'
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v3
+
+    - name: Download Wheel Artifact from GHA
+      uses: actions/download-artifact@v3
+      with:
+        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Free Disk Space
+      run: . $PRELUDE; free_disk_space
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install PyTorch-ROCm Nightly
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm/${{ matrix.rocm-version }}
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Install FBGEMM_GPU Wheel
+      run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
+
+    - name: Test with PyTest
+      timeout-minutes: 15
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm

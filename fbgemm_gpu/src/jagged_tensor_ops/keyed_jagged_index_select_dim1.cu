@@ -172,7 +172,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const Tensor& offsets,
       const Tensor& indices, // select same indices for all batches
       const int batch_size,
-      const c10::optional<Tensor>& weights) {
+      const c10::optional<Tensor>& weights,
+      const c10::optional<int64_t> selected_lengths_sum) {
     // TODO: Add weights support
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, offsets, values, indices);
     TORCH_CHECK(values.dim() == 1, "values must be a 1D tensor");
@@ -194,8 +195,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
           "weights size and values size must be the same");
     }
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(values.get_device());
+    CUDA_DEVICE_GUARD(values);
 
     const int num_batches = lengths.numel() / batch_size;
     const int num_output_lengths = num_batches * indices.numel();
@@ -266,9 +266,10 @@ class KeyedJaggedIndexSelectDim1GPUOp
               });
         });
 
-    // TODO: Try to not do D->H transfer
-    const int64_t num_outputs =
-        output_offsets[output_offsets.numel() - 1].item<int64_t>();
+    // D->H transfer if selected_lengths_sum not provided
+    const int64_t num_outputs = (selected_lengths_sum.has_value())
+        ? *selected_lengths_sum
+        : output_offsets[output_offsets.numel() - 1].item<int64_t>();
     Tensor output = at::empty({num_outputs}, values.options());
     Tensor output_weights;
     if (weights.has_value()) {
@@ -380,8 +381,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     int64_t output_batch_size = ctx->saved_data["batch_size"].toInt();
     int64_t num_batches = ctx->saved_data["num_batches"].toInt();
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(grad.get_device());
+    CUDA_DEVICE_GUARD(grad);
 
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
     auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);
@@ -444,7 +444,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
         torch::autograd::Variable(), // offsets
         torch::autograd::Variable(), // indices
         torch::autograd::Variable(), // batch_size
-        torch::autograd::Variable() // weights
+        torch::autograd::Variable(), // weights
+        torch::autograd::Variable() // selected_lengths_sum
     };
   }
 };
@@ -456,9 +457,16 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
     const Tensor& offsets,
     const Tensor& indices,
     const int64_t batch_size,
-    const c10::optional<Tensor>& weights) {
+    const c10::optional<Tensor>& weights,
+    const c10::optional<int64_t> selected_lengths_sum) {
   return KeyedJaggedIndexSelectDim1GPUOp::apply(
-      values, lengths, offsets, indices, batch_size, weights);
+      values,
+      lengths,
+      offsets,
+      indices,
+      batch_size,
+      weights,
+      selected_lengths_sum);
 }
 
 } // namespace fbgemm_gpu

@@ -752,6 +752,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "reorder_batched_ad_indices", fbgemm_gpu::reorder_batched_ad_indices_gpu);
   DISPATCH_TO_CUDA(
+      "reorder_batched_sequence_embeddings",
+      fbgemm_gpu::reorder_batched_sequence_embeddings_gpu);
+  DISPATCH_TO_CUDA(
       "batched_unary_embeddings",
       fbgemm_gpu::lookup_batched_unary_embedding_function);
   DISPATCH_TO_CUDA(

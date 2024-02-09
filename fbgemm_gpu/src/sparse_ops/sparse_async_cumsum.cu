@@ -14,9 +14,12 @@ namespace fbgemm_gpu {
 
 DLL_PUBLIC Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
+  CUDA_DEVICE_GUARD(t_in);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  if (t_in.numel() == 0) {
+    return at::empty_like(t_in);
+  }
+
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
   TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);
@@ -55,9 +58,12 @@ DLL_PUBLIC Tensor asynchronous_inclusive_cumsum_gpu(const Tensor& t_in) {
 
 DLL_PUBLIC Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
+  CUDA_DEVICE_GUARD(t_in);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  if (t_in.numel() == 0) {
+    return at::empty_like(t_in);
+  }
+
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
   TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);
@@ -96,9 +102,8 @@ DLL_PUBLIC Tensor asynchronous_exclusive_cumsum_gpu(const Tensor& t_in) {
 
 DLL_PUBLIC Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   TENSOR_ON_CUDA_GPU(t_in);
+  CUDA_DEVICE_GUARD(t_in);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
   size_t temp_storage_bytes = 0;
   TORCH_CHECK(t_in.is_contiguous());
   TORCH_CHECK(t_in.dtype() == at::kInt || t_in.dtype() == at::kLong);
@@ -106,9 +111,12 @@ DLL_PUBLIC Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
   if (t_in.dim() == 1) {
     // CUB only handles up to INT_MAX elements.
     TORCH_CHECK(t_in.numel() < std::numeric_limits<int32_t>::max());
-
     auto t_out = at::empty({t_in.numel() + 1}, t_in.options());
     t_out[0].zero_();
+
+    if (t_in.numel() == 0) {
+      return t_out;
+    }
 
     AT_DISPATCH_INDEX_TYPES(
         t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {
@@ -145,6 +153,10 @@ DLL_PUBLIC Tensor asynchronous_complete_cumsum_gpu(const Tensor& t_in) {
     const auto num_entries = t_in.size(1);
     TORCH_CHECK(num_entries < std::numeric_limits<int32_t>::max());
     auto t_out = at::zeros({num_vecs, num_entries + 1}, t_in.options());
+
+    if (t_in.numel() == 0) {
+      return t_out;
+    }
 
     AT_DISPATCH_INDEX_TYPES(
         t_in.scalar_type(), "cub_inclusive_sum_wrapper1", [&] {

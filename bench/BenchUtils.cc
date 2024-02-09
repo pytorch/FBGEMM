@@ -60,6 +60,12 @@ void llc_flush(std::vector<char>& llc) {
   }
 }
 
+#ifdef __aarch64__
+void aarch64_flush_cache_line(void* addr) {
+  asm volatile("dc civac, %0" ::"r"(addr) : "memory");
+}
+#endif // __aarch64__
+
 int fbgemm_get_max_threads() {
 #if defined(FBGEMM_MEASURE_TIME_BREAKDOWN) || !defined(_OPENMP)
   return 1;

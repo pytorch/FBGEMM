@@ -8,6 +8,10 @@
 # found in:
 # https://github.com/github/gitignore/
 
+# General
+.DS_Store
+*~
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -86,3 +90,6 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
+
+# Sphinx repos
+pytorch-sphinx-theme/

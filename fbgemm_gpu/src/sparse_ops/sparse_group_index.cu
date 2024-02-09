@@ -6,6 +6,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#if (defined(USE_ROCM))
+#include <hip/hip_bfloat16.h>
+#elif (                                                \
+    (defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+    (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800)))
+#include <cuda_bf16.h>
+#endif
 #include "common.cuh"
 
 using Tensor = at::Tensor;
@@ -85,8 +92,23 @@ __launch_bounds__(kMaxThreads) void group_index_select_or_add_2d_kernel(
       if (USE_INDEX_SELECT) {
         output[row * num_cols + i] = LDG(&input[idx * num_cols + i]);
       } else {
-        gpuAtomicAddNoReturn(
-            &output[idx * num_cols + i], input[row * num_cols + i]);
+        if constexpr (std::is_same_v<scalar_t, at::BFloat16>) {
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+          atomicAdd(
+              reinterpret_cast<__nv_bfloat16*>(&output[idx * num_cols + i]),
+              *reinterpret_cast<const __nv_bfloat16*>(
+                  &input[row * num_cols + i]));
+#else
+          CUDA_KERNEL_ASSERT(
+              false && "atomicAdd __nv_bfloat16 is not supported");
+#endif
+        } else {
+          gpuAtomicAddNoReturn(
+              &output[idx * num_cols + i], input[row * num_cols + i]);
+        }
       }
     }
   }
@@ -110,8 +132,7 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
     return;
   }
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(device);
+  at::cuda::OptionalCUDAGuard device_guard(device);
 
   // Partition work based on num_work_rows
   uint32_t num_warps_per_threadblock = kMaxThreads / kWarpSize;
@@ -142,7 +163,7 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       indices_scalar_type, "group_index_select_2d_wrapper_1", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
             input_scalar_type, "group_index_select_2d_wrapper_2", [&] {
               if (use_index_select) {
                 if (use_var_cols) {

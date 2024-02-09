@@ -10,10 +10,9 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
+
+namespace {
 
 __host__ __device__ inline float float_to_msfp(
     const float val_fp,
@@ -107,6 +106,21 @@ __global__ inline void _compute_msfp_shared_exponent_cuda_kernel(
   }
 }
 
+} // namespace
+
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of  `float` values into a tensor of Microsoft Floating
+/// Point (`msfp`) values.
+///
+/// @param input A tensor of `float` values
+/// @param bounding_box_size
+/// @param ebits
+/// @param mbits
+/// @param bias
+/// @param min_pos
+/// @param max_pos
+///
+/// @return A new tensor with values from the input tensor converted to `msfp`.
 DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
     const at::Tensor& input,
     const int64_t bounding_box_size,
@@ -123,8 +137,7 @@ DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
   TORCH_CHECK(ebits > 0 && mbits > 0);
   TORCH_CHECK(min_pos > 0 && max_pos > 0 && max_pos > min_pos);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   const int nrows = input.size(0);
   const int ncols = input.size(1);
@@ -173,7 +186,16 @@ DLL_PUBLIC at::Tensor _float_to_msfp_gpu(
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+/// Converts a tensor of Microsoft Floating Point (`msfp`) values into a tensor
+/// of `float` values.
+///
+/// @param input A tensor of `msfp` values
+/// @param ebits
+/// @param mbits
+/// @param bias
+///
+/// @return A new tensor with values from the input tensor converted to `float`.
 DLL_PUBLIC at::Tensor _msfp_to_float_gpu(
     const at::Tensor& input,
     const int64_t ebits,

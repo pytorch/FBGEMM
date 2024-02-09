@@ -19,6 +19,9 @@
 #include <cstdint>
 #include <limits>
 
+/// @defgroup fbgemm-quant-utils-generic Quantization Utilities (Generic)
+///
+
 namespace fbgemm {
 
 FBGEMM_API TensorQuantizationParams ChooseQuantizationParams(
@@ -109,29 +112,31 @@ FBGEMM_API void Quantize(
     int thread_id = 0,
     int num_threads = 1);
 
-/*
- * @brief Quantize floating point data in src to type T
- *
- * @tparam T output quantized data type (int8_t, uint8_t and int32_t are
- *                  supported)
- *
- * @tparam T LAYOUT layout of input tensor in src. (KCX and KXC are supported)
- *                  KCX corresponds to KCRS or KCTRS (for weight tensors with
- *                  time dimension)
- *                  KXC corresponds to KRSC or KTRSC (for weight tensors with
- *                  time dimension)
- *
- * @param K Output channels for weight tensors
- * @param C Number of channels
- * @param X R*S or T*R*S
- * @param G Groups (if G == C the function performs channelwise quantization;
- *                  if 1 < G < C the function performs groupwise quantization;
- *                  if G == 1 the function performs per tensor quantization;)
- * @param scales floating point scales.
- *               Size should be equal G
- * @param zero_points zero points (should be reprsentable in type T).
- *                    Size should be equal G
- */
+/// @ingroup fbgemm-quant-utils-generic
+///
+/// Quantize floating point data in `src` to type `T`.
+///
+/// @tparam T output quantized data type (`int8_t`, `uint8_t`, and `int32_t` are
+///         supported)
+///
+/// @tparam LAYOUT layout of input tensor in `src`. (`KCX` and `KXC` are
+///         supported)
+///         `KCX` corresponds to `KCRS` or `KCTRS` (for weight tensors with time
+///         dimension)
+///         `KXC` corresponds to `KRSC` or `KTRSC` (for weight tensors with time
+///         dimension)
+///
+///  @param K Output channels for weight tensors
+///  @param C Number of channels
+///  @param X `R*S` or `T*R*S`
+///  @param G Groups (if `G == C` the function performs channelwise
+///  quantization;
+///                   if `1 < G < C` the function performs groupwise
+///                   quantization; if `G == 1` the function performs per tensor
+///                   quantization;)
+///  @param scales floating point scales.  Size should be equal `G`
+///  @param zero_points zero points (should be reprsentable in type `T`).
+///                     Size should be equal `G`
 template <typename T, layout_t LAYOUT = layout_t::KCX>
 FBGEMM_API void QuantizeGroupwise(
     const float* src,
@@ -172,11 +177,12 @@ float FusedQuantizeDequantize(
   return Dequantize<T>(q, qparams);
 }
 
-/*
-Fused integer quantization dequantization kernel to accelerate
-quantization-aware training. Quantize fp32 values in src to (u)int8 using the
-provided qparams, and dequantize quantized integer values back into fp32.
-*/
+/// @ingroup fbgemm-quant-utils-generic
+///
+/// Fused integer quantization dequantization kernel to accelerate
+/// quantization-aware training. Quantize `fp32` values in src to `(u)int8`
+/// using the provided qparams, and dequantize quantized integer values back
+/// into `fp32`.
 template <typename T>
 FBGEMM_API void FusedQuantizeDequantize(
     const float* src,
@@ -263,6 +269,8 @@ FBGEMM_API void Requantize(
     int num_threads = 1);
 
 /**
+ * @ingroup fbgemm-quant-utils-generic
+ *
  * Convert float (fp32 or fp16) inputs to rowwise quantized outputs.
  * bitrate specifies the number of bits in quantized output.
  * Scale and Bias are in fp16. Each row's Scale and Bias are stored in

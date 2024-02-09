@@ -34,9 +34,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 
 try:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training"
-    )
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training"
+        )
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training"
     )
@@ -62,6 +67,7 @@ class WeightDecayMode(enum.IntEnum):
     L2 = 1
     DECOUPLE = 2
     COUNTER = 3
+    COWCLIP = 4
 
 
 class CounterWeightDecayMode(enum.IntEnum):
@@ -98,6 +104,14 @@ class CounterBasedRegularizationDefinition:
     grad_sum_decay: GradSumDecay = GradSumDecay.NO_DECAY
     tail_id_threshold: TailIdThreshold = field(default_factory=TailIdThreshold)
     max_counter_update_freq: int = 1000
+
+
+@dataclass
+class CowClipDefinition:
+    counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE
+    counter_halflife: int = -1
+    weight_norm_coefficient: float = 0.0
+    lower_bound: float = 0.0
 
 
 def construct_split_state(
@@ -280,7 +294,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     record_cache_metrics: RecordCacheMetrics
     uvm_cache_stats: torch.Tensor
     local_uvm_cache_stats: torch.Tensor
-    linear_cache_indices_list: List[Tensor]
 
     def __init__(  # noqa C901
         self,
@@ -320,6 +333,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
         ] = None,  # used by Rowwise Adagrad
+        cowclip_regularization: Optional[
+            CowClipDefinition
+        ] = None,  # used by Rowwise Adagrad
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
@@ -341,6 +357,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "Only LRU cache policy supports prefetch_pipeline."
         self.prefetch_pipeline: bool = prefetch_pipeline
         self.lock_cache_line: bool = self.prefetch_pipeline
+        self.use_uniq_cache_locations_bwd: bool = self.prefetch_pipeline
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
@@ -350,8 +367,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.embedding_specs = embedding_specs
         (rows, dims, locations, compute_devices) = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
-        # pyre-fixme[8]: Attribute has type `List[int]`; used as
-        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
         self.dims: List[int] = dims
         assert T_ > 0
         # mixed D is not supported by no bag kernels
@@ -486,6 +501,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
 
+        # A flag for indicating whether all embedding tables are placed in the
+        # same locations
+        self.use_homogeneous_placements: bool = all(
+            loc == locations[0] for loc in locations
+        )
+
         weight_split = construct_split_state(
             embedding_specs,
             rowwise=False,
@@ -536,39 +557,53 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.optimizer = optimizer
 
         self.weight_decay_mode = weight_decay_mode
-        if (
-            weight_decay_mode == WeightDecayMode.COUNTER
-            and counter_based_regularization is None
+        if (weight_decay_mode == WeightDecayMode.COUNTER) != (
+            counter_based_regularization is not None
         ):
             raise AssertionError(
-                "weight_decay_mode is set to WeightDecayMode.COUNTER but counter_based_regularization is None"
+                "Need to set weight_decay_mode=WeightDecayMode.COUNTER together with valid counter_based_regularization"
             )
-        if (
-            weight_decay_mode != WeightDecayMode.COUNTER
-            and counter_based_regularization is not None
+        if (weight_decay_mode == WeightDecayMode.COWCLIP) != (
+            cowclip_regularization is not None
         ):
             raise AssertionError(
-                "Need to set weight_decay_mode to WeightDecayMode.COUNTER together with counter_based_regularization"
+                "Need to set weight_decay_mode=WeightDecayMode.COWCLIP together with valid cowclip_regularization"
             )
 
         self._used_rowwise_adagrad_with_counter: bool = (
             optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
-            and weight_decay_mode == WeightDecayMode.COUNTER
-            and counter_based_regularization is not None
+            and (
+                weight_decay_mode in (WeightDecayMode.COUNTER, WeightDecayMode.COWCLIP)
+            )
         )
 
         if counter_based_regularization is None:
             counter_based_regularization = CounterBasedRegularizationDefinition()
+        if cowclip_regularization is None:
+            cowclip_regularization = CowClipDefinition()
         self._max_counter_update_freq: int = -1
+        # Extract parameters from CounterBasedRegularizationDefinition or CowClipDefinition
+        # which are passed as entries for OptimizerArgs
         if self._used_rowwise_adagrad_with_counter:
-            self._max_counter_update_freq = (
-                counter_based_regularization.max_counter_update_freq
-            )
-            opt_arg_weight_decay_mode = (
-                counter_based_regularization.counter_weight_decay_mode
-            )
+            if self.weight_decay_mode == WeightDecayMode.COUNTER:
+                self._max_counter_update_freq = (
+                    counter_based_regularization.max_counter_update_freq
+                )
+                opt_arg_weight_decay_mode = (
+                    counter_based_regularization.counter_weight_decay_mode
+                )
+                counter_halflife = counter_based_regularization.counter_halflife
+            else:
+                opt_arg_weight_decay_mode = (
+                    cowclip_regularization.counter_weight_decay_mode
+                )
+                counter_halflife = cowclip_regularization.counter_halflife
         else:
             opt_arg_weight_decay_mode = weight_decay_mode
+            # Default: -1, no decay applied, as a placeholder for OptimizerArgs
+            # which should not be effective when CounterBasedRegularizationDefinition
+            # and CowClipDefinition are not used
+            counter_halflife = -1
 
         self.optimizer_args = invokers.lookup_args.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
@@ -582,7 +617,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             weight_decay_mode=opt_arg_weight_decay_mode.value,
             eta=eta,
             momentum=momentum,
-            counter_halflife=counter_based_regularization.counter_halflife,
+            counter_halflife=counter_halflife,
             adjustment_iter=counter_based_regularization.adjustment_iter,
             adjustment_ub=counter_based_regularization.adjustment_ub,
             learning_rate_mode=counter_based_regularization.learning_rate_mode.value,
@@ -592,6 +627,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 counter_based_regularization.tail_id_threshold.is_ratio
             ),
             total_hash_size=self.total_hash_size,
+            weight_norm_coefficient=cowclip_regularization.weight_norm_coefficient,
+            lower_bound=cowclip_regularization.lower_bound,
+            regularization_mode=weight_decay_mode.value,
         )
 
         if optimizer != OptimType.NONE:
@@ -608,9 +646,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         embedding_specs,
                         rowwise=rowwise,
                         cacheable=False,
-                        placement=EmbeddingLocation.MANAGED
-                        if ((not rowwise) and uvm_non_rowwise_momentum)
-                        else None,
+                        placement=(
+                            EmbeddingLocation.MANAGED
+                            if ((not rowwise) and uvm_non_rowwise_momentum)
+                            else None
+                        ),
                     ),
                     prefix="momentum1",
                     # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
@@ -633,9 +673,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         embedding_specs,
                         rowwise=rowwise,
                         cacheable=False,
-                        placement=EmbeddingLocation.MANAGED
-                        if ((not rowwise) and uvm_non_rowwise_momentum)
-                        else None,
+                        placement=(
+                            EmbeddingLocation.MANAGED
+                            if ((not rowwise) and uvm_non_rowwise_momentum)
+                            else None
+                        ),
                     ),
                     prefix="momentum2",
                     # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
@@ -701,10 +743,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     persistent=False,
                 )
 
-        # pyre-fixme[6]: For 1st argument expected `List[int]` but got
-        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
-        # pyre-fixme[6]: For 2nd argument expected `List[EmbeddingLocation]` but got
-        #  `Tuple[Union[ComputeDevice, EmbeddingLocation, int]]`.
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
         # Add table-wise cache miss counter
@@ -941,11 +979,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 B_offsets=vbe_metadata.B_offsets,
                 max_B=vbe_metadata.max_B,
             )
+
+        # Storing indices and offsets for linear_cache_indices recomputation
+        self._indices = indices
+        self._offsets = offsets
+
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets)
 
-        self.timesteps_prefetched.pop(0)
+        if len(self.timesteps_prefetched) > 0:
+            self.timesteps_prefetched.pop(0)
+
         self.lxu_cache_locations = (
             self.lxu_cache_locations_empty
             if len(self.lxu_cache_locations_list) == 0
@@ -970,9 +1015,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=self.lxu_cache_locations,
+            # Pass the local_uvm_cache_stats bc only that information is
+            # relevant for the current iteration
+            uvm_cache_stats=(
+                self.local_uvm_cache_stats if self.gather_uvm_cache_stats else None
+            ),
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
             is_experimental=self.is_experimental,
+            use_uniq_cache_locations_bwd=self.use_uniq_cache_locations_bwd,
+            use_homogeneous_placements=self.use_homogeneous_placements,
         )
 
         if self.optimizer == OptimType.NONE:
@@ -1080,7 +1132,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             placements=self.row_counter_placements,
         )
         if self._used_rowwise_adagrad_with_counter:
-            if self.iter.item() % self._max_counter_update_freq == 0:
+            if (
+                self._max_counter_update_freq > 0
+                and self.iter.item() % self._max_counter_update_freq == 0
+            ):
                 row_counter_dev = self.row_counter_dev.detach()
                 if row_counter_dev.numel() > 0:
                     self.max_counter[0] = torch.max(row_counter_dev).cpu().item() + 1
@@ -1113,17 +1168,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uvm_cache_stats.zero_()
         self.local_uvm_cache_stats.zero_()
 
-    def get_uvm_cache_stats(self) -> Tensor:
+    def get_uvm_cache_stats(self, use_local_cache: bool = False) -> Tensor:
         assert (
             self.gather_uvm_cache_stats
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        return self.uvm_cache_stats
+        return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
-    def print_uvm_cache_stats(self) -> None:
-        assert (
-            self.gather_uvm_cache_stats
-        ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
-        uvm_cache_stats = self.uvm_cache_stats.tolist()
+    def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
+        uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
+            use_local_cache
+        ).tolist()
         logging.info(
             f"N_called: {uvm_cache_stats[0]}\n"
             f"N_requested_indices: {uvm_cache_stats[1]}\n"
@@ -1160,7 +1214,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.lxu_cache_weights.numel():
             return
 
-        (indices, offsets) = indices.long(), offsets.long()
+        # Clear the local_uvm_cache_stats before the prefetch instead of after
+        # the prefetch step, since it will be used in the CommonArgs in the
+        # forward step
+        if self.gather_uvm_cache_stats:
+            self.local_uvm_cache_stats.zero_()
+
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
             indices,
@@ -1234,17 +1293,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.lxu_cache_locations_list.append(lxu_cache_locations)
-        if self.prefetch_pipeline:
-            self.linear_cache_indices_list.append(linear_cache_indices)
 
         if self.gather_uvm_cache_stats:
             # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).
-            # We may wanna do this accumulation atomically, but as it's only for monitoring,
-            # slightly inaccurate result may be acceptable.
+            # We may want to do this accumulation atomically, but as it's only
+            # for monitoring, slightly inaccurate result may be acceptable.
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
-            self.local_uvm_cache_stats.zero_()
 
     def _prefetch_tensors_record_stream(
         self, forward_stream: torch.cuda.Stream
@@ -1254,8 +1310,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # stream that was used for its corresponding forward op.
 
         for t in self.lxu_cache_locations_list:
-            t.record_stream(forward_stream)
-        for t in self.linear_cache_indices_list:
             t.record_stream(forward_stream)
 
     def _update_cache_miss_counter(
@@ -1370,9 +1424,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             or self.optimizer == OptimType.EXACT_ADAGRAD
         ):
             list_of_state_dict = [
-                {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
-                if self._used_rowwise_adagrad_with_counter
-                else {"sum": states[0]}
+                (
+                    {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
+                    if self._used_rowwise_adagrad_with_counter
+                    else {"sum": states[0]}
+                )
                 for states in split_optimizer_states
             ]
         elif self.optimizer == OptimType.SGD or self.optimizer == OptimType.EXACT_SGD:
@@ -1580,8 +1636,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             0, device=self.current_device, dtype=torch.int32
         ).fill_(-1)
         self.lxu_cache_locations = self.lxu_cache_locations_empty
+        self._indices = self.lxu_cache_locations_empty
+        self._offsets = self.lxu_cache_locations_empty
         self.prefetch_stream: Optional[torch.cuda.Stream] = None
-        self.linear_cache_indices_list = []
 
         self._init_uvm_cache_stats()
 
@@ -1699,9 +1756,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.register_buffer(
             "lxu_state",
             torch.zeros(
-                size=(self.total_cache_hash_size + 1,)
-                if cache_algorithm == CacheAlgorithm.LFU
-                else (cache_sets, DEFAULT_ASSOC),
+                size=(
+                    (self.total_cache_hash_size + 1,)
+                    if cache_algorithm == CacheAlgorithm.LFU
+                    else (cache_sets, DEFAULT_ASSOC)
+                ),
                 device=self.current_device,
                 dtype=torch.int64,
             ),
@@ -1795,19 +1854,28 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.lxu_cache_locking_counter,
             self.lxu_cache_locations,
         )
-
-        linear_cache_indices = self.linear_cache_indices_list.pop(0)
-        lxu_cache_locations_new = torch.ops.fbgemm.lxu_cache_lookup(
+        # Recompute linear_cache_indices
+        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+            self.cache_hash_size_cumsum,
+            self._indices,
+            self._offsets,
+        )
+        (
+            linear_unique_indices,
+            linear_unique_indices_length,
+            _,
+        ) = torch.ops.fbgemm.get_unique_indices(
             linear_cache_indices,
+            self.total_cache_hash_size,
+            compute_count=False,
+        )
+        torch.ops.fbgemm.lxu_cache_lookup(
+            linear_unique_indices,
             self.lxu_cache_state,
             self.total_cache_hash_size,
-            False,  # not collecting cache stats
-            self.local_uvm_cache_stats,
-        )
-        # self.lxu_cache_locations is updated inplace
-        torch.ops.fbgemm.lxu_cache_locations_update(
-            self.lxu_cache_locations,
-            lxu_cache_locations_new,
+            gather_cache_stats=False,  # not collecting cache stats
+            num_uniq_cache_indices=linear_unique_indices_length,
+            lxu_cache_locations_output=self.lxu_cache_locations,
         )
 
     def _init_uvm_cache_counter(self, cache_sets: int, persistent: bool) -> None:

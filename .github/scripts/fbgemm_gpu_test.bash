@@ -35,8 +35,12 @@ run_python_test () {
   if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
     echo ""
+    echo ""
+    echo ""
   else
     echo "[TEST] Python test suite FAILED: ${python_test_file}"
+    echo ""
+    echo ""
     echo ""
     return 1
   fi
@@ -50,11 +54,11 @@ run_python_test () {
 run_fbgemm_gpu_tests () {
   local env_name="$1"
   local fbgemm_variant="$2"
-  if [ "$env_name" == "" ]; then
+  if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME [FBGEMM_VARIANT]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env        # Run all tests applicable to CUDA"
     echo "    ${FUNCNAME[0]} build_env cpu    # Run all tests applicable to CPU"
+    echo "    ${FUNCNAME[0]} build_env cuda   # Run all tests applicable to CUDA"
     echo "    ${FUNCNAME[0]} build_env rocm   # Run all tests applicable to ROCm"
     return 1
   else
@@ -71,27 +75,32 @@ run_fbgemm_gpu_tests () {
 
   # Enable ROCM testing if specified
   if [ "$fbgemm_variant" == "rocm" ]; then
-    echo "[TEST] Set environment variable FBGEMM_TEST_WITH_ROCM to enable ROCm tests ..."
+    echo "[TEST] Set environment variables for ROCm testing ..."
     # shellcheck disable=SC2086
     print_exec conda env config vars set ${env_prefix} FBGEMM_TEST_WITH_ROCM=1
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} HIP_LAUNCH_BLOCKING=1
   fi
 
   # These are either non-tests or currently-broken tests in both FBGEMM_GPU and FBGEMM_GPU-CPU
   local files_to_skip=(
-    test_utils.py
-    split_table_batched_embeddings_test.py
-    ssd_split_table_batched_embeddings_test.py
+    ./ssd_split_table_batched_embeddings_test.py
   )
 
   if [ "$fbgemm_variant" == "cpu" ]; then
-    # These are tests that are currently broken in FBGEMM_GPU-CPU
+    # These tests have non-CPU operators referenced in @given
     local ignored_tests=(
-      uvm_test.py
+      ./uvm/copy_test.py
+      ./uvm/uvm_test.py
     )
   elif [ "$fbgemm_variant" == "rocm" ]; then
-    # https://github.com/pytorch/FBGEMM/issues/1559
     local ignored_tests=(
-      batched_unary_embeddings_test.py
+      # https://github.com/pytorch/FBGEMM/issues/1559
+      ./batched_unary_embeddings_test.py
+      ./tbe/backward_adagrad_test.py
+      ./tbe/backward_dense_test.py
+      ./tbe/backward_none_test.py
+      ./tbe/backward_sgd_test.py
     )
   else
     local ignored_tests=()
@@ -106,11 +115,14 @@ run_fbgemm_gpu_tests () {
   (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
 
   echo "[TEST] Enumerating test files ..."
-  print_exec ls -lth ./*.py
+  # shellcheck disable=SC2155
+  local all_test_files=$(find . -type f -name '*_test.py' -print | sort)
+  for f in $all_test_files; do echo "$f"; done
+  echo ""
 
   # NOTE: Tests running on single CPU core with a less powerful testing GPU in
   # GHA can take up to 5 hours.
-  for test_file in *.py; do
+  for test_file in $all_test_files; do
     if echo "${files_to_skip[@]}" | grep "${test_file}"; then
       echo "[TEST] Skipping test file known to be broken: ${test_file}"
     elif echo "${ignored_tests[@]}" | grep "${test_file}"; then
@@ -138,7 +150,7 @@ test_setup_conda_environment () {
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_VERSION PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env 3.10 pip test cuda 12.1.0       # Setup environment with pytorch-test for Python 3.10 + CUDA 12.1.0"
+    echo "    ${FUNCNAME[0]} build_env 3.12 pip test cuda 12.1.0       # Setup environment with pytorch-test for Python 3.12 + CUDA 12.1.0"
     return 1
   else
     echo "################################################################################"
@@ -180,7 +192,7 @@ test_setup_conda_environment () {
   if [ "$pytorch_installer" == "conda" ]; then
     install_pytorch_conda     "${env_name}" "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
   else
-    install_pytorch_pip       "${env_name}" "${pytorch_version}" "${pytorch_variant_type}" "${pytorch_variant_version}" || return 1
+    install_pytorch_pip       "${env_name}" "${pytorch_version}" "${pytorch_variant_type}"/"${pytorch_variant_version}" || return 1
   fi
 }
 
@@ -210,8 +222,8 @@ test_fbgemm_gpu_build_and_install () {
   cd -
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
 
-  cd fbgemm_gpu/test                        || return 1
-  run_fbgemm_gpu_tests        "${env_name}" || return 1
+  cd fbgemm_gpu/test                                                          || return 1
+  run_fbgemm_gpu_tests        "${env_name}" "${pytorch_variant_type}"         || return 1
   # shellcheck disable=SC2164
   cd -
 }

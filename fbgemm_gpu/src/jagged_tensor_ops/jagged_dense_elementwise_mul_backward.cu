@@ -104,7 +104,8 @@ void jagged_jagged_elementwise_dense_output_(
       x_offset_ptrs.vals[d] =                                                \
           x_offsets_contig[d].template data_ptr<index_t>();                  \
     }                                                                        \
-    const auto func_name = "jagged_jagged_elementwise_dense_output_kernel_"; \
+    [[maybe_unused]] const auto func_name =                                  \
+        "jagged_jagged_elementwise_dense_output_kernel_";                    \
     jagged_jagged_elementwise_dense_output_kernel_<NUM_JAGGED_DIM, index_t>  \
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(          \
             MAKE_PTA_WITH_NAME(func_name, x_values, scalar_t, 2, 32),        \
@@ -127,8 +128,7 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
     const std::vector<Tensor>& x_offsets,
     const Tensor& y,
     const Tensor& x_values) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   Tensor x_values_grad = at::empty_like(grad_output);
   Tensor y_grad = at::empty_like(y);

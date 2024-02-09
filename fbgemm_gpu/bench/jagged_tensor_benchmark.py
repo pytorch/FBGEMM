@@ -25,7 +25,10 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 
@@ -285,6 +288,7 @@ def masked_select_jagged_1d(
 @click.option("--jagged-tensor-type", type=str, default="float")
 @click.option("--has-weights", is_flag=True, default=False)
 @click.option("--weight-type", type=str, default="float")
+@click.option("--use-selected-lengths-sum", is_flag=True, default=False)
 def keyed_jagged_index_select_dim1(
     num_batches: int,
     max_seq_length: int,
@@ -293,6 +297,7 @@ def keyed_jagged_index_select_dim1(
     jagged_tensor_type: str,
     has_weights: bool,
     weight_type: str,
+    use_selected_lengths_sum: bool,
 ) -> None:
     jagged_tensor_types = {
         "float": torch.float,
@@ -350,13 +355,31 @@ def keyed_jagged_index_select_dim1(
         else None
     )
 
+    if use_selected_lengths_sum:
+        length_indices = torch.cat(
+            [indices + i * input_batch_size for i in range(num_batches)]
+        )
+        selected_lengths_sum = (
+            torch.index_select(lengths, 0, length_indices).sum().item()
+        )
+    else:
+        selected_lengths_sum = None
+
     # Only float tensors can require grad
     if is_float:
         values.requires_grad = True
 
     time, output = benchmark_torch_function(
         torch.ops.fbgemm.keyed_jagged_index_select_dim1,
-        (values, lengths, offsets, indices, input_batch_size, weights),
+        (
+            values,
+            lengths,
+            offsets,
+            indices,
+            input_batch_size,
+            weights,
+            selected_lengths_sum,
+        ),
         iters=1000,
     )
     output = output[0]
@@ -394,9 +417,9 @@ def keyed_jagged_index_select_dim1(
                         key_weights, key_lengths, indices
                     )[0].view(-1)
                 )
-        return torch.concat(outputs), torch.concat(
-            output_weights
-        ) if has_weights else torch.empty(0)
+        return torch.concat(outputs), (
+            torch.concat(output_weights) if has_weights else torch.empty(0)
+        )
 
     time_ref, output_ref = benchmark_torch_function(
         keyed_jagged_index_select_dim1_ref, (ref_inputs, has_weights)

@@ -12,7 +12,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "codegen/embedding_op_registration.h"
+#include "fbgemm_gpu/embedding_op_registration.h"
 ////////////////////////////////////////////////////////////////////////////////
 #include "codegen/embedding_forward_template_helpers.cuh"
 
@@ -66,7 +66,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     }
 
     int32_t t;
-    int32_t b;
+    [[maybe_unused]] int32_t b;
 
     {%- if vbe %}
     const auto info = reinterpret_cast<const uint32_t*>(&b_t_map[b_t])[0];
@@ -154,8 +154,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
                         const_cast<emb_t*>(&weights[idx_j * D_emb]),
                         nullptr,
-                        D,
-                        nullptr);
+                        D);
                     float2 qparams;
                     if (std::is_same<emb_t, uint8_t>::value) {
                         qparams = weight_row.load_qparams();
@@ -174,8 +173,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                 auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
                     const_cast<emb_t*>(&weights[idx_j * D_emb]),
                     nullptr,
-                    D,
-                    nullptr);
+                    D);
                 float2 qparams;
                 if (std::is_same<emb_t, uint8_t>::value) {
                     qparams = weight_row.load_qparams();
@@ -247,8 +245,8 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         TENSOR_ON_CUDA_GPU(feature_requires_grad);
     }
 
-    at::cuda::OptionalCUDAGuard device_guard;
-    device_guard.set_index(dev_weights.get_device());
+    CUDA_DEVICE_GUARD(dev_weights);
+
     const auto T = D_offsets.size(0) - 1;
     TORCH_CHECK_GT(T, 0);
     // offsets = [B x T  + 1]

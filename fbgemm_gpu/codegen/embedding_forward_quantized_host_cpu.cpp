@@ -18,13 +18,14 @@
 #endif
 #include <torch/serialize/input-archive.h>
 #include <torch/serialize/output-archive.h>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-///@defgroup embedding-cpu Embedding CPU Operators
+/// @defgroup embedding-cpu Embedding CPU Operators
 ///
 
 Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
@@ -243,8 +244,14 @@ Tensor pruned_array_lookup_cpu(
     Tensor index_remappings_offsets);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1) -> Tensor");
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1) -> Tensor",
+      {PT2_COMPLIANT_TAG});
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function_cpu);

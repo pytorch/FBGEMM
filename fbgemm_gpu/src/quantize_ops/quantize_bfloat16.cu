@@ -10,15 +10,19 @@
 
 using Tensor = at::Tensor;
 
-/// @defgroup quantize-data-cuda Quantization Data CUDA Operators
-/// The following are CUDA Operators
-
 namespace fbgemm_gpu {
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+///
+/// Converts a tensor of `float` values into a tensor of Brain Floating Point
+/// (`bfloat16`) values.
+///
+/// @param input A tensor of `float` values
+///
+/// @return A new tensor with values from the input tensor converted to
+/// `bfloat16`.
 DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   // TODO: replace Half by BFloat16, after BFloat16 is supported by Nvidia
   // NCCL input.options().dtype(at::kBFloat16)); // at::kBFloat16
@@ -39,10 +43,16 @@ DLL_PUBLIC at::Tensor _float_to_bfloat16_gpu(const at::Tensor& input) {
   return output;
 }
 
-///@ingroup quantize-data-cuda
+/// @ingroup quantize-ops-cuda
+///
+/// Converts a tensor of Brain Floating Point (`bfloat16`) values into a tensor
+/// of `float` values.
+///
+/// @param input A tensor of `bfloat16` values
+///
+/// @return A new tensor with values from the input tensor converted to `float`.
 DLL_PUBLIC at::Tensor _bfloat16_to_float_gpu(const at::Tensor& input) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(input.get_device());
+  CUDA_DEVICE_GUARD(input);
 
   auto output = at::empty({}, input.options().dtype(at::kFloat));
   output.resize_(0);

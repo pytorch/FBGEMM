@@ -83,8 +83,7 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
     std::vector<int64_t>& input_shape,
     const int consecutive_range_start,
     const int consecutive_range_length) {
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(grad_output.get_device());
+  CUDA_DEVICE_GUARD(grad_output);
 
   const int N = grad_output.size(0);
 

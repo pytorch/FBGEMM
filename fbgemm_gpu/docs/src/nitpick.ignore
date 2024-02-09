@@ -1,0 +1,44 @@
+#!/bin/bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+cpp:identifier at
+cpp:identifier at::Device
+cpp:identifier at::SymInt
+cpp:identifier at::Tensor
+cpp:identifier block_type_t
+cpp:identifier c10
+cpp:identifier c10::Error
+cpp:identifier c10::optional<at::SymInt>
+cpp:identifier c10::optional<at::Tensor>
+cpp:identifier c10::optional<int64_t>
+cpp:identifier c10::optional<Tensor>
+cpp:identifier c10::SymInt
+cpp:identifier c10::SymIntArrayRef
+cpp:identifier int32_t
+cpp:identifier int64_t
+cpp:identifier layout_t
+cpp:identifier layout_t::KCX
+cpp:identifier QuantizationGranularity
+cpp:identifier requantizationParams_t<BIAS_TYPE>
+cpp:identifier size_t
+cpp:identifier Tensor
+cpp:identifier TensorQuantizationParams
+cpp:identifier uint32_t
+cpp:identifier uint8_t
+
+py:class BoundsCheckMode
+py:class c_size_t
+py:class CacheAlgorithm
+py:class ComputeDevice
+py:class EmbeddingLocation
+py:class OptimType
+py:class optional
+py:class PoolingMode
+py:class RecordCacheMetrics
+py:class SparseType
+py:class Tensor
+py:class WeightDecayMode

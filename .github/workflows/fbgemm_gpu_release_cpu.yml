@@ -1,0 +1,187 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# This workflow is used for building and publishing FBGEMM_GPU-CPU release
+# builds against PyTorch-CPU Release to public PyPI.
+name: FBGEMM_GPU-CPU Release Build
+
+on:
+  # PR Trigger (enabled for regression checks and debugging)
+  #
+  pull_request:
+    branches:
+      - ^v([0-9]+)\.([0-9]+)\.([0-9]+)-release
+
+  # Push Trigger (enable to catch errors coming out of multiple merges)
+  #
+  push:
+    branches:
+      - ^v([0-9]+)\.([0-9]+)\.([0-9]+)-release
+
+  # Manual Trigger
+  #
+  workflow_dispatch:
+    inputs:
+      pytorch_channel:
+        description: Package Channel to Use for PyTorch Installation
+        type: choice
+        required: false
+        options: [ "nightly", "test", "release" ]
+        default: "test"
+      publish_to_pypi:
+        description: Publish Artifact to PyPI
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  # Cancel previous runs in the PR if a new commit is pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build on CPU hosts, run tests, and upload to GHA
+  build_artifact:
+    runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: amazonlinux:2023
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+    continue-on-error: true
+    strategy:
+      # Don't fast-fail all the other builds if one of the them fails
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.4xlarge" },
+          { arch: arm, instance: "linux.arm64.2xlarge" },
+        ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+
+    steps:
+    - name: Setup Build Container
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install PyTorch-CPU Test
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cpu
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build FBGEMM_GPU (CPU version)
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV release cpu
+
+    - name: Upload Built Wheel as GHA Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: fbgemm_gpu_release_cpu_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}.whl
+        path: fbgemm_gpu/dist/fbgemm_gpu_cpu-*.whl
+
+
+  # Download the built artifact from GHA, test on GPU, and push to PyPI
+  test_and_publish_artifact:
+    runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: amazonlinux:2023
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+    strategy:
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.4xlarge" },
+          { arch: arm, instance: "linux.arm64.2xlarge" },
+        ]
+        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+    needs: build_artifact
+
+    steps:
+    - name: Setup Build Container
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Download Wheel Artifact from GHA
+      uses: actions/download-artifact@v3
+      with:
+        name: fbgemm_gpu_release_cpu_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}.whl
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info; print_ec2_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install PyTorch Test
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ github.event.inputs.pytorch_channel }} cpu
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Install FBGEMM_GPU (CPU version)
+      run: |
+        . $PRELUDE
+        pwd; ls -la .
+        install_fbgemm_gpu_wheel $BUILD_ENV *.whl
+
+    - name: Test with PyTest
+      timeout-minutes: 15
+      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpu
+
+    - name: Push FBGEMM_GPU (CPU version) Binary to PYPI
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' }}
+      env:
+        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_cpu-*.whl "$PYPI_TOKEN"

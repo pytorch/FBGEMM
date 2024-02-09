@@ -55,8 +55,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
     const bool broadcast_lengths) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(cat_ad_lengths, batch_offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(cat_ad_lengths.get_device());
+  CUDA_DEVICE_GUARD(cat_ad_lengths);
 
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = broadcast_lengths
@@ -190,8 +189,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cat_ad_offsets, cat_ad_indices, reordered_cat_ad_offsets, batch_offsets);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(cat_ad_offsets.get_device());
+  CUDA_DEVICE_GUARD(cat_ad_offsets);
 
   const int64_t B = batch_offsets.numel() - 1;
   const int64_t T = (reordered_cat_ad_offsets.numel() - 1) / num_ads_in_batch;
@@ -273,6 +271,119 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
             });
       });
   return reordered_cat_ad_indices;
+}
+
+template <typename Dtype, typename index_t = int32_t>
+__global__
+__launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
+    // reorder embeddings from (ragged) [B x T x #num_ads_B_{i} x length_{B_{i},
+    // t, a})x D] to [T][B][#num_ads_b][length_{b, t, a}][D], i.e.
+    // [sum(length_{B_{i}, t, a}), D]
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        cat_sequence_embeddings_offsets,
+    const at::PackedTensorAccessor32<Dtype, 2, at::RestrictPtrTraits>
+        cat_sequence_embeddings,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        reordered_cat_sequence_embeddings_offsets,
+    at::PackedTensorAccessor32<Dtype, 2, at::RestrictPtrTraits>
+        reordered_cat_sequence_embeddings,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        batch_offsets,
+    const int32_t T,
+    const int32_t D) {
+  const int32_t B = batch_offsets.size(0) - 1;
+  const int32_t num_items_in_batch = batch_offsets[B];
+  // warp-per-segment.
+  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const int32_t b = b_t % B;
+  const int32_t t = b_t / B;
+  if (t >= T) {
+    return;
+  }
+
+  const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
+  const auto output_segment_offset_start =
+      t * num_items_in_batch + batch_offsets[b];
+  const auto output_segment_start =
+      reordered_cat_sequence_embeddings_offsets[output_segment_offset_start];
+  const int32_t input_segment_offset_start =
+      T * batch_offsets[b] + t * num_ads_b;
+  const int32_t input_segment_offset_end =
+      input_segment_offset_start + num_ads_b;
+  const auto input_segment_start =
+      cat_sequence_embeddings_offsets[input_segment_offset_start];
+  const auto input_segment_end =
+      cat_sequence_embeddings_offsets[input_segment_offset_end];
+  const auto num_elements = input_segment_end - input_segment_start;
+
+  for (size_t i = 0; i < input_segment_end - input_segment_start; i++) {
+    const auto output_offset = output_segment_start + i;
+    const auto input_offset = input_segment_start + i;
+    for (int32_t d = threadIdx.x; d < D; d += blockDim.x) {
+      reordered_cat_sequence_embeddings[output_offset][d] =
+          cat_sequence_embeddings[input_offset][d];
+    }
+  }
+}
+
+DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
+    const Tensor& cat_sequence_embeddings_offsets,
+    const Tensor& cat_sequence_embeddings,
+    const Tensor& reordered_cat_sequence_embeddings_offsets,
+    const Tensor& batch_offsets,
+    const int64_t num_items_in_batch) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      cat_sequence_embeddings_offsets,
+      cat_sequence_embeddings,
+      reordered_cat_sequence_embeddings_offsets,
+      batch_offsets);
+  const auto cat_sequence_embeddings_contig =
+      cat_sequence_embeddings.expect_contiguous();
+
+  at::cuda::OptionalCUDAGuard device_guard;
+  device_guard.set_index(cat_sequence_embeddings_offsets.get_device());
+
+  const int64_t B = batch_offsets.numel() - 1;
+  const int64_t T = (reordered_cat_sequence_embeddings_offsets.numel() - 1) /
+      num_items_in_batch;
+  const int64_t D = cat_sequence_embeddings.size(1);
+  Tensor reordered_cat_sequence_embeddings =
+      at::empty_like(cat_sequence_embeddings);
+
+  const dim3 threads(32, 32);
+  const dim3 blocks((B * T + 32 - 1) / 32);
+
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      cat_sequence_embeddings.scalar_type(),
+      "reorder_batched_sequence_embeddings_gpu_kernel_1",
+      [&] {
+        AT_DISPATCH_INDEX_TYPES(
+            cat_sequence_embeddings_offsets.scalar_type(),
+            "reorder_batched_sequence_embeddings_gpu_kernel_2",
+            [&] {
+              reorder_batched_sequence_embeddings_kernel<scalar_t, index_t><<<
+                  blocks,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  cat_sequence_embeddings_offsets
+                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                  cat_sequence_embeddings_contig
+                      ->packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
+                  reordered_cat_sequence_embeddings_offsets
+                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                  reordered_cat_sequence_embeddings
+                      .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
+                  batch_offsets
+                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                  T,
+                  D);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      });
+  return reordered_cat_sequence_embeddings;
 }
 
 } // namespace fbgemm_gpu

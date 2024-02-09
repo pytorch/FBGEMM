@@ -75,8 +75,7 @@ offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
   TENSOR_ON_CUDA_GPU(offsets);
   TENSOR_NDIM_EQUALS(offsets, 1);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(offsets.get_device());
+  CUDA_DEVICE_GUARD(offsets);
 
   auto offsets_arg = at::TensorArg(offsets, "offsets", 1);
   checkScalarTypes("_offsets_range_cuda", offsets_arg, {at::kLong, at::kInt});
@@ -113,8 +112,7 @@ DLL_PUBLIC Tensor lengths_range_cuda(
   TENSOR_ON_CUDA_GPU(t_in);
   TENSOR_NDIM_EQUALS(t_in, 1);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(t_in.get_device());
+  CUDA_DEVICE_GUARD(t_in);
 
   const auto t_in_contig = t_in.contiguous();
   const auto num_seq = t_in_contig.numel();

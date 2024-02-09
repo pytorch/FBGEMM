@@ -179,7 +179,7 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
 
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-            weights, cache_weights, D, nullptr);
+            weights, cache_weights, D);
 
     // reset momentum1
     const int32_t d = (i % chunk4s_per_row) * 4;
@@ -234,8 +234,7 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
       buffer_ids,
       cache_hash_size_cumsum,
       lxu_cache_state);
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(dev_weights.get_device());
+  CUDA_DEVICE_GUARD(dev_weights);
 
   const int64_t num_pruned_indices = pruned_indices.size(0);
   const int32_t num_pruned_tables = buffer_ids.size(0);
@@ -276,7 +275,10 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
         lxu_cache_state,
         total_cache_hash_size,
         false, // gather_cache_stats
-        uvm_cache_stats);
+        uvm_cache_stats,
+        c10::optional<Tensor>(), // num_uniq_cache_indices
+        c10::optional<Tensor>() // lxu_cache_locations_output
+    );
   }
 
   // Reset weight and momentum of pruned rows

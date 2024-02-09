@@ -1018,9 +1018,9 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDMWithStrides(
         const int64_t block_size,
-        bool has_weight,
+        [[maybe_unused]] bool has_weight,
         bool normalize_by_lengths,
-        int prefetch,
+        [[maybe_unused]] int prefetch,
         bool is_weight_positional,
         bool use_offsets,
         int64_t output_stride /*=-1*/,
@@ -1540,19 +1540,29 @@ GenerateEmbeddingSpMDMRowWiseSparse(
 #define INSTANTIATE_SPMDMFP8_BASE_float(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
 #define INSTANTIATE_SPMDMFP8_BASE_uint16_t(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
 
-#define INSTANTIATE_SPMDM_THREAD_LOCAL(                                     \
-    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)                             \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)  \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false) \
-  INSTANTIATE_SPMDM_NOSTRIDE_BASE(                                          \
-      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)                     \
-  INSTANTIATE_SPMDM_NOSTRIDE_BASE(                                          \
-      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)                    \
+#define INSTANTIATE_SPMDM_BASE_THREAD_LOCAL(                               \
+    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)                            \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true) \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)
+
+#define INSTANTIATE_SPMDM_NON_BASE_THREAD_LOCAL(         \
+    IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)          \
+  INSTANTIATE_SPMDM_NOSTRIDE_BASE(                       \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, true)  \
+  INSTANTIATE_SPMDM_NOSTRIDE_BASE(                       \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false) \
   INSTANTIATE_SPMDMFP8_BASE_##IN_TYPE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
 
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)            \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)    \
-  INSTANTIATE_SPMDM_THREAD_LOCAL(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, uint16_t) \
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)              \
+  INSTANTIATE_SPMDM_BASE_THREAD_LOCAL(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float) \
+  INSTANTIATE_SPMDM_BASE_THREAD_LOCAL(                                         \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, uint16_t)                              \
+  INSTANTIATE_SPMDM_BASE_THREAD_LOCAL(                                         \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, uint8_t)                               \
+  INSTANTIATE_SPMDM_NON_BASE_THREAD_LOCAL(                                     \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)                                 \
+  INSTANTIATE_SPMDM_NON_BASE_THREAD_LOCAL(                                     \
+      IN_TYPE, INDEX_TYPE, OFFSET_TYPE, uint16_t)                              \
   INSTANTIATE_SPMDM_ROWWISE_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE) \

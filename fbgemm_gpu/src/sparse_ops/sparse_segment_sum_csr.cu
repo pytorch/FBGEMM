@@ -55,10 +55,16 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
     const Tensor& values) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(csr_seg, values);
 
-  at::cuda::OptionalCUDAGuard device_guard;
-  device_guard.set_index(values.get_device());
+  CUDA_DEVICE_GUARD(values);
+
+  TORCH_CHECK(csr_seg.numel() >= 1, "The csr_seg tensor should not be empty")
 
   auto output = at::empty(csr_seg.numel() - 1, values.options());
+
+  if (csr_seg.numel() == 1) {
+    return output;
+  }
+
   constexpr uint32_t threads_per_block = 256;
   const uint32_t num_blocks = csr_seg.numel() - 1;
 
