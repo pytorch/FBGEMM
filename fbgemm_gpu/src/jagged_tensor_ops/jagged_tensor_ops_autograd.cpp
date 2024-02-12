@@ -331,6 +331,95 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
   }
 };
 
+class JaggedDenseElementwiseAddJaggedOutOp
+    : public torch::autograd::Function<JaggedDenseElementwiseAddJaggedOutOp> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      const Tensor& values,
+      const std::vector<Tensor>& offsets,
+      const Tensor& dense) {
+    // disables autograd key to prevent recursing into this implementation
+    at::AutoDispatchBelowADInplaceOrView g;
+
+    ctx->save_for_backward(offsets);
+
+    for (const auto& t : offsets) {
+      TORCH_CHECK(
+          !t.requires_grad(),
+          "Does not support an offsets tensor that requires grad");
+    }
+
+    // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    // toSymIntVector support is from a recent PR
+    // https://github.com/pytorch/pytorch/pull/101056,
+    // so protect it under a version guard for compatibility
+    ctx->saved_data["dense_shape"] = dense.sym_sizes();
+#else
+    ctx->saved_data["dense_shape"] = dense.sizes();
+#endif
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::jagged_dense_elementwise_add_jagged_output", "")
+            .typed<std::tuple<Tensor, std::vector<Tensor>>(
+                const Tensor& values,
+                const std::vector<Tensor>& offsets,
+                const Tensor& y)>();
+
+    auto output = op.call(values, offsets, dense);
+
+    return {std::get<0>(output)};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto offsets = ctx->get_saved_variables();
+
+    TORCH_CHECK(grad_outputs.size() == 1);
+    const auto& grad_output_tensor = grad_outputs[0];
+
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    auto dense_shape = ctx->saved_data["dense_shape"].toSymIntVector();
+#else
+    auto dense_shape = ctx->saved_data["dense_shape"].toIntVector();
+#endif
+
+    static auto op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow("fbgemm::jagged_to_padded_dense_forward", "")
+            .typed<Tensor(
+                const Tensor& values,
+                const std::vector<Tensor>& offsets,
+                at::ArrayRef<at::SymInt> max_lengths,
+                const double padding_value)>();
+
+    auto dense_values_grad = op.call(
+        grad_output_tensor,
+        offsets,
+        std::vector<at::SymInt>(dense_shape.begin() + 1, dense_shape.end() - 1),
+        /*padding_value=*/0);
+
+#if TORCH_VERSION_MAJOR > 2 || \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 1)
+    TORCH_CHECK(dense_values_grad.sym_sizes() == dense_shape);
+#else
+    TORCH_CHECK(dense_values_grad.sizes() == dense_shape);
+#endif
+
+    return {
+        grad_output_tensor,
+        torch::autograd::Variable(), // offsets
+        dense_values_grad,
+    };
+  }
+};
+
 class JaggedSoftmaxOp : public torch::autograd::Function<JaggedSoftmaxOp> {
  public:
   static torch::autograd::variable_list forward(
@@ -755,14 +844,10 @@ jagged_dense_elementwise_add_jagged_output(
     const Tensor& x_values,
     const std::vector<Tensor>& x_offsets,
     const Tensor& y) {
-  // Convert to jagged
-  auto jagged_values =
-      DenseToJaggedOp::apply(y, x_offsets, x_values.size(0))[0];
-
-  // Add jagged_values + x_values -> sum_values
-  auto sum_values = x_values + jagged_values;
-
-  return {sum_values, x_offsets};
+  std::vector<Tensor> jagged_values =
+      JaggedDenseElementwiseAddJaggedOutOp::apply(x_values, x_offsets, y);
+  TORCH_CHECK(jagged_values.size() == 1);
+  return {jagged_values[0], x_offsets};
 }
 
 ///@ingroup jagged-tensor-ops-cpu
@@ -854,6 +939,9 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl(
       "jagged_dense_dense_elementwise_add_jagged_output",
       TORCH_FN(fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output));
+  m.impl(
+      "jagged_dense_elementwise_add_jagged_output",
+      TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_jagged_output));
   m.impl(
       "jagged_dense_elementwise_mul",
       TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul));
