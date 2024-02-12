@@ -23,20 +23,13 @@ from torch import nn, Tensor
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 if getattr(fbgemm_gpu, "open_source", False):
     # pyre-ignore[21]
-    from test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        on_arm_platform,
-        optests,
-        skipIfRocm,
-    )
+    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, on_arm_platform, optests
 else:
     from fbgemm_gpu.test.test_utils import (
         cpu_and_maybe_gpu,
         gpu_unavailable,
         on_arm_platform,
         optests,
-        skipIfRocm,
     )
 
 typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
@@ -145,7 +138,6 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             [6, 7, 8, 9, 0, 1, 5, 2, 3, 4],
         )
 
-    @skipIfRocm()
     @unittest.skipIf(*typed_on_arm_platform)
     def test_permutation_autograd(self) -> None:
         net = Net().to(self.device)

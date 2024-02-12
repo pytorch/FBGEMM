@@ -20,9 +20,9 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, skipIfRocm
+    from test_utils import gpu_available
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, skipIfRocm
+    from fbgemm_gpu.test.test_utils import gpu_available
 
 
 def get_n_rand_num_summing_to_k(n: int, k: int) -> np.ndarray:
@@ -236,7 +236,6 @@ class PackedSegmentsTest(unittest.TestCase):
             )
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
 
-    @skipIfRocm()
     @given(
         n=st.integers(2, 10),
         k=st.integers(2, 10),
