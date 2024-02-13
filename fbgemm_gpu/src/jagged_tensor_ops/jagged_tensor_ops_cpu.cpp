@@ -681,6 +681,20 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
   return {x_values_grad, y_grad};
 }
 
+std::tuple<Tensor, std::vector<Tensor>>
+jagged_dense_elementwise_add_jagged_output_cpu(
+    const Tensor& x_values,
+    const std::vector<Tensor>& x_offsets,
+    const Tensor& y) {
+  // Convert to jagged
+  auto jagged_values =
+      dense_to_jagged_forward(y, x_offsets, c10::optional<at::SymInt>());
+
+  auto sum_values = x_values + jagged_values;
+
+  return {sum_values, x_offsets};
+}
+
 template <typename index_t, typename scalar_t>
 void dense_vec_jagged_2d_bmm(
     const at::TensorAccessor<scalar_t, 2>& v,
@@ -1764,7 +1778,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "jagged_dense_elementwise_add", fbgemm_gpu::jagged_dense_elementwise_add);
   DISPATCH_TO_CPU(
       "jagged_dense_elementwise_add_jagged_output",
-      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output);
+      fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_cpu);
   DISPATCH_TO_CPU(
       "jagged_dense_dense_elementwise_add_jagged_output_forward",
       fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_forward);
