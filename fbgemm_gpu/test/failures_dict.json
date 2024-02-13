@@ -168,28 +168,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::jagged_dense_elementwise_add_jagged_output": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary_opt": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_autograd_registration__test_jagged_elementwise_binary": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_autograd_registration__test_jagged_elementwise_binary_opt": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "JaggedTensorOpsTest.test_faketensor__test_jagged_elementwise_binary": {
-        "comment": "This is a real failure, it just doesn't fail under all situations",
-        "status": "skip"
-      }
-    },
+    "fbgemm::jagged_dense_elementwise_add_jagged_output": {},
     "fbgemm::jagged_dense_elementwise_mul": {},
     "fbgemm::jagged_hash_size_cumsum": {
       "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_unique_indices": {
