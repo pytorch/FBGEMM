@@ -94,6 +94,9 @@ additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_nbit_forward_cpu_seq_int8": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
+    "test_faketensor__test_nbit_forward_cpu_gpu_dequantize_parity": [
+        unittest.skip("Operator not implemented for Meta tensors"),
+    ],
 }
 
 
@@ -935,8 +938,117 @@ class NBitFowardTest(unittest.TestCase):
         torch.testing.assert_close(
             quant_cc_output.cpu(),
             ref_output.cpu(),
-            rtol=1e-2,
-            atol=1e-2,
+            equal_nan=False,
+        )
+
+    @given(
+        nbit_weights_ty=st.sampled_from(
+            [
+                SparseType.INT8,
+            ]
+        ),
+        pooling_mode=st.sampled_from([PoolingMode.NONE]),
+        output_dtype=st.sampled_from([SparseType.BF16, SparseType.FP16]),
+        D=st.sampled_from([32, 256, 384, 512, 1024]),
+        B=st.integers(min_value=8, max_value=32),
+        T=st.integers(min_value=10, max_value=20),
+        L=st.integers(min_value=10, max_value=100),
+        MAXH=st.integers(min_value=50, max_value=100),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_nbit_forward_cpu_gpu_dequantize_parity(
+        self,
+        nbit_weights_ty: SparseType,
+        pooling_mode: PoolingMode,
+        output_dtype: SparseType,
+        D: int,
+        B: int,
+        T: int,
+        L: int,
+        MAXH: int,
+    ) -> None:
+        D_alignment = (
+            1
+            if nbit_weights_ty.bit_rate() % 8 == 0
+            else int(8 / nbit_weights_ty.bit_rate())
+        )
+        D = round_up(D, D_alignment)
+        T_H = [np.random.randint(low=1, high=MAXH + 1) for _ in range(T)]
+        quant_cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    H,
+                    D,
+                    nbit_weights_ty,
+                    EmbeddingLocation.HOST,
+                )
+                for H in T_H
+            ],
+            pooling_mode=pooling_mode,
+            device="cpu",
+            output_dtype=nbit_weights_ty,
+        )
+        # Initialize the random weights for int nbit table split embedding bag
+        quant_cc.fill_random_weights()
+        dequant_cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    H,
+                    D,
+                    nbit_weights_ty,
+                    EmbeddingLocation.HOST,
+                )
+                for H in T_H
+            ],
+            pooling_mode=pooling_mode,
+            device="cpu",
+            output_dtype=output_dtype,
+        )
+        dequant_cc.initialize_weights()
+        embedding_weights_base = quant_cc.split_embedding_weights()
+        # we mimic 1.0 scale, 0.0 bias for better results comparison
+        embedding_weights: List[Tuple[torch.Tensor, Optional[torch.Tensor]]] = [
+            (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
+            for table_weight, _ in embedding_weights_base
+        ]
+        # Initialize the random weights for int8 nbit table split embedding bag
+        dequant_cc.assign_embedding_weights(embedding_weights)
+        quant_cc.assign_embedding_weights(embedding_weights)
+        lengths_list = [
+            torch.randint(
+                1,
+                L + 1,
+                (B,),
+            )
+            for _ in range(T)
+        ]
+        indices_list = [
+            torch.randint(0, H, (int(length.sum().item()),))
+            for length, H in zip(lengths_list, T_H)
+        ]
+        indices = torch.cat(indices_list, 0)
+        lengths = torch.cat(lengths_list, 0)
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+        quant_cc_output = quant_cc(indices.int(), offsets.int())
+        dequant_cc_output = dequant_cc(indices.int(), offsets.int())
+        cuda_device = torch.device("cuda")
+        dequant_output_from_quant_cc = (
+            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatOrHalf(
+                quant_cc_output.to(cuda_device),
+                output_dtype.as_int(),
+                quant_padding_float_type=False,
+                scale_bias_last=False,
+            )
+        )
+        torch.testing.assert_close(
+            dequant_cc_output.cpu(),
+            dequant_output_from_quant_cc.cpu(),
             equal_nan=False,
         )
 

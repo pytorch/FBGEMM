@@ -225,7 +225,9 @@ Tensor fused8bitrowwise_to_half_cpu(const Tensor& input) {
 ///
 Tensor fused8bitrowwise_to_float_or_half_cpu(
     const Tensor& input,
-    const int64_t output_dtype) {
+    const int64_t output_dtype,
+    [[maybe_unused]] const bool scale_bias_last,
+    [[maybe_unused]] const bool quant_padding_float_type) {
   Tensor output;
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
@@ -442,7 +444,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       {PT2_COMPLIANT_TAG});
   m.def("Fused8BitRowwiseQuantizedToHalf(Tensor input) -> Tensor");
   m.def(
-      "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int output_dtype=0) -> Tensor");
+      "Fused8BitRowwiseQuantizedToFloatOrHalf(Tensor input, int output_dtype=0, bool scale_bias_last=True, bool quant_padding_float_type=True) -> Tensor");
   m.def(
       "Fused8BitRowwiseQuantizedToFloatOut(Tensor output, Tensor input) -> Tensor");
   m.def(
