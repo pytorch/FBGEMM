@@ -23,14 +23,13 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, skipIfRocm
+    from test_utils import gpu_available
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available, skipIfRocm
+    from fbgemm_gpu.test.test_utils import gpu_available
 
 
 class IndexSelectTest(unittest.TestCase):
-    @skipIfRocm()
     @given(
         N=st.integers(1, 32),
         shape=st.one_of(

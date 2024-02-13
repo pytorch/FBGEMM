@@ -185,7 +185,7 @@ def use_cpu_strategy() -> st.SearchStrategy[bool]:
 def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") -> Any:
     # pyre-fixme[3]: Return annotation cannot be `Any`.
     # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
-    def skipIfRocmDecorator(fn: Callable) -> Any:
+    def decorator(fn: Callable) -> Any:
         @wraps(fn)
         # pyre-fixme[3]: Return annotation cannot be `Any`.
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -196,7 +196,47 @@ def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") ->
 
         return wrapper
 
-    return skipIfRocmDecorator
+    return decorator
+
+
+# pyre-fixme[3]: Return annotation cannot be `Any`.
+def skipIfRocmLessThan(min_version: int) -> Any:
+    # pyre-fixme[3]: Return annotation cannot be `Any`.
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
+    def decorator(testfn: Callable) -> Any:
+        @wraps(testfn)
+        # pyre-fixme[3]: Return annotation cannot be `Any`.
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            ROCM_VERSION_FILEPATH = "/opt/rocm/.info/version-dev"
+            if TEST_WITH_ROCM:
+                # Fail if ROCm version file is missing.
+                if not os.path.isfile(ROCM_VERSION_FILEPATH):
+                    raise AssertionError(
+                        f"ROCm version file {ROCM_VERSION_FILEPATH} is missing!"
+                    )
+
+                # Parse the version number from the file.
+                with open(ROCM_VERSION_FILEPATH, "r") as file:
+                    version = file.read().strip()
+                version = version.replace("-", "").split(".")
+                version = (
+                    int(version[0]) * 10000 + int(version[1]) * 100 + int(version[2])
+                )
+
+                # Fail if ROCm version is less than the minimum version.
+                if version < min_version:
+                    raise unittest.SkipTest(
+                        f"Skip the test since the ROCm version is less than {min_version}"
+                    )
+                else:
+                    testfn(*args, **kwargs)
+
+            else:
+                testfn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def symint_vector_unsupported() -> Tuple[bool, str]:
@@ -204,7 +244,7 @@ def symint_vector_unsupported() -> Tuple[bool, str]:
     return (
         int(major) < 2 or (int(major) == 2 and int(minor) < 1),
         """
-        dynamic shape support for this op needs to be on PyTorch 2.1 or
+        Dynamic shape support for this operator needs to be on PyTorch 2.1 or
         newer with https://github.com/pytorch/pytorch/pull/101056
         """,
     )

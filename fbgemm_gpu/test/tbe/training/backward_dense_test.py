@@ -31,14 +31,9 @@ from ..common import open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gradcheck, optests, running_on_github, use_cpu_strategy
+    from test_utils import gradcheck, optests, use_cpu_strategy
 else:
-    from fbgemm_gpu.test.test_utils import (
-        gradcheck,
-        optests,
-        running_on_github,
-        use_cpu_strategy,
-    )
+    from fbgemm_gpu.test.test_utils import gradcheck, optests, use_cpu_strategy
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -72,7 +67,6 @@ class BackwardDenseTest(unittest.TestCase):
         deadline=None,
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
-    @unittest.skipIf(*running_on_github)
     def test_backward_dense(  # noqa C901
         self,
         T: int,
