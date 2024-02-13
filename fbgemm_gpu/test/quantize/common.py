@@ -94,6 +94,21 @@ def fused_rowwise_8bit_dequantize_reference(fused_quantized: np.ndarray) -> np.n
     return quantized_data * scale + bias
 
 
+def fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference(
+    fused_quantized: np.ndarray,
+) -> np.ndarray:
+    scale = bytes_to_half_floats(
+        fused_quantized[..., 0:2].astype(np.uint8).reshape(-1, 2)
+    )
+    scale = scale.reshape(fused_quantized.shape[:-1] + (scale.shape[-1],))
+    bias = bytes_to_half_floats(
+        fused_quantized[..., 2:4].astype(np.uint8).reshape(-1, 2)
+    )
+    bias = bias.reshape(fused_quantized.shape[:-1] + (bias.shape[-1],))
+    quantized_data = fused_quantized[..., 4:]
+    return quantized_data * scale + bias
+
+
 def fused_rowwise_8bit_dequantize_reference_half(
     fused_quantized: np.ndarray,
 ) -> np.ndarray:
