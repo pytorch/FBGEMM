@@ -97,8 +97,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga4eaebf19f2a7330fc060b085e540db42"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga8193797bccd50ba869beefb87a14a9bd" id="r_ga8193797bccd50ba869beefb87a14a9bd"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga8193797bccd50ba869beefb87a14a9bd">_fused8bitrowwise_to_half_gpu</a> (const at::Tensor &amp;input)</td></tr>
 <tr class="separator:ga8193797bccd50ba869beefb87a14a9bd"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga5763993c1d1067d7f8c28d2562cb4c4e" id="r_ga5763993c1d1067d7f8c28d2562cb4c4e"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga5763993c1d1067d7f8c28d2562cb4c4e">_fused8bitrowwise_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t output_dtype)</td></tr>
-<tr class="separator:ga5763993c1d1067d7f8c28d2562cb4c4e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga29377cee5a9aca8c8ac1a38ce4a83ec1" id="r_ga29377cee5a9aca8c8ac1a38ce4a83ec1"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga29377cee5a9aca8c8ac1a38ce4a83ec1">_fused8bitrowwise_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t output_dtype, const bool scale_bias_last, const bool quant_padding_float_type)</td></tr>
+<tr class="separator:ga29377cee5a9aca8c8ac1a38ce4a83ec1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga304ba1cfb80e721f8c15cfa1db25621c" id="r_ga304ba1cfb80e721f8c15cfa1db25621c"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga304ba1cfb80e721f8c15cfa1db25621c">_fused8bitrowwise_to_float_mixed_dim_gpu</a> (const at::Tensor &amp;input, const at::Tensor &amp;D_offsets, const int64_t output_dtype)</td></tr>
 <tr class="separator:ga304ba1cfb80e721f8c15cfa1db25621c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gae55e28033798a9a0cbd93c70b119c3aa" id="r_gae55e28033798a9a0cbd93c70b119c3aa"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gae55e28033798a9a0cbd93c70b119c3aa">_float_to_fusednbitrowwise_gpu</a> (const Tensor &amp;input, const int64_t bit_rate)</td></tr>
@@ -547,8 +547,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga5763993c1d1067d7f8c28d2562cb4c4e" name="ga5763993c1d1067d7f8c28d2562cb4c4e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga5763993c1d1067d7f8c28d2562cb4c4e">&#9670;&#160;</a></span>_fused8bitrowwise_to_single_or_half_precision_gpu()</h2>
+<a id="ga29377cee5a9aca8c8ac1a38ce4a83ec1" name="ga29377cee5a9aca8c8ac1a38ce4a83ec1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga29377cee5a9aca8c8ac1a38ce4a83ec1">&#9670;&#160;</a></span>_fused8bitrowwise_to_single_or_half_precision_gpu()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -561,7 +561,17 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>&#160;)</td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>output_dtype</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>scale_bias_last</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>quant_padding_float_type</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
