@@ -14,6 +14,7 @@ from hypothesis import assume, given, HealthCheck, settings
 
 from . import common  # noqa E402
 from .common import (
+    fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference,
     fused_rowwise_8bit_dequantize_reference,
     fused_rowwise_8bit_quantize_reference,
     open_source,
@@ -114,9 +115,12 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
         nrows=st.integers(min_value=0, max_value=100),
-        ncols=st.integers(min_value=0, max_value=100),
+        ncols=st.sampled_from([32, 128, 256, 384, 512, 1024]),
         output_dtype=st.sampled_from(
             [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+        ),
+        quant_padding_float_type=st.sampled_from(
+            [True, False],
         ),
         test_generic_op=st.booleans(),
         test_cuda=st.booleans(),
@@ -127,6 +131,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
         nrows: int,
         ncols: int,
         output_dtype: SparseType,
+        quant_padding_float_type: bool,
         test_generic_op: bool,
         test_cuda: bool,
     ) -> None:
@@ -187,17 +192,39 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
             if nrows == 0 or ncols == 0:
                 return
             input_data_gpu = input_data.cuda()
-
+            if not test_generic_op and not quant_padding_float_type:
+                return
+            if not quant_padding_float_type and output_dtype == SparseType.FP32:
+                return
             if test_generic_op:
-                quantized_data_gpu = (
+                quantized_data_gpu_ref = (
                     torch.ops.fbgemm.FloatOrHalfToFused8BitRowwiseQuantized(
                         input_data_gpu
                     )
                 )
+                # fbgemm weight 2byte storages are scale_bias first layout
+                if quant_padding_float_type is False:
+                    scale_bias_last = False
+                    quant_pad = quantized_data_gpu_ref[:, -8:]
+                    quant_data = quantized_data_gpu_ref[:, :-8]
+                    quantized_data_gpu = torch.cat(
+                        [
+                            quant_pad.view(torch.float)
+                            .to(torch.half)
+                            .view(torch.uint8),
+                            quant_data,
+                        ],
+                        dim=1,
+                    )
+                else:
+                    scale_bias_last = True
+                    quantized_data_gpu = quantized_data_gpu_ref
                 dequantized_data_gpu = (
                     torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatOrHalf(
                         quantized_data_gpu,
                         output_dtype.as_int(),
+                        quant_padding_float_type=quant_padding_float_type,
+                        scale_bias_last=scale_bias_last,
                     )
                 )
             else:
@@ -227,10 +254,20 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
 
             dequantized_data_trimmed = dequantized_data_gpu[:, :ncols].cpu()
             quantize_data_numpy = quantized_data_gpu.cpu().numpy()
-            reference = torch.from_numpy(
-                fused_rowwise_8bit_dequantize_reference(quantize_data_numpy)[:, :ncols]
-            )
-
+            if quant_padding_float_type:
+                reference = torch.from_numpy(
+                    fused_rowwise_8bit_dequantize_reference(quantize_data_numpy)[
+                        :, :ncols
+                    ]
+                )
+            else:
+                reference = torch.from_numpy(
+                    fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference(
+                        quantize_data_numpy
+                    )[
+                        :, :ncols
+                    ]
+                )
             if output_dtype == SparseType.FP32:
                 torch.testing.assert_close(
                     dequantized_data_trimmed.float(), reference.float()
