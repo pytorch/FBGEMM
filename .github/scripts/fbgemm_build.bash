@@ -27,19 +27,22 @@ __configure_fbgemm_build () {
     -DPYTHON_EXECUTABLE=${python_path}
   )
 
-  if [ "$fbgemm_compiler" == "clang" ]; then
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     echo "[BUILD] Host compiler is Clang; adding extra compiler flags ..."
 
     # shellcheck disable=SC2155,SC2086
     local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+    # shellcheck disable=SC2155,SC2086
+    local cc_path=$(conda run ${env_prefix} which cc)
+    # shellcheck disable=SC2155,SC2086
+    local cxx_path=$(conda run ${env_prefix} which c++)
 
     # shellcheck disable=SC2206
     build_args+=(
-      -DOpenMP_C_LIB_NAMES=libomp
-      -DOpenMP_C_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
-      -DOpenMP_CXX_LIB_NAMES=libomp
-      -DOpenMP_CXX_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
-      -DOpenMP_libomp_LIBRARY=${conda_prefix}/lib/libomp.so
+      -DCMAKE_C_COMPILER="${cc_path}"
+      -DCMAKE_CXX_COMPILER="${cxx_path}"
+      -DCMAKE_C_FLAGS=\"-fopenmp=libomp -stdlib=libc++ -I ${conda_prefix}/include\"
+      -DCMAKE_CXX_FLAGS=\"-fopenmp=libomp -stdlib=libc++ -I ${conda_prefix}/include\"
     )
   fi
 
@@ -55,12 +58,11 @@ build_fbgemm_library () {
   env_name="$1"
   local build_dir="$2"
   fbgemm_library_type="$3"
-  fbgemm_compiler="$4"
-  if [ "$fbgemm_compiler" == "" ]; then
+  if [ "$fbgemm_library_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME BUILD_DIR LIBRARY_TYPE COMPILER"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env shared clang   # Build shared library using Clang"
-    echo "    ${FUNCNAME[0]} build_env static gcc     # Build static library using GCC"
+    echo "    ${FUNCNAME[0]} build_env shared   # Build shared library"
+    echo "    ${FUNCNAME[0]} build_env static   # Build static library"
     return 1
   fi
 

@@ -65,7 +65,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Build FBGEMM Library (${{ matrix.library-type }})
-      run: . $PRELUDE; build_fbgemm_library $BUILD_ENV $BUILD_DIR ${{ matrix.library-type }} ${{ matrix.compiler }}
+      run: . $PRELUDE; build_fbgemm_library $BUILD_ENV $BUILD_DIR ${{ matrix.library-type }}
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
       run: . $PRELUDE; test_fbgemm_library $BUILD_ENV $BUILD_DIR
