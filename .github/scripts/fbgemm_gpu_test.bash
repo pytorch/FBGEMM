@@ -32,7 +32,7 @@ run_python_test () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # shellcheck disable=SC2086
-  if print_exec conda run --no-capture-output ${env_prefix} python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning --cache-clear "${python_test_file}"; then
+  if print_exec conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --cache-clear  "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
     echo ""
     echo ""
@@ -50,13 +50,13 @@ run_python_test () {
   # enabled by using the pytest cache and the --lf flag.
 
   # shellcheck disable=SC2086
-  if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning --lf --last-failed-no-failures none "${python_test_file}"; then
+  if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures none "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED with retries: ${python_test_file}"
     echo ""
     echo ""
     echo ""
   else
-    echo "[TEST] Python test suite FAILED for some or all tests despite retries: ${python_test_file}"
+    echo "[TEST] Python test suite FAILED for some or all tests despite multiple retries: ${python_test_file}"
     echo ""
     echo ""
     echo ""
@@ -104,13 +104,63 @@ __configure_fbgemm_gpu_test_rocm () {
   )
 }
 
+__setup_fbgemm_gpu_test () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # Configure the environment for ignored test suites for each FBGEMM_GPU
+  # variant
+  if [ "$fbgemm_variant" == "cpu" ]; then
+    echo "[TEST] Configuring for CPU-based testing ..."
+    __configure_fbgemm_gpu_test_cpu
+
+  elif [ "$fbgemm_variant" == "rocm" ]; then
+    echo "[TEST] Configuring for ROCm-based testing ..."
+    __configure_fbgemm_gpu_test_rocm
+
+  else
+    echo "[TEST] Configuring for CUDA-based testing ..."
+    __configure_fbgemm_gpu_test_cuda
+  fi
+
+  if [[ $MACHINE_NAME == 'aarch64' ]]; then
+    # NOTE: Setting KMP_DUPLICATE_LIB_OK silences the error about multiple
+    # OpenMP being linked when FBGEMM_GPU is compiled under Clang on aarch64
+    # machines:
+    #   https://stackoverflow.com/questions/53014306/error-15-initializing-libiomp5-dylib-but-found-libiomp5-dylib-already-initial
+    echo "[TEST] Platform is aarch64; will set KMP_DUPLICATE_LIB_OK ..."
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} KMP_DUPLICATE_LIB_OK=1
+  fi
+
+  echo "[TEST] Installing PyTest ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda install ${env_prefix} -y pytest expecttest) || return 1
+
+  echo "[TEST] Checking imports ..."
+  (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
+  (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+
+  # Configure the PyTest args
+  pytest_args=(
+    -v
+    -rsx
+    -s
+    -W ignore::pytest.PytestCollectionWarning
+  )
+
+  # shellcheck disable=SC2145
+  echo "[TEST] PyTest args:  ${pytest_args[@]}"
+}
+
+
 ################################################################################
 # FBGEMM_GPU Test Functions
 ################################################################################
 
 run_fbgemm_gpu_tests () {
-  local env_name="$1"
-  local fbgemm_variant="$2"
+  env_name="$1"
+  fbgemm_variant="$2"
   if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME [FBGEMM_VARIANT]"
     echo "Example(s):"
@@ -129,27 +179,7 @@ run_fbgemm_gpu_tests () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  if [ "$fbgemm_variant" == "cpu" ]; then
-    echo "Configuring for CPU-based testing ..."
-    __configure_fbgemm_gpu_test_cpu
-
-  elif [ "$fbgemm_variant" == "rocm" ]; then
-    echo "Configuring for ROCm-based testing ..."
-    __configure_fbgemm_gpu_test_rocm
-
-  else
-    echo "Configuring for CUDA-based testing ..."
-    __configure_fbgemm_gpu_test_cuda
-  fi
-
-  echo "[TEST] Installing pytest ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -y pytest expecttest) || return 1
-
-  echo "[TEST] Checking imports ..."
-  (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  __setup_fbgemm_gpu_test
 
   echo "[TEST] Enumerating ALL test files ..."
   # shellcheck disable=SC2155

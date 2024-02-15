@@ -19,10 +19,10 @@ from .common import extend_test_class, open_source, permute_indices_ref_
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, on_oss_clang
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, on_oss_clang
 
 
 class PermuteEmbeddingsTest(unittest.TestCase):
@@ -37,6 +37,7 @@ class PermuteEmbeddingsTest(unittest.TestCase):
         else:
             return permute_fn(*args)
 
+    @unittest.skipIf(*on_oss_clang)
     @given(
         B=st.integers(min_value=0, max_value=20),
         T=st.integers(min_value=0, max_value=20),

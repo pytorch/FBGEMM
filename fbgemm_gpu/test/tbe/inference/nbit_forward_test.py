@@ -10,7 +10,6 @@
 import copy
 import random
 import unittest
-
 from typing import Callable, Dict, List, Optional, Tuple
 
 import hypothesis.strategies as st
@@ -941,6 +940,7 @@ class NBitFowardTest(unittest.TestCase):
             equal_nan=False,
         )
 
+    @unittest.skipIf(*gpu_unavailable)
     @given(
         nbit_weights_ty=st.sampled_from(
             [

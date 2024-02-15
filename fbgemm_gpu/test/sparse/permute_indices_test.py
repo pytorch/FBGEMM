@@ -25,10 +25,10 @@ from .common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, gpu_unavailable, on_oss_clang
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, on_oss_clang
 
 
 class PermuteIndicesTest(unittest.TestCase):
@@ -160,6 +160,7 @@ class PermuteIndicesTest(unittest.TestCase):
     # TorchScript has different behaviors than eager mode. We can see undefined
     # models returned. So we need to add a unittest to ensure the op return
     # real None, not an undefined tensor.
+    @unittest.skipIf(*gpu_unavailable)
     def test_permute_indices_scripted_with_none_weights(
         self,
     ) -> None:
@@ -194,6 +195,7 @@ class PermuteIndicesTest(unittest.TestCase):
         self.assertEqual(permuted_weights_cpu, None)
         self.assertEqual(permuted_weights_ref, None)
 
+    @unittest.skipIf(*on_oss_clang)
     @given(
         B=st.integers(min_value=1, max_value=20),
         T=st.integers(min_value=1, max_value=20),

@@ -13,51 +13,34 @@
 # FBGEMM Build Auxiliary Functions
 ################################################################################
 
-__configure_fbgemm_build_gcc () {
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  # shellcheck disable=SC2155,SC2086
-  local python_path=$(conda run ${env_prefix} which python)
-
-  # shellcheck disable=SC2206
-  build_args=(
-    -DUSE_SANITIZER=address
-    -DFBGEMM_LIBRARY_TYPE=${fbgemm_library_type}
-    -DPYTHON_EXECUTABLE=${python_path}
-  )
-}
-
-__configure_fbgemm_build_clang () {
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  # shellcheck disable=SC2155,SC2086
-  local python_path=$(conda run ${env_prefix} which python)
-  # shellcheck disable=SC2155,SC2086
-  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-
-  # shellcheck disable=SC2206
-  build_args=(
-    -DUSE_SANITIZER=address
-    -DFBGEMM_LIBRARY_TYPE=${fbgemm_library_type}
-    -DPYTHON_EXECUTABLE=${python_path}
-    -DOpenMP_C_LIB_NAMES=libomp
-    -DOpenMP_C_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
-    -DOpenMP_CXX_LIB_NAMES=libomp
-    -DOpenMP_CXX_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
-    -DOpenMP_libomp_LIBRARY=${conda_prefix}/lib/libomp.so
-  )
-}
-
 __configure_fbgemm_build () {
-  if [ "$fbgemm_compiler" == "clang" ]; then
-    echo "[BUILD] Configuring for building using Clang ..."
-    __configure_fbgemm_build_clang
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  else
-    echo "[BUILD] Configuring for building using GCC ..."
-    __configure_fbgemm_build_gcc
+  # shellcheck disable=SC2155,SC2086
+  local python_path=$(conda run ${env_prefix} which python)
+
+  # shellcheck disable=SC2206
+  build_args=(
+    -DUSE_SANITIZER=address
+    -DFBGEMM_LIBRARY_TYPE=${fbgemm_library_type}
+    -DPYTHON_EXECUTABLE=${python_path}
+  )
+
+  if [ "$fbgemm_compiler" == "clang" ]; then
+    echo "[BUILD] Host compiler is Clang; adding extra compiler flags ..."
+
+    # shellcheck disable=SC2155,SC2086
+    local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+
+    # shellcheck disable=SC2206
+    build_args+=(
+      -DOpenMP_C_LIB_NAMES=libomp
+      -DOpenMP_C_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
+      -DOpenMP_CXX_LIB_NAMES=libomp
+      -DOpenMP_CXX_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
+      -DOpenMP_libomp_LIBRARY=${conda_prefix}/lib/libomp.so
+    )
   fi
 
   # shellcheck disable=SC2145
