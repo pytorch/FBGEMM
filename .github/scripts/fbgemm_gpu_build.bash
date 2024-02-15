@@ -55,6 +55,32 @@ prepare_fbgemm_gpu_build () {
   echo "[BUILD] Successfully ran git submodules update"
 }
 
+__configure_compiler_flags () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    echo "[BUILD] Host compiler is Clang; adding extra compiler flags ..."
+
+    # shellcheck disable=SC2155,SC2086
+    local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+    # shellcheck disable=SC2155,SC2086
+    local cpp_path=$(conda run ${env_prefix} which c++)
+
+    echo "[BUILD] Setting Clang (should already be symlinked as c++) as the host compiler: ${cpp_path}"
+    # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
+    #   https://github.com/ROCm/HIP/issues/931
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS="-ccbin ${cpp_path}"
+
+    echo "[BUILD] Appending OpenMP flags for Clang ..."
+    # shellcheck disable=SC2206
+    build_args+=(
+      --openmp libomp ${conda_prefix}
+    )
+  fi
+}
+
 __configure_fbgemm_gpu_build_cpu () {
   # Update the package name and build args depending on if CUDA is specified
   echo "[BUILD] Setting CPU-only build args ..."
@@ -162,7 +188,7 @@ __configure_fbgemm_gpu_build () {
   if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} cpu                          # CPU-only variant"
+    echo "    ${FUNCNAME[0]} cpu                          # CPU-only variant using Clang"
     echo "    ${FUNCNAME[0]} cuda                         # CUDA variant for default target(s)"
     echo "    ${FUNCNAME[0]} cuda '7.0;8.0'               # CUDA variant for custom target(s)"
     echo "    ${FUNCNAME[0]} rocm                         # ROCm variant for default target(s)"
@@ -189,6 +215,9 @@ __configure_fbgemm_gpu_build () {
     echo "[BUILD] Configuring build as CUDA variant (this is the default behavior) ..."
     __configure_fbgemm_gpu_build_cuda "${fbgemm_variant_targets}"
   fi
+
+  # Set other compiler flags as needed
+  __configure_compiler_flags
 
   # shellcheck disable=SC2145
   echo "[BUILD] FBGEMM_GPU build arguments have been set:  ${build_args[@]}"
@@ -375,11 +404,11 @@ build_fbgemm_gpu_package () {
   if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_TYPE VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env nightly cpu                           # Nightly CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env nightly cuda                          # Nightly CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env nightly cuda '7.0;8.0'                # Nightly CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env release rocm                          # Release ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env release rocm 'gfx906;gfx908;gfx90a'   # Release ROCm variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
     return 1
   fi
 

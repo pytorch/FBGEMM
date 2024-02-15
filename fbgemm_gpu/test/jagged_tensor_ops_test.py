@@ -28,6 +28,7 @@ try:
         gpu_available,
         gpu_unavailable,
         gradcheck,
+        on_oss_clang,
         optests,
         symint_vector_unsupported,
         use_cpu_strategy,
@@ -44,6 +45,7 @@ except Exception:
         gpu_available,
         gpu_unavailable,
         gradcheck,
+        on_oss_clang,
         optests,
         symint_vector_unsupported,
         use_cpu_strategy,
@@ -183,6 +185,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
             )
         return output_permute
 
+    @unittest.skipIf(*on_oss_clang)
     @given(
         T=st.integers(min_value=10, max_value=20),
         W=st.integers(min_value=8, max_value=64),
