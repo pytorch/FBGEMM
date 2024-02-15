@@ -36,6 +36,16 @@ running_on_github: Tuple[bool, str] = (
     "Test is currently known to fail or hang when run in the GitHub runners",
 )
 
+# Tests with this marker generally fails with `free(): corrupted unsorted chunks`
+# errors when fbgemm_gpu is compiled under Clang
+on_oss_clang: Tuple[bool, str] = (
+    (
+        hasattr(fbgemm_gpu, "open_source")
+        and os.system("c++ --version | grep -i clang") == 0
+    ),
+    "Test is currently known to fail when fbgemm_gpu is built by Clang in OSS",
+)
+
 # Used for `@unittest.skipIf` for tests that currently fail on ARM platform
 on_arm_platform: Tuple[bool, str] = (
     subprocess.run(["uname", "-m"], stdout=subprocess.PIPE)

@@ -52,7 +52,18 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         help="Certain operations require the nvml lib (libnvidia-ml.so). If you installed"
         " this in a custom location (through cudatoolkit-dev), provide the path here.",
     )
-    return parser.parse_known_args(argv)
+    parser.add_argument(
+        "--openmp",
+        nargs=2,
+        metavar=("name", "path"),
+        help="Custom OpenMP library and path.",
+    )
+
+    setup_py_args, other_args = parser.parse_known_args(argv)
+
+    print(f"[SETUP.PY] Parsed setup.py arguments: {setup_py_args}")
+    print(f"[SETUP.PY] Other arguments: {other_args}")
+    return setup_py_args, other_args
 
 
 def nvcc_ok(cuda_home: str, major: int, minor: int) -> bool:
@@ -136,7 +147,9 @@ def set_cuda_environment_variables() -> None:
             os.environ["CUDACXX"] = f"{cuda_home}/bin/nvcc"
 
 
-def cmake_environment_variables(args) -> None:
+def cmake_environment_variables(
+    setup_py_args: argparse.Namespace, other_args: List[str]
+) -> None:
     def _get_cxx11_abi():
         try:
             value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
@@ -152,17 +165,38 @@ def cmake_environment_variables(args) -> None:
         _get_cxx11_abi(),
     ]
 
-    if args.verbose:
+    if setup_py_args.verbose:
         print("[SETUP.PY] Building in VERBOSE mode ...")
         cmake_args.append("-DCMAKE_VERBOSE_MAKEFILE=1")
 
-    if args.package_variant == "cpu":
+    if setup_py_args.package_variant == "cpu":
         print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
         cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
 
-    if args.nvml_lib_path:
-        cmake_args.append(f"-DNVML_LIB_PATH={args.nvml_lib_path}")
+    if setup_py_args.nvml_lib_path:
+        cmake_args.append(f"-DNVML_LIB_PATH={setup_py_args.nvml_lib_path}")
 
+    if setup_py_args.openmp:
+        print("[SETUP.PY] Building with OpenMP installation ...")
+        name, path = setup_py_args.openmp
+        cmake_args.extend(
+            [
+                f"-DOpenMP_C_LIB_NAMES={name}",
+                f"-DOpenMP_C_FLAGS=-fopenmp={name}",
+                f"-DCMAKE_C_FLAGS='-fopenmp={name} -I{path}/include'",
+                f"-DOpenMP_CXX_LIB_NAMES={name}",
+                f"-DOpenMP_CXX_FLAGS=-fopenmp={name}",
+                f"-DCMAKE_CXX_FLAGS='-fopenmp={name} -I{path}/include'",
+                f"-DOpenMP_libomp_LIBRARY={path}/lib/{name}.so",
+            ]
+        )
+
+    # Pass CMake args attached to the setup.py call over to the CMake invocation
+    for arg in other_args:
+        if arg.startswith("-D"):
+            cmake_args.append(arg)
+
+    print(f"[SETUP.PY] Passing CMake arguments: {cmake_args}")
     return cmake_args
 
 
@@ -345,23 +379,22 @@ class FbgemmGpuInstaller(PipInstall):
 
 def main(argv: List[str]) -> None:
     # Handle command line args before passing to main setup() method.
-    args, unknown = parse_args(argv)
-    print(f"[SETUP.PY] Parsed Arguments: {args}")
-    if len(unknown) != 0 and (len(unknown) != 1 or unknown[0] != "clean"):
-        print(f"[SETUP.PY] Unknown Arguments: {unknown}")
+    setup_py_args, other_args = parse_args(argv)
 
     # Repair command line args for setup.
-    sys.argv = [sys.argv[0]] + unknown
+    sys.argv = [sys.argv[0]] + other_args
 
     # Extract the package name
-    package_name = FbgemmGpuInstaller.extract_package_name(args.package_name)
+    package_name = FbgemmGpuInstaller.extract_package_name(setup_py_args.package_name)
 
     # Extract the variant version, e.g. cpu, cu121, rocm5.6
-    variant_version = FbgemmGpuInstaller.extract_variant_version(args.package_variant)
+    variant_version = FbgemmGpuInstaller.extract_variant_version(
+        setup_py_args.package_variant
+    )
 
     # Generate the full package version string
     package_version = FbgemmGpuInstaller.generate_package_version(
-        args.package_name, variant_version
+        setup_py_args.package_name, variant_version
     )
 
     # Generate the version file
@@ -390,7 +423,7 @@ def main(argv: List[str]) -> None:
             # nightly and test packages
             "numpy",
         ],
-        cmake_args=cmake_environment_variables(args),
+        cmake_args=cmake_environment_variables(setup_py_args, other_args),
         cmdclass={
             "install": FbgemmGpuInstaller,
         },
