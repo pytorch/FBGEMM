@@ -117,8 +117,7 @@ struct Half4 {
   }
 };
 
-// Customized 4-element vector data types (with element type Half, float, or
-// double).
+// Customized 4-element vector data types (with element type Half, or float).
 template <typename T>
 struct Vec4T {};
 
@@ -136,10 +135,6 @@ struct Vec4T<float> {
     load(p);
   }
 
-  DEVICE_INLINE Vec4T(const double* p) {
-    load(p);
-  }
-
   DEVICE_INLINE Vec4T(const at::Half* p) {
     load(p);
   }
@@ -150,13 +145,6 @@ struct Vec4T<float> {
 
   DEVICE_INLINE void load(const float* p) {
     acc = *((const float4*)p);
-  }
-
-  DEVICE_INLINE void load(const double* p) {
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
   }
 
   DEVICE_INLINE void load(const at::Half* p) {
@@ -239,13 +227,6 @@ struct Vec4T<float> {
     p[3] = acc.w;
   }
 
-  DEVICE_INLINE void store(double* p) const {
-    p[0] = acc.x;
-    p[1] = acc.y;
-    p[2] = acc.z;
-    p[3] = acc.w;
-  }
-
   DEVICE_INLINE void store(uint8_t* p) const {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -309,10 +290,6 @@ struct Vec4T<at::Half> {
     load(p);
   }
 
-  DEVICE_INLINE Vec4T(const double* p) {
-    load(p);
-  }
-
   DEVICE_INLINE void load(const at::Half* p) {
 #ifdef USE_ROCM
     union U {
@@ -363,13 +340,6 @@ struct Vec4T<at::Half> {
     acc = *((const float4*)p);
   }
 
-  DEVICE_INLINE void load(const double* p) {
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
-  }
-
   DEVICE_INLINE void load(const uint8_t* p) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -398,13 +368,6 @@ struct Vec4T<at::Half> {
 
   DEVICE_INLINE void store(float* p) const {
     *((float4*)p) = acc;
-  }
-
-  DEVICE_INLINE void store(double* p) const {
-    p[0] = acc.x;
-    p[1] = acc.y;
-    p[2] = acc.z;
-    p[3] = acc.w;
   }
 
   DEVICE_INLINE void store(uint8_t* p) const {
@@ -516,10 +479,6 @@ struct Vec4T<at::BFloat16> {
     load(p);
   }
 
-  DEVICE_INLINE Vec4T(const double* p) {
-    load(p);
-  }
-
   DEVICE_INLINE void load(const at::BFloat16* p) {
     acc.x = p[0];
     acc.y = p[1];
@@ -570,13 +529,6 @@ struct Vec4T<at::BFloat16> {
     acc = *((const float4*)p);
   }
 
-  DEVICE_INLINE void load(const double* p) {
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
-  }
-
   DEVICE_INLINE void load(const uint8_t* p) {
     CUDA_KERNEL_ASSERT(false);
   }
@@ -605,13 +557,6 @@ struct Vec4T<at::BFloat16> {
 
   DEVICE_INLINE void store(float* p) const {
     *((float4*)p) = acc;
-  }
-
-  DEVICE_INLINE void store(double* p) const {
-    p[0] = acc.x;
-    p[1] = acc.y;
-    p[2] = acc.z;
-    p[3] = acc.w;
   }
 
   DEVICE_INLINE void store(uint8_t* p) const {
@@ -666,164 +611,6 @@ struct Vec4T<at::BFloat16> {
 
   // this <- this element-wise mul a
   DEVICE_INLINE void element_wise_mul_(const Vec4T<at::Half>& a) {
-    acc.x *= a.acc.x;
-    acc.y *= a.acc.y;
-    acc.z *= a.acc.z;
-    acc.w *= a.acc.w;
-  }
-
-  // this <- this * scale
-  DEVICE_INLINE void mul_(float scale) {
-    acc.x *= scale;
-    acc.y *= scale;
-    acc.z *= scale;
-    acc.w *= scale;
-  }
-};
-
-template <>
-struct Vec4T<double> {
-  double4 acc;
-  DEVICE_INLINE Vec4T() {
-    acc.x = 0;
-    acc.y = 0;
-    acc.z = 0;
-    acc.w = 0;
-  }
-
-  DEVICE_INLINE Vec4T(const at::Half* p) {
-    load(p);
-  }
-
-  DEVICE_INLINE Vec4T(const at::BFloat16* p) {
-    load(p);
-  }
-
-  DEVICE_INLINE Vec4T(const float* p) {
-    load(p);
-  }
-
-  DEVICE_INLINE Vec4T(const double* p) {
-    load(p);
-  }
-
-  DEVICE_INLINE void load(const at::Half* p) {
-#ifdef USE_ROCM
-    union U {
-      half2 h[2];
-      uint2 ui;
-    } tmp_out;
-
-    // uint2 = 2 uints = 8 bytes
-    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
-
-    float2 a = __half22float2(tmp_out.h[0]);
-    float2 b = __half22float2(tmp_out.h[1]);
-
-    acc.x = a.x;
-    acc.y = a.y;
-    acc.z = b.x;
-    acc.w = b.y;
-#else
-    Half4 out;
-#if CUDA_VERSION >= 9000
-    asm("ld.global.v2.u32 {%0, %1}, [%2];"
-        : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
-        : "l"(p));
-#else
-    asm("ld.global.v2.u32 {%0, %1}, [%2];"
-        : "=r"(out.a.x), "=r"(out.b.x)
-        : "l"(p));
-#endif
-
-    float2 a = __half22float2(out.a);
-    float2 b = __half22float2(out.b);
-
-    acc.x = a.x;
-    acc.y = a.y;
-    acc.z = b.x;
-    acc.w = b.y;
-#endif
-  }
-
-  DEVICE_INLINE void load(const at::BFloat16* p) {
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
-  }
-
-  DEVICE_INLINE void load(const float* p) {
-    acc.x = p[0];
-    acc.y = p[1];
-    acc.z = p[2];
-    acc.w = p[3];
-  }
-
-  DEVICE_INLINE void load(const uint8_t* p) {
-    CUDA_KERNEL_ASSERT(false);
-  }
-
-  DEVICE_INLINE void load(const double* p) {
-    acc = *((const double4*)p);
-  }
-
-  DEVICE_INLINE void store(double* p) const {
-    *((double4*)p) = acc;
-  }
-
-  DEVICE_INLINE void store(float* p) const {
-    float4* f4 = (float4*)p;
-    f4->x = acc.x;
-    f4->y = acc.y;
-    f4->z = acc.z;
-    f4->w = acc.w;
-  }
-
-  DEVICE_INLINE void store(at::Half* p) const {
-    float2 a;
-    a.x = acc.x;
-    a.y = acc.y;
-
-    float2 b;
-    b.x = acc.z;
-    b.y = acc.w;
-
-    Half4 out;
-    out.a = __float22half2_rn(a);
-    out.b = __float22half2_rn(b);
-    out.store(p);
-  }
-
-  DEVICE_INLINE void store(at::BFloat16* p) const {
-    p[0] = acc.x;
-    p[1] = acc.y;
-    p[2] = acc.z;
-    p[3] = acc.w;
-  }
-
-  DEVICE_INLINE static void copy(const double* src, double* dst) {
-    *((double4*)dst) = *((const double4*)src);
-  }
-
-  // this <- this + a * b
-  DEVICE_INLINE void fma_(const Vec4T<double>& a, const double b) {
-    acc.x = __fma_rn(a.acc.x, b, acc.x);
-    acc.y = __fma_rn(a.acc.y, b, acc.y);
-    acc.z = __fma_rn(a.acc.z, b, acc.z);
-    acc.w = __fma_rn(a.acc.w, b, acc.w);
-  }
-
-  // this <- this + a
-  DEVICE_INLINE void add_(const Vec4T<double>& a) {
-    acc.x += a.acc.x;
-    acc.y += a.acc.y;
-    acc.z += a.acc.z;
-    acc.w += a.acc.w;
-  }
-
-  // this <- this element-wise mul a
-  DEVICE_INLINE void element_wise_mul_(const Vec4T<double>& a) {
     acc.x *= a.acc.x;
     acc.y *= a.acc.y;
     acc.z *= a.acc.z;
@@ -1202,14 +989,6 @@ DEVICE_INLINE void nearest_rounding_vector(
   output[3] = lrintf((value.acc.w - qparams.y) * inv_scale);
 }
 
-template <>
-DEVICE_INLINE void nearest_rounding_vector(
-    uint8_t* output,
-    const Vec4T<double>& value,
-    const float2 qparams) {
-  CUDA_KERNEL_ASSERT(false);
-}
-
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void quantize_store(
     dst_t* output,
@@ -1562,26 +1341,10 @@ struct SharedMemory<float> {
 };
 
 template <>
-struct SharedMemory<double> {
-  __device__ double* getPointer() {
-    extern __shared__ double s_double_t[];
-    return s_double_t;
-  }
-};
-
-template <>
 struct SharedMemory<Vec4T<at::acc_type<float, true>>> {
   __device__ Vec4T<at::acc_type<float, true>>* getPointer() {
     extern __shared__ Vec4T<at::acc_type<float, true>> s_acc_float_vec_t[];
     return s_acc_float_vec_t;
-  }
-};
-
-template <>
-struct SharedMemory<Vec4T<at::acc_type<double, true>>> {
-  __device__ Vec4T<at::acc_type<double, true>>* getPointer() {
-    extern __shared__ Vec4T<at::acc_type<double, true>> s_acc_double_vec_t[];
-    return s_acc_double_vec_t;
   }
 };
 

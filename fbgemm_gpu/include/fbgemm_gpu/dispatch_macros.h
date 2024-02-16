@@ -193,9 +193,16 @@
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)
 
-#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16_CASE(...) \
-  FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__)        \
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_CASE(TYPE, ...) \
+  FBGEMM_DISPATCH_FLOAT_AND_HALF_CASE(__VA_ARGS__)     \
   AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__)
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16_CASE(...) \
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_CASE(at::ScalarType::BFloat16, __VA_ARGS__)
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE_CASE(...) \
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_CASE(                \
+      at::ScalarType::at::ScalarType::Byte, __VA_ARGS__)
 
 #define FBGEMM_DISPATCH_FLOAT_AND_HALF(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                   \
@@ -204,6 +211,10 @@
 #define FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                            \
       TYPE, NAME, FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16_CASE(__VA_ARGS__))
+
+#define FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                        \
+      TYPE, NAME, FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE_CASE(__VA_ARGS__))
 
 // We can cleanup the following once fbgemm uses PyTorch 2.2 in January 2024.
 #ifndef PT2_COMPLIANT_TAG
