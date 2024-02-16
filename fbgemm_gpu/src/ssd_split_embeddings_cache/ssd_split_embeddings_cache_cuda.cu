@@ -13,6 +13,7 @@
 #include <c10/cuda/CUDADeviceAssertionHost.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
@@ -90,9 +91,7 @@ Tensor masked_index_put_cuda(
   const auto D = self.size(1);
   TORCH_CHECK_EQ(self.size(1), values.size(1));
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::Byte,
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       self.scalar_type(),
       "masked_index_put",
       [&] {

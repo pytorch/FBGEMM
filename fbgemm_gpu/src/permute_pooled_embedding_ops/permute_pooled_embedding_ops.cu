@@ -14,6 +14,7 @@
 #include <cuda_runtime.h>
 #include "fbgemm_gpu/ops_utils.h"
 
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
@@ -105,12 +106,8 @@ Tensor permute_pooled_embs_gpu_impl(
       std::min(static_cast<int32_t>(B), max_grid_dim_y),
       (B + max_grid_dim_y - 1) / max_grid_dim_y);
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      pooled_embs_contiguous.scalar_type(),
-      "permute_pooled_embeddings",
-      [&] {
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+      pooled_embs_contiguous.scalar_type(), "permute_pooled_embeddings", [&] {
         permute_pooled_embs_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                 pooled_embs_contiguous.data_ptr<scalar_t>(),
