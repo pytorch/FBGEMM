@@ -53,43 +53,49 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const offset_t* const __restrict__ block_bucketize_pos_offsets,
     offset_t* __restrict__ indices_to_lb) {
   using uindex_t = std::make_unsigned_t<index_t>;
-  CUDA_KERNEL_LOOP(b_t, lengths_size) {
+  const auto bt_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
+  for (auto b_t = bt_start; b_t < lengths_size; b_t += stride) {
     const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
     index_t blk_size = block_sizes_data[t];
     offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     offset_t rowend = offsets_data[b_t];
     const auto use_block_bucketize_pos =
         (block_bucketize_pos_concat != nullptr);
-    for (index_t i = rowstart; i < rowend; ++i) {
-      // We have use cases using none-hashed raw indices that can be either
-      // negative or larger than embedding table hash_size (blk_size *
-      // my_size). In cases of none-hashed indices we need to ensure
-      // bucketization can distribute them into different ranks and within
-      // range of blk_size, we expect the later embedding module to take care
-      // of hashing indices calculation.
+    // We have use cases using none-hashed raw indices that can be either
+    // negative or larger than embedding table hash_size (blk_size *
+    // my_size). In cases of none-hashed indices we need to ensure
+    // bucketization can distribute them into different ranks and within
+    // range of blk_size, we expect the later embedding module to take care
+    // of hashing indices calculation.
+    if (!use_block_bucketize_pos) {
+      for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
+        uindex_t idx = static_cast<uindex_t>(indices_data[i]);
+        uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        atomicAdd(&new_lengths_data[p * lengths_size + b_t], 1);
+      }
+      return;
+    }
+
+    for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = 0;
-      if (!use_block_bucketize_pos) {
-        p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-      } else {
-        index_t first = block_bucketize_pos_offsets[t];
-        index_t last = block_bucketize_pos_offsets[t + 1];
+      index_t first = block_bucketize_pos_offsets[t];
+      index_t last = block_bucketize_pos_offsets[t + 1];
 
-        while (first < last) {
-          index_t middle = first + ((last - first) / 2);
-          if (static_cast<uindex_t>(block_bucketize_pos_concat[middle]) <=
-              idx) {
-            first = ++middle;
-          } else {
-            last = middle;
-          }
+      while (first < last) {
+        index_t middle = first + ((last - first) / 2);
+        if (static_cast<uindex_t>(block_bucketize_pos_concat[middle]) <= idx) {
+          first = ++middle;
+        } else {
+          last = middle;
         }
-        uindex_t lb =
-            static_cast<uindex_t>(first - block_bucketize_pos_offsets[t] - 1);
-        indices_to_lb[i] = lb;
-        p = lb < my_size ? lb : idx % my_size;
       }
-      new_lengths_data[p * lengths_size + b_t]++;
+      uindex_t lb =
+          static_cast<uindex_t>(first - block_bucketize_pos_offsets[t] - 1);
+      indices_to_lb[i] = lb;
+      p = lb < my_size ? lb : idx % my_size;
+      atomicAdd(&new_lengths_data[p * lengths_size + b_t], 1);
     }
   }
 }
@@ -266,9 +272,9 @@ block_bucketize_sparse_features_cuda(
     block_bucketize_pos_offsets = block_bucketize_pos_offsets.to(
         block_bucketize_pos_concat.device(), true);
   }
-  constexpr auto threads_per_block = 256;
-  const auto num_blocks =
-      cuda_calc_xblock_count(lengths_size, threads_per_block);
+  static_assert(kMaxThreads % kWarpSize == 0);
+  const dim3 block_dims(kWarpSize, kMaxThreads / kWarpSize);
+  const dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig.scalar_type(),
       "_block_bucketize_sparse_features_cuda_kernel1",
@@ -279,8 +285,8 @@ block_bucketize_sparse_features_cuda(
             "_block_bucketize_sparse_features_cuda_kernel2",
             [&] {
               _block_bucketize_sparse_features_cuda_kernel1<<<
-                  num_blocks,
-                  threads_per_block,
+                  grid_dims,
+                  block_dims,
                   0,
                   at::cuda::getCurrentCUDAStream()>>>(
                   lengths_size,
@@ -305,7 +311,9 @@ block_bucketize_sparse_features_cuda(
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
-
+  constexpr auto threads_per_block = 256;
+  const auto num_blocks =
+      cuda_calc_xblock_count(lengths_size, threads_per_block);
   // bucketize nonzeros
   new_offsets = asynchronous_exclusive_cumsum_gpu(new_lengths);
   if (sequence) {
