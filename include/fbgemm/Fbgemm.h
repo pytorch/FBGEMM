@@ -26,6 +26,26 @@
 #include "./Types.h"
 #include "./Utils.h"
 
+#ifdef __clang__
+// clang-format off
+#define FBGEMM_PUSH_WARNING _Pragma("GCC diagnostic push")
+#define FBGEMM_DISABLE_WARNING_INTERNAL2(warningName) #warningName
+#define FBGEMM_DISABLE_WARNING(warningName) \
+  _Pragma(                                     \
+      FBGEMM_DISABLE_WARNING_INTERNAL2(GCC diagnostic ignored warningName))
+#define FBGEMM_PUSH_WARNING_AND_DISABLE(warningName) \
+  _Pragma("GCC diagnostic push") \
+  _Pragma(                                     \
+      FBGEMM_DISABLE_WARNING_INTERNAL2(GCC diagnostic ignored warningName))
+#define FBGEMM_POP_WARNING _Pragma("GCC diagnostic pop")
+// clang-format on
+#else
+#define FBGEMM_PUSH_WARNING
+#define FBGEMM_DISABLE_WARNING(NAME)
+#define FBGEMM_PUSH_WARNING_AND_DISABLE(NAME)
+#define FBGEMM_POP_WARNING
+#endif
+
 // Turning on this option will print out time breakdown of each stage (e.g.,
 // input packing, the main GEMM kernel, each output processing pipeline).
 // Please note that currently this option won't report accurate timing if
@@ -139,11 +159,7 @@ class PackMatrix {
       int cols = 0,
       const BlockingFactors* params = nullptr);
 
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Winfinite-recursion"
-#endif
-
+  FBGEMM_PUSH_WARNING_AND_DISABLE("-Winfinite-recursion")
   /**
    * @return Pointer to a buffer containing row offset results. Some packing
    *         objects fuse row offset computation for later requantization step.
@@ -151,11 +167,9 @@ class PackMatrix {
   std::int32_t* getRowOffsetBuffer() const {
     return static_cast<const PT*>(this)->getRowOffsetBuffer();
   }
+  FBGEMM_POP_WARNING
 
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
-
+  FBGEMM_PUSH_WARNING_AND_DISABLE("-Winfinite-recursion")
   /**
    * @brief When k loop is also tiled/blocked, this function is used to check if
    * have executed computations for the last k block so that we can perform
@@ -164,6 +178,7 @@ class PackMatrix {
   bool isThisLastKBlock(int block_id) const {
     return static_cast<const PT*>(this)->isThisLastKBlock(block_id);
   }
+  FBGEMM_POP_WARNING
 
   /**
    * @brief Actual packing of a block of the source matrix in pmat buffer.
