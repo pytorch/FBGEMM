@@ -103,16 +103,15 @@ __conda_install_clang () {
   local llvm_version=15.0.7
 
   echo "[INSTALL] Installing Clang and relevant libraries through Conda ..."
+  # NOTE: libcxx from conda-forge is outdated for linux-aarch64, we we cannot
+  # explicitly specify the version number
+  #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     clangxx=${llvm_version} \
     libcxx \
     llvm-openmp=${llvm_version} \
     compiler-rt=${llvm_version}) || return 1
-
-  # libcxx from conda-forge is very outdated for linux-aarch64
-  # echo "[INSTALL] Installing LLVM libcxx from Anaconda channel..."
-  # (exec_with_retries 3 conda install ${env_prefix} -c anaconda -y libcxx) || return 1
 
   # The compilers are visible in the PATH as `clang` and `clang++`, so symlinks
   # will need to be created
@@ -247,6 +246,7 @@ install_build_tools () {
   echo "[INSTALL] Installing build tools ..."
   # NOTE: Only the openblas package will install cblas.h directly into
   # $CONDA_PREFIX/include directory
+  #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     click \

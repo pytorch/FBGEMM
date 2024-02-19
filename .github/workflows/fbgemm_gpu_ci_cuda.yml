@@ -104,7 +104,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Install cuDNN
       run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
@@ -116,6 +116,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly cuda
 
     - name: Upload Built Wheel as GHA Artifact
+      # Cannot upgrade to actions/upload-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/upload-artifact@v3
       with:
         name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
@@ -158,6 +159,7 @@ jobs:
         submodules: true
 
     - name: Download Wheel Artifact from GHA
+      # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/download-artifact@v3
       with:
         name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
@@ -190,7 +192,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
