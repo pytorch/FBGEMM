@@ -1718,7 +1718,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
             f"load_factor: {cache_load_factor : .3f}, "
-            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB"
+            f"cache_size: {cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
+            f"cache_precision: {dtype}"
         )
 
         self.total_cache_hash_size = cache_state.total_cache_hash_size
