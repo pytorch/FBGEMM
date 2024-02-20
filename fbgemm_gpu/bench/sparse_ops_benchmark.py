@@ -971,11 +971,17 @@ def cat_reorder_batched_ad_indices_bench(
 @cli.command()
 @click.option("--row-size", default=2560000)
 @click.option("--batch-size", default=4096)
+@click.option("--element-num", default=300000)
 @click.option("--bucket-num", default=16)
 @click.option("--input-precision", type=str, default="long")
 @click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cpu")
 def block_bucketize_sparse_features_bench(
-    row_size: int, batch_size: int, bucket_num: int, input_precision: str, device: str
+    row_size: int,
+    batch_size: int,
+    bucket_num: int,
+    element_num: int,
+    input_precision: str,
+    device: str,
 ) -> None:
     dtype = torch.int
     if input_precision == "int":
@@ -985,16 +991,19 @@ def block_bucketize_sparse_features_bench(
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
 
-    indices = torch.randint(0, row_size, (batch_size,), dtype=dtype)
-    weights = torch.randint(0, row_size, (batch_size,), dtype=torch.float)
+    indices = torch.randint(0, row_size, (element_num,), dtype=dtype)
+    weights = torch.randint(0, row_size, (element_num,), dtype=torch.float)
     total = 0
-    lengths = []
-    for _ in range(batch_size):
-        length = random.randint(0, 10)
-        lengths.append(min(length, batch_size - total))
+    lengths = [0] * batch_size
+    avg_len = element_num // batch_size
+    for i in range(batch_size):
+        length = int(random.gauss(mu=avg_len, sigma=1.0))
+        lengths[i] = min(length, element_num - total)
         total += length
-        if total > batch_size:
+        if total > element_num:
             break
+    if total < element_num:
+        lengths[-1] += row_size - total
     lengths = torch.tensor(lengths, dtype=dtype)
     bucket_size = math.ceil(row_size / bucket_num)
     block_sizes = torch.tensor([bucket_size] * lengths.numel(), dtype=dtype)
@@ -1002,7 +1011,7 @@ def block_bucketize_sparse_features_bench(
     bucket_pos = [j * bucket_size for j in range(bucket_num + 1)]
     block_bucketize_pos = [torch.tensor(bucket_pos, device=device)] * lengths.numel()
     test_param = {"uneven": block_bucketize_pos, "even": None}
-    print("device {device}")
+    print(f"device {device}")
     for name, is_block_bucketize_pos in test_param.items():
         time, output = benchmark_torch_function(
             torch.ops.fbgemm.block_bucketize_sparse_features,
