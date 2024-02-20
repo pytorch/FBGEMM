@@ -53,10 +53,12 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         " this in a custom location (through cudatoolkit-dev), provide the path here.",
     )
     parser.add_argument(
-        "--openmp",
-        nargs=2,
-        metavar=("name", "path"),
-        help="Custom OpenMP library and path.",
+        "--cxxprefix",
+        type=str,
+        default=None,
+        # nargs=2,
+        # metavar=("name", "path"),
+        help="Explicit compiler path.",
     )
 
     setup_py_args, other_args = parser.parse_known_args(argv)
@@ -176,18 +178,15 @@ def cmake_environment_variables(
     if setup_py_args.nvml_lib_path:
         cmake_args.append(f"-DNVML_LIB_PATH={setup_py_args.nvml_lib_path}")
 
-    if setup_py_args.openmp:
-        print("[SETUP.PY] Building with OpenMP installation ...")
-        name, path = setup_py_args.openmp
+    if setup_py_args.cxxprefix:
+        print("[SETUP.PY] Setting CMake flags ...")
+        path = setup_py_args.cxxprefix
         cmake_args.extend(
             [
-                f"-DOpenMP_C_LIB_NAMES={name}",
-                f"-DOpenMP_C_FLAGS=-fopenmp={name}",
-                f"-DCMAKE_C_FLAGS='-fopenmp={name} -I{path}/include'",
-                f"-DOpenMP_CXX_LIB_NAMES={name}",
-                f"-DOpenMP_CXX_FLAGS=-fopenmp={name}",
-                f"-DCMAKE_CXX_FLAGS='-fopenmp={name} -I{path}/include'",
-                f"-DOpenMP_libomp_LIBRARY={path}/lib/{name}.so",
+                f"-DCMAKE_C_COMPILER={path}/bin/cc",
+                f"-DCMAKE_CXX_COMPILER={path}/bin/c++",
+                f"-DCMAKE_C_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
+                f"-DCMAKE_CXX_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
             ]
         )
 

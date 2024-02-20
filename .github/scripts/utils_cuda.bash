@@ -72,7 +72,7 @@ install_cuda () {
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."
   # shellcheck disable=SC2086
-  print_exec conda run ${env_prefix} nvcc --compiler-options -dM -E -x cu - < /dev/null
+  print_exec "conda run ${env_prefix} nvcc --compiler-options -dM -E -x cu - < /dev/null"
 
   # Print nvcc version
   # shellcheck disable=SC2086
