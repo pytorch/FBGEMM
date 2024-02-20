@@ -60,23 +60,14 @@ __configure_compiler_flags () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
-    echo "[BUILD] Host compiler is Clang; adding extra compiler flags ..."
+    echo "[BUILD] Clang is available; configuring for Clang-based build ..."
 
     # shellcheck disable=SC2155,SC2086
     local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-    # shellcheck disable=SC2155,SC2086
-    local cpp_path=$(conda run ${env_prefix} which c++)
 
-    echo "[BUILD] Setting Clang (should already be symlinked as c++) as the host compiler: ${cpp_path}"
-    # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
-    #   https://github.com/ROCm/HIP/issues/931
-    # shellcheck disable=SC2086
-    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS="-ccbin ${cpp_path}"
-
-    echo "[BUILD] Appending OpenMP flags for Clang ..."
     # shellcheck disable=SC2206
     build_args+=(
-      --openmp libomp ${conda_prefix}
+      --cxxprefix ${conda_prefix}
     )
   fi
 }

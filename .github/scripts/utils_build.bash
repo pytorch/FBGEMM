@@ -89,19 +89,30 @@ __conda_install_gcc () {
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} printenv CXX)
 
-  print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/cc"
-  print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/gcc"
-  print_exec ln -s "${cxx_path}" "$(dirname "$cxx_path")/c++"
-  print_exec ln -s "${cxx_path}" "$(dirname "$cxx_path")/g++"
+  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
+  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
+  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
+  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
 }
 
 __conda_install_clang () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Installing Clang through Conda ..."
+  # shellcheck disable=SC2155
+  local llvm_version=15.0.7
+
+  echo "[INSTALL] Installing Clang and relevant libraries through Conda ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y clangxx libcxx llvm-openmp compiler-rt ) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+    clangxx=${llvm_version} \
+    libcxx \
+    llvm-openmp=${llvm_version} \
+    compiler-rt=${llvm_version}) || return 1
+
+  # libcxx from conda-forge is very outdated for linux-aarch64
+  # echo "[INSTALL] Installing LLVM libcxx from Anaconda channel..."
+  # (exec_with_retries 3 conda install ${env_prefix} -c anaconda -y libcxx) || return 1
 
   # The compilers are visible in the PATH as `clang` and `clang++`, so symlinks
   # will need to be created
@@ -111,10 +122,10 @@ __conda_install_clang () {
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} which clang++)
 
-  print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/cc"
-  print_exec ln -s "${cc_path}" "$(dirname "$cc_path")/gcc"
-  print_exec ln -s "${cxx_path}" "$(dirname "$cxx_path")/c++"
-  print_exec ln -s "${cxx_path}" "$(dirname "$cxx_path")/g++"
+  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
+  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
+  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
+  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
 
   echo "[INSTALL] Updating LD_LIBRARY_PATH ..."
   # shellcheck disable=SC2155,SC2086
@@ -123,6 +134,16 @@ __conda_install_clang () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path}:${conda_prefix}/lib"
+
+  echo "[BUILD] Setting Clang (should already be symlinked as c++) as the host compiler for NVCC: ${cxx_path}"
+  # When NVCC is used, set Clang to be the host compiler, but set GNU libstdc++
+  # (not Clang libc++) as the standard library
+  #
+  # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
+  #   https://github.com/ROCm/HIP/issues/931
+  #
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-std=c++17 -Xcompiler -std=c++17 -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
 }
 
 __compiler_post_install_checks () {
@@ -184,11 +205,17 @@ install_cxx_compiler () {
   # Install GLIBC
   __conda_install_glibc
 
+  # Install GCC and libstdc++
+  # NOTE: We unconditionally install libstdc++ here because CUDA only supports
+  # libstdc++, even if host compiler is set to Clang:
+  #   https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#host-compiler-support-policy
+  #   https://forums.developer.nvidia.com/t/cuda-issues-with-clang-compiler/177589/8
+  __conda_install_gcc
+
   # Install the C/C++ compiler
   if [ "$compiler" == "clang" ]; then
+    # Existing symlinks to cc / c++ / gcc / g++ will be overridden
     __conda_install_clang
-  else
-    __conda_install_gcc
   fi
 
   # Run post-install checks
@@ -218,9 +245,10 @@ install_build_tools () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   echo "[INSTALL] Installing build tools ..."
+  # NOTE: Only the openblas package will install cblas.h directly into
+  # $CONDA_PREFIX/include directory
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
-    blas \
     click \
     cmake \
     hypothesis \
@@ -228,6 +256,7 @@ install_build_tools () {
     make \
     ninja \
     numpy \
+    openblas \
     scikit-build \
     wheel) || return 1
 
