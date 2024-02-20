@@ -18,14 +18,22 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
     )
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_hip"
-        )
-    else:
+    try:
+        if torch.version.hip:
+            torch.ops.load_library(
+                "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_hip"
+            )
+        else:
+            torch.ops.load_library(
+                "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_cuda"
+            )
+    except OSError:
+        # For backward compatibility
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
         )
+except OSError:
+    pass
 
 
 class PermutePooledEmbeddings:
