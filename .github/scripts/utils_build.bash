@@ -89,6 +89,7 @@ __conda_install_gcc () {
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} printenv CXX)
 
+  # Set the symlinks, override if needed
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
@@ -103,7 +104,7 @@ __conda_install_clang () {
   local llvm_version=15.0.7
 
   echo "[INSTALL] Installing Clang and relevant libraries through Conda ..."
-  # NOTE: libcxx from conda-forge is outdated for linux-aarch64, we we cannot
+  # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number
   #
   # shellcheck disable=SC2086
@@ -121,6 +122,7 @@ __conda_install_clang () {
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} which clang++)
 
+  # Set the symlinks, override if needed
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
@@ -132,7 +134,7 @@ __conda_install_clang () {
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path}:${conda_prefix}/lib"
+  print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path:+${ld_library_path}:}${conda_prefix}/lib"
 
   echo "[BUILD] Setting Clang (should already be symlinked as c++) as the host compiler for NVCC: ${cxx_path}"
   # When NVCC is used, set Clang to be the host compiler, but set GNU libstdc++
@@ -244,8 +246,10 @@ install_build_tools () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   echo "[INSTALL] Installing build tools ..."
-  # NOTE: Only the openblas package will install cblas.h directly into
-  # $CONDA_PREFIX/include directory
+  # NOTES:
+  # - Only the openblas package will install cblas.h directly into
+  #   $CONDA_PREFIX/include directory
+  # - ncurses is needed to silence bad libtinfo6.so errors for ROCm+Clang builds
   #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
@@ -254,6 +258,7 @@ install_build_tools () {
     hypothesis \
     jinja2 \
     make \
+    ncurses \
     ninja \
     numpy \
     openblas \

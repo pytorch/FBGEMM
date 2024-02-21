@@ -57,11 +57,11 @@ Create a Conda environment with the specified Python version:
   python_version=3.12
 
   # Create the environment
-  conda create -y --name "${env_name}" python="${python_version}"
+  conda create -y --name ${env_name} python="${python_version}"
 
   # Upgrade PIP and pyOpenSSL package
-  conda run -n "${env_name}" pip install --upgrade pip
-  conda run -n "${env_name}" python -m pip install pyOpenSSL>22.1.0
+  conda run -n ${env_name} pip install --upgrade pip
+  conda run -n ${env_name} python -m pip install pyOpenSSL>22.1.0
 
 
 Set Up for CPU-Only Build
@@ -113,13 +113,13 @@ Install the full CUDA package through Conda, which includes
   cuda_version=12.1.0
 
   # Install the full CUDA package
-  conda install -n "${env_name}" -y cuda -c "nvidia/label/cuda-${cuda_version}"
+  conda install -n ${env_name} -y cuda -c "nvidia/label/cuda-${cuda_version}"
 
 Verify that ``cuda_runtime.h`` and ``libnvidia-ml.so`` are found:
 
 .. code:: sh
 
-  conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  conda_prefix=$(conda run -n ${env_name} printenv CONDA_PREFIX)
 
   find "${conda_prefix}" -name cuda_runtime.h
   find "${conda_prefix}" -name libnvidia-ml.so
@@ -139,6 +139,7 @@ cuDNN package for the given CUDA version:
 
   # Download and unpack cuDNN
   wget -q "${cudnn_url}" -O cudnn.tar.xz
+  tar -xvf cudnn.tar.xz
 
 
 Set Up for ROCm Build
@@ -162,9 +163,10 @@ desired ROCm version:
   # Run for ROCm 5.6.1
   docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:5.6.1
 
-For both building and running FBGEMM_GPU, The `full ROCm Docker
-image <https://hub.docker.com/r/rocm/dev-ubuntu-20.04>`__ is recommended
-over the minimum Docker image.
+While the `full ROCm Docker image <https://hub.docker.com/r/rocm/dev-ubuntu-20.04>`__
+comes with all ROCm packages pre-installed, it results in a very large Docker
+container, and so for this reason, the minimal image is recommended for building
+and running FBGEMM_GPU.
 
 From here, the rest of the build environment may be constructed through Conda,
 as it is still the recommended mechanism for creating an isolated and
@@ -215,25 +217,27 @@ Install the Build Tools
 
 The instructions in this section apply to builds for all variants of FBGEMM_GPU.
 
-C/C++ Compiler
-~~~~~~~~~~~~~~
+.. _fbgemm-gpu.build.setup.tools.install.compiler.gcc:
 
-Install a version of the GCC toolchain **that supports C++17**. Note that GCC
-(as opposed to Clang for example) is required for CUDA builds because NVIDIA’s
-``nvcc`` relies on ``gcc`` and ``g++`` in the path. The ``sysroot`` package will
-also need to be installed to avoid issues with missing versioned symbols with
-``GLIBCXX`` when compiling FBGEMM_CPU:
+C/C++ Compiler (GCC)
+~~~~~~~~~~~~~~~~~~~~
+
+Install a version of the GCC toolchain **that supports C++17**.  The ``sysroot``
+package will also need to be installed to avoid issues with missing versioned
+symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
 
 .. code:: sh
 
-  conda install -n "${env_name}" -y gxx_linux-64=10.4.0 sysroot_linux-64=2.17 -c conda-forge
+  # Fix GCC to 10.4.0, to keep compatibility with older versions of GLIBCXX
+  gcc_version=15.0.7
 
-While newer versions of GCC can be used, binaries compiled under newer
-versions of GCC will not be compatible with older systems such as Ubuntu
-20.04 or CentOS Stream 8, because the compiled library will reference
-symbols from versions of ``GLIBCXX`` that the system’s
-``libstdc++.so.6`` will not support. To see what versions of GLIBC and
-GLIBCXX the available ``libstdc++.so.6`` supports:
+  conda install -n ${env_name} -c conda-forge -y gxx_linux-64=${gcc_version} sysroot_linux-64=2.17
+
+While newer versions of GCC can be used, binaries compiled under newer versions
+of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
+Stream 8, because the compiled library will reference symbols from versions of
+``GLIBCXX`` that the system’s ``libstdc++.so.6`` will not support. To see what
+versions of GLIBC and GLIBCXX the available ``libstdc++.so.6`` supports:
 
 .. code:: sh
 
@@ -245,6 +249,62 @@ GLIBCXX the available ``libstdc++.so.6`` supports:
   # Print supported for GLIBCXX versions
   objdump -TC "${libcxx_path}" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
 
+.. _fbgemm-gpu.build.setup.tools.install.compiler.clang:
+
+C/C++ Compiler (Clang)
+~~~~~~~~~~~~~~~~~~~~~~
+
+It is possible to build FBGEMM and FBGEMM_GPU (just the CPU and CUDA variants)
+using Clang as the host compiler.  To do so, install a version of the Clang
+toolchain **that supports C++17**:
+
+.. code:: sh
+
+  # Use a recent version of LLVM+Clang
+  llvm_version=15.0.7
+
+  # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
+  # explicitly specify the version number
+  conda install -n ${env_name} -c conda-forge -y \
+      clangxx=${llvm_version} \
+      libcxx \
+      llvm-openmp=${llvm_version} \
+      compiler-rt=${llvm_version}
+
+  # Append $CONDA_PREFIX/lib to $LD_LIBRARY_PATH in the Conda environment
+  ld_library_path=$(conda run -n ${env_name} printenv LD_LIBRARY_PATH)
+  conda_prefix=$(conda run -n ${env_name} printenv CONDA_PREFIX)
+  conda env config vars set -n ${env_name} LD_LIBRARY_PATH="${ld_library_path}:${conda_prefix}/lib"
+
+  # Set NVCC_PREPEND_FLAGS in the Conda environment for Clang to work correctly as the host compiler
+  conda env config vars set -n ${env_name} NVCC_PREPEND_FLAGS=\"-std=c++17 -Xcompiler -std=c++17 -Xcompiler -stdlib=libstdc++ -ccbin ${clangxx_path} -allow-unsupported-compiler\"
+
+**Note** that for CUDA code compilation, even though ``nvcc`` supports Clang as
+the host compiler, only ``libstd++`` (GCC's implementation of the C++ standard
+library) is supported for any host compiler being used by ``nvcc``.
+
+This means that GCC is a required dependency for CUDA variant of FBGEMM_GPU,
+regardless of whether it is built with Clang or not.  In this scenario, it is
+recommended to first install the GCC toolchain before installing the Clang
+toolchain in this scenario; see
+:ref:`fbgemm-gpu.build.setup.tools.install.compiler.gcc` for instructions.
+
+Compiler Symlinks
+~~~~~~~~~~~~~~~~~
+
+After installing the compiler toolchains, symlink the C and C++ compilers to the
+binpath (override existing symlinks as needed).  In a Conda environment, the
+binpath is located at ``$CONDA_PREFIX/bin``:
+
+.. code:: sh
+
+  conda_prefix=$(conda run -n ${env_name} printenv CONDA_PREFIX)
+
+  ln -sf "${path_to_either_gcc_or_clang}" "$(conda_prefix)/bin/cc"
+  ln -sf "${path_to_either_gcc_or_clang}" "$(conda_prefix)/bin/c++"
+
+These symlinks will be used later in the FBGEMM_GPU build configuration stage.
+
 Other Build Tools
 ~~~~~~~~~~~~~~~~~
 
@@ -252,17 +312,17 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
 
 .. code:: sh
 
-  conda install -n "${env_name}" -y \
+  conda install -n ${env_name} -y \
       click \
       cmake \
       hypothesis \
       jinja2 \
       make \
+      ncurses \
       ninja \
       numpy \
       scikit-build \
       wheel
-
 
 .. _fbgemm-gpu.build.setup.pytorch.install:
 
@@ -280,13 +340,13 @@ Installation Through Conda
 .. code:: sh
 
   # Install the latest nightly
-  conda install -n "${env_name}" -y pytorch -c pytorch-nightly
+  conda install -n ${env_name} -y pytorch -c pytorch-nightly
 
   # Install the latest test (RC)
-  conda install -n "${env_name}" -y pytorch -c pytorch-test
+  conda install -n ${env_name} -y pytorch -c pytorch-test
 
   # Install a specific version
-  conda install -n "${env_name}" -y pytorch==2.0.0 -c pytorch
+  conda install -n ${env_name} -y pytorch==2.0.0 -c pytorch
 
 Note that installing PyTorch through Conda without specifying a version (as in
 the case of nightly builds) may not always be reliable. For example, it is known
@@ -309,16 +369,16 @@ more deterministic and thus reliable:
 .. code:: sh
 
   # Install the latest nightly, CPU variant
-  conda run -n "${env_name}" pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu/
+  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu/
 
   # Install the latest test (RC), CUDA variant
-  conda run -n "${env_name}" pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu121/
+  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu121/
 
   # Install a specific version, CUDA variant
-  conda run -n "${env_name}" pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu121/
+  conda run -n ${env_name} pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu121/
 
   # Install the latest nightly, ROCm variant
-  conda run -n "${env_name}" pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
+  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
 
 For installing the ROCm variant of PyTorch, PyTorch PIP is the only available
 channel as of time of writing.
@@ -331,16 +391,16 @@ Verify the PyTorch installation (both version and variant) with an ``import`` te
 .. code:: sh
 
   # Ensure that the package loads properly
-  conda run -n "${env_name}" python -c "import torch.distributed"
+  conda run -n ${env_name} python -c "import torch.distributed"
 
   # Verify the version and variant of the installation
-  conda run -n "${env_name}" python -c "import torch; print(torch.__version__)"
+  conda run -n ${env_name} python -c "import torch; print(torch.__version__)"
 
 For the CUDA variant of PyTorch, verify that at the minimum ``cuda_cmake_macros.h`` is found:
 
 .. code:: sh
 
-  conda_prefix=$(conda run -n "${env_name}" printenv CONDA_PREFIX)
+  conda_prefix=$(conda run -n ${env_name} printenv CONDA_PREFIX)
   find "${conda_prefix}" -name cuda_cmake_macros.h
 
 
@@ -427,9 +487,33 @@ For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}"
 
-  # Build and install the library into the Conda environment
+  # Build and install the library into the Conda environment (GCC)
   python setup.py install \
       --package_variant=cpu
+
+To build using Clang + ``libstdc++`` instead of GCC, simply append the
+``--cxxprefix`` flag:
+
+.. code:: sh
+
+  # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
+
+  # Build the wheel artifact only
+  python setup.py bdist_wheel \
+      --package_variant=cpu \
+      --package_name="${package_name}" \
+      --python-tag="${python_tag}" \
+      --plat-name="${python_plat_name}" \
+      --cxxprefix=$CONDA_PREFIX
+
+  # Build and install the library into the Conda environment (Clang)
+  python setup.py install \
+      --package_variant=cpu
+      --cxxprefix=$CONDA_PREFIX
+
+Note that this presumes the Clang toolchain is properly installed along with the
+GCC toolchain, and is made available as ``${cxxprefix}/bin/cc`` and
+``${cxxprefix}/bin/c++``.
 
 .. _fbgemm-gpu.build.process.cuda:
 
@@ -439,6 +523,10 @@ CUDA Build
 Building FBGEMM_GPU for CUDA requires both NVML and cuDNN to be installed and
 made available to the build through environment variables.  The presence of a
 CUDA device, however, is not required for building the package.
+
+Similar to CPU-only builds, building with Clang + ``libstdc++`` can be enabled
+by appending ``--cxxprefix=$CONDA_PREFIX`` to the build command, presuming the
+toolchains have been properly installed.
 
 .. code:: sh
 
@@ -491,6 +579,10 @@ ROCm Build
 For ROCm builds, ``ROCM_PATH`` and ``PYTORCH_ROCM_ARCH`` need to be specified.
 The presence of a ROCm device, however, is not required for building
 the package.
+
+Similar to CPU-only and CUDA builds, building with Clang + ``libstdc++`` can be
+enabled by appending ``--cxxprefix=$CONDA_PREFIX`` to the build command,
+presuming the toolchains have been properly installed.
 
 .. code:: sh
 
