@@ -97,7 +97,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
@@ -106,7 +106,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV release cpu
 
     - name: Upload Built Wheel as GHA Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: fbgemm_gpu_release_cpu_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}.whl
         path: fbgemm_gpu/dist/fbgemm_gpu_cpu-*.whl
@@ -144,7 +144,7 @@ jobs:
         submodules: true
 
     - name: Download Wheel Artifact from GHA
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: fbgemm_gpu_release_cpu_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}.whl
 
@@ -165,7 +165,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV

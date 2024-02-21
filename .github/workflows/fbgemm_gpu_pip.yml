@@ -92,7 +92,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Install FBGEMM_GPU-CPU
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cpu
@@ -152,7 +152,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Install FBGEMM_GPU-CUDA
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cuda/${{ matrix.cuda-version }}
@@ -218,7 +218,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Install FBGEMM_GPU-ROCm
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} rocm/${{ matrix.rocm-version }}

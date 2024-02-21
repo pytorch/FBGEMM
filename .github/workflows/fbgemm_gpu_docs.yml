@@ -77,7 +77,7 @@ jobs:
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
-      run:  . $PRELUDE; collect_pytorch_env_info $BUILD_ENV
+      run: . $PRELUDE; if which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV

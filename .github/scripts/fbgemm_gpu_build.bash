@@ -439,7 +439,7 @@ build_fbgemm_gpu_package () {
   print_exec sha256sum dist/*.whl
   print_exec md5sum dist/*.whl
 
-  echo "[BUILD] FBGEMM-GPU build wheel completed"
+  echo "[BUILD] FBGEMM-GPU build + package completed"
 }
 
 build_fbgemm_gpu_install () {

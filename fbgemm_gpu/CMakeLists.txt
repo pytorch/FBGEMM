@@ -31,9 +31,14 @@ set(THIRDPARTY ${FBGEMM}/third_party)
 option(FBGEMM_CPU_ONLY  "Build FBGEMM_GPU without GPU support" OFF)
 option(USE_ROCM         "Build FBGEMM_GPU for ROCm" OFF)
 
-if(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH}))
-   AND NOT (EXISTS "/bin/nvcc"))
-  message("AMD GPU detected; setting to ROCm build")
+if((NOT FBGEMM_CPU_ONLY) AND
+   ((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
+   (NOT EXISTS "/bin/nvcc"))
+  message(
+    "CMake has been set to build a non-CPU variant"
+    "and AMD GPU has been detected; "
+    "will default to ROCm build"
+  )
   set(USE_ROCM ON)
 endif()
 
