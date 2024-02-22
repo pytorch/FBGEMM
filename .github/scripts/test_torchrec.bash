@@ -91,7 +91,7 @@ else
 fi
 
 # shellcheck disable=SC2086
-test_setup_conda_environment "$env_name" "$python_version" pip "$pytorch_channel_name" $pytorch_variant
+test_setup_conda_environment "$env_name" gcc "$python_version" pip "$pytorch_channel_name" $pytorch_variant
 
 # Comment out FBGEMM_GPU since we will install it from "$fbgemm_wheel_path"
 sed -i 's/fbgemm-gpu/#fbgemm-gpu/g' requirements.txt
