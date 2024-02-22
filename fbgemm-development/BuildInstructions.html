@@ -435,42 +435,29 @@ off, simply set <code class="docutils literal notranslate"><span class="pre">FBG
 <h2>Install the Build Tools<a class="headerlink" href="#install-the-build-tools" title="Permalink to this heading">¶</a></h2>
 <section id="c-c-compiler">
 <h3>C/C++ Compiler<a class="headerlink" href="#c-c-compiler" title="Permalink to this heading">¶</a></h3>
-<p>For Linux and macOS platforms, Install a version of the GCC toolchain
-<strong>that supports C++17</strong>. The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code> package will also need to be installed
-to avoid issues with missing versioned symbols with <code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> when compiling FBGEMM:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="m">10</span>.4.0<span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17<span class="w"> </span>-c<span class="w"> </span>conda-forge
-</pre></div>
-</div>
-<p>While newer versions of GCC can be used, binaries compiled under newer versions
-of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
-Stream 8, because the compiled library will reference symbols from versions of
-<code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> that the system’s <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> will not support. To see what
-versions of GLIBC and GLIBCXX the available <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> supports:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">libcxx_path</span><span class="o">=</span>/path/to/libstdc++.so.6
-
-<span class="c1"># Print supported for GLIBC versions</span>
-objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">libcxx_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>GLIBC_<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">&#39;s/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-Vu<span class="w"> </span><span class="p">|</span><span class="w"> </span>cat
-
-<span class="c1"># Print supported for GLIBCXX versions</span>
-objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">libcxx_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>GLIBCXX_<span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">&#39;s/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-Vu<span class="w"> </span><span class="p">|</span><span class="w"> </span>cat
-</pre></div>
-</div>
+<p>For Linux and macOS platforms, follow the instructions in
+<a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-tools-install-compiler-gcc"><span class="std std-ref">C/C++ Compiler (GCC)</span></a> to install the GCC
+toolchain.  For Clang-based builds, follow the instructions in
+<a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-tools-install-compiler-clang"><span class="std std-ref">C/C++ Compiler (Clang)</span></a> to install the Clang
+toolchain.</p>
 <p>For builds on Windows machines, Microsoft Visual Studio 2019 or newer is
-recommended.  Follow the installation instructions provided by Microsoft.</p>
+recommended.  Follow the installation instructions provided by Microsoft
+<a class="reference external" href="https://visualstudio.microsoft.com/vs/older-downloads/">here</a>.</p>
 </section>
 <section id="other-build-tools">
 <h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this heading">¶</a></h3>
 <p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>bazel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>doxygen<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>make<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>ninja<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>openblas-dev
+<span class="w">    </span>openblas
 </pre></div>
 </div>
-<p>Note that the <cite>bazel</cite> package is only necessary for Bazel builds, and the
-<cite>ninja</cite> package is only necessary for Windows builds.</p>
+<p>Note that the <code class="docutils literal notranslate"><span class="pre">bazel</span></code> package is only necessary for Bazel builds, and the
+<code class="docutils literal notranslate"><span class="pre">ninja</span></code> package is only necessary for Windows builds.</p>
 </section>
 </section>
 <section id="build-the-fbgemm-library">
@@ -486,8 +473,8 @@ git<span class="w"> </span>clone<span class="w"> </span>--recurse-submodules<spa
 </pre></div>
 </div>
 </section>
-<section id="building-on-linux-and-macos-cmake">
-<h3>Building on Linux and macOS (CMake)<a class="headerlink" href="#building-on-linux-and-macos-cmake" title="Permalink to this heading">¶</a></h3>
+<section id="building-on-linux-and-macos-cmake-gcc">
+<h3>Building on Linux and macOS (CMake + GCC)<a class="headerlink" href="#building-on-linux-and-macos-cmake-gcc" title="Permalink to this heading">¶</a></h3>
 <p>Assuming a Conda environment with all the tools installed, the CMake build
 process is straightforward:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
@@ -496,9 +483,18 @@ process is straightforward:</p>
 mkdir<span class="w"> </span>build
 <span class="nb">cd</span><span class="w"> </span>build
 
+<span class="c1"># Set CMake build arguments</span>
+<span class="nv">build_args</span><span class="o">=(</span>
+<span class="w">  </span>-DUSE_SANITIZER<span class="o">=</span>address
+<span class="w">  </span>-DFBGEMM_LIBRARY_TYPE<span class="o">=</span>shared
+<span class="w">  </span>-DPYTHON_EXECUTABLE<span class="o">=</span><span class="sb">`</span>which<span class="w"> </span>python3<span class="sb">`</span>
+
+<span class="w">  </span><span class="c1"># OPTIONAL: Set to generate Doxygen documentation</span>
+<span class="w">  </span>-DFBGEMM_BUILD_DOCS<span class="o">=</span>ON
+<span class="o">)</span>
+
 <span class="c1"># Set up the build</span>
-<span class="c1"># To generate Doxygen documentation, add `-DFBGEMM_BUILD_DOCS=ON`</span>
-cmake<span class="w"> </span>-DUSE_SANITIZER<span class="o">=</span>address<span class="w"> </span>-DFBGEMM_LIBRARY_TYPE<span class="o">=</span>shared<span class="w"> </span>-DPYTHON_EXECUTABLE<span class="o">=</span><span class="sb">`</span>which<span class="w"> </span>python3<span class="sb">`</span><span class="w"> </span>..
+cmake<span class="w"> </span><span class="si">${</span><span class="nv">build_args</span><span class="p">[@]</span><span class="si">}</span><span class="w"> </span>..
 
 <span class="c1"># Build the library</span>
 make<span class="w"> </span>-j<span class="w"> </span><span class="nv">VERBOSE</span><span class="o">=</span><span class="m">1</span>
@@ -508,6 +504,44 @@ make<span class="w"> </span><span class="nb">test</span>
 
 <span class="c1"># Install the library</span>
 make<span class="w"> </span>install
+</pre></div>
+</div>
+<section id="build-issues-with-gcc-12">
+<h4>Build Issues with GCC 12+<a class="headerlink" href="#build-issues-with-gcc-12" title="Permalink to this heading">¶</a></h4>
+<p>As of time of writing, compilation of FBGEMM on GCC 12+ will fail due to a
+<a class="reference external" href="https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105593">known compiler regression</a>.
+To work around the issue, append the following exports prior to running CMake:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="nb">export</span><span class="w"> </span><span class="nv">CFLAGS</span><span class="o">+=</span><span class="s2">&quot; -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CXXFLAGS</span><span class="o">+=</span><span class="s2">&quot; -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict&quot;</span>
+</pre></div>
+</div>
+<p>Please see GitHub issues
+<a class="reference external" href="https://github.com/pytorch/pytorch/issues/77939">77939</a>,
+<a class="reference external" href="https://github.com/pytorch/FBGEMM/issues/1094">1094</a>, and
+<a class="reference external" href="https://github.com/pytorch/FBGEMM/issues/1666">1666</a> for more details.</p>
+</section>
+</section>
+<section id="building-on-linux-and-macos-cmake-clang">
+<h3>Building on Linux and macOS (CMake + Clang)<a class="headerlink" href="#building-on-linux-and-macos-cmake-clang" title="Permalink to this heading">¶</a></h3>
+<p>The steps for building FBGEMM using Clang are exactly the same as that for
+building using GCC.  However, extra build arguments need to be added to the
+CMake invocation to specify the Clang path, the LLVM-based C++ standard library
+(<code class="docutils literal notranslate"><span class="pre">libc++</span></code>), and the LLVM-based OpenMP implementation (<code class="docutils literal notranslate"><span class="pre">libomp</span></code>):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># Locate Clang</span>
+<span class="nv">cc_path</span><span class="o">=</span><span class="k">$(</span>which<span class="w"> </span>clang<span class="k">)</span>
+<span class="nv">cxx_path</span><span class="o">=</span><span class="k">$(</span>which<span class="w"> </span>clang++<span class="k">)</span>
+
+<span class="c1"># Append to the CMake build arguments</span>
+<span class="nv">build_args</span><span class="o">+=(</span>
+<span class="w">  </span>-DCMAKE_C_COMPILER<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cc_path</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="w">  </span>-DCMAKE_CXX_COMPILER<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cxx_path</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="w">  </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="se">\&quot;</span>-fopenmp<span class="o">=</span>libomp<span class="w"> </span>-stdlib<span class="o">=</span>libc++<span class="w"> </span>-I<span class="w"> </span><span class="nv">$CONDA_PREFIX</span>/include<span class="se">\&quot;</span>
+<span class="w">  </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="se">\&quot;</span>-fopenmp<span class="o">=</span>libomp<span class="w"> </span>-stdlib<span class="o">=</span>libc++<span class="w"> </span>-I<span class="w"> </span><span class="nv">$CONDA_PREFIX</span>/include<span class="se">\&quot;</span>
+<span class="o">)</span>
 </pre></div>
 </div>
 </section>
@@ -603,7 +637,11 @@ bazel<span class="w"> </span><span class="nb">test</span><span class="w"> </span
 </li>
 <li><a class="reference internal" href="#build-the-fbgemm-library">Build the FBGEMM Library</a><ul>
 <li><a class="reference internal" href="#preparing-the-build">Preparing the Build</a></li>
-<li><a class="reference internal" href="#building-on-linux-and-macos-cmake">Building on Linux and macOS (CMake)</a></li>
+<li><a class="reference internal" href="#building-on-linux-and-macos-cmake-gcc">Building on Linux and macOS (CMake + GCC)</a><ul>
+<li><a class="reference internal" href="#build-issues-with-gcc-12">Build Issues with GCC 12+</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#building-on-linux-and-macos-cmake-clang">Building on Linux and macOS (CMake + Clang)</a></li>
 <li><a class="reference internal" href="#building-on-linux-bazel">Building on Linux (Bazel)</a></li>
 <li><a class="reference internal" href="#building-on-windows">Building on Windows</a></li>
 </ul>

@@ -383,7 +383,9 @@
 <section id="fbgemm-gpu-tests">
 <h2>FBGEMM_GPU Tests<a class="headerlink" href="#fbgemm-gpu-tests" title="Permalink to this heading">¶</a></h2>
 <p>To run the tests after building / installing the FBGEMM_GPU package:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># From the /fbgemm_gpu/ directory</span>
 <span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
 
 python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
@@ -398,7 +400,9 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 used for testing. To run the tests and benchmarks on a GPU-capable
 device in CPU-only mode, <code class="docutils literal notranslate"><span class="pre">CUDA_VISIBLE_DEVICES=-1</span></code> must be set in the
 environment:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Enable for running in CPU-only mode (when on a GPU-capable machine)</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># Enable for running in CPU-only mode (when on a GPU-capable machine)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span>-1
 
 <span class="c1"># Enable for debugging failed kernel executions</span>
@@ -412,7 +416,9 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 <h3>Testing with the ROCm Variant<a class="headerlink" href="#testing-with-the-rocm-variant" title="Permalink to this heading">¶</a></h3>
 <p>For ROCm machines, testing against a ROCm GPU needs to be enabled with
 <code class="docutils literal notranslate"><span class="pre">FBGEMM_TEST_WITH_ROCM=1</span></code> set in the environment:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># From the /fbgemm_gpu/ directory</span>
 <span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
 
 <span class="nb">export</span><span class="w"> </span><span class="nv">FBGEMM_TEST_WITH_ROCM</span><span class="o">=</span><span class="m">1</span>
@@ -427,7 +433,9 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 <section id="fbgemm-gpu-benchmarks">
 <h2>FBGEMM_GPU Benchmarks<a class="headerlink" href="#fbgemm-gpu-benchmarks" title="Permalink to this heading">¶</a></h2>
 <p>To run the benchmarks:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># From the /fbgemm_gpu/ directory</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># From the /fbgemm_gpu/ directory</span>
 <span class="nb">cd</span><span class="w"> </span>bench
 
 python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span class="w"> </span>uvm

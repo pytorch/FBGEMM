@@ -422,11 +422,11 @@ inside a Conda environment.</p>
 <span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.12
 
 <span class="c1"># Create the environment</span>
-conda<span class="w"> </span>create<span class="w"> </span>-y<span class="w"> </span>--name<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_version</span><span class="si">}</span><span class="s2">&quot;</span>
+conda<span class="w"> </span>create<span class="w"> </span>-y<span class="w"> </span>--name<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_version</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Upgrade PIP and pyOpenSSL package</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>pyOpenSSL&gt;22.1.0
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>pyOpenSSL&gt;22.1.0
 </pre></div>
 </div>
 </section>
@@ -465,11 +465,11 @@ reproducible build environment.</p>
 <span class="nv">cuda_version</span><span class="o">=</span><span class="m">12</span>.1.0
 
 <span class="c1"># Install the full CUDA package</span>
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>cuda<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;nvidia/label/cuda-</span><span class="si">${</span><span class="nv">cuda_version</span><span class="si">}</span><span class="s2">&quot;</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span>cuda<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;nvidia/label/cuda-</span><span class="si">${</span><span class="nv">cuda_version</span><span class="si">}</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
 <p>Verify that <code class="docutils literal notranslate"><span class="pre">cuda_runtime.h</span></code> and <code class="docutils literal notranslate"><span class="pre">libnvidia-ml.so</span></code> are found:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
 
 find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>cuda_runtime.h
 find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>libnvidia-ml.so
@@ -487,6 +487,7 @@ cuDNN package for the given CUDA version:</p>
 
 <span class="c1"># Download and unpack cuDNN</span>
 wget<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cudnn_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-O<span class="w"> </span>cudnn.tar.xz
+tar<span class="w"> </span>-xvf<span class="w"> </span>cudnn.tar.xz
 </pre></div>
 </div>
 </section>
@@ -505,9 +506,10 @@ desired ROCm version:</p>
 docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--entrypoint<span class="w"> </span><span class="s2">&quot;/bin/bash&quot;</span><span class="w"> </span>rocm/rocm-terminal:5.6.1
 </pre></div>
 </div>
-<p>For both building and running FBGEMM_GPU, The <a class="reference external" href="https://hub.docker.com/r/rocm/dev-ubuntu-20.04">full ROCm Docker
-image</a> is recommended
-over the minimum Docker image.</p>
+<p>While the <a class="reference external" href="https://hub.docker.com/r/rocm/dev-ubuntu-20.04">full ROCm Docker image</a>
+comes with all ROCm packages pre-installed, it results in a very large Docker
+container, and so for this reason, the minimal image is recommended for building
+and running FBGEMM_GPU.</p>
 <p>From here, the rest of the build environment may be constructed through Conda,
 as it is still the recommended mechanism for creating an isolated and
 reproducible build environment.</p>
@@ -547,22 +549,22 @@ installed:</p>
 <section id="install-the-build-tools">
 <span id="fbgemm-gpu-build-setup-tools-install"></span><h2>Install the Build Tools<a class="headerlink" href="#install-the-build-tools" title="Permalink to this heading">¶</a></h2>
 <p>The instructions in this section apply to builds for all variants of FBGEMM_GPU.</p>
-<section id="c-c-compiler">
-<h3>C/C++ Compiler<a class="headerlink" href="#c-c-compiler" title="Permalink to this heading">¶</a></h3>
-<p>Install a version of the GCC toolchain <strong>that supports C++17</strong>. Note that GCC
-(as opposed to Clang for example) is required for CUDA builds because NVIDIA’s
-<code class="docutils literal notranslate"><span class="pre">nvcc</span></code> relies on <code class="docutils literal notranslate"><span class="pre">gcc</span></code> and <code class="docutils literal notranslate"><span class="pre">g++</span></code> in the path. The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code> package will
-also need to be installed to avoid issues with missing versioned symbols with
-<code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> when compiling FBGEMM_CPU:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="m">10</span>.4.0<span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17<span class="w"> </span>-c<span class="w"> </span>conda-forge
+<section id="c-c-compiler-gcc">
+<span id="fbgemm-gpu-build-setup-tools-install-compiler-gcc"></span><h3>C/C++ Compiler (GCC)<a class="headerlink" href="#c-c-compiler-gcc" title="Permalink to this heading">¶</a></h3>
+<p>Install a version of the GCC toolchain <strong>that supports C++17</strong>.  The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code>
+package will also need to be installed to avoid issues with missing versioned
+symbols with <code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> when compiling FBGEMM_CPU:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fix GCC to 10.4.0, to keep compatibility with older versions of GLIBCXX</span>
+<span class="nv">gcc_version</span><span class="o">=</span><span class="m">15</span>.0.7
+
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="si">${</span><span class="nv">gcc_version</span><span class="si">}</span><span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17
 </pre></div>
 </div>
-<p>While newer versions of GCC can be used, binaries compiled under newer
-versions of GCC will not be compatible with older systems such as Ubuntu
-20.04 or CentOS Stream 8, because the compiled library will reference
-symbols from versions of <code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> that the system’s
-<code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> will not support. To see what versions of GLIBC and
-GLIBCXX the available <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> supports:</p>
+<p>While newer versions of GCC can be used, binaries compiled under newer versions
+of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
+Stream 8, because the compiled library will reference symbols from versions of
+<code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> that the system’s <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> will not support. To see what
+versions of GLIBC and GLIBCXX the available <code class="docutils literal notranslate"><span class="pre">libstdc++.so.6</span></code> supports:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">libcxx_path</span><span class="o">=</span>/path/to/libstdc++.so.6
 
 <span class="c1"># Print supported for GLIBC versions</span>
@@ -573,15 +575,63 @@ objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot
 </pre></div>
 </div>
 </section>
+<section id="c-c-compiler-clang">
+<span id="fbgemm-gpu-build-setup-tools-install-compiler-clang"></span><h3>C/C++ Compiler (Clang)<a class="headerlink" href="#c-c-compiler-clang" title="Permalink to this heading">¶</a></h3>
+<p>It is possible to build FBGEMM and FBGEMM_GPU (just the CPU and CUDA variants)
+using Clang as the host compiler.  To do so, install a version of the Clang
+toolchain <strong>that supports C++17</strong>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use a recent version of LLVM+Clang</span>
+<span class="nv">llvm_version</span><span class="o">=</span><span class="m">15</span>.0.7
+
+<span class="c1"># NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot</span>
+<span class="c1"># explicitly specify the version number</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="nv">clangxx</span><span class="o">=</span><span class="si">${</span><span class="nv">llvm_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>libcxx<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>llvm-openmp<span class="o">=</span><span class="si">${</span><span class="nv">llvm_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>compiler-rt<span class="o">=</span><span class="si">${</span><span class="nv">llvm_version</span><span class="si">}</span>
+
+<span class="c1"># Append $CONDA_PREFIX/lib to $LD_LIBRARY_PATH in the Conda environment</span>
+<span class="nv">ld_library_path</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>printenv<span class="w"> </span>LD_LIBRARY_PATH<span class="k">)</span>
+<span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
+conda<span class="w"> </span>env<span class="w"> </span>config<span class="w"> </span>vars<span class="w"> </span><span class="nb">set</span><span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">LD_LIBRARY_PATH</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ld_library_path</span><span class="si">}</span><span class="s2">:</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">/lib&quot;</span>
+
+<span class="c1"># Set NVCC_PREPEND_FLAGS in the Conda environment for Clang to work correctly as the host compiler</span>
+conda<span class="w"> </span>env<span class="w"> </span>config<span class="w"> </span>vars<span class="w"> </span><span class="nb">set</span><span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">NVCC_PREPEND_FLAGS</span><span class="o">=</span><span class="se">\&quot;</span>-std<span class="o">=</span>c++17<span class="w"> </span>-Xcompiler<span class="w"> </span>-std<span class="o">=</span>c++17<span class="w"> </span>-Xcompiler<span class="w"> </span>-stdlib<span class="o">=</span>libstdc++<span class="w"> </span>-ccbin<span class="w"> </span><span class="si">${</span><span class="nv">clangxx_path</span><span class="si">}</span><span class="w"> </span>-allow-unsupported-compiler<span class="se">\&quot;</span>
+</pre></div>
+</div>
+<p><strong>Note</strong> that for CUDA code compilation, even though <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> supports Clang as
+the host compiler, only <code class="docutils literal notranslate"><span class="pre">libstd++</span></code> (GCC’s implementation of the C++ standard
+library) is supported for any host compiler being used by <code class="docutils literal notranslate"><span class="pre">nvcc</span></code>.</p>
+<p>This means that GCC is a required dependency for CUDA variant of FBGEMM_GPU,
+regardless of whether it is built with Clang or not.  In this scenario, it is
+recommended to first install the GCC toolchain before installing the Clang
+toolchain in this scenario; see
+<a class="reference internal" href="#fbgemm-gpu-build-setup-tools-install-compiler-gcc"><span class="std std-ref">C/C++ Compiler (GCC)</span></a> for instructions.</p>
+</section>
+<section id="compiler-symlinks">
+<h3>Compiler Symlinks<a class="headerlink" href="#compiler-symlinks" title="Permalink to this heading">¶</a></h3>
+<p>After installing the compiler toolchains, symlink the C and C++ compilers to the
+binpath (override existing symlinks as needed).  In a Conda environment, the
+binpath is located at <code class="docutils literal notranslate"><span class="pre">$CONDA_PREFIX/bin</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
+
+ln<span class="w"> </span>-sf<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">path_to_either_gcc_or_clang</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>conda_prefix<span class="k">)</span><span class="s2">/bin/cc&quot;</span>
+ln<span class="w"> </span>-sf<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">path_to_either_gcc_or_clang</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>conda_prefix<span class="k">)</span><span class="s2">/bin/c++&quot;</span>
+</pre></div>
+</div>
+<p>These symlinks will be used later in the FBGEMM_GPU build configuration stage.</p>
+</section>
 <section id="other-build-tools">
 <h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this heading">¶</a></h3>
 <p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>click<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>jinja2<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>make<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>ncurses<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>ninja<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>numpy<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>scikit-build<span class="w"> </span><span class="se">\</span>
@@ -599,13 +649,13 @@ through PIP.</p>
 <section id="installation-through-conda">
 <h3>Installation Through Conda<a class="headerlink" href="#installation-through-conda" title="Permalink to this heading">¶</a></h3>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install the latest nightly</span>
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>pytorch<span class="w"> </span>-c<span class="w"> </span>pytorch-nightly
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span>pytorch<span class="w"> </span>-c<span class="w"> </span>pytorch-nightly
 
 <span class="c1"># Install the latest test (RC)</span>
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span>pytorch<span class="w"> </span>-c<span class="w"> </span>pytorch-test
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span>pytorch<span class="w"> </span>-c<span class="w"> </span>pytorch-test
 
 <span class="c1"># Install a specific version</span>
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-y<span class="w"> </span><span class="nv">pytorch</span><span class="o">==</span><span class="m">2</span>.0.0<span class="w"> </span>-c<span class="w"> </span>pytorch
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="nv">pytorch</span><span class="o">==</span><span class="m">2</span>.0.0<span class="w"> </span>-c<span class="w"> </span>pytorch
 </pre></div>
 </div>
 <p>Note that installing PyTorch through Conda without specifying a version (as in
@@ -624,16 +674,16 @@ PyTorch.</p>
 <p>Installing PyTorch through PyTorch PIP is recommended over Conda as it is much
 more deterministic and thus reliable:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install the latest nightly, CPU variant</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cpu/
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cpu/
 
 <span class="c1"># Install the latest test (RC), CUDA variant</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/test/cu121/
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/test/cu121/
 
 <span class="c1"># Install a specific version, CUDA variant</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">torch</span><span class="o">==</span><span class="m">2</span>.1.0+cu121<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">torch</span><span class="o">==</span><span class="m">2</span>.1.0+cu121<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
 
 <span class="c1"># Install the latest nightly, ROCm variant</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
 </pre></div>
 </div>
 <p>For installing the ROCm variant of PyTorch, PyTorch PIP is the only available
@@ -643,14 +693,14 @@ channel as of time of writing.</p>
 <h3>Post-Install Checks<a class="headerlink" href="#post-install-checks" title="Permalink to this heading">¶</a></h3>
 <p>Verify the PyTorch installation (both version and variant) with an <code class="docutils literal notranslate"><span class="pre">import</span></code> test:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Ensure that the package loads properly</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch.distributed&quot;</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch.distributed&quot;</span>
 
 <span class="c1"># Verify the version and variant of the installation</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(torch.__version__)&quot;</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(torch.__version__)&quot;</span>
 </pre></div>
 </div>
 <p>For the CUDA variant of PyTorch, verify that at the minimum <code class="docutils literal notranslate"><span class="pre">cuda_cmake_macros.h</span></code> is found:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
 find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>cuda_cmake_macros.h
 </pre></div>
 </div>
@@ -726,17 +776,41 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span>
 
-<span class="c1"># Build and install the library into the Conda environment</span>
+<span class="c1"># Build and install the library into the Conda environment (GCC)</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cpu
 </pre></div>
 </div>
+<p>To build using Clang + <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> instead of GCC, simply append the
+<code class="docutils literal notranslate"><span class="pre">--cxxprefix</span></code> flag:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
+
+<span class="c1"># Build the wheel artifact only</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--cxxprefix<span class="o">=</span><span class="nv">$CONDA_PREFIX</span>
+
+<span class="c1"># Build and install the library into the Conda environment (Clang)</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cpu
+<span class="w">    </span>--cxxprefix<span class="o">=</span><span class="nv">$CONDA_PREFIX</span>
+</pre></div>
+</div>
+<p>Note that this presumes the Clang toolchain is properly installed along with the
+GCC toolchain, and is made available as <code class="docutils literal notranslate"><span class="pre">${cxxprefix}/bin/cc</span></code> and
+<code class="docutils literal notranslate"><span class="pre">${cxxprefix}/bin/c++</span></code>.</p>
 </section>
 <section id="cuda-build">
 <span id="fbgemm-gpu-build-process-cuda"></span><h3>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this heading">¶</a></h3>
 <p>Building FBGEMM_GPU for CUDA requires both NVML and cuDNN to be installed and
 made available to the build through environment variables.  The presence of a
 CUDA device, however, is not required for building the package.</p>
+<p>Similar to CPU-only builds, building with Clang + <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> can be enabled
+by appending <code class="docutils literal notranslate"><span class="pre">--cxxprefix=$CONDA_PREFIX</span></code> to the build command, presuming the
+toolchains have been properly installed.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
 <span class="c1"># [OPTIONAL] Specify the CUDA installation paths</span>
@@ -785,6 +859,9 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <p>For ROCm builds, <code class="docutils literal notranslate"><span class="pre">ROCM_PATH</span></code> and <code class="docutils literal notranslate"><span class="pre">PYTORCH_ROCM_ARCH</span></code> need to be specified.
 The presence of a ROCm device, however, is not required for building
 the package.</p>
+<p>Similar to CPU-only and CUDA builds, building with Clang + <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> can be
+enabled by appending <code class="docutils literal notranslate"><span class="pre">--cxxprefix=$CONDA_PREFIX</span></code> to the build command,
+presuming the toolchains have been properly installed.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
 <span class="nb">export</span><span class="w"> </span><span class="nv">ROCM_PATH</span><span class="o">=</span>/path/to/rocm
@@ -917,7 +994,9 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 </ul>
 </li>
 <li><a class="reference internal" href="#install-the-build-tools">Install the Build Tools</a><ul>
-<li><a class="reference internal" href="#c-c-compiler">C/C++ Compiler</a></li>
+<li><a class="reference internal" href="#c-c-compiler-gcc">C/C++ Compiler (GCC)</a></li>
+<li><a class="reference internal" href="#c-c-compiler-clang">C/C++ Compiler (Clang)</a></li>
+<li><a class="reference internal" href="#compiler-symlinks">Compiler Symlinks</a></li>
 <li><a class="reference internal" href="#other-build-tools">Other Build Tools</a></li>
 </ul>
 </li>
