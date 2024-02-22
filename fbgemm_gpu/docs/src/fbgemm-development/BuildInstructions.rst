@@ -73,32 +73,15 @@ Install the Build Tools
 C/C++ Compiler
 ~~~~~~~~~~~~~~
 
-For Linux and macOS platforms, Install a version of the GCC toolchain
-**that supports C++17**. The ``sysroot`` package will also need to be installed
-to avoid issues with missing versioned symbols with ``GLIBCXX`` when compiling FBGEMM:
-
-.. code:: sh
-
-  conda install -n "${env_name}" -y gxx_linux-64=10.4.0 sysroot_linux-64=2.17 -c conda-forge
-
-While newer versions of GCC can be used, binaries compiled under newer versions
-of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
-Stream 8, because the compiled library will reference symbols from versions of
-``GLIBCXX`` that the system’s ``libstdc++.so.6`` will not support. To see what
-versions of GLIBC and GLIBCXX the available ``libstdc++.so.6`` supports:
-
-.. code:: sh
-
-  libcxx_path=/path/to/libstdc++.so.6
-
-  # Print supported for GLIBC versions
-  objdump -TC "${libcxx_path}" | grep GLIBC_ | sed 's/.*GLIBC_\([.0-9]*\).*/GLIBC_\1/g' | sort -Vu | cat
-
-  # Print supported for GLIBCXX versions
-  objdump -TC "${libcxx_path}" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+For Linux and macOS platforms, follow the instructions in
+:ref:`fbgemm-gpu.build.setup.tools.install.compiler.gcc` to install the GCC
+toolchain.  For Clang-based builds, follow the instructions in
+:ref:`fbgemm-gpu.build.setup.tools.install.compiler.clang` to install the Clang
+toolchain.
 
 For builds on Windows machines, Microsoft Visual Studio 2019 or newer is
-recommended.  Follow the installation instructions provided by Microsoft.
+recommended.  Follow the installation instructions provided by Microsoft
+`here <https://visualstudio.microsoft.com/vs/older-downloads/>`_.
 
 Other Build Tools
 ~~~~~~~~~~~~~~~~~
@@ -107,15 +90,16 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
 
 .. code:: sh
 
-  conda install -n "${env_name}" -y \
+  conda install -n ${env_name} -y \
       bazel \
       cmake \
+      doxygen \
       make \
       ninja \
-      openblas-dev
+      openblas
 
-Note that the `bazel` package is only necessary for Bazel builds, and the
-`ninja` package is only necessary for Windows builds.
+Note that the ``bazel`` package is only necessary for Bazel builds, and the
+``ninja`` package is only necessary for Windows builds.
 
 
 Build the FBGEMM Library
@@ -134,8 +118,8 @@ Clone the repo along with its submodules:
   git clone --recurse-submodules https://github.com/pytorch/FBGEMM.git
   cd FBGEMM
 
-Building on Linux and macOS (CMake)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Building on Linux and macOS (CMake + GCC)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Assuming a Conda environment with all the tools installed, the CMake build
 process is straightforward:
@@ -148,9 +132,18 @@ process is straightforward:
   mkdir build
   cd build
 
+  # Set CMake build arguments
+  build_args=(
+    -DUSE_SANITIZER=address
+    -DFBGEMM_LIBRARY_TYPE=shared
+    -DPYTHON_EXECUTABLE=`which python3`
+
+    # OPTIONAL: Set to generate Doxygen documentation
+    -DFBGEMM_BUILD_DOCS=ON
+  )
+
   # Set up the build
-  # To generate Doxygen documentation, add `-DFBGEMM_BUILD_DOCS=ON`
-  cmake -DUSE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=shared -DPYTHON_EXECUTABLE=`which python3` ..
+  cmake ${build_args[@]} ..
 
   # Build the library
   make -j VERBOSE=1
@@ -160,6 +153,49 @@ process is straightforward:
 
   # Install the library
   make install
+
+Build Issues with GCC 12+
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+As of time of writing, compilation of FBGEMM on GCC 12+ will fail due to a
+`known compiler regression <https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105593>`__.
+To work around the issue, append the following exports prior to running CMake:
+
+.. code:: sh
+
+  # !! Run inside the Conda environment !!
+
+  export CFLAGS+=" -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict"
+  export CXXFLAGS+=" -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict"
+
+Please see GitHub issues
+`77939 <https://github.com/pytorch/pytorch/issues/77939>`__,
+`1094 <https://github.com/pytorch/FBGEMM/issues/1094>`__, and
+`1666 <https://github.com/pytorch/FBGEMM/issues/1666>`__ for more details.
+
+Building on Linux and macOS (CMake + Clang)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The steps for building FBGEMM using Clang are exactly the same as that for
+building using GCC.  However, extra build arguments need to be added to the
+CMake invocation to specify the Clang path, the LLVM-based C++ standard library
+(``libc++``), and the LLVM-based OpenMP implementation (``libomp``):
+
+.. code:: sh
+
+  # !! Run inside the Conda environment !!
+
+  # Locate Clang
+  cc_path=$(which clang)
+  cxx_path=$(which clang++)
+
+  # Append to the CMake build arguments
+  build_args+=(
+    -DCMAKE_C_COMPILER="${cc_path}"
+    -DCMAKE_CXX_COMPILER="${cxx_path}"
+    -DCMAKE_C_FLAGS=\"-fopenmp=libomp -stdlib=libc++ -I $CONDA_PREFIX/include\"
+    -DCMAKE_CXX_FLAGS=\"-fopenmp=libomp -stdlib=libc++ -I $CONDA_PREFIX/include\"
+  )
 
 Building on Linux (Bazel)
 ~~~~~~~~~~~~~~~~~~~~~~~~~

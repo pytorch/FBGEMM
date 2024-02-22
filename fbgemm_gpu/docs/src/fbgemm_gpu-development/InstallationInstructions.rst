@@ -150,7 +150,7 @@ Install the relevant Python libraries for working with FBGEMM_GPU:
 
 .. code:: sh
 
-  conda install -n "${env_name}" -y \
+  conda install -n ${env_name} -y \
       hypothesis \
       numpy \
       scikit-build

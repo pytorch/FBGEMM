@@ -11,6 +11,8 @@ To run the tests after building / installing the FBGEMM_GPU package:
 
 .. code:: sh
 
+  # !! Run inside the Conda environment !!
+
   # From the /fbgemm_gpu/ directory
   cd test
 
@@ -29,6 +31,8 @@ environment:
 
 .. code:: sh
 
+  # !! Run inside the Conda environment !!
+
   # Enable for running in CPU-only mode (when on a GPU-capable machine)
   export CUDA_VISIBLE_DEVICES=-1
 
@@ -45,6 +49,8 @@ For ROCm machines, testing against a ROCm GPU needs to be enabled with
 
 .. code:: sh
 
+  # !! Run inside the Conda environment !!
+
   # From the /fbgemm_gpu/ directory
   cd test
 
@@ -60,6 +66,8 @@ FBGEMM_GPU Benchmarks
 To run the benchmarks:
 
 .. code:: sh
+
+  # !! Run inside the Conda environment !!
 
   # From the /fbgemm_gpu/ directory
   cd bench

@@ -112,7 +112,7 @@ jobs:
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_cpu_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_${{ matrix.python-version }}.whl
+        name: fbgemm_gpu_nightly_cpu_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}.whl
         path: fbgemm_gpu/dist/fbgemm_gpu_nightly_cpu-*.whl
 
 
@@ -151,7 +151,7 @@ jobs:
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_cpu_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_${{ matrix.python-version }}.whl
+        name: fbgemm_gpu_nightly_cpu_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}.whl
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -165,8 +165,7 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
-    - name: Install C/C++ Compilers
-      # CXX compiler is needed for inductor used by torchrec.
+    - name: Install C/C++ Compilers for Updated LIBGCC
       run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
 
     - name: Install PyTorch-CPU Nightly
