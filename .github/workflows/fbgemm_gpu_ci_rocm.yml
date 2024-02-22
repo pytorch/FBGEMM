@@ -65,6 +65,7 @@ jobs:
         container-image: [ "ubuntu:20.04" ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
         rocm-version: [ "5.7" ]
+        compiler: [ "gcc", "clang" ]
 
     steps:
     - name: Setup Build Container
@@ -97,7 +98,7 @@ jobs:
       run: . $PRELUDE; install_rocm_ubuntu $BUILD_ENV ${{ matrix.rocm-version }}
 
     - name: Install C/C++ Compilers
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
@@ -118,7 +119,7 @@ jobs:
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
+        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
         path: fbgemm_gpu/dist/fbgemm_gpu_nightly_rocm-*.whl
 
 
@@ -142,8 +143,9 @@ jobs:
           { arch: x86, instance: "rocm" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
-        python-version: [ "3.11", "3.12" ]
+        python-version: [ "3.12" ]
         rocm-version: [ "5.7" ]
+        compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
     steps:
@@ -159,7 +161,7 @@ jobs:
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
+        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info

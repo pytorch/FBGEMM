@@ -180,7 +180,7 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
-    - name: Install C/C++ Compilers
+    - name: Install C/C++ Compilers for Updated LIBGCC
       run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
 
     - name: Install CUDA
