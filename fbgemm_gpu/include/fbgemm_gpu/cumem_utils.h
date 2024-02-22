@@ -136,7 +136,7 @@ Tensor uvm_to_device(const Tensor& self, const Tensor& prototype);
 ///
 /// @see See <a
 /// href="https://nvidia.github.io/cuda-python/module/cudart.html#cuda.cudart.cudaMemAdvise">here</a>
-/// For more information on the `cudaMemoryAdvise` enum.
+/// for more information on the `cudaMemoryAdvise` enum.
 void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 
 /// @ingroup cumem-utils
@@ -150,7 +150,7 @@ void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 ///
 /// @see See <a
 /// href="https://nvidia.github.io/cuda-python/module/cudart.html#cuda.cudart.cudaMemPrefetchAsync">here</a>
-/// For more information on `cudaMemPrefetchAsync()`.
+/// for more information on `cudaMemPrefetchAsync()`.
 void uvm_cuda_mem_prefetch_async(
     const Tensor& self,
     c10::optional<Tensor> device_t);
@@ -165,7 +165,7 @@ void uvm_cuda_mem_prefetch_async(
 /// @param self The input tensor
 ///
 /// @see See <a
-/// href="https://man7.org/linux/man-pages/man2/madvise.2.html">here</a> For
+/// href="https://man7.org/linux/man-pages/man2/madvise.2.html">here</a> for
 /// more information on `madvise()`.
 void uvm_mem_advice_dont_fork(const Tensor& self);
 
