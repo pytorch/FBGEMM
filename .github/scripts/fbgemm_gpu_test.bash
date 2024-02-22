@@ -212,15 +212,16 @@ run_fbgemm_gpu_tests () {
 
 test_setup_conda_environment () {
   local env_name="$1"
-  local python_version="$2"
-  local pytorch_installer="$3"
-  local pytorch_version="$4"
-  local pytorch_variant_type="$5"
-  local pytorch_variant_version="$6"
+  local compiler="$2"
+  local python_version="$3"
+  local pytorch_installer="$4"
+  local pytorch_version="$5"
+  local pytorch_variant_type="$6"
+  local pytorch_variant_version="$7"
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_VERSION PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env 3.12 pip test cuda 12.1.0       # Setup environment with pytorch-test for Python 3.12 + CUDA 12.1.0"
+    echo "    ${FUNCNAME[0]} build_env clang 3.12 pip test cuda 12.1.0       # Setup environment with pytorch-test for Clang + Python 3.12 + CUDA 12.1.0"
     return 1
   else
     echo "################################################################################"
@@ -243,19 +244,20 @@ test_setup_conda_environment () {
 
   # Set up the build tools and/or GPU runtimes
   if [ "$pytorch_variant_type" == "cuda" ]; then
-    install_cxx_compiler      "${env_name}"                                                                         || return 1
+    install_cxx_compiler      "${env_name}" "${compiler}"                                                           || return 1
     install_build_tools       "${env_name}"                                                                         || return 1
     install_cuda              "${env_name}" "${pytorch_variant_version}"                                            || return 1
     install_cudnn             "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
 
   elif [ "$pytorch_variant_type" == "rocm" ]; then
     install_rocm_ubuntu       "${env_name}" "${pytorch_variant_version}"  || return 1
+    install_cxx_compiler      "${env_name}" "${compiler}"                 || return 1
     install_build_tools       "${env_name}"                               || return 1
     return 1
 
   else
-    install_cxx_compiler      "${env_name}" || return 1
-    install_build_tools       "${env_name}" || return 1
+    install_cxx_compiler      "${env_name}" "${compiler}" || return 1
+    install_build_tools       "${env_name}"               || return 1
   fi
 
   # Install PyTorch

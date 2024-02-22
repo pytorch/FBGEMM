@@ -277,6 +277,9 @@ def apply_split_helper(
 # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
 class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
+    Table Batched Embedding (TBE) operator.  Please see
+    docs/table_batched_embedding_ops.py for the extended documentation.
+
     Multiple sparse features can share one embedding table.
     'feature_table_map' specifies the feature-table mapping.
     T:  number of logical tables
