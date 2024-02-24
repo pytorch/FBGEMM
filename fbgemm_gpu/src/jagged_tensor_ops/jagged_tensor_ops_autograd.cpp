@@ -603,7 +603,8 @@ class JaggedIndexSelect2dOp
       torch::autograd::AutogradContext* ctx,
       const Tensor& values,
       const Tensor& lengths,
-      const Tensor& indices) {
+      const Tensor& indices,
+      const c10::optional<int64_t> num_dense_output_rows) {
     TORCH_CHECK(
         values.dim() == 2, "jagged_index_select supports only 2D inputs")
     TENSORS_ON_SAME_DEVICE(lengths, indices);
@@ -623,10 +624,16 @@ class JaggedIndexSelect2dOp
                 const Tensor& values,
                 const Tensor& indices,
                 const Tensor& input_offsets,
-                const Tensor& output_offsets)>();
+                const Tensor& output_offsets,
+                const c10::optional<int64_t>)>();
 
     return {
-        op.call(values, indices, input_offsets, output_offsets),
+        op.call(
+            values,
+            indices,
+            input_offsets,
+            output_offsets,
+            num_dense_output_rows),
         output_lengths};
   }
 
@@ -659,7 +666,8 @@ class JaggedIndexSelect2dOp
     return {
         op.call(grad, indices, grad_offsets, output_offsets, num_output_rows),
         torch::autograd::Variable(), // lengths
-        torch::autograd::Variable() // indices
+        torch::autograd::Variable(), // indices
+        torch::autograd::Variable() // num_dense_output_rows
     };
   }
 };
@@ -915,8 +923,10 @@ std::tuple<Tensor, Tensor> jagged_dense_bmm(
 std::vector<Tensor> jagged_index_select_2d(
     const Tensor& values,
     const Tensor& lengths,
-    const Tensor& indices) {
-  return JaggedIndexSelect2dOp::apply(values, lengths, indices);
+    const Tensor& indices,
+    const c10::optional<int64_t> num_dense_output_rows) {
+  return JaggedIndexSelect2dOp::apply(
+      values, lengths, indices, num_dense_output_rows);
 }
 
 std::tuple<Tensor, Tensor> jagged_slice(

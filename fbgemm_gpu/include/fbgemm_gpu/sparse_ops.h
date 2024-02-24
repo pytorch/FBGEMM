@@ -820,7 +820,8 @@ int get_group_index_select_cols_per_warp();
 std::vector<at::Tensor> jagged_index_select_2d(
     const at::Tensor& values,
     const at::Tensor& lengths,
-    const at::Tensor& indices);
+    const at::Tensor& indices,
+    const c10::optional<int64_t> num_dense_output_rows = c10::nullopt);
 
 at::Tensor jagged_index_select_2d_forward_cpu(
     const at::Tensor& values,

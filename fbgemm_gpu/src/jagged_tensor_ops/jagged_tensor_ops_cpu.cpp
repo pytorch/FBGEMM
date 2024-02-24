@@ -1159,9 +1159,10 @@ Tensor jagged_index_select_2d_forward_v2_impl(
     const Tensor& values,
     const Tensor& indices,
     const Tensor& input_offsets,
-    const Tensor& output_offsets) {
-  int64_t num_dense_output_rows =
-      output_offsets[output_offsets.numel() - 1].item<int64_t>();
+    const Tensor& output_offsets,
+    const c10::optional<int64_t> optional_num_dense_output_rows) {
+  const auto num_dense_output_rows = optional_num_dense_output_rows.value_or(
+      output_offsets[output_offsets.numel() - 1].item<int64_t>());
   static auto v1_op =
       c10::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::jagged_index_select_2d_forward", "")
@@ -1716,12 +1717,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "batched_dense_vec_jagged_2d_mul_backward(Tensor grad_output, Tensor v, Tensor a_values, Tensor a_offsets) -> (Tensor, Tensor)",
       {PT2_COMPLIANT_TAG});
   m.def(
-      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices) -> Tensor[]",
+      "jagged_index_select(Tensor values, Tensor lengths, Tensor indices, int? num_dense_output_rows=None) -> Tensor[]",
       {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_index_select_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_output_rows) -> Tensor");
   m.def(
-      "jagged_index_select_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets) -> Tensor",
+      "jagged_index_select_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int? num_dense_output_rows=None) -> Tensor",
       {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_index_add_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_input_rows, int num_output_rows) -> Tensor");

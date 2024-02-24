@@ -1877,6 +1877,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         ),
         use_cpu=use_cpu_strategy(),
         check_non_contiguous=st.booleans(),
+        known_shape=st.booleans(),
     )
     @settings(max_examples=20, deadline=None, verbosity=Verbosity.verbose)
     def test_jagged_index_select_2d(
@@ -1889,6 +1890,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         jagged_tensor_dtype: torch.dtype,
         use_cpu: bool,
         check_non_contiguous: bool,
+        known_shape: bool,
     ) -> None:
         device = torch.device("cpu" if use_cpu else "cuda")
         is_float = jagged_tensor_dtype in [torch.float, torch.half, torch.bfloat16]
@@ -1933,7 +1935,17 @@ class JaggedTensorOpsTest(unittest.TestCase):
             values.requires_grad = True
             values_ref.requires_grad = True
 
-        output, _ = torch.ops.fbgemm.jagged_index_select(values, lengths, indices)
+        if known_shape:
+            with torch.no_grad():
+                tmp_output, _ = torch.ops.fbgemm.jagged_index_select(
+                    values, lengths, indices
+                )
+            num_dense_output_rows = tmp_output.shape[0]
+            output, _ = torch.ops.fbgemm.jagged_index_select(
+                values, lengths, indices, num_dense_output_rows
+            )
+        else:
+            output, _ = torch.ops.fbgemm.jagged_index_select(values, lengths, indices)
         output_ref = self.jagged_index_select_2d_ref(
             values_ref, lengths, indices, device
         )
