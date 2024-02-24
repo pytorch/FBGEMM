@@ -208,14 +208,15 @@ def jagged_index_select_2d_forward_v2_abstract(
     indices: Tensor,
     input_offsets: Tensor,
     output_offsets: Tensor,
+    num_dense_output_rows: Optional[int] = None,
 ) -> Tensor:
     torch._check(values.device == indices.device)
     torch._check(values.device == input_offsets.device)
     torch._check(values.device == output_offsets.device)
     torch._check(values.dim() == 2)
-    num_dense_output_rows = torch.library.get_ctx().new_dynamic_size()
+    dynamic_num_dense_output_rows = torch.library.get_ctx().new_dynamic_size()
     num_cols = values.size(1)
-    return values.new_empty([num_dense_output_rows, num_cols])
+    return values.new_empty([dynamic_num_dense_output_rows, num_cols])
 
 
 @impl_abstract("fbgemm::jagged_index_add_2d_forward_v2")
