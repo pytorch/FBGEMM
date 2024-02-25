@@ -436,7 +436,8 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
         // Make sure density is big enough. Otherwise, we're not really testing
         // spmdm.
         // deterministic random number
-        default_random_engine eng;
+        random_device r;
+        default_random_engine eng(r());
         binomial_distribution<> per_col_nnz_dist(k_per_group, density);
 
         vector<int> row_indices(k_per_group);

@@ -122,7 +122,8 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
         h(num_rows), h_ref(num_rows),
         g(batch_size * (use_grad_stride ? grad_stride : embedding_dim));
     vector<float16> w_fp16(w.size()), w_fp16_ref(w.size());
-    default_random_engine generator;
+    random_device r;
+    default_random_engine generator(r());
     uniform_real_distribution<float> values_gen(0, 2);
     for (size_t i = 0; i < w.size(); ++i) {
       w_ref[i] = w[i] = values_gen(generator);
