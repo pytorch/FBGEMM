@@ -84,7 +84,8 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
     vector<float> h_ref(param_size);
     vector<float> w_ref(param_size);
 
-    default_random_engine generator;
+    random_device r;
+    default_random_engine generator(r());
 
     normal_distribution<float> h_w_distribution;
 
@@ -217,7 +218,8 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
     vector<float> h_ref(param_size);
     vector<float> w_ref(param_size);
 
-    default_random_engine generator;
+    random_device r;
+    default_random_engine generator(r());
     uniform_real_distribution<float> values_gen(0, 2);
     for (int i = 0; i < param_size; i++) {
       h_ref[i] = h[i] = values_gen(generator);

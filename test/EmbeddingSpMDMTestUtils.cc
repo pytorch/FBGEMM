@@ -28,7 +28,8 @@ int GenerateLengthsIndicesWeights(
     int average_len,
     EmbeddingSpMDMCornerCase corner_case) {
   // Generate lengths
-  default_random_engine generator;
+  random_device r;
+  default_random_engine generator(r());
   uniform_int_distribution<int> length_distribution(
       1, std::min(2 * average_len + 1, num_rows));
   lengths.resize(batch_size);
@@ -89,7 +90,8 @@ int CreateMappingTableForRowWiseSparsity(
     vector<int32_t>& mapping_table,
     int num_rows,
     float sparsity) {
-  default_random_engine generator;
+  random_device r;
+  default_random_engine generator(r());
   mapping_table.resize(num_rows);
   bernoulli_distribution row_prune_dist(sparsity);
   int num_compressed_rows = 0;

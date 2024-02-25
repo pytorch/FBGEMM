@@ -24,7 +24,8 @@ class Int64GemmTest : public testing::Test {
  protected:
   vector<array<int, 3>> GenParams() {
     vector<array<int, 3>> shapes;
-    default_random_engine generator;
+    random_device r;
+    default_random_engine generator(r());
     uniform_int_distribution<int> dist_dim(1, 128);
     for (int i = 0; i < 256; ++i) {
       shapes.push_back(

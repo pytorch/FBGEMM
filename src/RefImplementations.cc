@@ -1287,8 +1287,13 @@ bool EmbeddingSpMDM_ref(
       if (current + len > index_size) {
         return false;
       }
-      for (int i = 0; i < len; ++i) {
+      for (int i = 0; i < len; ++i, ++current) {
         int64_t idx = indices[current];
+        if (!scale_bias_last && idx == -1) {
+          // When scale_bias_last == false, assume this is for table batched
+          // embedding (TBE) that can get -1 for pruned rows.
+          continue;
+        }
         if (idx < 0 || idx >= data_size) {
           return false;
         }
@@ -1319,8 +1324,6 @@ bool EmbeddingSpMDM_ref(
                    (scale_bias_last ? 0 : 2 * sizeof(float16))],
               buf[j] + bias);
         }
-
-        ++current;
       }
       if (normalize_by_lengths && len) {
         float scale = 1.f / len;
@@ -1450,8 +1453,13 @@ bool EmbeddingSpMDMNBit_ref(
     if (current + len > index_size) {
       return false;
     }
-    for (int i = 0; i < len; ++i) {
+    for (int i = 0; i < len; ++i, ++current) {
       int64_t idx = indices[current];
+      if (!scale_bias_last && idx == -1) {
+        // When scale_bias_last == false, assume this is for table batched
+        // embedding (TBE) that can get -1 for pruned rows.
+        continue;
+      }
       if (idx < 0 || idx >= data_size) {
         return false;
       }
@@ -1478,8 +1486,6 @@ bool EmbeddingSpMDMNBit_ref(
 
         buf[j] = std::fma(scale, quantized, buf[j] + bias);
       }
-
-      ++current;
     }
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;

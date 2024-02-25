@@ -20,7 +20,8 @@ using namespace fbgemm;
 
 namespace {
 uniform_int_distribution<int> dist_dim(1, 256);
-default_random_engine generator;
+random_device r;
+default_random_engine generator(r());
 
 class SparseDenseTest : public testing::Test {
  protected:

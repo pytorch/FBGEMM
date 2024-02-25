@@ -111,7 +111,8 @@ INSTANTIATE_TEST_CASE_P(
 TEST_P(EmbeddingSpMDMTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
 
-  default_random_engine generator;
+  random_device r;
+  default_random_engine generator(r());
   uniform_int_distribution<> bool_dist(0, 1);
 
   bool isIndex64b = bool_dist(generator);
@@ -449,7 +450,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
 TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
 
-  default_random_engine generator;
+  random_device r;
+  default_random_engine generator(r());
   uniform_int_distribution<> bool_dist(0, 1);
 
   bool isFp16 = bool_dist(generator);
