@@ -55,7 +55,8 @@ TEST(TransposeTest, TransposeTest) {
   // Generate shapes to test
   vector<tuple<int, int, int, int>> shapes;
   uniform_int_distribution<int> dist(0, 32);
-  default_random_engine generator;
+  random_device r;
+  default_random_engine generator(r());
   for (int i = 0; i < 1024; ++i) {
     int m = dist(generator);
     int n = dist(generator);

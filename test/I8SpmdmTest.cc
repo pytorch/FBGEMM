@@ -81,7 +81,8 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
     }
 
     // deterministic random number
-    default_random_engine eng;
+    random_device r;
+    default_random_engine eng(r());
     binomial_distribution<> per_col_nnz_dist(K_adjusted, density);
     uniform_int_distribution<> value_dist(
         numeric_limits<int8_t>::min() / 2, numeric_limits<int8_t>::max() / 2);

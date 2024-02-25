@@ -353,7 +353,8 @@ void SConvTest() {
 
       float density = 0.0001f;
       CompressedSparseColumn B_csc(KDimPerGroup, conv_p.G * NDim);
-      default_random_engine eng;
+      random_device r;
+      default_random_engine eng(r());
       binomial_distribution<> per_col_nnz_dist(KDimPerGroup, density);
 
       // TODO: refactor CSC construction as a reusable function

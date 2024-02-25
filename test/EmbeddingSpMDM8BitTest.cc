@@ -77,7 +77,8 @@ INSTANTIATE_TEST_CASE_P(
 TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   vector<vector<int>> inputs(GetInputs_());
 
-  default_random_engine generator;
+  random_device r;
+  default_random_engine generator(r());
   uniform_int_distribution<> bool_dist(0, 1);
 
   bool isIndex64b = bool_dist(generator);
@@ -157,6 +158,19 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
         (use_offsets ? offsets : lengths).data();
     const int32_t* offsets_or_lengths_32 =
         (use_offsets ? offsets_32 : lengths_32).data();
+
+    if (!scale_bias_last && use_weight) {
+      // When scale_bias_last == false, assume this is for table batched
+      // embedding (TBE) that can get -1 for pruned rows.
+      uniform_int_distribution<int> pruned_indices_distribution(
+          0, indices.size() - 1);
+      constexpr float PRUNED_INDICES_PROPORTION = 0.1;
+      for (int i = 0; i < indices.size() * PRUNED_INDICES_PROPORTION; ++i) {
+        auto idx = pruned_indices_distribution(generator);
+        indices[idx] = -1;
+        indices_32[idx] = -1;
+      }
+    }
 
     // Sentries at the end to make sure masking is done correctly not to write
     // out of bounds.
@@ -308,7 +322,8 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
 TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   vector<vector<int>> inputs(GetInputs_());
 
-  default_random_engine generator;
+  random_device r;
+  default_random_engine generator(r());
   uniform_int_distribution<> bool_dist(0, 1);
 
   bool isIndex64b = bool_dist(generator);
