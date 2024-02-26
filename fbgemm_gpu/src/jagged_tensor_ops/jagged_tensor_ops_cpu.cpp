@@ -1161,8 +1161,11 @@ Tensor jagged_index_select_2d_forward_v2_impl(
     const Tensor& input_offsets,
     const Tensor& output_offsets,
     const c10::optional<int64_t> optional_num_dense_output_rows) {
-  const auto num_dense_output_rows = optional_num_dense_output_rows.value_or(
-      output_offsets[output_offsets.numel() - 1].item<int64_t>());
+  // Intentionally not using optional::value_or here to avoid materializing
+  // .item() call when possible.
+  const auto num_dense_output_rows = optional_num_dense_output_rows.has_value()
+      ? optional_num_dense_output_rows.value()
+      : output_offsets[output_offsets.numel() - 1].item<int64_t>();
   static auto v1_op =
       c10::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::jagged_index_select_2d_forward", "")
