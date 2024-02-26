@@ -6,10 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/input_combine.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
-
 #include <ATen/ATen.h>
 #include <ATen/Context.h>
 #include <ATen/Dispatch.h>
@@ -20,6 +16,10 @@
 #include <c10/core/TensorOptions.h>
 #include <c10/util/Exception.h>
 #include <torch/script.h>
+
+#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/input_combine.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -204,9 +204,23 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights) {
+  // The list sizes should be non-zero and match
   TORCH_CHECK_GT(indices_list.size(), 0);
   TORCH_CHECK_EQ(lengths_list.size(), indices_list.size());
   TORCH_CHECK_EQ(per_sample_weights.size(), indices_list.size());
+
+  // Either the corresponding weights are provided for all indices tensors, or
+  // none are provided for any of the indices tensors
+  {
+    const auto nonempty_weights = static_cast<size_t>(std::count_if(
+        per_sample_weights.begin(),
+        per_sample_weights.end(),
+        [](const auto& ten) { return ten.numel() > 0; }));
+    TORCH_CHECK(
+        nonempty_weights == 0 || nonempty_weights == indices_list.size(),
+        "Either all weights tensors should be empty, or all should be non-empty");
+  }
+
   int64_t total_indices = 0;
   int64_t total_lengths = 0;
   bool need_weights = false;

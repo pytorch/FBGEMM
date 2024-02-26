@@ -216,6 +216,14 @@ inline bool torch_tensor_empty_or_on_cpu_check(
       " and ",                                                         \
       (y).numel())
 
+#define TENSOR_NUMEL_IS_GT(ten, num)                \
+  TORCH_CHECK(                                      \
+      (ten).numel() > (num),                        \
+      "Tensor '" #ten "' must have more than " #num \
+      " element(s). "                               \
+      "Found ",                                     \
+      (ten).numel())
+
 template <typename... Tensors>
 std::string tensor_on_same_gpu_if_not_optional_check(
     const std::string& var_names_str,
