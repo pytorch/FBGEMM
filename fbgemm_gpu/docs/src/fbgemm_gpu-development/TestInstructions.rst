@@ -4,8 +4,21 @@ Testing FBGEMM_GPU
 The tests (in the ``fbgemm_gpu/test/`` directory) and benchmarks (in the
 ``fbgemm_gpu/bench/`` directory) provide good examples on how to use FBGEMM_GPU.
 
-FBGEMM_GPU Tests
-~~~~~~~~~~~~~~~~
+Setup the FBGEMM_GPU Test Environment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+After an environment is available from building / installing the FBGEMM_GPU
+package, additional packages need to be installed for tests to run correctly:
+
+.. code:: sh
+
+  # !! Run inside the Conda environment !!
+
+  # From the /fbgemm_gpu/ directory
+  python -m pip install -r requirements.txt
+
+Running FBGEMM_GPU Tests
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 To run the tests after building / installing the FBGEMM_GPU package:
 
@@ -60,8 +73,8 @@ For ROCm machines, testing against a ROCm GPU needs to be enabled with
 
   python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning split_table_batched_embeddings_test.py
 
-FBGEMM_GPU Benchmarks
-~~~~~~~~~~~~~~~~~~~~~
+Running FBGEMM_GPU Benchmarks
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 To run the benchmarks:
 
