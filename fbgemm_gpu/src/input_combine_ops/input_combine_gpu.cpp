@@ -6,12 +6,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/input_combine.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
-
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
+#include "fbgemm_gpu/input_combine.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -62,10 +61,24 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
     const std::vector<Tensor>& indices_list,
     const std::vector<Tensor>& lengths_list,
     const std::vector<Tensor>& per_sample_weights) {
+  // The list sizes should be non-zero and match
+  TORCH_CHECK_GT(indices_list.size(), 0);
+  TORCH_CHECK_EQ(lengths_list.size(), indices_list.size());
+  TORCH_CHECK_EQ(per_sample_weights.size(), indices_list.size());
+
+  // Either the corresponding weights are provided for all indices tensors, or
+  // none are provided for any of the indices tensors
+  {
+    const auto nonempty_weights = static_cast<size_t>(std::count_if(
+        per_sample_weights.begin(),
+        per_sample_weights.end(),
+        [](const auto& ten) { return ten.numel() > 0; }));
+    TORCH_CHECK(
+        nonempty_weights == 0 || nonempty_weights == indices_list.size(),
+        "Either all weights tensors should be empty, or all should be non-empty");
+  }
+
   const auto num_lists = indices_list.size();
-  TORCH_CHECK_GT(num_lists, 0);
-  TORCH_CHECK_EQ(lengths_list.size(), num_lists);
-  TORCH_CHECK_EQ(per_sample_weights.size(), num_lists);
   const bool need_weights = std::any_of(
       per_sample_weights.begin(), per_sample_weights.end(), [](const auto& x) {
         return x.numel() > 0;
@@ -143,14 +156,19 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
     }
     const auto& indices = indices_list[i];
     const auto& lengths = lengths_list[i];
+
+    // Tensors are contiguous, on same device, and have same dtype
     TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(indices);
     TENSOR_CONTIGUOUS_AND_ON_CUDA_GPU(lengths);
     TENSORS_ON_SAME_DEVICE(indices, indices_0);
     TENSORS_ON_SAME_DEVICE(lengths, indices_0);
     TORCH_CHECK(indices.dtype() == c10::kInt || indices.dtype() == c10::kLong);
     TORCH_CHECK(lengths.dtype() == c10::kInt || lengths.dtype() == c10::kLong);
+    // Dimensions must be 1
     TENSOR_NDIM_EQUALS(indices, 1);
     TENSOR_NDIM_EQUALS(lengths, 1);
+    // Indices must be non-empty
+    TENSOR_NUMEL_IS_GT(indices, 0);
 
     const auto indices_numel = indices.numel();
     const auto lengths_numel = lengths.numel();
