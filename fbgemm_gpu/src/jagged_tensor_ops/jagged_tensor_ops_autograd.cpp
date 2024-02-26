@@ -616,6 +616,7 @@ class JaggedIndexSelect2dOp
 
     ctx->save_for_backward({indices, output_offsets, input_offsets});
     ctx->saved_data["num_input_rows"] = values.sym_size(0);
+    ctx->saved_data["num_dense_output_rows"] = num_dense_output_rows;
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -652,6 +653,8 @@ class JaggedIndexSelect2dOp
     TENSORS_ON_SAME_DEVICE(grad, indices);
 
     auto num_output_rows = ctx->saved_data["num_input_rows"].toSymInt();
+    auto num_dense_input_rows =
+        ctx->saved_data["num_dense_output_rows"].toOptional<int64_t>();
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -661,10 +664,17 @@ class JaggedIndexSelect2dOp
                 const Tensor& indices,
                 const Tensor& input_offsets,
                 const Tensor& output_offsets,
-                c10::SymInt num_output_rows)>();
+                c10::SymInt num_output_rows,
+                const c10::optional<int64_t> optional_num_dense_input_rows)>();
 
     return {
-        op.call(grad, indices, grad_offsets, output_offsets, num_output_rows),
+        op.call(
+            grad,
+            indices,
+            grad_offsets,
+            output_offsets,
+            num_output_rows,
+            num_dense_input_rows),
         torch::autograd::Variable(), // lengths
         torch::autograd::Variable(), // indices
         torch::autograd::Variable() // num_dense_output_rows
