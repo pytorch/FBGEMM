@@ -380,8 +380,19 @@
 <h1>Testing FBGEMM_GPU<a class="headerlink" href="#testing-fbgemm-gpu" title="Permalink to this heading">¶</a></h1>
 <p>The tests (in the <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/test/</span></code> directory) and benchmarks (in the
 <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/bench/</span></code> directory) provide good examples on how to use FBGEMM_GPU.</p>
-<section id="fbgemm-gpu-tests">
-<h2>FBGEMM_GPU Tests<a class="headerlink" href="#fbgemm-gpu-tests" title="Permalink to this heading">¶</a></h2>
+<section id="setup-the-fbgemm-gpu-test-environment">
+<h2>Setup the FBGEMM_GPU Test Environment<a class="headerlink" href="#setup-the-fbgemm-gpu-test-environment" title="Permalink to this heading">¶</a></h2>
+<p>After an environment is available from building / installing the FBGEMM_GPU
+package, additional packages need to be installed for tests to run correctly:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+
+<span class="c1"># From the /fbgemm_gpu/ directory</span>
+python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+</section>
+<section id="running-fbgemm-gpu-tests">
+<h2>Running FBGEMM_GPU Tests<a class="headerlink" href="#running-fbgemm-gpu-tests" title="Permalink to this heading">¶</a></h2>
 <p>To run the tests after building / installing the FBGEMM_GPU package:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
@@ -430,8 +441,8 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 </div>
 </section>
 </section>
-<section id="fbgemm-gpu-benchmarks">
-<h2>FBGEMM_GPU Benchmarks<a class="headerlink" href="#fbgemm-gpu-benchmarks" title="Permalink to this heading">¶</a></h2>
+<section id="running-fbgemm-gpu-benchmarks">
+<h2>Running FBGEMM_GPU Benchmarks<a class="headerlink" href="#running-fbgemm-gpu-benchmarks" title="Permalink to this heading">¶</a></h2>
 <p>To run the benchmarks:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
@@ -488,12 +499,13 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">Testing FBGEMM_GPU</a><ul>
-<li><a class="reference internal" href="#fbgemm-gpu-tests">FBGEMM_GPU Tests</a><ul>
+<li><a class="reference internal" href="#setup-the-fbgemm-gpu-test-environment">Setup the FBGEMM_GPU Test Environment</a></li>
+<li><a class="reference internal" href="#running-fbgemm-gpu-tests">Running FBGEMM_GPU Tests</a><ul>
 <li><a class="reference internal" href="#testing-with-the-cuda-variant">Testing with the CUDA Variant</a></li>
 <li><a class="reference internal" href="#testing-with-the-rocm-variant">Testing with the ROCm Variant</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#fbgemm-gpu-benchmarks">FBGEMM_GPU Benchmarks</a></li>
+<li><a class="reference internal" href="#running-fbgemm-gpu-benchmarks">Running FBGEMM_GPU Benchmarks</a></li>
 </ul>
 </li>
 </ul>
