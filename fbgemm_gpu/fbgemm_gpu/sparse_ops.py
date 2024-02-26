@@ -226,6 +226,7 @@ def jagged_index_add_2d_forward_v2_abstract(
     input_offsets: Tensor,
     output_offsets: Tensor,
     num_output_rows: int,
+    num_dense_input_rows: Optional[int] = None,
 ) -> Tensor:
     torch._check(values.device == indices.device)
     torch._check(values.device == input_offsets.device)
