@@ -186,7 +186,7 @@ install_from_pytorch_pip () {
 
   echo "[INSTALL] Attempting to install [${package_name}, ${package_version:-LATEST}] from PyTorch PIP using channel ${pip_channel} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} pip install ${pip_package} --extra-index-url ${pip_channel}) || return 1
+  (exec_with_retries 3 conda run ${env_prefix} pip install ${pip_package} --index-url ${pip_channel}) || return 1
 
   # Check only applies to non-CPU variants
   if [ "$package_variant_type" != "cpu" ]; then
@@ -242,7 +242,7 @@ download_from_pytorch_pip () {
 
   echo "[DOWNLOAD] Attempting to download wheel [${package_name}, ${package_version:-LATEST}] from PyTorch PIP using channel ${pip_channel} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} pip download ${pip_package} --extra-index-url ${pip_channel}) || return 1
+  (exec_with_retries 3 conda run ${env_prefix} pip download ${pip_package} --index-url ${pip_channel}) || return 1
 
   # Ensure that the package build is of the correct variant
   # This test usually applies to the nightly builds
