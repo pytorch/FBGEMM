@@ -1189,9 +1189,12 @@ Tensor jagged_index_add_2d_forward_v2_impl(
     const Tensor& indices,
     const Tensor& input_offsets,
     const Tensor& output_offsets,
-    const int64_t num_output_rows) {
-  int64_t num_dense_output_rows =
-      input_offsets[input_offsets.numel() - 1].item<int64_t>();
+    const int64_t num_output_rows,
+    const c10::optional<int64_t> optional_num_dense_input_rows) {
+  int64_t num_dense_input_rows = optional_num_dense_input_rows.has_value()
+      ? optional_num_dense_input_rows.value()
+      : input_offsets[input_offsets.numel() - 1].item<int64_t>();
+
   static auto v1_op =
       c10::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::jagged_index_add_2d_forward", "")
@@ -1207,7 +1210,7 @@ Tensor jagged_index_add_2d_forward_v2_impl(
       indices,
       input_offsets,
       output_offsets,
-      num_dense_output_rows,
+      num_dense_input_rows,
       num_output_rows);
 }
 
@@ -1730,7 +1733,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_index_add_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_input_rows, int num_output_rows) -> Tensor");
   m.def(
-      "jagged_index_add_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, SymInt num_output_rows) -> Tensor",
+      "jagged_index_add_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, SymInt num_output_rows, int? num_dense_input_rows) -> Tensor",
       {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");
