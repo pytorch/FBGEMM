@@ -178,9 +178,6 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
-    - name: Install Build Tools
-      run: . $PRELUDE; install_build_tools $BUILD_ENV
-
     - name: Install PyTorch-ROCm Nightly
       run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly rocm/${{ matrix.rocm-version }}
 

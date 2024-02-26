@@ -247,9 +247,11 @@ install_build_tools () {
 
   echo "[INSTALL] Installing build tools ..."
   # NOTES:
-  # - Only the openblas package will install cblas.h directly into
-  #   $CONDA_PREFIX/include directory
-  # - ncurses is needed to silence bad libtinfo6.so errors for ROCm+Clang builds
+  #
+  # - Only the openblas package will install <cblas.h> directly into
+  #   $CONDA_PREFIX/include directory, which is required for FBGEMM tests
+  #
+  # - ncurses is needed to silence libtinfo6.so errors for ROCm+Clang builds
   #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
