@@ -7,10 +7,11 @@
 
 # pyre-ignore-all-errors[56]
 
-from typing import Tuple
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from fbgemm_gpu.embedding_offloading_metrics import IEmbeddingOffloadingMetricsReporter
 from fbgemm_gpu.split_embedding_configs import SparseType
 
 from fbgemm_gpu.split_embedding_utils import round_up
@@ -37,6 +38,27 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
+class TestingEmbeddingOffloadingMetricsReporter(IEmbeddingOffloadingMetricsReporter):
+    def __init__(self, reporting_interval: int = 1) -> None:
+        self.reported_data: List[List[Union[int, str, float]]] = []
+        self.reporting_interval = reporting_interval
+
+    def should_report(self, iteration_step: int) -> bool:
+        return (iteration_step - 1) % self.reporting_interval == 0
+
+    def report_duration(
+        self,
+        iteration_step: int,
+        event_name: str,
+        duration_ms: float,
+        embedding_id: str = "",
+        tbe_id: str = "",
+    ) -> None:
+        self.reported_data.append(
+            [iteration_step, event_name, duration_ms, embedding_id, tbe_id]
+        )
+
+
 def generate_cache_tbes(
     T: int,
     D: int,
@@ -48,6 +70,7 @@ def generate_cache_tbes(
     cache_sets: int = 0,
     weights_cache_precision: SparseType = SparseType.FP32,
     stochastic_rounding: bool = False,
+    reporter: Optional[TestingEmbeddingOffloadingMetricsReporter] = None,
 ) -> Tuple[
     SplitTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -103,6 +126,7 @@ def generate_cache_tbes(
         cache_sets=cache_sets,
         weights_precision=weights_cache_precision,
         cache_precision=weights_cache_precision,
+        metrics_reporter=reporter,
     )
 
     if use_int_weight:
