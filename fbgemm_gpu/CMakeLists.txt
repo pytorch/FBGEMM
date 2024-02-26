@@ -286,6 +286,8 @@ foreach(optimizer
     ${GPU_ONLY_OPTIMIZERS})
   list(APPEND gen_python_source_files
     "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
+  list(APPEND gen_python_source_files
+    "${CMAKE_BINARY_DIR}/lookup_${optimizer}_pt2.py")
 endforeach()
 
 # Generate the backend API for all optimizers to preserve the backward
@@ -293,8 +295,12 @@ endforeach()
 foreach(optimizer ${ALL_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
     "gen_embedding_backward_split_${optimizer}_cpu.cpp")
+  list(APPEND gen_cpu_source_files
+    "gen_embedding_backward_split_${optimizer}_cpu_pt2.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}.cpp")
+  list(APPEND gen_gpu_host_source_files
+    "gen_embedding_backward_split_${optimizer}_pt2.cpp")
 endforeach()
 
 foreach(optimizer ${CPU_OPTIMIZERS})
@@ -342,7 +348,9 @@ set(embedding_codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_approx_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_cpu_template.cpp
+    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_cpu_pt2_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_template.cpp
+    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_pt2_template.cpp
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_indice_weights_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_grad_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_backward_split_kernel_cta_template.cu

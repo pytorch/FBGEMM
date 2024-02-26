@@ -331,6 +331,61 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
   return grad_indice_weights;
 }
 
+Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda(
+    const Tensor& grad_output,
+    const Tensor& host_weights,
+    const Tensor& dev_weights,
+    {%- if not dense %}
+    const Tensor& uvm_weights,
+    const Tensor& lxu_cache_weights,
+    const Tensor& weights_placements,
+    {%- endif %}
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& indices,
+    const Tensor& offsets,
+    {%- if not dense %}
+    const Tensor& lxu_cache_locations,
+    {%- endif %}
+    {%- if vbe %}
+    const Tensor& feature_requires_grad,
+    const Tensor& vbe_row_output_offsets,
+    const Tensor& vbe_b_t_map,
+    const int64_t info_B_num_bits,
+    const int64_t info_B_mask_int64
+    {%- else %}
+    const Tensor& feature_requires_grad
+    {%- endif %}
+){
+    return {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
+        grad_output,
+        dev_weights,
+        {%- if not dense %}
+        uvm_weights,
+        lxu_cache_weights,
+        weights_placements,
+        {%- endif %}
+        weights_offsets,
+        D_offsets,
+        max_D,
+        indices,
+        offsets,
+        {%- if not dense %}
+        lxu_cache_locations,
+        {%- endif %}
+        {%- if vbe %}
+        feature_requires_grad,
+        vbe_row_output_offsets,
+        vbe_b_t_map,
+        info_B_num_bits,
+        info_B_mask_int64
+        {%- else %}
+        feature_requires_grad
+        {%- endif %}
+        );
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Op registrations
 ////////////////////////////////////////////////////////////////////////////////
@@ -369,6 +424,44 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_grad_indice_weights_op }}",
         {{ embedding_codegen_grad_indice_weights_op }}
+    );
+
+    {%- set embedding_codegen_grad_indice_weights_op =
+        "{}_embedding_codegen_grad_indice_weights{}_pt2".format(
+            ddesc, vdesc
+        )
+    %}
+    m.def("{{ embedding_codegen_grad_indice_weights_op }}("
+        "    Tensor grad_output, "
+        "    Tensor host_weights, "
+        "    Tensor dev_weights, "
+        {%- if not dense %}
+        "    Tensor uvm_weights, "
+        "    Tensor lxu_cache_weights, "
+        "    Tensor weights_placements, "
+        {%- endif %}
+        "    Tensor weights_offsets, "
+        "    Tensor D_offsets, "
+        "    int max_D, "
+        "    Tensor indices, "
+        "    Tensor offsets, "
+        {%- if not dense %}
+        "    Tensor lxu_cache_locations, "
+        {%- endif %}
+        {%- if vbe %}
+        "    Tensor feature_requires_grad, "
+        "    Tensor vbe_row_output_offsets, "
+        "    Tensor vbe_b_t_map, "
+        "    int info_B_num_bits, "
+        "    int info_B_mask_int64"
+        {%- else %}
+        "    Tensor feature_requires_grad"
+        {%- endif %}
+        ") -> Tensor");
+
+    DISPATCH_TO_CUDA(
+        "{{ embedding_codegen_grad_indice_weights_op }}",
+        {{ embedding_codegen_grad_indice_weights_op }}_cuda
     );
 }
 {%- endif %} {#-/* if not dense or not vbe */#}

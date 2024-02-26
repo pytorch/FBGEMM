@@ -702,6 +702,83 @@ batch_index_select_dim0_codegen_forward_cuda(
   return output;
 }
 
+{%- if not is_index_select %}
+  Tensor {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cuda(
+      const Tensor& host_weights,
+      const Tensor& dev_weights,
+      {%- if not dense %}
+      const Tensor& uvm_weights,
+      const Tensor& lxu_cache_weights,
+      const Tensor& weights_placements,
+      {%- endif %}
+      const Tensor& weights_offsets,
+      {%- if nobag %}
+      const int64_t D,
+      {%- else %}
+      const Tensor& D_offsets,
+      const int64_t total_D,
+      const int64_t max_D,
+      {%- endif %}
+      const Tensor& hash_size_cumsum,
+      const Tensor& indices,
+      const Tensor& offsets,
+      {%- if not nobag %}
+      const int64_t pooling_mode,
+      const Tensor& indice_weights, // CPU always takes indice_weights
+      {%- endif %}
+      {%- if not dense %}
+      const Tensor& lxu_cache_locations,
+      const Tensor& uvm_cache_stats,
+      {%- endif %}
+      {%- if vbe %}
+      const Tensor& vbe_row_output_offsets,
+      const Tensor& vbe_b_t_map,
+      const int64_t vbe_output_size,
+      const int64_t info_B_num_bits,
+      const int64_t info_B_mask_int64,
+      {%- endif %}
+      const bool is_experimental,
+      const int64_t output_dtype
+      ){
+          return {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
+              dev_weights,
+              {%- if not dense %}
+              uvm_weights,
+              lxu_cache_weights,
+              weights_placements,
+              {%- endif %}
+              weights_offsets,
+              {%- if nobag %}
+              D,
+              {%- else %}
+              D_offsets,
+              total_D,
+              max_D,
+              {%- endif %}
+              indices,
+              offsets,
+              {%- if not nobag %}
+              pooling_mode,
+              {%- endif %}
+              {%- if weighted %}
+              indice_weights,
+              {%- endif %}
+              {%- if not dense %}
+              lxu_cache_locations,
+              uvm_cache_stats,
+              {%- endif %}
+              output_dtype,
+              {%- if vbe %}
+              vbe_row_output_offsets,
+              vbe_b_t_map,
+              vbe_output_size,
+              info_B_num_bits,
+              info_B_mask_int64,
+              {%- endif %}
+              is_experimental
+          );
+      };
+{%- endif %} {#-/* if not is_index_select */#}
 ////////////////////////////////////////////////////////////////////////////////
 // Op registrations
 ////////////////////////////////////////////////////////////////////////////////
@@ -758,6 +835,59 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_forward_op }}",
         {{ embedding_codegen_forward_op }}
+    );
+
+    {%- set embedding_codegen_forward_op = "{}_embedding{}_codegen_forward_{}{}_pt2".format(
+      ddesc, ndesc, wdesc, vdesc
+      )
+    %}
+    m.def("{{ embedding_codegen_forward_op }}("
+        "    Tensor host_weights, "
+        "    Tensor dev_weights, "
+        {%- if not dense %}
+        "    Tensor uvm_weights, "
+        "    Tensor lxu_cache_weights, "
+        "    Tensor weights_placements, "
+        {%- endif %}
+        "    Tensor weights_offsets, "
+        {%- if nobag %}
+        "    int D, "
+        {%- else %}
+        "    Tensor D_offsets, "
+        "    int total_D, "
+        "    int max_D, "
+        {%- endif %}
+        "    Tensor hash_size_cumsum, "
+        "    Tensor indices, "
+        "    Tensor offsets, "
+        {%- if not nobag %}
+        "    int pooling_mode, "
+        "    Tensor indice_weights, "
+        {%- endif %}
+        {%- if not dense %}
+        "    Tensor lxu_cache_locations, "
+        "    Tensor uvm_cache_stats, "
+        {%- endif %}
+        {%- if vbe %}
+        "    Tensor vbe_row_output_offsets, "
+        "    Tensor vbe_b_t_map, "
+        "    int vbe_output_size, "
+        "    int info_B_num_bits, "
+        "    int info_B_mask_int64, "
+        {%- endif %}
+        "    bool is_experimental, "
+        "    int output_dtype "
+        ") -> Tensor"
+        {%- if not dense and not nobag and not vbe %}
+          // only split_embedding_codegen_forward_[un]weighted_cuda
+          // are tested to be PT2 compliant
+        , {PT2_COMPLIANT_TAG}
+        {%- endif %}
+        );
+
+    DISPATCH_TO_CUDA(
+      "{{ embedding_codegen_forward_op }}",
+      {{ embedding_codegen_forward_op }}_cuda
     );
 }
 {%- endif %} {#-/* if not is_index_select */#}

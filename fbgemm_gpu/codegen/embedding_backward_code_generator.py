@@ -59,6 +59,7 @@ def generate(**kwargs: Any) -> None:
     # Generate GPU variants of the operators
     #
     kwargs["args"] = gen_args["cuda"]
+    kwargs["args_pt2"] = gen_args["any_device"]
 
     # Generate the backward splits
     generate_backward_embedding_cuda(
@@ -107,10 +108,27 @@ def generate(**kwargs: Any) -> None:
             write(filename, template.render(is_fbcode=args.is_fbcode, **kwargs))
             print(f"[Backward Split] [{optimizer}]: {filename}")
 
+        template_pt2 = env.get_template(
+            "embedding_backward_split_host_pt2_template.cpp"
+        )
+        filename_pt2 = f"gen_embedding_backward_split_{optimizer}_pt2.cpp"
+        write(filename_pt2, template_pt2.render(**kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename_pt2}")
+
+        if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
+            # Generates Python invoker for CUDA + CPU
+            template_pt2 = env.get_template(
+                "split_embedding_codegen_lookup_invoker.template"
+            )
+            filename_pt2 = f"lookup_{optimizer}_pt2.py"
+            write(filename_pt2, template_pt2.render(is_fbcode=args.is_fbcode, **kwargs))
+            print(f"[Backward Split] [{optimizer}]: {filename_pt2}")
+
     #
     # Generate CPU variants of the operators
     #
     kwargs["args"] = gen_args["cpu"]
+    kwargs["args_pt2"] = gen_args["any_device"]
 
     # Generate the backward splits
     if kwargs.get("has_cpu_support"):
@@ -130,6 +148,13 @@ def generate(**kwargs: Any) -> None:
         filename = f"gen_embedding_backward_split_{optimizer}_cpu.cpp"
         write(filename, template.render(**kwargs))
         print(f"[Backward Split] [{optimizer}]: {filename}")
+
+        template_pt2 = env.get_template(
+            "embedding_backward_split_host_cpu_pt2_template.cpp"
+        )
+        filename_pt2 = f"gen_embedding_backward_split_{optimizer}_cpu_pt2.cpp"
+        write(filename_pt2, template_pt2.render(**kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename_pt2}")
 
 
 # Format the way to generate PackedTensorAccessors

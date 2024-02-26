@@ -370,7 +370,24 @@ def make_args(
             )
     cuda = make_args_for_compute_device(split_arg_spec)
 
-    return {"cpu": cpu, "cuda": cuda}
+    split_arg_spec = []
+    for (ty, arg, default) in augmented_arg_spec:
+        if ty in (FLOAT, INT):
+            split_arg_spec.append((ty, arg, default))
+        else:
+            assert ty == TENSOR
+            split_arg_spec.extend(
+                [
+                    (TENSOR, f"{arg}_host", default),
+                    (TENSOR, f"{arg}_dev", default),
+                    (TENSOR, f"{arg}_uvm", default),
+                    (INT_TENSOR, f"{arg}_placements", default),
+                    (LONG_TENSOR, f"{arg}_offsets", default),
+                ]
+            )
+    any_device = make_args_for_compute_device(split_arg_spec)
+
+    return {"cpu": cpu, "cuda": cuda, "any_device": any_device}
 
 
 def adagrad() -> Dict[str, Any]:

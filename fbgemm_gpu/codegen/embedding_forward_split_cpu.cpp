@@ -360,6 +360,93 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
   return grad_indice_weights;
 }
 
+Tensor split_embedding_codegen_forward_weighted_pt2_cpu(
+    const Tensor& host_weights,
+    const Tensor& /*dev_weights*/,
+    const Tensor& /*uvm_weights*/,
+    const Tensor& /*lxu_cache_weights*/,
+    const Tensor& /*weights_placements*/,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t total_D,
+    const int64_t /*max_D*/,
+    const Tensor& hash_size_cumsum,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t pooling_mode,
+    const Tensor& indice_weights,
+    const Tensor& /*lxu_cache_locations*/,
+    const Tensor& /*uvm_cache_stats*/,
+    const bool /*is_experimental = false*/,
+    const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+  return split_embedding_codegen_forward_cpu(
+      host_weights,
+      weights_offsets,
+      D_offsets,
+      total_D,
+      hash_size_cumsum,
+      indices,
+      offsets,
+      pooling_mode,
+      indice_weights,
+      output_dtype);
+}
+
+Tensor split_embedding_codegen_forward_unweighted_pt2_cpu(
+    const Tensor& host_weights,
+    const Tensor& /*dev_weights*/,
+    const Tensor& /*uvm_weights*/,
+    const Tensor& /*lxu_cache_weights*/,
+    const Tensor& /*weights_placements*/,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t total_D,
+    const int64_t /*max_D*/,
+    const Tensor& hash_size_cumsum,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t pooling_mode,
+    const Tensor& indice_weights,
+    const Tensor& /*lxu_cache_locations*/,
+    const Tensor& /*uvm_cache_stats*/,
+    const bool /*is_experimental = false*/,
+    const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+  return split_embedding_codegen_forward_cpu(
+      host_weights,
+      weights_offsets,
+      D_offsets,
+      total_D,
+      hash_size_cumsum,
+      indices,
+      offsets,
+      pooling_mode,
+      indice_weights,
+      output_dtype);
+}
+Tensor split_embedding_codegen_grad_indice_weights_pt2_cpu(
+    const Tensor& grad_output,
+    const Tensor& host_weights,
+    const Tensor& /*dev_weights*/,
+    const Tensor& /*uvm_weights*/,
+    const Tensor& /*lxu_cache_weights*/,
+    const Tensor& /*weights_placements*/,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t /*max_D*/,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const Tensor& /*lxu_cache_locations*/,
+    const Tensor& feature_requires_grad) {
+  return split_embedding_codegen_grad_indice_weights_cpu(
+      grad_output,
+      host_weights,
+      weights_offsets,
+      D_offsets,
+      indices,
+      offsets,
+      feature_requires_grad);
+}
+
 namespace internal {
 
 namespace {
@@ -666,6 +753,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CPU(
       "split_embedding_codegen_forward_cpu",
       split_embedding_codegen_forward_cpu);
+  DISPATCH_TO_CPU(
+      "split_embedding_codegen_forward_weighted_pt2",
+      split_embedding_codegen_forward_weighted_pt2_cpu);
+  DISPATCH_TO_CPU(
+      "split_embedding_codegen_forward_unweighted_pt2",
+      split_embedding_codegen_forward_unweighted_pt2_cpu);
+  DISPATCH_TO_CPU(
+      "split_embedding_codegen_grad_indice_weights_pt2",
+      split_embedding_codegen_grad_indice_weights_pt2_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {

@@ -187,6 +187,87 @@ Tensor
     return output;
 }
 
+Tensor
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_meta(
+    const Tensor& host_weights,
+    const Tensor& dev_weights,
+    {%- if not dense %}
+    const Tensor& uvm_weights,
+    const Tensor& lxu_cache_weights,
+    const Tensor& weights_placements,
+    {%- endif %}
+    const Tensor& weights_offsets,
+    {%- if nobag %}
+    const int64_t D,
+    {%- else %}
+    const Tensor& D_offsets,
+    const int64_t total_D,
+    const int64_t max_D,
+    {%- endif %}
+    const Tensor& hash_size_cumsum,
+    const Tensor& indices,
+    const Tensor& offsets,
+    {%- if not nobag %}
+    const int64_t pooling_mode,
+    const Tensor& indice_weights, // CPU always takes indice_weights
+    {%- endif %}
+    {%- if not dense %}
+    const Tensor& lxu_cache_locations,
+    const Tensor& uvm_cache_stats,
+    {%- endif %}
+    {%- if vbe %}
+    const Tensor& vbe_row_output_offsets,
+    const Tensor& vbe_b_t_map,
+    const int64_t vbe_output_size,
+    const int64_t info_B_num_bits,
+    const int64_t info_B_mask_int64,
+    {%- endif %}
+    const bool is_experimental,
+    const int64_t output_dtype
+    ){
+        return {{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_meta(
+            dev_weights,
+            {%- if not dense %}
+            uvm_weights,
+            lxu_cache_weights,
+            weights_placements,
+            {%- endif %}
+            weights_offsets,
+            {%- if not nobag %}
+            D_offsets,
+            {%- else %}
+            D,
+            {%- endif %}
+            {%- if not nobag %}
+            total_D,
+            {%- endif %}
+            {%- if not nobag %}
+            max_D,
+            {% endif %}
+            indices,
+            offsets,
+            {%- if not nobag %}
+            pooling_mode,
+            {%- endif %}
+            {%- if weighted %}
+            indice_weights,
+            {%- endif %}
+            {%- if not dense %}
+            lxu_cache_locations,
+            uvm_cache_stats,
+            {%- endif %}
+            output_dtype,
+            {%- if vbe %}
+            vbe_row_output_offsets,
+            vbe_b_t_map,
+            vbe_output_size,
+            info_B_num_bits, // int32_t
+            info_B_mask_int64, // uint32_t
+            {%- endif %}
+            is_experimental
+        );
+    }
+
 ////////////////////////////////////////////////////////////////////////////////
 // Op registrations
 ////////////////////////////////////////////////////////////////////////////////
@@ -198,6 +279,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         )
     %}
     m.impl("{{ embedding_codegen_forward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_meta)));
+    {%- set embedding_codegen_forward_op =
+        "{}_embedding{}_codegen_forward_{}{}_pt2".format(
+            ddesc, ndesc, wdesc, vdesc
+        )
+    %}
+    m.impl("{{ embedding_codegen_forward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_meta)));
 }
 {%- endif %} {#/* if (not nobag or (not weighted and not vbe)) */#}
 {%- endfor %} {#-/* for nobag */#}
