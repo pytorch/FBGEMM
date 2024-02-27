@@ -1021,7 +1021,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Pass the local_uvm_cache_stats bc only that information is
             # relevant for the current iteration
             uvm_cache_stats=(
-                self.local_uvm_cache_stats if self.gather_uvm_cache_stats else None
+                self.local_uvm_cache_stats
+                if (
+                    self.gather_uvm_cache_stats
+                    # Unique conflict misses are only collected when using CacheAlgorithm.LRU
+                    and self.cache_algorithm == CacheAlgorithm.LRU
+                )
+                else None
             ),
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
