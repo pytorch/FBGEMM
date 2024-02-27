@@ -20,7 +20,10 @@ import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-from fbgemm_gpu.embedding_offloading_metrics import IEmbeddingOffloadingMetricsReporter
+from fbgemm_gpu.embedding_offloading_metrics import (
+    AsyncSeriesTimer,
+    IEmbeddingOffloadingMetricsReporter,
+)
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -278,9 +281,6 @@ def apply_split_helper(
 # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
 class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
-    Table Batched Embedding (TBE) operator.  Please see
-    docs/table_batched_embedding_ops.py for the extended documentation.
-
     Multiple sparse features can share one embedding table.
     'feature_table_map' specifies the feature-table mapping.
     T:  number of logical tables
@@ -443,7 +443,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # 0: N_calls, 1: N_requested_indices, 2: N_unique_indices, 3: N_unique_misses,
         # 4: N_conflict_unique_misses, 5: N_conflict_misses
 
+        self.bwd_wait_prefetch_timer: Optional[AsyncSeriesTimer] = None
         self.metrics_reporter = metrics_reporter
+        if metrics_reporter:
+
+            def report_wait_prefetch_time(it_step: int, dur_ms: float) -> None:
+                assert self.metrics_reporter
+                self.metrics_reporter.report_duration(
+                    it_step, "bwd_wait_for_prefetch", dur_ms
+                )
+
+            self.bwd_wait_prefetch_timer = AsyncSeriesTimer(report_wait_prefetch_time)
 
         self.int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET
 
@@ -1725,8 +1735,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
             f"load_factor: {cache_load_factor : .3f}, "
-            f"cache_size: {cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
-            f"cache_precision: {dtype}"
+            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB"
         )
 
         self.total_cache_hash_size = cache_state.total_cache_hash_size
@@ -1856,7 +1865,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.prefetch_stream is not None:
             # need to wait for the prefetch of next batch,
             # so that cache states are valid
+            measure_and_report_timing: bool = (
+                self.gather_uvm_cache_stats is True
+                and self.metrics_reporter is not None
+                and self.metrics_reporter.should_report(self.step)
+            )
+            if measure_and_report_timing:
+                assert self.bwd_wait_prefetch_timer
+                self.bwd_wait_prefetch_timer.start(stream=torch.cuda.current_stream())
             torch.cuda.current_stream().wait_stream(self.prefetch_stream)
+            if measure_and_report_timing:
+                assert self.bwd_wait_prefetch_timer
+                self.bwd_wait_prefetch_timer.stop(
+                    context=self.step, stream=torch.cuda.current_stream()
+                )
 
         torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
             self.lxu_cache_locking_counter,

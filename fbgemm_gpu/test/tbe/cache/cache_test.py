@@ -199,6 +199,30 @@ class CacheTest(unittest.TestCase):
         assert_cache(output, output_ref, stochastic_rounding)
         self.assertTrue(torch.all(cc.lxu_cache_locking_counter == 0))
 
+        if prefetch_stream:
+            # We record timing info at batch 1, 3, 5
+
+            # But before, we need to wait until all backwards finished. Then
+            # force report for async timer
+            torch.cuda.synchronize()
+            assert cc.bwd_wait_prefetch_timer
+            cc.bwd_wait_prefetch_timer._lazy_report()
+
+            self.assertEqual(len(reporter.reported_data), 3)
+            for step in [1, 3, 5]:
+                (
+                    rep_step,
+                    rep_event,
+                    rep_duration,
+                    rep_emb_id,
+                    rep_tbe_id,
+                ) = reporter.reported_data.pop(0)
+                self.assertEqual(rep_step, step)
+                self.assertEqual(rep_event, "bwd_wait_for_prefetch")
+                self.assertGreaterEqual(float(rep_duration), 0)
+                self.assertEqual(rep_emb_id, "")
+                self.assertEqual(rep_tbe_id, "")
+
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
     @given(
