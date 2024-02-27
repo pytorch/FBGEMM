@@ -1010,16 +1010,29 @@ class NBitFowardTest(unittest.TestCase):
             device="cpu",
             output_dtype=output_dtype,
         )
-        dequant_cc.initialize_weights()
-        embedding_weights_base = quant_cc.split_embedding_weights()
-        # we mimic 1.0 scale, 0.0 bias for better results comparison
-        embedding_weights: List[Tuple[torch.Tensor, Optional[torch.Tensor]]] = [
-            (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
-            for table_weight, _ in embedding_weights_base
-        ]
-        # Initialize the random weights for int8 nbit table split embedding bag
-        dequant_cc.assign_embedding_weights(embedding_weights)
-        quant_cc.assign_embedding_weights(embedding_weights)
+        dequant_cc.fill_random_weights()
+        split_weights = quant_cc.split_embedding_weights()
+        ref_split_weights = dequant_cc.split_embedding_weights()
+        for t in range(T):
+            (weights, scale_shift) = split_weights[t]
+            (ref_weights, ref_scale_shift) = ref_split_weights[t]
+            self.assertEqual(weights.size(), ref_weights.size())
+            element_size = SparseType.INT8.bit_rate() / 8.0
+            rand_tensor = torch.rand(
+                ref_weights.shape[0], int(ref_weights.shape[1] / element_size)
+            )
+            rand_weights, rand_scale_shift = quantize_embs(
+                rand_tensor,
+                SparseType.INT8,
+            )
+            ref_weights.copy_(rand_weights)
+            weights.copy_(ref_weights)
+            if rand_scale_shift is not None:
+                self.assertIsNotNone(scale_shift)
+                self.assertIsNotNone(ref_scale_shift)
+                ref_scale_shift.copy_(rand_scale_shift)
+                scale_shift.copy_(ref_scale_shift)
+
         lengths_list = [
             torch.randint(
                 1,
