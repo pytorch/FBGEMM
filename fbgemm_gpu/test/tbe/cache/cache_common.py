@@ -48,6 +48,7 @@ def generate_cache_tbes(
     cache_sets: int = 0,
     weights_cache_precision: SparseType = SparseType.FP32,
     stochastic_rounding: bool = False,
+    gather_uvm_cache_stats: bool = False,
 ) -> Tuple[
     SplitTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -103,6 +104,7 @@ def generate_cache_tbes(
         cache_sets=cache_sets,
         weights_precision=weights_cache_precision,
         cache_precision=weights_cache_precision,
+        gather_uvm_cache_stats=gather_uvm_cache_stats,
     )
 
     if use_int_weight:
