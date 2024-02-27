@@ -136,7 +136,156 @@ using namespace fbgemm_gpu;
     benchmarks, it was found that the extra function-calling resulted in a
     20-100 GB/s bandwidth reduction.
 */#}
-{%- macro embedding_forward_kernel_impl_body(lxu_miss_rate) %}
+{%- macro embedding_pool_or_store(lxu_miss_rate) %}
+    // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
+    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
+        // Determine the L index that this thread will load data from in cooperative load
+        int32_t l = l_start + threadIdx.x;
+
+        {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
+        // Cooperatively load the indices
+        [[maybe_unused]] int64_t idx = l < L ? indices[indices_start + l] : 0;
+        {%- endif %}
+
+        {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
+        // Cooperatively load the cache's indices
+        [[maybe_unused]] int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+        {%- endif %}
+
+        {%- if weighted %}
+        // Cooperatively load the positional weight indices
+        at::acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
+        {%- endif %}
+
+        // Iterate over kThreadGroupSize indices
+        for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
+            {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
+            // Load index from thread j in the group
+            [[maybe_unused]] int64_t idx_j = SHFL_SYNC(idx, j);
+            {%- endif %}
+
+            {%- if is_index_select %}
+            int64_t output_j = L_start + l_start + j;
+            {%- elif nobag %}
+            int64_t output_j = indices_start + l_start + j;
+            {%- endif %}
+
+            {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
+            // Load cache's index from thread j in the group
+            [[maybe_unused]] int32_t cache_idx_j = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
+            {%- endif %}
+
+            {%- if weighted %}
+            // Load positional weight index from thread j in the group
+            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
+            {%- endif %}
+
+
+            {#/**************************************************************/#}
+            {#-/*
+                This is the main switch that determines how we are to load and
+                accumulate weights, and is determined by Jinja-time, compile-time,
+                and run-time variables.
+            */#}
+
+            {%- if dense %}
+                {#-/* If it's dense, cache is not supported, so load from the embedding table */#}
+                {{- load_and_accumulate(false) }}
+
+            {%- elif lxu_miss_rate == "cache_conflict_miss_rate::all" %}
+                {#-/* Else if we know we have a 100% miss rate, then always fetch from the embedding table */#}
+                {{- load_and_accumulate(false) }}
+
+            {%- elif lxu_miss_rate == "cache_conflict_miss_rate::zero" %}
+                {#-/* Else if we know we have a 0% miss rate, then always fetch from the cache */#}
+                {{ load_and_accumulate(true) }}
+            {%- else %}
+                {#-/* Else we defer to run-time selection */#}
+                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                    {#-/* If the row is available in the cache, fetch from the cache */#}
+                    {{ load_and_accumulate(true) }}
+                } else {
+                    {#-/* Else fetch from the embedding table */#}
+                    {{ load_and_accumulate(false) }}
+                }
+
+            {%- endif %}
+            {#/**************************************************************/#}
+        }
+    }
+{%- endmacro %}
+
+
+template <
+    typename emb_t,
+    typename cache_t,
+    typename output_t,
+    {%- if not dense %}
+    bool use_lxu_cache,
+    {%- endif %}
+    typename index_t,
+    {%- if not nobag %}
+    size_t kMaxVecsPerThread,
+    {%- endif %}
+    size_t kThreadGroupSize >
+__launch_bounds__(kForwardMaxThreads) __global__ void
+{%- if is_index_select %}
+batch_index_select_dim0_codegen_forward_kernel(
+{%- else %}
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
+{%- endif %}
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag or is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %} // if nobag
+    {%- if vbe %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- else %}
+    FixedDivisor fd_B,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    {%- if not is_index_select %}
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    int64_t pooling_mode,
+    {%- endif %}
+    {%- if weighted %}
+    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    /*
+      NOTE: We pass in `lxu_cache_conflict_misses =
+      uvm_cache_stats[uvm_cache_stats_index::num_conflict_unique_misses]` as a
+      run-time argument here instead of passing the cache miss rate as a
+      compile-time argument, because `lxu_cache_conflict_misses` is only
+      available on the GPU, and invoking a templatized kernel with the cache
+      miss rate as a template argument requires this information to first be
+      passed back to the host, which is an expensive operation.
+    */
+    const int32_t* lxu_cache_conflict_misses,
+    {%- endif %}
+    {%- if is_index_select %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const int32_t fixed_L_per_warp,
+    const bool permute_output_dim_0_1,
+    {%- endif %}
+    // If 2D, shape is [B][total_D]
+    pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
+    ) {
 // shfl_sync_mask is implicitly used by SHFL_SYNC
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
     const unsigned int shfl_sync_mask =
@@ -239,83 +388,31 @@ using namespace fbgemm_gpu;
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
     {%- endif %}
 
-    // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
-    for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
-        // Determine the L index that this thread will load data from in cooperative load
-        int32_t l = l_start + threadIdx.x;
+    {%- if dense %}
+    {{ embedding_pool_or_store("NULL") }}
 
-        {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
-        // Cooperatively load the indices
-        [[maybe_unused]] int64_t idx = l < L ? indices[indices_start + l] : 0;
-        {%- endif %}
+    {%- else %}
+    if constexpr (! use_lxu_cache) {
+        // If use_lxu_cache is false, then the cache conflict miss rate is
+        // effectively 100%
+        {{ embedding_pool_or_store("cache_conflict_miss_rate::all") }}
 
-        {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
-        // Cooperatively load the cache's indices
-        [[maybe_unused]] int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
-        {%- endif %}
+    } else {
+        if (placement != PlacementType::MANAGED_CACHING) {
+            // Load every row from HBM or UVM
+            {{ embedding_pool_or_store("cache_conflict_miss_rate::all") }}
+        }
+        else if (lxu_cache_conflict_misses && *lxu_cache_conflict_misses == 0) {
+            // If the UVM cache stats tensor is valid and tell us there are no
+            // conflict unique misses, then the miss rate is effectively 0%
+            {{ embedding_pool_or_store("cache_conflict_miss_rate::zero") }}
 
-        {%- if weighted %}
-        // Cooperatively load the positional weight indices
-        at::acc_type<cache_t, true> idx_weight = l < L ? indice_weights[indices_start + l] : 0;
-        {%- endif %}
-
-        // Iterate over kThreadGroupSize indices
-        for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
-            {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
-            // Load index from thread j in the group
-            [[maybe_unused]] int64_t idx_j = SHFL_SYNC(idx, j);
-            {%- endif %}
-
-            {%- if is_index_select %}
-            int64_t output_j = L_start + l_start + j;
-            {%- elif nobag %}
-            int64_t output_j = indices_start + l_start + j;
-            {%- endif %}
-
-            {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
-            // Load cache's index from thread j in the group
-            [[maybe_unused]] int32_t cache_idx_j = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
-            {%- endif %}
-
-            {%- if weighted %}
-            // Load positional weight index from thread j in the group
-            at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
-            {%- endif %}
-
-
-            {#/**************************************************************/#}
-            {#-/*
-                This is the main switch that determines how we are to load and
-                accumulate weights, and is determined by Jinja-time, compile-time,
-                and run-time variables.
-            */#}
-
-            {%- if dense %}
-                {#-/* If it's dense, cache is not supported, so load from the embedding table */#}
-                {{- load_and_accumulate(false) }}
-
-            {%- elif lxu_miss_rate == "cache_conflict_miss_rate::all" %}
-                {#-/* Else if we know we have a 100% miss rate, then always fetch from the embedding table */#}
-                {{- load_and_accumulate(false) }}
-
-            {%- elif lxu_miss_rate == "cache_conflict_miss_rate::zero" %}
-                {#-/* Else if we know we have a 0% miss rate, then always fetch from the cache */#}
-                {{- load_and_accumulate(true) }}
-
-            {%- else %}
-                {#-/* Else we defer to run-time selection */#}
-                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                    {#-/* If the row is available in the cache, fetch from the cache */#}
-                    {{ load_and_accumulate(true) }}
-                } else {
-                    {#-/* Else fetch from the embedding table */#}
-                    {{ load_and_accumulate(false) }}
-                }
-
-            {%- endif %}
-            {#/**************************************************************/#}
+        } else {
+            // Else, the cache conflict miss rate is mixed
+            {{ embedding_pool_or_store("cache_conflict_miss_rate::mixed") }}
         }
     }
+    {%- endif %}
 
     {%- if not nobag %}
     // If weight type is FP32/16
@@ -372,100 +469,6 @@ using namespace fbgemm_gpu;
             store_qparams_to_row(&output[b][output_D_end], qparams);
         }
 
-    }
-    {%- endif %}
-{%- endmacro %}
-
-
-template <
-    typename emb_t,
-    typename cache_t,
-    typename output_t,
-    {%- if not dense %}
-    bool use_lxu_cache,
-    {%- endif %}
-    typename index_t,
-    {%- if not nobag %}
-    size_t kMaxVecsPerThread,
-    {%- endif %}
-    size_t kThreadGroupSize >
-__launch_bounds__(kForwardMaxThreads) __global__ void
-{%- if is_index_select %}
-batch_index_select_dim0_codegen_forward_kernel(
-{%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
-{%- endif %}
-    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    {%- if not dense %}
-    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    const pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    {%- if not nobag or is_index_select %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    {%- else %}
-    int64_t D,
-    {%- endif %} // if nobag
-    {%- if vbe %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
-    {%- else %}
-    FixedDivisor fd_B,
-    {%- endif %}
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    {%- if not is_index_select %}
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    {%- endif %}
-    {%- if not nobag %}
-    int64_t pooling_mode,
-    {%- endif %}
-    {%- if weighted %}
-    pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
-    {%- endif %}
-    {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
-    /*
-      NOTE: We pass in `lxu_cache_conflict_misses =
-      uvm_cache_stats[uvm_cache_stats_index::num_conflict_unique_misses]` as a
-      run-time argument here instead of passing the cache miss rate as a
-      compile-time argument, because `lxu_cache_conflict_misses` is only
-      available on the GPU, and invoking a templatized kernel with the cache
-      miss rate as a template argument requires this information to first be
-      passed back to the host, which is an expensive operation.
-    */
-    const int32_t* lxu_cache_conflict_misses,
-    {%- endif %}
-    {%- if is_index_select %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
-    const int32_t fixed_L_per_warp,
-    const bool permute_output_dim_0_1,
-    {%- endif %}
-    // If 2D, shape is [B][total_D]
-    pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
-    ) {
-    {%- if dense %}
-    {{ embedding_forward_kernel_impl_body("NULL") }}
-
-    {%- else %}
-    if constexpr (! use_lxu_cache) {
-        // If use_lxu_cache is false, then the cache conflict miss rate is
-        // effectively 100%
-        {{ embedding_forward_kernel_impl_body("cache_conflict_miss_rate::all") }}
-
-    } else {
-        if (lxu_cache_conflict_misses && *lxu_cache_conflict_misses == 0) {
-            // If the UVM cache stats tensor is valid and tell us there are no
-            // conflict unique misses, then the miss rate is effectively 0%
-            {{ embedding_forward_kernel_impl_body("cache_conflict_miss_rate::zero") }}
-
-        } else {
-            // Else, the cache conflict miss rate is mixed
-            {{ embedding_forward_kernel_impl_body("cache_conflict_miss_rate::mixed") }}
-        }
     }
     {%- endif %}
 }

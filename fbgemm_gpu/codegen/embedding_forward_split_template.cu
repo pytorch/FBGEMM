@@ -576,7 +576,9 @@ batch_index_select_dim0_codegen_forward_cuda(
               {%- endif %}
               {%- if not dense %}
               MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-              uvm_cache_stats.size(0) == 0 ? nullptr : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
+              uvm_cache_stats.size(0) == 0
+                  ? nullptr
+                  : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
               {%- endif %}
               {%- if is_index_select %}
               MAKE_PTA_WITH_NAME(func_name, output_offsets, int64_t, 1, 32),
@@ -635,7 +637,9 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- endif %}
                 {%- if not dense %}
                 MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-                uvm_cache_stats.size(0) == 0 ? nullptr : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
+                uvm_cache_stats.size(0) == 0
+                    ? nullptr
+                    : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
                 {%- endif %} // if not dense
                 MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
               );
