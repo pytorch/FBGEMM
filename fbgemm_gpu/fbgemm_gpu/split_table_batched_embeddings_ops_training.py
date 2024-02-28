@@ -20,6 +20,7 @@ import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -349,6 +350,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # If a separate stream is used for prefetch, the optional forward_stream arg of prefetch function
         # should be set.
         prefetch_pipeline: bool = False,
+        stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -441,6 +443,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uvm_cache_stats_size = 6
         # 0: N_calls, 1: N_requested_indices, 2: N_unique_indices, 3: N_unique_misses,
         # 4: N_conflict_unique_misses, 5: N_conflict_misses
+
+        # Reporter to collect runtime performance stats bottom-up. Reporter may
+        # do aggregation across TBEs and publish results per training batch.
+        # Example of stats include UVM cache hit rate, table I/O size, etc.
+        self.stats_reporter: Optional[TBEStatsReporter] = (
+            stats_reporter_config.create_reporter() if stats_reporter_config else None
+        )
 
         self.int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET
 

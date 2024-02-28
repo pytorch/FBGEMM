@@ -38,6 +38,7 @@ from .cache_common import (
     generate_cache_tbes,
     gpu_unavailable,
     optests,
+    TestingStatsReporterConfig,
     VERBOSITY,
 )
 
@@ -126,6 +127,7 @@ class CacheTest(unittest.TestCase):
         """
 
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
+        reporter = TestingStatsReporterConfig(interval=2)
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T,
             D,
@@ -137,6 +139,7 @@ class CacheTest(unittest.TestCase):
             weights_cache_precision=weights_cache_precision,
             stochastic_rounding=stochastic_rounding,
             gather_uvm_cache_stats=gather_uvm_cache_stats,
+            reporter_config=reporter,
         )
         iters = 5
         requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
