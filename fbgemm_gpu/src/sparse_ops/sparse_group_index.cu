@@ -141,7 +141,7 @@ DLL_PUBLIC void group_index_select_or_add_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       indices_scalar_type, "group_index_select_2d_wrapper_1", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        FBGEMM_DISPATCH_FLOAT_AND_HALF(
             input_scalar_type, "group_index_select_2d_wrapper_2", [&] {
               if (use_index_select) {
                 if (use_var_cols) {

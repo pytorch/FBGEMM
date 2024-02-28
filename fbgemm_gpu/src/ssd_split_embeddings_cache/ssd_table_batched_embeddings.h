@@ -37,6 +37,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
+#include "fbgemm_gpu/dispatch_macros.h"
+
 namespace ssd {
 
 using namespace at;
@@ -300,12 +302,8 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
       auto f =
           folly::via(executor_.get())
               .thenValue([=, &indices, &weights](folly::Unit) {
-                AT_DISPATCH_FLOATING_TYPES_AND2(
-                    at::ScalarType::Half,
-                    at::ScalarType::Byte,
-                    weights.scalar_type(),
-                    "ssd_set",
-                    [&] {
+                FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
+                    weights.scalar_type(), "ssd_set", [&] {
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
                       auto indices_acc = indices.accessor<int64_t, 1>();
@@ -359,12 +357,8 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
       auto f =
           folly::via(executor_.get())
               .thenValue([=, &indices, &weights](folly::Unit) {
-                AT_DISPATCH_FLOATING_TYPES_AND2(
-                    at::ScalarType::Half,
-                    at::ScalarType::Byte,
-                    weights.scalar_type(),
-                    "ssd_get",
-                    [&] {
+                FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
+                    weights.scalar_type(), "ssd_get", [&] {
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
                       auto indices_data_ptr = indices.data_ptr<int64_t>();
