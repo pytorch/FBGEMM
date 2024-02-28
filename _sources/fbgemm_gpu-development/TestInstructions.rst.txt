@@ -1,11 +1,11 @@
-Testing FBGEMM_GPU
-------------------
+Test Instructions
+=================
 
 The tests (in the ``fbgemm_gpu/test/`` directory) and benchmarks (in the
 ``fbgemm_gpu/bench/`` directory) provide good examples on how to use FBGEMM_GPU.
 
 Setup the FBGEMM_GPU Test Environment
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-------------------------------------
 
 After an environment is available from building / installing the FBGEMM_GPU
 package, additional packages need to be installed for tests to run correctly:
@@ -18,7 +18,7 @@ package, additional packages need to be installed for tests to run correctly:
   python -m pip install -r requirements.txt
 
 Running FBGEMM_GPU Tests
-~~~~~~~~~~~~~~~~~~~~~~~~
+------------------------
 
 To run the tests after building / installing the FBGEMM_GPU package:
 
@@ -35,7 +35,7 @@ To run the tests after building / installing the FBGEMM_GPU package:
   python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning split_embedding_inference_converter_test.py
 
 Testing with the CUDA Variant
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For the FBGEMM_GPU CUDA package, GPUs will be automatically detected and
 used for testing. To run the tests and benchmarks on a GPU-capable
@@ -55,7 +55,7 @@ environment:
   python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning split_table_batched_embeddings_test.py
 
 Testing with the ROCm Variant
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For ROCm machines, testing against a ROCm GPU needs to be enabled with
 ``FBGEMM_TEST_WITH_ROCM=1`` set in the environment:
@@ -74,7 +74,7 @@ For ROCm machines, testing against a ROCm GPU needs to be enabled with
   python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning split_table_batched_embeddings_test.py
 
 Running FBGEMM_GPU Benchmarks
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-----------------------------
 
 To run the benchmarks:
 
