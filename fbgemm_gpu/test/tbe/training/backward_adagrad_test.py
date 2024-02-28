@@ -86,6 +86,7 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cpu: bool,
         output_dtype: SparseType,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
+        max_norm: float = 0.0,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
@@ -94,6 +95,8 @@ class BackwardAdagradTest(unittest.TestCase):
         #       so we have to limit (T * B * L * D)!
         assume(not use_cpu or T * B * L * D <= 1024)
         assume(not (use_cpu and weights_precision == SparseType.FP16))
+        # max_norm is only applicable to EXACT_ROWWISE_ADAGRAD GPU version
+        assume(max_norm == 0.0 or (not use_cpu and row_wise))
 
         assume(
             pooling_mode == PoolingMode.SUM or not weighted
@@ -264,6 +267,7 @@ class BackwardAdagradTest(unittest.TestCase):
             optimizer=optimizer,
             learning_rate=lr,
             eps=eps,
+            max_norm=max_norm,
             weights_precision=weights_precision,
             stochastic_rounding=stochastic_rounding,
             pooling_mode=pooling_mode,
@@ -350,18 +354,30 @@ class BackwardAdagradTest(unittest.TestCase):
                 (m1, c1, c2) = split_optimizer_states[t]
             else:
                 (m1,) = split_optimizer_states[t]
+
+            grads = bs[t].weight.grad.float().cpu().to_dense()
+            weights_ref = torch.addcdiv(
+                bs[t].weight.float().cpu(),
+                value=-lr,
+                tensor1=grads,
+                tensor2=m1.float()
+                .sqrt_()
+                .add_(eps)
+                .view(Es[t], 1 if row_wise else Ds[t])
+                .cpu(),
+            )
+            # clip updated embedding rows by max_norm if it is specified
+            if max_norm > 0:
+                non_zero_grads = grads.abs().sum(dim=1, keepdim=True) > 0
+                weights_norm = weights_ref.norm(dim=1, keepdim=True) * non_zero_grads
+                weights_ref = torch.where(
+                    weights_norm > max_norm,
+                    weights_ref * max_norm / weights_norm,
+                    weights_ref,
+                )
             torch.testing.assert_close(
                 cc.split_embedding_weights()[t].float().cpu(),
-                torch.addcdiv(
-                    bs[t].weight.float().cpu(),
-                    value=-lr,
-                    tensor1=bs[t].weight.grad.float().cpu().to_dense(),
-                    tensor2=m1.float()
-                    .sqrt_()
-                    .add_(eps)
-                    .view(Es[t], 1 if row_wise else Ds[t])
-                    .cpu(),
-                ),
+                weights_ref,
                 atol=tolerance,
                 rtol=tolerance,
             )
@@ -377,6 +393,7 @@ class BackwardAdagradTest(unittest.TestCase):
             optimizer=optimizer,
             learning_rate=0.0,
             eps=eps,
+            max_norm=max_norm,
             weights_precision=weights_precision,
             stochastic_rounding=stochastic_rounding,
             # NOTE: only SUM pooling can work with per_sample_weights!
@@ -842,6 +859,76 @@ class BackwardAdagradTest(unittest.TestCase):
             PoolingMode.NONE,
             use_cpu,
             output_dtype,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        D_gradcheck=st.integers(min_value=1, max_value=2),
+        weights_precision=st.just(SparseType.FP16),
+        stochastic_rounding=st.booleans(),
+        weighted=st.booleans(),
+        row_wise=st.just(True),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
+        use_cpu=st.just(False),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        max_norm=st.floats(min_value=0.01, max_value=1.0),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_adagrad_fp16_pmSUM_with_max_norm(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        D_gradcheck: int,
+        weights_precision: SparseType,
+        stochastic_rounding: bool,
+        weighted: bool,
+        row_wise: bool,
+        mixed: bool,
+        mixed_B: bool,
+        use_cache: bool,
+        cache_algorithm: CacheAlgorithm,
+        use_cpu: bool,
+        output_dtype: SparseType,
+        max_norm: float,
+    ) -> None:
+        # VBE is supported in rowwise_adagrad only
+        if not row_wise:
+            mixed_B = False
+        self.execute_backward_adagrad_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            D_gradcheck,
+            weights_precision,
+            stochastic_rounding,
+            weighted,
+            row_wise,
+            mixed,
+            mixed_B,
+            use_cache,
+            cache_algorithm,
+            PoolingMode.SUM,
+            use_cpu,
+            output_dtype,
+            max_norm=max_norm,
         )
 
 

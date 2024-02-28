@@ -319,6 +319,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
+        max_norm: float = 0.0,
         learning_rate: float = 0.01,
         # used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, EXACT_ROWWISE_WEIGHTED_ADAGRAD, LAMB, and ADAM only
         # NOTE that default is different from nn.optim.Adagrad default of 1e-10
@@ -612,6 +613,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
+            max_norm=max_norm,
             learning_rate=learning_rate,
             eps=eps,
             beta1=beta1,

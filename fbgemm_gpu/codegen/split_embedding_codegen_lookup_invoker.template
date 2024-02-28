@@ -156,6 +156,9 @@ def invoke(
             {%- if "regularization_mode" in args.split_function_arg_names %}
             regularization_mode=optimizer_args.regularization_mode,
             {%- endif %}
+            {%- if "max_norm" in args.split_function_arg_names %}
+            max_norm=optimizer_args.max_norm,
+            {%- endif %}
             # momentum1
             {%- if "momentum1_dev" in args.split_function_arg_names %}
             momentum1_host=momentum1.host,
@@ -287,6 +290,9 @@ def invoke(
         {%- endif %}
         {%- if "regularization_mode" in args.split_function_arg_names %}
         regularization_mode=optimizer_args.regularization_mode,
+        {%- endif %}
+        {%- if "max_norm" in args.split_function_arg_names %}
+        max_norm=optimizer_args.max_norm,
         {%- endif %}
         # momentum1
         {%- if "momentum1_dev" in args.split_function_arg_names %}

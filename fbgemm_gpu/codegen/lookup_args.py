@@ -50,6 +50,7 @@ class OptimizerArgs(NamedTuple):
     stochastic_rounding: bool
     gradient_clipping: bool
     max_gradient: float
+    max_norm: float
     learning_rate: float
     eps: float
     beta1: float

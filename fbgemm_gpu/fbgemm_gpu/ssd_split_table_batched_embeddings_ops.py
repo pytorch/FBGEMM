@@ -94,6 +94,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
+        max_norm: float = 0.0,
         learning_rate: float = 0.01,
         eps: float = 1.0e-8,  # used by Adagrad, LAMB, and Adam
         momentum: float = 0.9,  # used by LARS-SGD
@@ -254,6 +255,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
+            max_norm=max_norm,
             learning_rate=learning_rate,
             eps=eps,
             beta1=beta1,
