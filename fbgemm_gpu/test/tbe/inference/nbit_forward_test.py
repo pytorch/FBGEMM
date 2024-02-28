@@ -632,6 +632,51 @@ class NBitFowardTest(unittest.TestCase):
             mixed_weights_ty,
             output_dtype,
         )
+        os.environ['FBGEMM_FORCE_AUTOVEC'] = '1'
+
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cache,
+            cache_algorithm,
+            use_cpu,
+            use_array_for_index_remapping,
+            do_pruning,
+            mixed_weights_ty,
+            output_dtype,
+        )
+        del os.environ['FBGEMM_FORCE_AUTOVEC'] 
+
+        os.environ['FBGEMM_FORCE_ASMJIT'] = '1'
+        os.environ['FBGEMM_NO_AUTOVEC'] = '1'
+
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cache,
+            cache_algorithm,
+            use_cpu,
+            use_array_for_index_remapping,
+            do_pruning,
+            mixed_weights_ty,
+            output_dtype,
+        )
+        del os.environ['FBGEMM_FORCE_ASMJIT'] 
+        del os.environ['FBGEMM_NO_AUTOVEC']
 
     @unittest.skipIf(*gpu_unavailable)
     def test_nbit_forward_gpu_no_cache_fp8_2048(self) -> None:
