@@ -333,7 +333,7 @@ block_bucketize_sparse_features_cuda(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
                 [&] {
-                  AT_DISPATCH_FLOATING_TYPES(
+                  FBGEMM_DISPATCH_FLOAT_ONLY(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
                       [&] {
@@ -391,7 +391,7 @@ block_bucketize_sparse_features_cuda(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
                 [&] {
-                  AT_DISPATCH_FLOATING_TYPES(
+                  FBGEMM_DISPATCH_FLOAT_ONLY(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
                       [&] {
@@ -549,7 +549,7 @@ block_bucketize_sparse_features_cuda(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
                 [&] {
-                  AT_DISPATCH_FLOATING_TYPES(
+                  FBGEMM_DISPATCH_FLOAT_ONLY(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
                       [&] {
@@ -607,7 +607,7 @@ block_bucketize_sparse_features_cuda(
                 indices_contig.scalar_type(),
                 "_bucketize_sparse_features_weight_cuda_kernel2_2",
                 [&] {
-                  AT_DISPATCH_FLOATING_TYPES(
+                  FBGEMM_DISPATCH_FLOAT_ONLY(
                       weights_value.scalar_type(),
                       "_block_bucketize_sparse_features_cuda_weight_kernel2_3",
                       [&] {

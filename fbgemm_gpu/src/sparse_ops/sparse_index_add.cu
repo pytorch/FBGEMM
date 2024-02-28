@@ -102,6 +102,8 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       sorted_indices.scalar_type(), "index_add_2d_kernel_1", [&] {
+        // The double case still needs to be handled for
+        // IndexSelectTest::test_index_select_dim0
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
             grad_output.scalar_type(), "index_add_2d_kernel_2", [&] {
               // UNROLL_FACTOR is determined based on the empirical study

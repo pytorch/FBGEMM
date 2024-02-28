@@ -139,7 +139,7 @@ bucketize_sparse_features_cuda(
         indices_contig.scalar_type(),
         "_bucketize_sparse_features_weight_cuda_kernel2_1",
         ([&] {
-          AT_DISPATCH_FLOATING_TYPES(
+          FBGEMM_DISPATCH_FLOAT_ONLY(
               weights_value.scalar_type(),
               "_bucketize_sparse_features_cuda_weight_kernel2_2",
               ([&] {
@@ -172,7 +172,7 @@ bucketize_sparse_features_cuda(
         indices_contig.scalar_type(),
         "_bucketize_sparse_features_weight_cuda_kernel2_1",
         ([&] {
-          AT_DISPATCH_FLOATING_TYPES(
+          FBGEMM_DISPATCH_FLOAT_ONLY(
               weights_value.scalar_type(),
               "_bucketize_sparse_features_cuda_weight_kernel2_2",
               ([&] {

@@ -311,9 +311,8 @@ permute_sparse_features_cuda(
     permuted_weights = at::empty(permuted_lengths_sum, weights_value.options());
     AT_DISPATCH_INDEX_TYPES(
         input_offsets.scalar_type(), "permute_indices_weights_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
+          FBGEMM_DISPATCH_FLOATING_TYPES_AND(
               at::ScalarType::Int,
-              at::ScalarType::BFloat16,
               weights_value.scalar_type(),
               "permute_indices_weights_kernel_2",
               [&] {
