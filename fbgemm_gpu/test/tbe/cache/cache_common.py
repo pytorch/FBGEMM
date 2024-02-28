@@ -7,10 +7,12 @@
 
 # pyre-ignore-all-errors[56]
 
-from typing import Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig
 from fbgemm_gpu.split_embedding_configs import SparseType
 
 from fbgemm_gpu.split_embedding_utils import round_up
@@ -37,6 +39,33 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
+class TestingStatsReporter(TBEStatsReporter):
+    def __init__(self, reporting_interval: int = 1) -> None:
+        self.reported_data: List[List[Union[int, str, float]]] = []
+        self.reporting_interval = reporting_interval
+
+    def should_report(self, iteration_step: int) -> bool:
+        return (iteration_step - 1) % self.reporting_interval == 0
+
+    def report_duration(
+        self,
+        iteration_step: int,
+        event_name: str,
+        duration_ms: float,
+        embedding_id: str = "",
+        tbe_id: str = "",
+    ) -> None:
+        self.reported_data.append(
+            [iteration_step, event_name, duration_ms, embedding_id, tbe_id]
+        )
+
+
+@dataclass
+class TestingStatsReporterConfig(TBEStatsReporterConfig):
+    def create_reporter(self) -> Optional[TBEStatsReporter]:
+        return TestingStatsReporter(reporting_interval=self.interval)
+
+
 def generate_cache_tbes(
     T: int,
     D: int,
@@ -49,6 +78,7 @@ def generate_cache_tbes(
     weights_cache_precision: SparseType = SparseType.FP32,
     stochastic_rounding: bool = False,
     gather_uvm_cache_stats: bool = False,
+    reporter_config: Optional[TestingStatsReporterConfig] = None,
 ) -> Tuple[
     SplitTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -105,6 +135,7 @@ def generate_cache_tbes(
         weights_precision=weights_cache_precision,
         cache_precision=weights_cache_precision,
         gather_uvm_cache_stats=gather_uvm_cache_stats,
+        stats_reporter_config=reporter_config,
     )
 
     if use_int_weight:
