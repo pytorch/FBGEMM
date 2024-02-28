@@ -394,6 +394,7 @@
 <span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
 
 <span class="kn">import</span> <span class="nn">fbgemm_gpu.split_embedding_codegen_lookup_invokers</span> <span class="k">as</span> <span class="nn">invokers</span>
+<span class="kn">from</span> <span class="nn">fbgemm_gpu.runtime_monitor</span> <span class="kn">import</span> <span class="n">TBEStatsReporter</span><span class="p">,</span> <span class="n">TBEStatsReporterConfig</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.split_embedding_configs</span> <span class="kn">import</span> <span class="n">EmbOptimType</span> <span class="k">as</span> <span class="n">OptimType</span><span class="p">,</span> <span class="n">SparseType</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">BoundsCheckMode</span><span class="p">,</span>
@@ -723,6 +724,7 @@
         <span class="c1"># If a separate stream is used for prefetch, the optional forward_stream arg of prefetch function</span>
         <span class="c1"># should be set.</span>
         <span class="n">prefetch_pipeline</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">stats_reporter_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEStatsReporterConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
 
@@ -815,6 +817,13 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats_size</span> <span class="o">=</span> <span class="mi">6</span>
         <span class="c1"># 0: N_calls, 1: N_requested_indices, 2: N_unique_indices, 3: N_unique_misses,</span>
         <span class="c1"># 4: N_conflict_unique_misses, 5: N_conflict_misses</span>
+
+        <span class="c1"># Reporter to collect runtime performance stats bottom-up. Reporter may</span>
+        <span class="c1"># do aggregation across TBEs and publish results per training batch.</span>
+        <span class="c1"># Example of stats include UVM cache hit rate, table I/O size, etc.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEStatsReporter</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">stats_reporter_config</span><span class="o">.</span><span class="n">create_reporter</span><span class="p">()</span> <span class="k">if</span> <span class="n">stats_reporter_config</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">int8_emb_row_dim_offset</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">INT8_EMB_ROW_DIM_OFFSET</span>
 
