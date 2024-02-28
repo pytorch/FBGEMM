@@ -632,7 +632,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
         AT_DISPATCH_ALL_TYPES(
             indices.scalar_type(), "permute_2D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
-              AT_DISPATCH_FLOATING_TYPES(
+              FBGEMM_DISPATCH_FLOAT_ONLY(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_2D_indices_weights_kernel_3",
@@ -797,7 +797,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
         AT_DISPATCH_ALL_TYPES(
             indices.scalar_type(), "permute_1D_indices_weights_kernel_2", [&] {
               using indices_t = scalar_t;
-              AT_DISPATCH_FLOATING_TYPES(
+              FBGEMM_DISPATCH_FLOAT_ONLY(
                   weights.has_value() ? weights.value().scalar_type()
                                       : at::ScalarType::Float,
                   "permute_1D_indices_weights_kernel_3",
@@ -969,7 +969,7 @@ block_bucketize_sparse_features_cpu(
                 indices.scalar_type(),
                 "block_bucketize_sparse_features_weights_cpu_2",
                 [&] {
-                  AT_DISPATCH_FLOATING_TYPES(
+                  FBGEMM_DISPATCH_FLOAT_ONLY(
                       weights_value.scalar_type(),
                       "bucketize_sparse_features_weights_cpu_3",
                       [&] {
@@ -1005,7 +1005,7 @@ block_bucketize_sparse_features_cpu(
                 indices.scalar_type(),
                 "block_bucketize_sparse_features_weights_cpu_2",
                 [&] {
-                  AT_DISPATCH_FLOATING_TYPES(
+                  FBGEMM_DISPATCH_FLOAT_ONLY(
                       weights_value.scalar_type(),
                       "bucketize_sparse_features_weights_cpu_3",
                       [&] {
@@ -1129,7 +1129,7 @@ bucketize_sparse_features_cpu(
     new_weights = native_empty_like(weights_value);
     AT_DISPATCH_INDEX_TYPES(
         indices.scalar_type(), "bucketize_sparse_features_weights_cpu_1", ([&] {
-          AT_DISPATCH_FLOATING_TYPES(
+          FBGEMM_DISPATCH_FLOAT_ONLY(
               weights_value.scalar_type(),
               "bucketize_sparse_features_weights_cpu_2",
               ([&] {
@@ -1712,12 +1712,8 @@ Tensor batched_unary_embeddings_forward_cpu(
   auto output = at::empty({N, B, T}, weight.options());
 
   AT_DISPATCH_INDEX_TYPES(table_offsets.scalar_type(), "unary_indices", [&] {
-    AT_DISPATCH_FLOATING_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        weight.scalar_type(),
-        "batched_unary_embeddings_forward_cpu",
-        [&] {
+    FBGEMM_DISPATCH_FLOATING_TYPES(
+        weight.scalar_type(), "batched_unary_embeddings_forward_cpu", [&] {
           const index_t* table_offsets_data = table_offsets.data_ptr<index_t>();
           const index_t* offsets_data = offsets.data_ptr<index_t>();
           const index_t* indices_data = indices.data_ptr<index_t>();
@@ -1799,12 +1795,8 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_cpu(
   const double recalibrate_value = std::log(positive_weight);
   const double step = (upper_bound - lower_bound) /
       static_cast<double>(bin_num_examples.numel());
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      logit.scalar_type(),
-      "histogram_binning_calibration_cpu",
-      [&] {
+  FBGEMM_DISPATCH_FLOATING_TYPES(
+      logit.scalar_type(), "histogram_binning_calibration_cpu", [&] {
         _histogram_binning_calibration_cpu_kernel<scalar_t>(
             logit.numel(),
             recalibrate_value,
@@ -1901,9 +1893,7 @@ std::tuple<Tensor, Tensor> histogram_binning_calibration_by_feature_cpu(
   const double recalibrate_value = std::log(positive_weight);
   const double step =
       (upper_bound - lower_bound) / static_cast<double>(num_bins);
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       logit.scalar_type(),
       "histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
@@ -2020,9 +2010,7 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
   Tensor calibrated_prediction = at::empty_like(logit);
   Tensor bin_ids = at::empty({logit.numel()}, logit.options().dtype(at::kLong));
   const double recalibrate_value = std::log(positive_weight);
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       logit.scalar_type(),
       "generic_histogram_binning_calibration_by_feature_cpu_wrapper",
       [&] {
@@ -2360,7 +2348,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
   permuted_indices = at::empty(permuted_lengths_sum, indices.options());
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_data_kernel_1", ([&] {
-        AT_DISPATCH_FLOATING_TYPES(
+        FBGEMM_DISPATCH_FLOAT_ONLY(
             weights.has_value() ? weights.value().scalar_type()
                                 : at::ScalarType::Float,
             "permute_data_kernel_2",

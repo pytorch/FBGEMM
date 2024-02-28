@@ -353,9 +353,7 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       cat_sequence_embeddings.scalar_type(),
       "reorder_batched_sequence_embeddings_gpu_kernel_1",
       [&] {
