@@ -216,6 +216,22 @@ inline bool torch_tensor_empty_or_on_cpu_check(
       " and ",                                                         \
       (y).numel())
 
+#define TENSOR_NUMEL_IS_GT(ten, num)                \
+  TORCH_CHECK(                                      \
+      (ten).numel() > (num),                        \
+      "Tensor '" #ten "' must have more than " #num \
+      " element(s). "                               \
+      "Found ",                                     \
+      (ten).numel())
+
+#define TENSORS_HAVE_SAME_SYM_NUMEL(x, y)                              \
+  TORCH_SYM_CHECK(                                                     \
+      x.sym_numel().sym_eq(y.sym_numel()),                             \
+      #x " must have the same number of elements as " #y " They had ", \
+      (x).sym_numel(),                                                 \
+      " and ",                                                         \
+      (y).sym_numel())
+
 template <typename... Tensors>
 std::string tensor_on_same_gpu_if_not_optional_check(
     const std::string& var_names_str,
@@ -447,6 +463,22 @@ struct StackArray {
   T vals[kStackArrayMaxDims];
   size_t ndim;
 };
+
+inline at::Tensor aligned_grad_output_tensor_for_cuda_backwards(
+    const at::Tensor& grad_output) {
+  auto aligned_grad_output = grad_output.clone();
+  // FIXME: to support aligned memory access in Vec4T load/store function
+  // 16 for FP32 and 8 for FP16
+  if (grad_output.dim() > 1 &&
+      (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
+       grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0)) {
+    aligned_grad_output = grad_output.contiguous();
+  }
+  if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
+    aligned_grad_output = at::empty_like(grad_output).copy_(grad_output);
+  }
+  return aligned_grad_output;
+}
 
 // Used in jagged_tensor_ops.cu and jagged_tensor_ops_cpu.cpp
 // Passing lambda exp argument by value instead of by reference to avoid

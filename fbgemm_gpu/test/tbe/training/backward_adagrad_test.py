@@ -8,6 +8,7 @@
 # pyre-ignore-all-errors[56]
 
 import copy
+import sys
 import unittest
 
 import hypothesis.strategies as st
@@ -86,6 +87,7 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cpu: bool,
         output_dtype: SparseType,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
+        compile: bool = False,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         assume(not use_cpu or not use_cache)
@@ -114,6 +116,7 @@ class BackwardAdagradTest(unittest.TestCase):
         )
 
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
+
         if pooling_mode == PoolingMode.SUM:
             mode = "sum"
             do_pooling = True
@@ -270,8 +273,14 @@ class BackwardAdagradTest(unittest.TestCase):
             output_dtype=output_dtype,
         )
 
+        # TODO: make it compile for CPU and unweighted
+        # FIXME: remove once dynamo is supported by 3.12
+        if sys.version_info < (3, 12, 0) and compile and not use_cpu and weighted:
+            cc = torch.compile(cc, fullgraph=True)
+
         del bs[table_to_replicate]
         for t in range(T):
+            # pyre-ignore[16]: Anonymous callable has no attribute `split_embedding_weights`.
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
@@ -297,6 +306,7 @@ class BackwardAdagradTest(unittest.TestCase):
                 batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
             )
         )
+
         if do_pooling:
             if mixed_B:
                 goc = format_ref_tensors_in_mixed_B_layout(gos, Bs_rank_feature)
@@ -304,14 +314,18 @@ class BackwardAdagradTest(unittest.TestCase):
                 goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
             goc = torch.cat(gos, dim=0)
+
         fc2.backward(goc)
+        # pyre-ignore[16]: Anonymous callable has no attribute `flush`.
         cc.flush()
+        # pyre-ignore[16]: Anonymous callable has no attribute `split_optimizer_states`.
         split_optimizer_states = cc.split_optimizer_states()
         assert len(split_optimizer_states) == T
 
         get_optimizer_states = None
         if row_wise:
             # get_optimizer_state should/must be implemented for rowwise
+            # pyre-ignore[16]: Anonymous callable has no attribute `get_optimizer_state`.
             get_optimizer_states = cc.get_optimizer_state()
             assert len(get_optimizer_states) == T
 
@@ -501,6 +515,7 @@ class BackwardAdagradTest(unittest.TestCase):
         # VBE is supported in rowwise_adagrad only
         if not row_wise:
             mixed_B = False
+
         self.execute_backward_adagrad_(
             T,
             D,
@@ -519,6 +534,7 @@ class BackwardAdagradTest(unittest.TestCase):
             PoolingMode.SUM,
             use_cpu,
             output_dtype,
+            compile=False,  # FIXME: make compilation work for fp16
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -539,6 +555,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        compile=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -564,6 +581,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         output_dtype: SparseType,
+        compile: bool,
     ) -> None:
         # VBE is supported in rowwise_adagrad only
         if not row_wise:
@@ -586,6 +604,7 @@ class BackwardAdagradTest(unittest.TestCase):
             PoolingMode.MEAN,
             use_cpu,
             output_dtype,
+            compile=compile,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -605,6 +624,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        compile=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -629,6 +649,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         output_dtype: SparseType,
+        compile: bool,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -648,6 +669,7 @@ class BackwardAdagradTest(unittest.TestCase):
             PoolingMode.NONE,
             use_cpu,
             output_dtype,
+            compile=compile,
         )
 
     @given(
@@ -667,6 +689,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        compile=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -692,6 +715,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         output_dtype: SparseType,
+        compile: bool,
     ) -> None:
         # VBE is supported in rowwise_adagrad only
         if not row_wise:
@@ -714,6 +738,7 @@ class BackwardAdagradTest(unittest.TestCase):
             PoolingMode.SUM,
             use_cpu,
             output_dtype,
+            compile=compile,
         )
 
     @given(
@@ -733,6 +758,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        compile=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -758,6 +784,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         output_dtype: SparseType,
+        compile: bool,
     ) -> None:
         # VBE is supported in rowwise_adagrad only
         if not row_wise:
@@ -780,6 +807,7 @@ class BackwardAdagradTest(unittest.TestCase):
             PoolingMode.MEAN,
             use_cpu,
             output_dtype,
+            compile=compile,
         )
 
     @unittest.skipIf(*gpu_unavailable)
@@ -799,6 +827,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        compile=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -823,6 +852,7 @@ class BackwardAdagradTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
         use_cpu: bool,
         output_dtype: SparseType,
+        compile: bool,
     ) -> None:
         self.execute_backward_adagrad_(
             T,
@@ -842,6 +872,7 @@ class BackwardAdagradTest(unittest.TestCase):
             PoolingMode.NONE,
             use_cpu,
             output_dtype,
+            compile=compile,
         )
 
 
