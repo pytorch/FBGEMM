@@ -21,6 +21,7 @@
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -380,7 +381,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     {%- elif optimizer != "none" %}
     {{ args.split_function_args_no_defaults | join(", ") }}
     {%- else %}
-    // This is acutally passed via args.split_function_args_no_defaults but explicitly list
+    // This is actually passed via args.split_function_args_no_defaults but explicitly list
     // it here for code readability
     int64_t total_hash_size,
     int64_t total_unique_indices
@@ -426,6 +427,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         );
     }
     {%- endif %}
+
+    auto aligned_grad_output = aligned_grad_output_tensor_for_cuda_backwards(grad_output);
 
     CUDA_DEVICE_GUARD(dev_weights);
 
@@ -638,7 +641,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
 
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
-        grad_output.scalar_type(),
+        aligned_grad_output.scalar_type(),
         {%- if not dense %}
         lxu_cache_weights.scalar_type(),
         {%- else %}
@@ -683,9 +686,9 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             linear_indices_sorted.reset();
 
             {%- if vbe %}
-            const auto grad_output_reshaped = grad_output.reshape({1, -1});
+            const auto grad_output_reshaped = aligned_grad_output.reshape({1, -1});
             {%- else %}
-            const auto grad_output_reshaped = grad_output;
+            const auto grad_output_reshaped = aligned_grad_output;
             {%- endif %}
 
             auto grad_output_accessor = MAKE_PTA_WITH_NAME(
@@ -801,7 +804,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                 // A temp buffer to accumulate gradients with atomics.
                 auto temp_grad_accum = at::zeros(
                     {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
-                    grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
+                    aligned_grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
 
                 int32_t grid_size = std::min(
                     div_round_up(total_unique_indices, kMaxThreads),
