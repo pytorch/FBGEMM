@@ -314,8 +314,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             0, device=self.current_device, dtype=torch.uint8
         )
 
-        self.weights_uvm: torch.Tensor = torch.empty(0, dtype=torch.uint8).to(
-            self.current_device
+        self.weights_uvm: torch.Tensor = torch.empty(
+            0, device=self.current_device, dtype=torch.uint8
         )
 
         cached_dims = [
