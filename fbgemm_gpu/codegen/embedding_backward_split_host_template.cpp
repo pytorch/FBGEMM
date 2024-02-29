@@ -434,17 +434,6 @@ class {{ autograd_func }} :
     auto& grad_output = grad_outputs[0];
     {%- endif %}
 
-    // FIXME: to support aligned memory access in Vec4T load/store function
-    // 16 for FP32 and 8 for FP16
-    if (grad_output.dim() > 1 &&
-        (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-        grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0)) {
-        grad_output = grad_output.contiguous();
-    }
-    if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
-        grad_output = at::empty_like(grad_output).copy_(grad_output);
-    }
-
     {%- if not nobag %}
     {%- if optimizer == "none" %}
     // Flatten (dev_weights is used in
@@ -775,7 +764,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
 TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
     m.def("split_embedding_codegen_lookup_{{ optimizer }}_function("
           "    Tensor placeholder_autograd_tensor, "
-          "    Tensor dev_weights, Tensor uvm_weights, "
+          "    Tensor dev_weights, "
+          "    Tensor uvm_weights, "
           "    Tensor lxu_cache_weights, "
           "    Tensor weights_placements, "
           "    Tensor weights_offsets, "

@@ -114,7 +114,7 @@ Tensor
     {%- endif %}
     {%- if vbe %}
     TORCH_CHECK_EQ(vbe_row_output_offsets.sym_numel(), total_B);
-    TENSORS_HAVE_SAME_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
+    TENSORS_HAVE_SAME_SYM_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
     TORCH_CHECK_GE(vbe_output_size, 0);
 
     // Cast info_B_mask from int64_t to uint32_t

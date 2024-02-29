@@ -68,6 +68,13 @@ def generate(**kwargs: Any) -> None:
         kwargs,
     )
 
+    generate_backward_embedding_cuda(
+        "embedding_backward_split_meta_template.cpp",
+        optimizer,
+        "gen_embedding_backward_{}_split_{}_meta.cpp",
+        kwargs,
+    )
+
     # Generate the cta_per_row kernels for the backward splits
     generate_backward_embedding_cuda(
         "embedding_backward_split_kernel_cta_template.cu",

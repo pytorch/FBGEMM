@@ -15,6 +15,7 @@
 #include "fbgemm_gpu/embedding_op_registration.h"
 ////////////////////////////////////////////////////////////////////////////////
 #include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -245,6 +246,8 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         TENSOR_ON_CUDA_GPU(feature_requires_grad);
     }
 
+    auto aligned_grad_output = aligned_grad_output_tensor_for_cuda_backwards(grad_output);
+
     CUDA_DEVICE_GUARD(dev_weights);
 
     const auto T = D_offsets.size(0) - 1;
@@ -253,7 +256,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const auto total_B = offsets.size(0) - 1;
     TORCH_CHECK_GE(total_B, 0);
     TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
-    auto grad_indice_weights = empty_like(indices, indices.options().dtype(at::toAccumulateType(grad_output.scalar_type(), true)));
+    auto grad_indice_weights = empty_like(indices, indices.options().dtype(at::toAccumulateType(aligned_grad_output.scalar_type(), true)));
     if (total_B == 0) {
       return grad_indice_weights;
     }
@@ -266,7 +269,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
 
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
-        grad_output.scalar_type(),
+        aligned_grad_output.scalar_type(),
         {%- if not dense %}
         lxu_cache_weights.scalar_type(),
         {%- else %}
@@ -275,9 +278,9 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         "split_embedding_codegen_grad_indice_weights_kernel",
         [&] {
             {%- if vbe %}
-            const auto& grad_output_reshaped = grad_output.reshape({1, -1});
+            const auto& grad_output_reshaped = aligned_grad_output.reshape({1, -1});
             {%- else %}
-            const auto& grad_output_reshaped = grad_output;
+            const auto& grad_output_reshaped = aligned_grad_output;
             {%- endif %}
 
             {%- for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
@@ -331,6 +334,46 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
   return grad_indice_weights;
 }
 
+
+Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
+    {%- if not dense %}
+    const Tensor& uvm_weights,
+    const Tensor& lxu_cache_weights,
+    const Tensor& weights_placements,
+    {%- endif %}
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const int64_t max_D,
+    const Tensor& indices,
+    const Tensor& offsets,
+    {%- if not dense %}
+    const Tensor& lxu_cache_locations,
+    {%- endif %}
+    {%- if vbe %}
+    const Tensor& feature_requires_grad,
+    const Tensor& vbe_row_output_offsets,
+    const Tensor& vbe_b_t_map,
+    const int64_t info_B_num_bits, // int32_t
+    const int64_t info_B_mask_int64 // uint32_t
+    {%- else %}
+    const Tensor& feature_requires_grad
+    {%- endif %}
+) {
+
+    const auto T = D_offsets.sym_size(0) - 1;
+    TORCH_CHECK_GT(T, 0);
+    // offsets = [B x T  + 1]
+    const auto total_B = offsets.sym_size(0) - 1;
+    TORCH_CHECK_GE(total_B, 0);
+    TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
+
+    auto grad_indice_weights = empty_like(indices, indices.options().dtype(at::toAccumulateType(grad_output.scalar_type(), true)));
+
+    return grad_indice_weights;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Op registrations
 ////////////////////////////////////////////////////////////////////////////////
@@ -370,6 +413,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "{{ embedding_codegen_grad_indice_weights_op }}",
         {{ embedding_codegen_grad_indice_weights_op }}
     );
+    m.impl("{{ embedding_codegen_grad_indice_weights_op }}",
+        torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta)));
 }
 {%- endif %} {#-/* if not dense or not vbe */#}
 {%- endfor %} {#-/* for vbe */#}
