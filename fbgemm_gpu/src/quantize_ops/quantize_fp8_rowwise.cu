@@ -232,7 +232,7 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   const auto output_1D = output.flatten();
 
   if (nrows <= 20) {
-    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+    FBGEMM_DISPATCH_FLOATING_TYPES(
         input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
           _float_to_FP8rowwise_cuda_kernel<scalar_t>
               <<<num_blocks,
@@ -274,7 +274,7 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 
-      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+      FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_get_FP8_qparam_cuda_kernel", [&] {
             _get_FP8_qparam_cuda_kernel<scalar_t>
                 <<<num_blocks_warp,
@@ -302,7 +302,7 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
       const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
       dim3 gridDim(gridDim_x, gridDim_y);
 
-      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+      FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
             _compute_FP8_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -397,7 +397,7 @@ Tensor _FP8rowwise_to_float_gpu_t(
   const auto input_1D = input.flatten();
   const auto output_1D = output.flatten();
 
-  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "FP8rowwise_to_float_cuda_kernel", [&] {
         _FP8rowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(

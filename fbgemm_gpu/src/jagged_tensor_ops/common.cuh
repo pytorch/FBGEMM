@@ -35,6 +35,15 @@ namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
 
+#define DISPATCH_JAGGED_TYPES_CASE(...)                   \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)    \
+  AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Int, __VA_ARGS__)      \
+  AT_DISPATCH_CASE(at::ScalarType::Long, __VA_ARGS__)
+
+#define DISPATCH_JAGGED_TYPES(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(TYPE, NAME, DISPATCH_JAGGED_TYPES_CASE(__VA_ARGS__))
+
 namespace {
 
 template <typename T>
