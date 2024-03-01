@@ -7,7 +7,6 @@
 
 # pyre-ignore-all-errors[56]
 
-import copy
 import sys
 import unittest
 
@@ -231,7 +230,6 @@ class BackwardAdagradTest(unittest.TestCase):
             for t, b in zip(feature_table_map, Bs)
         ]
         xws = [to_device(torch.randn(size=(b, L)), use_cpu) for b in Bs]
-        xws_acc_type = copy.deepcopy(xws)
 
         if weights_precision == SparseType.FP16 and not use_cpu:
             xws = [xw.half() for xw in xws]
@@ -288,7 +286,7 @@ class BackwardAdagradTest(unittest.TestCase):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
-        xw = torch.cat([xw.contiguous().flatten() for xw in xws_acc_type], dim=0)
+        xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
 
         (indices, offsets) = get_table_batched_offsets_from_dense(
             x, L, sum(Bs), use_cpu=use_cpu

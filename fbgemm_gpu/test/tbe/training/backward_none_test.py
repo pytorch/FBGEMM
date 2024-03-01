@@ -7,7 +7,6 @@
 
 # pyre-ignore-all-errors[56]
 
-import copy
 import random
 import unittest
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -233,13 +232,12 @@ class BackwardNoneTest(unittest.TestCase):
                 x[:, 0] = 0
 
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(len(xs))]
-        xws_acc_type = copy.deepcopy(xws)
 
         if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
         (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
         embedding_specs = [

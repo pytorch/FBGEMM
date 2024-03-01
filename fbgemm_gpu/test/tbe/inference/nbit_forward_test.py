@@ -7,7 +7,6 @@
 
 # pyre-ignore-all-errors[56]
 
-import copy
 import random
 import unittest
 from typing import Callable, Dict, List, Optional, Tuple
@@ -400,11 +399,9 @@ class NBitFowardTest(unittest.TestCase):
         xs = [to_device(torch.randint(low=0, high=e, size=(B, L)), use_cpu) for e in Es]
         xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
 
-        xws_acc_type = copy.deepcopy(xws)
-
         if do_pruning:
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
             (indices, offsets) = get_table_batched_offsets_from_dense(
                 x, use_cpu=use_cpu
@@ -437,7 +434,7 @@ class NBitFowardTest(unittest.TestCase):
         else:
             index_remappings_array = [torch.arange(E, dtype=torch.int32) for E in Es]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
             (indices, offsets) = get_table_batched_offsets_from_dense(
                 x, use_cpu=use_cpu
             )

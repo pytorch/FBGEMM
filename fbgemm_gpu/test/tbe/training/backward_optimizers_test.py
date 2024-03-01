@@ -7,7 +7,6 @@
 
 # pyre-ignore-all-errors[56]
 
-import copy
 import math
 import unittest
 from typing import Any, Dict, Optional, Tuple, Union
@@ -185,7 +184,6 @@ class BackwardOptimizersTest(unittest.TestCase):
                 x[:, 0] = np.random.randint(low=0, high=e)
 
         xws = [to_device(torch.randn(size=(b, L)), use_cpu) for b in Bs]
-        xws_acc_type = copy.deepcopy(xws)
 
         fs = (
             [
@@ -289,7 +287,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
-        xw = torch.cat([xw.contiguous().flatten() for xw in xws_acc_type], dim=0)
+        xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
 
         batch_size_per_feature_per_rank = Bs_rank_feature if mixed_B else None
 
