@@ -394,7 +394,7 @@ class ForwardTest(unittest.TestCase):
             False,  # use_experimental_tbe
         )
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(True, "INT8 support is disabled")
     def test_forward_gpu_no_cache_int8(
         self,
     ) -> None:
@@ -570,7 +570,7 @@ class ForwardTest(unittest.TestCase):
             use_experimental_tbe,
         )
 
-    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(True, "INT8 support is disabled")
     @given(
         cache_algorithm=st.sampled_from(CacheAlgorithm),
     )
@@ -773,7 +773,7 @@ class ForwardTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=0, max_value=20),
-        output_dtype=st.sampled_from([SparseType.FP16, SparseType.INT8]),
+        output_dtype=st.sampled_from([SparseType.FP16]),
     )
     @settings(
         verbosity=VERBOSITY,
