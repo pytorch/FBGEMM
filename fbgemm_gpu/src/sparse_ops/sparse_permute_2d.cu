@@ -137,8 +137,9 @@ permute_2D_sparse_data_cuda(
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_2D_data_kernel_1", [&] {
         using offsets_t = index_t;
-        AT_DISPATCH_ALL_TYPES_AND(
+        AT_DISPATCH_ALL_TYPES_AND2(
             at::ScalarType::Half,
+            at::ScalarType::BFloat16,
             indices.scalar_type(),
             "permute_2D_data_kernel_2",
             [&] {
@@ -148,8 +149,9 @@ permute_2D_sparse_data_cuda(
                 const auto weights_value_contig = weights_value.contiguous();
                 permuted_weights =
                     at::empty(permuted_indices_size, weights_value.options());
-                AT_DISPATCH_ALL_TYPES_AND(
+                AT_DISPATCH_ALL_TYPES_AND2(
                     at::ScalarType::Half,
+                    at::ScalarType::BFloat16,
                     weights_value.scalar_type(),
                     "permute_2D_data_kernel_3",
                     [&] {
