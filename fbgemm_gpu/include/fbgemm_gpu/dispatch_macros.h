@@ -35,8 +35,6 @@
   at::ScalarType _cache_t = ::detail::scalar_type(cache_enum_type);           \
   switch (_emb_t) {                                                           \
     PRIVATE_CASE_TYPE_EMB(                                                    \
-        at::ScalarType::Byte, _cache_t, uint8_t, NAME, __VA_ARGS__)           \
-    PRIVATE_CASE_TYPE_EMB(                                                    \
         at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
     PRIVATE_CASE_TYPE_EMB(                                                    \
         at::ScalarType::Half, _cache_t, at::Half, NAME, __VA_ARGS__)          \
@@ -72,13 +70,6 @@
     const auto& cache_type = CACHE_TYPE;                           \
     at::ScalarType _output_t = ::detail::scalar_type(output_type); \
     switch (_output_t) {                                           \
-      PRIVATE_CASE_TYPE_OUTPUT(                                    \
-          at::ScalarType::Byte,                                    \
-          emb_type,                                                \
-          cache_type,                                              \
-          uint8_t,                                                 \
-          NAME,                                                    \
-          __VA_ARGS__)                                             \
       PRIVATE_CASE_TYPE_OUTPUT(                                    \
           at::ScalarType::Half,                                    \
           emb_type,                                                \
@@ -157,8 +148,6 @@
   case grad_enum_type: {                                                   \
     using grad_t = grad_cxx_type;                                          \
     switch (_emb_t) {                                                      \
-      PRIVATE_CASE_TYPE_EMB(                                               \
-          at::ScalarType::Byte, _cache_t, uint8_t, NAME, __VA_ARGS__)      \
       PRIVATE_CASE_TYPE_EMB(                                               \
           at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)       \
       PRIVATE_CASE_TYPE_EMB(                                               \

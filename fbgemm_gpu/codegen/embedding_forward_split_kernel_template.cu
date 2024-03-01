@@ -548,9 +548,9 @@ batch_index_select_dim0_codegen_forward_kernel
 {%- endmacro %}
 
 {%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
-    {%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
+    {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
-    {%- for output_type in ['uint8_t', 'at::Half', 'float'] %}
+    {%- for output_type in ['float', 'at::Half'] %}
         {{ template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
     {%- endfor %}
     {%- endfor %}
