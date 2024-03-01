@@ -258,6 +258,7 @@ def device(  # noqa C901
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
+        use_cpu=not torch.cuda.is_available(),
     )
 
     # forward
