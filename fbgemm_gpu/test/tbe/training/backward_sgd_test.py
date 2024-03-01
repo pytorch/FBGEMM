@@ -9,7 +9,6 @@
 
 # pyre-ignore-all-errors[56]
 
-import copy
 import unittest
 
 import hypothesis.strategies as st
@@ -213,7 +212,6 @@ class BackwardSGDTest(unittest.TestCase):
 
         # Generate positional weights
         xws = [to_device(torch.randn(size=(b, L)), use_cpu) for b in Bs]
-        xws_acc_type = copy.deepcopy(xws)
 
         if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
@@ -265,7 +263,7 @@ class BackwardSGDTest(unittest.TestCase):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
         x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
-        xw = torch.cat([xw.contiguous().flatten() for xw in xws_acc_type], dim=0)
+        xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
 
         (indices, offsets) = get_table_batched_offsets_from_dense(
             x, L, sum(Bs), use_cpu=use_cpu
