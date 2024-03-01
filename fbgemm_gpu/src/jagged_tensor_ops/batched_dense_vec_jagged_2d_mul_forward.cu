@@ -76,9 +76,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
 
     AT_DISPATCH_INDEX_TYPES(
         a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
+          FBGEMM_DISPATCH_FLOATING_TYPES(
               a_values.scalar_type(),
               "dense_vec_jagged_2d_bmm_kernel_2",
               [&] {

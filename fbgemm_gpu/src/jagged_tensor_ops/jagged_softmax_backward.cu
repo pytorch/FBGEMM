@@ -108,9 +108,7 @@ Tensor jagged_softmax_backward_cuda(
 
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_softmax_backward_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
+          FBGEMM_DISPATCH_FLOATING_TYPES(
               grad_output.scalar_type(),
               "jagged_softmax_backward_kernel_2",
               [&] {

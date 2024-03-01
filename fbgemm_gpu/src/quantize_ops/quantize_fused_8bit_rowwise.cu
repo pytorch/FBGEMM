@@ -268,7 +268,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
   // think unsigned as we use 0, 255
 
   if (nrows <= 20) {
-    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+    FBGEMM_DISPATCH_FLOATING_TYPES(
         input.scalar_type(), "_float_to_fused8bitrowwise_cuda_kernel", [&] {
           _float_to_fused8bitrowwise_cuda_kernel<scalar_t>
               <<<num_blocks,
@@ -306,7 +306,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 
-      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+      FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_get_8bit_qparam_cuda_kernel", [&] {
             _get_8bit_qparam_cuda_kernel<scalar_t>
                 <<<num_blocks_warp,
@@ -329,7 +329,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
       const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
       dim3 gridDim(gridDim_x, gridDim_y);
 
-      FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+      FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_compute_8bit_quantize_cuda_kernel", [&] {
             _compute_8bit_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -381,7 +381,7 @@ DLL_PUBLIC Tensor _half_to_fused8bitrowwise_gpu(const Tensor& input) {
 DLL_PUBLIC Tensor
 _single_or_half_precision_to_fused8bitrowwise_gpu(const Tensor& input) {
   Tensor output;
-  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       input.scalar_type(),
       "float_or_half_to_fused8bitrowwise_cuda_kernel",
       [&] { output = _float_to_fused8bitrowwise_gpu_t<scalar_t>(input); });
@@ -459,7 +459,7 @@ Tensor _fused8bitrowwise_to_float_gpu_t(
           ncols,                                                    \
           output.data_ptr<scalar_t>())
 
-  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "fused8bitrowwise_to_float_cuda_kernel", [&] {
         if (scale_bias_last) {
           if (quant_padding_float_type) {

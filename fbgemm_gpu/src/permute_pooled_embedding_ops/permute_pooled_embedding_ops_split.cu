@@ -105,7 +105,7 @@ Tensor permute_pooled_embs_split_gpu_impl(
       std::min(static_cast<int32_t>(B), max_grid_dim_y),
       (B + max_grid_dim_y - 1) / max_grid_dim_y);
 
-  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       pooled_embs_contiguous.scalar_type(), "permute_pooled_embeddings", [&] {
         permute_pooled_embs_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(

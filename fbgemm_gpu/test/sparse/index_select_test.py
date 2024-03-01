@@ -84,13 +84,19 @@ class IndexSelectTest(unittest.TestCase):
 
         if not use_inference_mode:
             gradcheck_args = [
-                input.clone().detach().double().requires_grad_(True),
+                input.clone().detach().float().requires_grad_(True),
                 indices,
             ]
             for k in kwargs:
                 gradcheck_args.append(kwargs[k])
 
-            torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
+            torch.autograd.gradcheck(
+                torch.ops.fbgemm.index_select_dim0,
+                gradcheck_args,
+                eps=1e-2,
+                atol=1e-3,
+                rtol=1e-3,
+            )
 
     @given(
         num_indices=st.integers(1, 32),

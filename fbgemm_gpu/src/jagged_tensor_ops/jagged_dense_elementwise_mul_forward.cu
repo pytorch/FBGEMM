@@ -36,19 +36,17 @@ Tensor jagged_dense_elementwise_mul_forward(
                 });
           } // lambda
           ) // CASE
-      AT_DISPATCH_CASE_FLOATING_TYPES_AND(
-          at::ScalarType::BFloat16,
-          [&] {
-            jagged_dense_elementwise_jagged_output_<scalar_t>(
-                x_values,
-                x_offsets,
-                y,
-                output,
-                [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                  return x * y;
-                });
-          } // lambda
-          ) // CASE_FLOATING_TYPES_AND
+      FBGEMM_DISPATCH_FLOAT_AND_BFLOAT16_CASE([&] {
+        jagged_dense_elementwise_jagged_output_<scalar_t>(
+            x_values,
+            x_offsets,
+            y,
+            output,
+            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+              return x * y;
+            });
+      } // lambda
+                                              ) // CASE_FLOATING_TYPES_AND
 
   ); // SWITCH
 

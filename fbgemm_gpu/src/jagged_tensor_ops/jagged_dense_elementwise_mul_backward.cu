@@ -133,30 +133,21 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
   Tensor x_values_grad = at::empty_like(grad_output);
   Tensor y_grad = at::empty_like(y);
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      x_values.scalar_type(),
-      "jagged_scalars",
-      [&] {
-        jagged_dense_elementwise_jagged_output_<scalar_t>(
-            grad_output,
-            x_offsets,
-            y,
-            x_values_grad,
-            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-              return x * y;
-            });
+  FBGEMM_DISPATCH_FLOATING_TYPES(x_values.scalar_type(), "jagged_scalars", [&] {
+    jagged_dense_elementwise_jagged_output_<scalar_t>(
+        grad_output,
+        x_offsets,
+        y,
+        x_values_grad,
+        [] __device__(scalar_t x, scalar_t y) -> scalar_t { return x * y; });
 
-        jagged_jagged_elementwise_dense_output_<scalar_t>(
-            grad_output,
-            x_offsets,
-            x_values,
-            y_grad,
-            [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-              return x * y;
-            });
-      });
+    jagged_jagged_elementwise_dense_output_<scalar_t>(
+        grad_output,
+        x_offsets,
+        x_values,
+        y_grad,
+        [] __device__(scalar_t x, scalar_t y) -> scalar_t { return x * y; });
+  });
 
   return {x_values_grad, y_grad};
 }

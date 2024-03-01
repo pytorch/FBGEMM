@@ -131,12 +131,8 @@ Tensor jagged_softmax_forward_cuda(
 
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_softmax_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              values.scalar_type(),
-              "jagged_softmax_kernel_2",
-              [&] {
+          FBGEMM_DISPATCH_FLOATING_TYPES(
+              values.scalar_type(), "jagged_softmax_kernel_2", [&] {
 
 #ifdef FBGEMM_GPU_MEMCHECK
                 const auto func_name1 = "jagged_softmax_kernel";

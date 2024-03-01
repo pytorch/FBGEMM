@@ -661,7 +661,7 @@ std::tuple<Tensor, Tensor> jagged_dense_elementwise_mul_backward(
     const Tensor& x_values) {
   Tensor x_values_grad = at::zeros_like(grad_output);
   Tensor y_grad = at::zeros_like(y);
-  AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+  FBGEMM_DISPATCH_FLOAT_AND_HALF(
       x_values.scalar_type(), "jagged_dense_elementwise_mul_backward", [&] {
         jagged_dense_elementwise_jagged_output_<scalar_t>(
             grad_output,
@@ -819,12 +819,8 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
   if (B > 0 && D > 0) {
     AT_DISPATCH_INDEX_TYPES(
         a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              a_values.scalar_type(),
-              "dense_vec_jagged_2d_bmm_kernel_2",
-              [&] {
+          FBGEMM_DISPATCH_FLOATING_TYPES(
+              a_values.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_2", [&] {
                 dense_vec_jagged_2d_bmm<index_t, scalar_t>(
                     v.accessor<scalar_t, 2>(),
                     a_values.accessor<scalar_t, 2>(),
@@ -854,9 +850,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
         a_offsets.scalar_type(),
         "dense_vec_jagged_2d_bmm_backward_kernel_1",
         [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
+          FBGEMM_DISPATCH_FLOATING_TYPES(
               grad_output.scalar_type(),
               "dense_vec_jagged_2d_bmm_backward_kernel_2",
               [&] {
@@ -1359,12 +1353,8 @@ Tensor jagged_softmax_forward(
   if (B > 0 && D > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_softmax_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              values.scalar_type(),
-              "jagged_softmax_kernel_2",
-              [&] {
+          FBGEMM_DISPATCH_FLOATING_TYPES(
+              values.scalar_type(), "jagged_softmax_kernel_2", [&] {
                 jagged_softmax_kernel<index_t, scalar_t>(
                     values.accessor<scalar_t, 2>(),
                     offsets.accessor<index_t, 1>(),
@@ -1421,9 +1411,7 @@ Tensor jagged_softmax_backward(
   if (B > 0 && D > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_backward_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
+          FBGEMM_DISPATCH_FLOATING_TYPES(
               grad_output.scalar_type(),
               "jagged_softmax_backward_kernel_2",
               [&] {
@@ -1480,12 +1468,8 @@ Tensor jagged_jagged_bmm_forward(
   if (B > 0 && M > 0 && N > 0) {
     AT_DISPATCH_INDEX_TYPES(
         offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              x_values.scalar_type(),
-              "jagged_jagged_bmm_kernel_2",
-              [&] {
+          FBGEMM_DISPATCH_FLOATING_TYPES(
+              x_values.scalar_type(), "jagged_jagged_bmm_kernel_2", [&] {
                 jagged_jagged_bmm_kernel<index_t, scalar_t>(
                     x_values.accessor<scalar_t, 2>(),
                     y_values.accessor<scalar_t, 2>(),
@@ -1542,12 +1526,8 @@ Tensor jagged_dense_bmm_forward(
   if (B > 0 && M > 0 && N > 0) {
     AT_DISPATCH_INDEX_TYPES(
         x_offsets.scalar_type(), "jagged_dense_bmm_kernel_1", [&] {
-          AT_DISPATCH_FLOATING_TYPES_AND2(
-              at::ScalarType::Half,
-              at::ScalarType::BFloat16,
-              x_values.scalar_type(),
-              "jagged_dense_bmm_kernel_2",
-              [&] {
+          FBGEMM_DISPATCH_FLOATING_TYPES(
+              x_values.scalar_type(), "jagged_dense_bmm_kernel_2", [&] {
                 jagged_dense_bmm_kernel<index_t, scalar_t>(
                     x_values.accessor<scalar_t, 2>(),
                     x_offsets.accessor<index_t, 1>(),
