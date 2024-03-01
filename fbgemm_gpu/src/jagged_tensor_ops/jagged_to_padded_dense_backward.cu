@@ -31,12 +31,8 @@ at::Tensor jagged_to_padded_dense_backward(
   auto grad_values =
       at::zeros_symint({total_L, D}, grad_padded_values.options());
 
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      grad_padded_values.scalar_type(),
-      "jagged_to_dense_backward_kernel",
-      [&] {
+  FBGEMM_DISPATCH_FLOATING_TYPES(
+      grad_padded_values.scalar_type(), "jagged_to_dense_backward_kernel", [&] {
         jagged_dense_elementwise_jagged_output_<scalar_t>(
             grad_values, // dummy not used in the lambda function
             {offsets},
