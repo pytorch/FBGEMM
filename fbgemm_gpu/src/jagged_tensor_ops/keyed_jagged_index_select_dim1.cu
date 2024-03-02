@@ -304,9 +304,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
             num_batches,                                                     \
             batch_size);                                                     \
   }
-      AT_DISPATCH_ALL_TYPES_AND2(
-          at::ScalarType::Half,
-          at::ScalarType::BFloat16,
+      FBGEMM_DISPATCH_ALL_TYPES(
           values.scalar_type(),
           "keyed_jagged_index_select_dim1_warpper_1",
           [&] {
@@ -390,12 +388,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const auto grad_offsets_contig = grad_offsets.expect_contiguous();
 
     if (grid_size != 0) {
-      AT_DISPATCH_ALL_TYPES_AND2(
-          at::ScalarType::Half,
-          at::ScalarType::BFloat16,
-          grad.scalar_type(),
-          "keyed_jagged_index_add_dim1_wrapper_1",
-          [&] {
+      FBGEMM_DISPATCH_ALL_TYPES(
+          grad.scalar_type(), "keyed_jagged_index_add_dim1_wrapper_1", [&] {
             AT_DISPATCH_INDEX_TYPES(
                 grad_offsets.scalar_type(),
                 "keyed_jagged_index_add_dim1_wrapper_2",

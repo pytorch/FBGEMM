@@ -195,7 +195,11 @@
 /// These macros cover bundled dispatch cases, similar to AT_DISPATCH_*_CASE
 ////////////////////////////////////////////////////////////////////////////////
 
-#define FBGEMM_DISPATCH_CASE_FLOATING_TYPES(...)       \
+#define FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(...)     \
+  AT_DISPATCH_CASE(at::ScalarType::Int, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Long, __VA_ARGS__)
+
+#define FBGEMM_DISPATCH_FLOATING_TYPES_CASE(...)       \
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)  \
   AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__)
@@ -204,10 +208,14 @@
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)
 
-// AT_DISPATCH_CASE_FLOATING_TYPES_AND BFloat16
 #define FBGEMM_DISPATCH_FLOAT_AND_BFLOAT16_CASE(...)   \
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__)
+
+#define FBGEMM_DISPATCH_ALL_TYPES_BUT_HALF_CASE(...)      \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)    \
+  AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
+  FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Dispatch Macros
@@ -233,14 +241,25 @@
 
 #define FBGEMM_DISPATCH_FLOATING_TYPES(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                   \
-      TYPE, NAME, FBGEMM_DISPATCH_CASE_FLOATING_TYPES(__VA_ARGS__))
+      TYPE, NAME, FBGEMM_DISPATCH_FLOATING_TYPES_CASE(__VA_ARGS__))
 
 #define FBGEMM_DISPATCH_FLOATING_TYPES_AND(SCALARTYPE, TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                                   \
       TYPE,                                                             \
       NAME,                                                             \
-      FBGEMM_DISPATCH_CASE_FLOATING_TYPES(__VA_ARGS__)                  \
+      FBGEMM_DISPATCH_FLOATING_TYPES_CASE(__VA_ARGS__)                  \
           AT_DISPATCH_CASE(SCALARTYPE, __VA_ARGS__))
+
+#define FBGEMM_DISPATCH_INTEGRAL_TYPES(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                   \
+      TYPE, NAME, FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__))
+
+#define FBGEMM_DISPATCH_ALL_TYPES(TYPE, NAME, ...)     \
+  AT_DISPATCH_SWITCH(                                  \
+      TYPE,                                            \
+      NAME,                                            \
+      FBGEMM_DISPATCH_FLOATING_TYPES_CASE(__VA_ARGS__) \
+          FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__))
 
 // We can cleanup the following once fbgemm uses PyTorch 2.2 in January 2024.
 #ifndef PT2_COMPLIANT_TAG

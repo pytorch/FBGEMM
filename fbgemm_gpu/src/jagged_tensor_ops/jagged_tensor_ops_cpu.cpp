@@ -404,12 +404,8 @@ at::Tensor jagged_to_padded_dense_forward(
   Tensor padded_values_view =
       D_folded ? padded_values.unsqueeze(-1) : padded_values;
 
-  AT_DISPATCH_ALL_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      values.scalar_type(),
-      "jagged_to_padded_dense",
-      [&] {
+  FBGEMM_DISPATCH_ALL_TYPES(
+      values.scalar_type(), "jagged_to_padded_dense", [&] {
         jagged_dense_elementwise_dense_output_<scalar_t>(
             values_canonicalized,
             offsets,
@@ -440,9 +436,7 @@ at::Tensor jagged_to_padded_dense_backward(
   auto grad_values =
       at::zeros_symint({total_L, D}, grad_padded_values.options());
 
-  AT_DISPATCH_ALL_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
+  FBGEMM_DISPATCH_ALL_TYPES(
       grad_padded_values.scalar_type(),
       "jagged_2d_to_dense_backward_kernel",
       [&] {
@@ -474,19 +468,14 @@ Tensor dense_to_jagged_forward(
   auto values = at::empty_symint({total_L_computed, D}, dense.options());
   auto output = at::zeros_symint({total_L_computed, D}, dense.options());
 
-  AT_DISPATCH_ALL_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      values.scalar_type(),
-      "jagged_scalars",
-      [&] {
-        jagged_dense_elementwise_jagged_output_<scalar_t>(
-            values,
-            offsets,
-            dense,
-            output,
-            [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
-      });
+  FBGEMM_DISPATCH_ALL_TYPES(values.scalar_type(), "jagged_scalars", [&] {
+    jagged_dense_elementwise_jagged_output_<scalar_t>(
+        values,
+        offsets,
+        dense,
+        output,
+        [](scalar_t /*unused*/, scalar_t y) -> scalar_t { return y; });
+  });
 
   return output;
 }
@@ -884,12 +873,8 @@ Tensor jagged_1d_to_truncated_values_cpu(
   Tensor truncated_values;
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "jagged_1d_to_truncated_values_cpu_kernel", [&] {
-        AT_DISPATCH_ALL_TYPES_AND2(
-            at::ScalarType::Half,
-            at::ScalarType::BFloat16,
-            values.scalar_type(),
-            "copy_values_and_truncate_cpu_kernel",
-            [&] {
+        FBGEMM_DISPATCH_ALL_TYPES(
+            values.scalar_type(), "copy_values_and_truncate_cpu_kernel", [&] {
               const index_t max_length_int =
                   static_cast<index_t>(max_truncated_length);
               const auto lengths_accessor = lengths.accessor<index_t, 1>();
@@ -936,12 +921,8 @@ std::tuple<Tensor, Tensor> masked_select_jagged_1d(
 
   AT_DISPATCH_INDEX_TYPES(
       lengths.scalar_type(), "mask_select_jagged_1d_kernel1", [&] {
-        AT_DISPATCH_ALL_TYPES_AND2(
-            at::ScalarType::Half,
-            at::ScalarType::BFloat16,
-            values.scalar_type(),
-            "mask_select_jagged_1d_kernel2",
-            [&] {
+        FBGEMM_DISPATCH_ALL_TYPES(
+            values.scalar_type(), "mask_select_jagged_1d_kernel2", [&] {
               const int32_t num_outputs = mask.sum().item<int32_t>();
               masked_values = at::empty({num_outputs}, values.options());
 
@@ -1121,12 +1102,8 @@ Tensor jagged_index_select_2d_forward_cpu(
       at::empty({num_dense_output_rows, num_cols}, values.options());
 
   if (num_dense_output_rows > 0) {
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        values.scalar_type(),
-        "jagged_index_select_2d_kernel_wrapper_1",
-        [&] {
+    FBGEMM_DISPATCH_ALL_TYPES(
+        values.scalar_type(), "jagged_index_select_2d_kernel_wrapper_1", [&] {
           AT_DISPATCH_INDEX_TYPES(
               indices.scalar_type(),
               "jagged_index_select_2d_kernel_wrapper_2",
@@ -1286,12 +1263,8 @@ Tensor jagged_index_add_2d_forward_cpu(
       "jagged_index_add_2d_forward_cpu supports only 2D inputs");
   auto num_cols = values.size(1);
   Tensor output = at::zeros({num_output_rows, num_cols}, values.options());
-  AT_DISPATCH_ALL_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      values.scalar_type(),
-      "jagged_index_add_2d_kernel_wrapper_1",
-      [&] {
+  FBGEMM_DISPATCH_ALL_TYPES(
+      values.scalar_type(), "jagged_index_add_2d_kernel_wrapper_1", [&] {
         AT_DISPATCH_INDEX_TYPES(
             indices.scalar_type(), "jagged_index_add_2d_kernel_wrapper_2", [&] {
               jagged_index_add_2d_kernel(
@@ -1605,12 +1578,8 @@ Tensor jagged_slice_forward_cpu(
   auto output_offsets = asynchronous_exclusive_cumsum_cpu(output_lengths);
   auto input_offsets = asynchronous_exclusive_cumsum_cpu(x_lengths);
 
-  AT_DISPATCH_ALL_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      x_values.scalar_type(),
-      "jagged_slice_wrapper_1",
-      [&] {
+  FBGEMM_DISPATCH_ALL_TYPES(
+      x_values.scalar_type(), "jagged_slice_wrapper_1", [&] {
         jagged_slice_forward_cpu_kernel<scalar_t>(
             output_values.accessor<scalar_t, 1>(),
             output_lengths.accessor<int64_t, 1>(),
