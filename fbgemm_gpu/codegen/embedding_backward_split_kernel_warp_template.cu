@@ -341,7 +341,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 
 {%- macro bulk_template_instantiations(kMaxVecsPerThread, kThreadGroupSize) %}
     {%- for grad_type in ['float', 'at::Half'] %}
-    {%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
+    {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
         {{ template_instantiation(emb_type, grad_type, cache_type, kMaxVecsPerThread, kThreadGroupSize) }}
     {%- endfor %}

@@ -973,8 +973,8 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     embedding_forward_split_template.cu
 */
 
-{%- for output_type in ['uint8_t', 'at::Half', 'float'] %}
-{%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
+{%- for output_type in ['float', 'at::Half'] %}
+{%- for emb_type in ['float', 'at::Half'] %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for use_cache in ['true', 'false'] %}
 
