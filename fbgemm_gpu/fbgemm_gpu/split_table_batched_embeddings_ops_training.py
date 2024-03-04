@@ -9,6 +9,7 @@
 
 # pyre-ignore-all-errors[56]
 
+import contextlib
 import enum
 import functools
 import logging
@@ -16,13 +17,17 @@ import os
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
-from typing import Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig
+from fbgemm_gpu.runtime_monitor import (
+    AsyncSeriesTimer,
+    TBEStatsReporter,
+    TBEStatsReporterConfig,
+)
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -452,6 +457,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.stats_reporter: Optional[TBEStatsReporter] = (
             stats_reporter_config.create_reporter() if stats_reporter_config else None
         )
+
+        self.bwd_wait_prefetch_timer: Optional[AsyncSeriesTimer] = None
+        if self.stats_reporter:
+
+            # When stats_reporter is present, we set up async series timer to
+            # measure the GPU time per tracked event accordingly. Each of them
+            # is attached to custom callback report function to report collected
+            # duration with the corresponding event name.
+            def report_wait_prefetch_time(it_step: int, dur_ms: float) -> None:
+                assert (
+                    self.stats_reporter
+                ), "We should not be here. AsyncTimer only happens with reporter present."
+                self.stats_reporter.report_duration(
+                    it_step, "bwd_wait_for_prefetch", dur_ms
+                )
+
+            self.bwd_wait_prefetch_timer = AsyncSeriesTimer(report_wait_prefetch_time)
 
         self.int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET
 
@@ -1815,6 +1837,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"or {CacheAlgorithm.LFU}"
             )
 
+    # pyre-ignore
+    def _recording_to_timer(
+        self, timer: Optional[AsyncSeriesTimer], **kwargs: Any
+    ) -> Any:
+        if self.stats_reporter is not None and self.stats_reporter.should_report(
+            self.step
+        ):
+            assert (
+                timer
+            ), "We shouldn't be here, async timer must have been initiated if reporter is present."
+            return timer.recording(**kwargs)
+        # No-Op context manager
+        return contextlib.nullcontext()
+
     def _sync_stream_post_backward(
         self,
         grad: Tensor,
@@ -1875,7 +1911,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.prefetch_stream is not None:
             # need to wait for the prefetch of next batch,
             # so that cache states are valid
-            torch.cuda.current_stream().wait_stream(self.prefetch_stream)
+            with self._recording_to_timer(
+                self.bwd_wait_prefetch_timer,
+                context=self.step,
+                stream=torch.cuda.current_stream(),
+            ):
+                torch.cuda.current_stream().wait_stream(self.prefetch_stream)
 
         torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
             self.lxu_cache_locking_counter,
