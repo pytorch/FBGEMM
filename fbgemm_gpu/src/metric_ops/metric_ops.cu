@@ -273,20 +273,19 @@ at::Tensor batch_auc(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "auc_wrapper_1", [&] {
-    AT_DISPATCH_ALL_TYPES_AND(
-        at::ScalarType::Half, labels.scalar_type(), "auc_wrapper_2", [&] {
-          using label_t = scalar_t;
-          FBGEMM_DISPATCH_FLOAT_AND_HALF(
-              weights.scalar_type(), "auc_wrapper_3", [&] {
-                using acc_t = at::acc_type<scalar_t, true>;
-                if (padded_section_size == 1) {
-                  LAUNCH_AUC_KERNEL(1)
-                } else {
-                  LAUNCH_AUC_KERNEL(2)
-                }
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-              });
-        });
+    FBGEMM_DISPATCH_ALL_TYPES(labels.scalar_type(), "auc_wrapper_2", [&] {
+      using label_t = scalar_t;
+      FBGEMM_DISPATCH_FLOAT_AND_HALF(
+          weights.scalar_type(), "auc_wrapper_3", [&] {
+            using acc_t = at::acc_type<scalar_t, true>;
+            if (padded_section_size == 1) {
+              LAUNCH_AUC_KERNEL(1)
+            } else {
+              LAUNCH_AUC_KERNEL(2)
+            }
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+          });
+    });
   });
 
 #undef LAUNCH_AUC_KERNEL
