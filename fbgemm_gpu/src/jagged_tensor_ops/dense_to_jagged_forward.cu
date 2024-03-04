@@ -31,37 +31,32 @@ Tensor dense_to_jagged_forward(
 
   CUDA_DEVICE_GUARD(dense);
 
-#define DISPATCH_DENSE_TO_JAGGED_OPT_CASE(TYPE)                      \
-  AT_DISPATCH_CASE(TYPE, [&] {                                       \
-    jagged_dense_elementwise_jagged_output_opt_<scalar_t>(           \
-        values,                                                      \
-        offsets,                                                     \
-        dense,                                                       \
-        output,                                                      \
-        [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t { \
-          return y;                                                  \
-        });                                                          \
-  })
-
-  // clang-format off
   AT_DISPATCH_SWITCH(
       values.scalar_type(),
       "dense_to_jagged_gpu_op_forward",
-      DISPATCH_DENSE_TO_JAGGED_OPT_CASE(at::ScalarType::Half)
-      DISPATCH_JAGGED_TYPES_CASE(
-        [&] {
-          jagged_dense_elementwise_jagged_output_<scalar_t>(
-              values,
-              offsets,
-              dense,
-              output,
-              [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
-                return y;
-              }); // device lambda
-        } // lambda
-      ) // DISPATCH_JAGGED_TYPES_CASE
-  ); // SWITCH
-  // clang-format on
+      AT_DISPATCH_CASE(
+          at::ScalarType::Half,
+          [&] {
+            jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
+                values,
+                offsets,
+                dense,
+                output,
+                [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
+                  return y;
+                });
+          })
+
+          FBGEMM_DISPATCH_ALL_TYPES_BUT_HALF_CASE([&] {
+            jagged_dense_elementwise_jagged_output_<scalar_t>(
+                values,
+                offsets,
+                dense,
+                output,
+                [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
+                  return y;
+                });
+          }));
 
   return output;
 }

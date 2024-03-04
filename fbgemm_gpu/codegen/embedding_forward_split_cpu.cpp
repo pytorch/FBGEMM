@@ -205,12 +205,8 @@ Tensor split_embedding_codegen_forward_cpu(
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       output.scalar_type(), "split_embedding_cpu_forward", [&]() {
         using output_t = scalar_t;
-        AT_DISPATCH_FLOATING_TYPES_AND2(
-            at::ScalarType::Half,
-            at::ScalarType::Byte,
-            weights.scalar_type(),
-            "split_embedding_cpu_forward",
-            [&] {
+        FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
+            weights.scalar_type(), "split_embedding_cpu_forward", [&] {
               using ind_weights_t = std::conditional<
                   std::is_same<scalar_t, double>::value,
                   double,

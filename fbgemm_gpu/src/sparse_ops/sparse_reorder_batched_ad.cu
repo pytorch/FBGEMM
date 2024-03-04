@@ -69,7 +69,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  AT_DISPATCH_ALL_TYPES(
+  FBGEMM_DISPATCH_ALL_TYPES(
       cat_ad_lengths.scalar_type(),
       "reorder_batched_ad_lengths_gpu_kernel",
       [&] {
@@ -210,7 +210,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     const dim3 blocks(cuda_calc_xblock_count(
         reordered_cat_ad_offsets.numel() - 1,
         NUM_WARPS)); // one warp per sample
-    AT_DISPATCH_ALL_TYPES(
+    FBGEMM_DISPATCH_INTEGRAL_TYPES(
         cat_ad_indices.scalar_type(), "narrow_broadcast_indices_kernel_1", [&] {
           AT_DISPATCH_INDEX_TYPES(
               cat_ad_offsets.scalar_type(),
@@ -241,8 +241,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  AT_DISPATCH_ALL_TYPES_AND(
-      at::ScalarType::BFloat16,
+  FBGEMM_DISPATCH_ALL_TYPES(
       cat_ad_indices.scalar_type(),
       "reorder_batched_ad_indices_gpu_kernel_1",
       [&] {

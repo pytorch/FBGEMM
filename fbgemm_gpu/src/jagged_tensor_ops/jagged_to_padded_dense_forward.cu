@@ -54,12 +54,8 @@ at::Tensor jagged_to_padded_dense_forward(
   Tensor padded_values_view =
       D_folded ? padded_values.unsqueeze(-1) : padded_values;
 
-  AT_DISPATCH_ALL_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      values.scalar_type(),
-      "jagged_to_padded_dense",
-      [&] {
+  FBGEMM_DISPATCH_ALL_TYPES(
+      values.scalar_type(), "jagged_to_padded_dense", [&] {
         jagged_dense_elementwise_dense_output_<scalar_t>(
             values_canonicalized,
             offsets,

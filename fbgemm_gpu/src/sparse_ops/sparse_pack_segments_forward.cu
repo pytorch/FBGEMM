@@ -91,12 +91,8 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
         fbgemm_gpu::asynchronous_exclusive_cumsum_gpu(lengths);
     auto lps_data = lengths_prefix_sum.data_ptr<index_t>();
 
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        t_in_c.scalar_type(),
-        "pack_segments_cuda-packing",
-        [&] {
+    FBGEMM_DISPATCH_ALL_TYPES(
+        t_in_c.scalar_type(), "pack_segments_cuda-packing", [&] {
           const auto* const data_ptr = t_in_c.data_ptr<scalar_t>();
           auto* const out_data = packed_tensor.data_ptr<scalar_t>();
           const auto num_seq = lengths.size(0);

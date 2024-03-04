@@ -89,12 +89,8 @@ Tensor jagged_index_select_2d_forward_cuda(
     // output_offsets has to be contiguous since it is passed to
     // binary_search_range which accepts raw pointers
     const auto output_offsets_contig = output_offsets.expect_contiguous();
-    AT_DISPATCH_ALL_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        values.scalar_type(),
-        "jagged_index_select_2d_kernel_wrapper_1",
-        [&] {
+    FBGEMM_DISPATCH_ALL_TYPES(
+        values.scalar_type(), "jagged_index_select_2d_kernel_wrapper_1", [&] {
           AT_DISPATCH_INDEX_TYPES(
               indices.scalar_type(),
               "jagged_index_select_2d_kernel_wrapper_2",
