@@ -234,6 +234,11 @@ class BackwardSGDTest(unittest.TestCase):
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
+
+        # Cast output type to output_dtype
+        if weights_precision != output_dtype:
+            fs = [f.to(output_dtype.as_dtype()) for f in fs]
+
         # Generate gradients
         gos = [torch.randn_like(f) for f in fs]
         # Run baseline's backward

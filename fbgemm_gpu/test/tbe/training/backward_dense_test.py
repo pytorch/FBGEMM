@@ -60,7 +60,9 @@ class BackwardDenseTest(unittest.TestCase):
             ]
         ),
         use_cpu=use_cpu_strategy(),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -174,6 +176,11 @@ class BackwardDenseTest(unittest.TestCase):
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
+
+        # Cast output type to output_dtype
+        if weights_precision != output_dtype:
+            fs = [f.to(output_dtype.as_dtype()) for f in fs]
+
         gos = [torch.randn_like(f) for f in fs]
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
@@ -211,42 +218,29 @@ class BackwardDenseTest(unittest.TestCase):
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
 
+        is_low_prec = (
+            weights_precision == SparseType.FP16
+            or output_dtype == SparseType.FP16
+            or output_dtype == SparseType.BF16
+        )
+        tol = 5.0e-3 if is_low_prec else 1.0e-5
         torch.testing.assert_close(
             fc2.float(),
             f.float(),
-            atol=(
-                5.0e-3
-                if weights_precision == SparseType.FP16
-                or output_dtype == SparseType.FP16
-                else 1.0e-5
-            ),
-            rtol=(
-                5.0e-3
-                if weights_precision == SparseType.FP16
-                or output_dtype == SparseType.FP16
-                else 1.0e-5
-            ),
+            atol=tol,
+            rtol=tol,
         )
         if do_pooling:
             goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
             goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
+        tol = 5.0e-3 if is_low_prec else 1.0e-4
         torch.testing.assert_close(
             cc.weights.grad,
             grad_weights,
-            atol=(
-                5.0e-3
-                if weights_precision == SparseType.FP16
-                or output_dtype == SparseType.FP16
-                else 1.0e-4
-            ),
-            rtol=(
-                5.0e-3
-                if weights_precision == SparseType.FP16
-                or output_dtype == SparseType.FP16
-                else 1.0e-4
-            ),
+            atol=tol,
+            rtol=tol,
         )
 
         cc = DenseTableBatchedEmbeddingBagsCodegen(
