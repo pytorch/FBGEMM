@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 import logging
 import time
 from typing import Callable, Tuple
@@ -54,43 +56,37 @@ def main(
     iters: int,
     warmup_runs: int,
 ) -> None:
-    data_types = [torch.half, torch.float, torch.double]
+    data_types = [torch.half, torch.float]
 
     total_time = {
         "hbc": {
             "cpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
-                torch.double: 0.0,
             },
             "gpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
-                torch.double: 0.0,
             },
         },
         "hbc_by_feature": {
             "cpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
-                torch.double: 0.0,
             },
             "gpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
-                torch.double: 0.0,
             },
         },
         "generic_hbc_by_feature": {
             "cpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
-                torch.double: 0.0,
             },
             "gpu": {
                 torch.half: 0.0,
                 torch.float: 0.0,
-                torch.double: 0.0,
             },
         },
     }

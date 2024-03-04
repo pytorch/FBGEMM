@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # pyre-ignore-all-errors[56]
 
 import itertools
@@ -147,10 +149,6 @@ def torch_compiled(model: Callable, **kwargs) -> Callable:
 # pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
 additional_decorators: Dict[str, List[Callable]] = {
     "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add_jagged_output": [
         # This operator has been grandfathered in. We need to fix this test failure.
         unittest.expectedFailure,
     ],
@@ -1033,7 +1031,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         inner_dense_size=st.integers(0, 5),
         fold_inner_dense=st.booleans(),
         padding_value=st.sampled_from([0, -1e-8]),
-        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -1101,11 +1099,14 @@ class JaggedTensorOpsTest(unittest.TestCase):
         gradcheck(
             torch.ops.fbgemm.jagged_to_padded_dense,
             (
-                x_values.double().requires_grad_(True),
+                x_values.float().requires_grad_(True),
                 x_offsets,
                 max_lengths,
                 padding_value,
             ),
+            eps=1e-2,
+            atol=1e-3,
+            rtol=1e-3,
         )
 
     @given(
@@ -1113,7 +1114,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 5),
         inner_dense_size=st.integers(0, 5),
         padding_value=st.just(0),
-        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.just("meta"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1227,10 +1228,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
         gradcheck(
             f,
             (
-                x_values.double().requires_grad_(True),
+                x_values.float().requires_grad_(True),
                 x_offsets,
-                y.double().requires_grad_(True),
+                y.float().requires_grad_(True),
             ),
+            eps=1e-2,
+            atol=1e-3,
+            rtol=1e-3,
         )
 
     @given(
@@ -1238,7 +1242,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -1299,7 +1303,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         outer_dense_size=st.integers(2, 5),
         inner_dense_size=st.integers(2, 5),
         operation=st.sampled_from(["add", "add_jagged_output", "mul"]),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -1450,18 +1454,21 @@ class JaggedTensorOpsTest(unittest.TestCase):
         gradcheck(
             f,
             (
-                x_values.double().requires_grad_(True),
+                x_values.float().requires_grad_(True),
                 x_offsets,
-                y_0.double().requires_grad_(True),
-                y_1.double().requires_grad_(True),
+                y_0.float().requires_grad_(True),
+                y_1.float().requires_grad_(True),
             ),
+            eps=1e-2,
+            atol=1e-3,
+            rtol=1e-3,
         )
 
     @given(
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -1506,7 +1513,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(0, 4),
         inner_dense_size=st.integers(0, 4),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.just("meta"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1569,7 +1576,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         num_jagged_dim=st.integers(1, 4),
         outer_dense_size=st.integers(2, 4),
         inner_dense_size=st.integers(2, 4),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double, torch.bfloat16]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.just("cpu"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -1641,7 +1648,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         H=st.integers(1, 3),
         max_L=st.integers(1, 32),
         D=st.integers(0, 32),
-        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -1702,10 +1709,13 @@ class JaggedTensorOpsTest(unittest.TestCase):
         gradcheck(
             torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul,
             (
-                dense.clone().detach().double().requires_grad_(True),
-                values.clone().detach().double().requires_grad_(True),
+                dense.clone().detach().float().requires_grad_(True),
+                values.clone().detach().float().requires_grad_(True),
                 offsets,
             ),
+            eps=1e-2,
+            atol=1e-3,
+            rtol=1e-3,
         )
 
     @settings(
@@ -1718,7 +1728,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         H=st.integers(1, 3),
         max_L=st.integers(1, 32),
         D=st.integers(0, 32),
-        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.sampled_from(["meta"]),
     )
     def test_batched_dense_vec_jagged_2d_mul_meta_backend(
@@ -1779,7 +1789,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         H=st.integers(1, 3),
         max_L=st.integers(1, 32),
         D=st.integers(2, 32),
-        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half, torch.bfloat16]),
         device_type=st.just("cpu"),
     )
     def test_batched_dense_vec_jagged_2d_mul_dynamic_shape(
@@ -2329,7 +2339,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B=st.integers(1, 512),
         max_L=st.integers(1, 1000),
         D=st.integers(1, 32),
-        dtype=st.sampled_from([torch.float, torch.double]),
+        dtype=st.sampled_from([torch.float]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -2387,7 +2397,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         M=st.integers(1, 32),
         N=st.integers(1, 32),
         max_L=st.integers(1, 32),
-        dtype=st.sampled_from([torch.float, torch.double]),
+        dtype=st.sampled_from([torch.float]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -2452,7 +2462,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         M=st.integers(1, 32),
         N=st.integers(1, 32),
         max_L=st.integers(1, 32),
-        dtype=st.sampled_from([torch.float, torch.double]),
+        dtype=st.sampled_from([torch.float]),
         device_type=(
             st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
         ),
@@ -2516,7 +2526,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         M=st.integers(2, 32),
         N=st.integers(2, 32),
         max_L=st.integers(2, 32),
-        dtype=st.sampled_from([torch.float, torch.double]),
+        dtype=st.sampled_from([torch.float]),
         device_type=st.just("cpu"),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -2584,7 +2594,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         B=st.integers(10, 512),
         N=st.integers(10, 64),
         slice_length=st.integers(0, 64),
-        dtype=st.sampled_from([torch.float, torch.double]),
+        dtype=st.sampled_from([torch.float]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_slice(

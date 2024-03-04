@@ -237,7 +237,7 @@ Tensor _float_to_paddedFP8rowwise_gpu_t(
   const auto num_blocks = cuda_calc_xblock_count(
       nrows == 1 ? (ncols + row_dim - 1) / row_dim : nrows, threads_per_block);
 
-  FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+  FBGEMM_DISPATCH_FLOATING_TYPES(
       input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
         _float_to_paddedFP8rowwise_cuda_kernel<scalar_t>
             <<<num_blocks,
@@ -350,7 +350,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
     constexpr int kMaxThreads = 1024;
     const auto threads_per_block =
         kMaxThreads < row_dim ? kMaxThreads : row_dim;
-    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+    FBGEMM_DISPATCH_FLOATING_TYPES(
         output.scalar_type(), "PaddedFP8rowwise_to_float_1d_cuda_kernel", [&] {
           _PaddedFP8rowwise_to_float_1d_cuda_kernel<scalar_t>
               <<<num_rows,
@@ -368,7 +368,7 @@ Tensor _paddedFP8rowwise_to_float_gpu_t(
         });
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
-    FBGEMM_DISPATCH_FLOAT_HALF_AND_BFLOAT16(
+    FBGEMM_DISPATCH_FLOATING_TYPES(
         output.scalar_type(), "PaddedFP8rowwise_to_float_2d_cuda_kernel", [&] {
           _PaddedFP8rowwise_to_float_2d_cuda_kernel<scalar_t>
               <<<num_blocks,

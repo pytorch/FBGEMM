@@ -207,12 +207,8 @@ Tensor jagged_jagged_bmm_forward_cuda(
 
       AT_DISPATCH_INDEX_TYPES(
           offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND2(
-                at::ScalarType::Half,
-                at::ScalarType::BFloat16,
-                x_values.scalar_type(),
-                "jagged_jagged_bmm_kernel_2",
-                [&] {
+            FBGEMM_DISPATCH_FLOATING_TYPES(
+                x_values.scalar_type(), "jagged_jagged_bmm_kernel_2", [&] {
 
 #ifdef FBGEMM_GPU_MEMCHECK
                   const auto func_name1 = "jagged_jagged_bmm_kernel.1";
@@ -267,12 +263,8 @@ Tensor jagged_jagged_bmm_forward_cuda(
 
       AT_DISPATCH_INDEX_TYPES(
           offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
-            AT_DISPATCH_FLOATING_TYPES_AND2(
-                at::ScalarType::Half,
-                at::ScalarType::BFloat16,
-                x_values.scalar_type(),
-                "jagged_jagged_bmm_kernel_2",
-                [&] {
+            FBGEMM_DISPATCH_FLOATING_TYPES(
+                x_values.scalar_type(), "jagged_jagged_bmm_kernel_2", [&] {
 
 #ifdef FBGEMM_GPU_MEMCHECK
                   const auto func_name2 = "jagged_jagged_bmm_kernel.2";

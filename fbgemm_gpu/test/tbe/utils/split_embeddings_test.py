@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # pyre-ignore-all-errors[56]
 
 import random
@@ -381,9 +383,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=128),
         log_E=st.integers(min_value=2, max_value=3),
-        weights_precision=st.sampled_from(
-            [SparseType.FP16, SparseType.FP32, SparseType.INT8]
-        ),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         mixed=st.booleans(),
         use_cache=st.booleans(),
         output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),

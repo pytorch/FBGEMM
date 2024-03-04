@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # pyre-ignore-all-errors[56]
 
 import enum
@@ -20,6 +22,7 @@ import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -319,6 +322,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
+        max_norm: float = 0.0,
         learning_rate: float = 0.01,
         # used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, EXACT_ROWWISE_WEIGHTED_ADAGRAD, LAMB, and ADAM only
         # NOTE that default is different from nn.optim.Adagrad default of 1e-10
@@ -348,6 +352,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # If a separate stream is used for prefetch, the optional forward_stream arg of prefetch function
         # should be set.
         prefetch_pipeline: bool = False,
+        stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -440,6 +445,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uvm_cache_stats_size = 6
         # 0: N_calls, 1: N_requested_indices, 2: N_unique_indices, 3: N_unique_misses,
         # 4: N_conflict_unique_misses, 5: N_conflict_misses
+
+        # Reporter to collect runtime performance stats bottom-up. Reporter may
+        # do aggregation across TBEs and publish results per training batch.
+        # Example of stats include UVM cache hit rate, table I/O size, etc.
+        self.stats_reporter: Optional[TBEStatsReporter] = (
+            stats_reporter_config.create_reporter() if stats_reporter_config else None
+        )
 
         self.int8_emb_row_dim_offset: int = INT8_EMB_ROW_DIM_OFFSET
 
@@ -612,6 +624,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
+            max_norm=max_norm,
             learning_rate=learning_rate,
             eps=eps,
             beta1=beta1,
@@ -971,6 +984,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         (indices, offsets) = indices.long(), offsets.long()
+        # Force casting per_sample_weights to float
+        if per_sample_weights is not None:
+            per_sample_weights = per_sample_weights.float()
+
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
             torch.ops.fbgemm.bounds_check_indices(
                 self.rows_per_table,
@@ -1021,7 +1038,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Pass the local_uvm_cache_stats bc only that information is
             # relevant for the current iteration
             uvm_cache_stats=(
-                self.local_uvm_cache_stats if self.gather_uvm_cache_stats else None
+                self.local_uvm_cache_stats
+                if (
+                    self.gather_uvm_cache_stats
+                    # Unique conflict misses are only collected when using CacheAlgorithm.LRU
+                    and self.cache_algorithm == CacheAlgorithm.LRU
+                )
+                else None
             ),
             output_dtype=self.output_dtype,
             vbe_metadata=vbe_metadata,
@@ -2118,6 +2141,10 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
+        # Force casting per_sample_weights to float
+        if per_sample_weights is not None:
+            per_sample_weights = per_sample_weights.float()
+
         return torch.ops.fbgemm.dense_embedding_codegen_lookup_function(
             dev_weights=self.weights,
             weights_offsets=self.weights_offsets,

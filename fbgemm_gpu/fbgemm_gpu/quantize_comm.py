@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # The code in this file is refactored from https://fburl.com/code/p2gy2gxb
 # based on "Amy Yang et al., Training Deep Learning Recommendation Model with
 # Quantized Collective Communications", DLP-KDD 2020.

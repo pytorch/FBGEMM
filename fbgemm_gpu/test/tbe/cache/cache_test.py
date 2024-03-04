@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # pyre-ignore-all-errors[56]
 
 import unittest
@@ -38,6 +40,7 @@ from .cache_common import (
     generate_cache_tbes,
     gpu_unavailable,
     optests,
+    TestingStatsReporterConfig,
     VERBOSITY,
 )
 
@@ -56,6 +59,7 @@ class CacheTest(unittest.TestCase):
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
+        gather_uvm_cache_stats=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_pipeline(
@@ -69,6 +73,7 @@ class CacheTest(unittest.TestCase):
         cache_algorithm: CacheAlgorithm,
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
+        gather_uvm_cache_stats: bool,
     ) -> None:
         assume(weights_cache_precision == SparseType.FP16 or not stochastic_rounding)
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
@@ -79,6 +84,7 @@ class CacheTest(unittest.TestCase):
             cache_algorithm,
             weights_cache_precision=weights_cache_precision,
             stochastic_rounding=stochastic_rounding,
+            gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
         iters = 3
         requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
@@ -110,6 +116,7 @@ class CacheTest(unittest.TestCase):
         prefetch_stream: Optional[torch.cuda.Stream],
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
+        gather_uvm_cache_stats: bool,
     ) -> None:
         """
         test cache prefetch pipeline with prefetch_pipeline=True.
@@ -122,6 +129,7 @@ class CacheTest(unittest.TestCase):
         """
 
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
+        reporter = TestingStatsReporterConfig(interval=2)
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T,
             D,
@@ -132,6 +140,8 @@ class CacheTest(unittest.TestCase):
             use_int_weight=True,
             weights_cache_precision=weights_cache_precision,
             stochastic_rounding=stochastic_rounding,
+            gather_uvm_cache_stats=gather_uvm_cache_stats,
+            reporter_config=reporter,
         )
         iters = 5
         requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
@@ -208,6 +218,7 @@ class CacheTest(unittest.TestCase):
         prefetch_location=st.sampled_from(["before_fwd", "between_fwd_bwd"]),
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
+        gather_uvm_cache_stats=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline(
@@ -221,6 +232,7 @@ class CacheTest(unittest.TestCase):
         prefetch_location: str,
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
+        gather_uvm_cache_stats: bool,
     ) -> None:
         self._test_cache_prefetch_pipeline(
             T,
@@ -233,6 +245,7 @@ class CacheTest(unittest.TestCase):
             prefetch_stream=None,
             weights_cache_precision=weights_cache_precision,
             stochastic_rounding=stochastic_rounding,
+            gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
@@ -246,6 +259,7 @@ class CacheTest(unittest.TestCase):
         mixed=st.booleans(),
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
+        gather_uvm_cache_stats=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_1(
@@ -258,6 +272,7 @@ class CacheTest(unittest.TestCase):
         mixed: bool,
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
+        gather_uvm_cache_stats: bool,
     ) -> None:
         self._test_cache_prefetch_pipeline(
             T,
@@ -270,6 +285,7 @@ class CacheTest(unittest.TestCase):
             prefetch_stream=torch.cuda.Stream(),
             weights_cache_precision=weights_cache_precision,
             stochastic_rounding=stochastic_rounding,
+            gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
@@ -283,6 +299,7 @@ class CacheTest(unittest.TestCase):
         mixed=st.booleans(),
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
+        gather_uvm_cache_stats=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_2(
@@ -295,6 +312,7 @@ class CacheTest(unittest.TestCase):
         mixed: bool,
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
+        gather_uvm_cache_stats: bool,
     ) -> None:
         self._test_cache_prefetch_pipeline(
             T,
@@ -307,6 +325,7 @@ class CacheTest(unittest.TestCase):
             prefetch_stream=torch.cuda.Stream(),
             weights_cache_precision=weights_cache_precision,
             stochastic_rounding=stochastic_rounding,
+            gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
 
     @unittest.skipIf(*gpu_unavailable)

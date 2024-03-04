@@ -54,12 +54,8 @@ at::Tensor jagged_to_padded_dense_forward(
   Tensor padded_values_view =
       D_folded ? padded_values.unsqueeze(-1) : padded_values;
 
-  AT_DISPATCH_ALL_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      values.scalar_type(),
-      "jagged_to_padded_dense",
-      [&] {
+  FBGEMM_DISPATCH_ALL_TYPES(
+      values.scalar_type(), "jagged_to_padded_dense", [&] {
         jagged_dense_elementwise_dense_output_<scalar_t>(
             values_canonicalized,
             offsets,
@@ -204,12 +200,8 @@ Tensor stacked_jagged_2d_to_dense_backward_cuda(
     Tensor grad_values_slice =
         grad_values.slice(0, offset_per_key[t], offset_per_key[t + 1]);
 
-    AT_DISPATCH_FLOATING_TYPES_AND2(
-        at::ScalarType::Half,
-        at::ScalarType::BFloat16,
-        grad_values.scalar_type(),
-        "jagged_2d_to_dense_backward_kernel",
-        [&] {
+    FBGEMM_DISPATCH_FLOATING_TYPES(
+        grad_values.scalar_type(), "jagged_2d_to_dense_backward_kernel", [&] {
           jagged_dense_elementwise_jagged_output_<scalar_t>(
               grad_values_slice, // dummy not used in the lambda function
               {offsets_tensor_per_key[t]},
@@ -335,19 +327,17 @@ class JaggedDenseAddJaggedOutputGPUOp
                   }); // device lambda
             } // lambda
             ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
-            at::ScalarType::BFloat16,
-            [&] {
-              jagged_dense_elementwise_jagged_output_<scalar_t>(
-                  x_values,
-                  offsets,
-                  dense,
-                  output,
-                  [] __device__(scalar_t x, scalar_t y) -> scalar_t {
-                    return x + y;
-                  }); // device lambda
-            } // lambda
-            ) // CASE_FLOATING_TYPES_AND
+        FBGEMM_DISPATCH_FLOAT_AND_BFLOAT16_CASE([&] {
+          jagged_dense_elementwise_jagged_output_<scalar_t>(
+              x_values,
+              offsets,
+              dense,
+              output,
+              [] __device__(scalar_t x, scalar_t y) -> scalar_t {
+                return x + y;
+              }); // device lambda
+        } // lambda
+                                                ) // CASE_FLOATING_TYPES_AND
     ); // SWITCH
 
     return {output};

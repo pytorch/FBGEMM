@@ -130,19 +130,15 @@ permute_1D_sparse_data_cuda(
   AT_DISPATCH_INDEX_TYPES(
       input_offsets.scalar_type(), "permute_1D_data_kernel_1", [&] {
         using offsets_t = index_t;
-        AT_DISPATCH_ALL_TYPES_AND(
-            at::ScalarType::Half,
-            indices.scalar_type(),
-            "permute_1D_data_kernel_2",
-            [&] {
+        FBGEMM_DISPATCH_ALL_TYPES(
+            indices.scalar_type(), "permute_1D_data_kernel_2", [&] {
               using indices_t = scalar_t;
               if (weights.has_value()) {
                 const Tensor weights_value = weights.value();
                 const auto weights_value_contig = weights_value.contiguous();
                 permuted_weights =
                     at::empty(permuted_indices_size, weights_value.options());
-                AT_DISPATCH_ALL_TYPES_AND(
-                    at::ScalarType::Half,
+                FBGEMM_DISPATCH_ALL_TYPES(
                     weights_value.scalar_type(),
                     "permute_1D_data_kernel_3",
                     [&] {

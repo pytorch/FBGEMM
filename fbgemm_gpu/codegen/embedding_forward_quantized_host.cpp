@@ -340,6 +340,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
         fp8_exponent_bias ? *fp8_exponent_bias : -1);
   }
+  // Force casting indice_weights to float (doing this in the backend to avoid
+  // JIT issue)
+  const auto indice_weights_ = indice_weights->to(at::kFloat);
   return int_nbit_split_embedding_codegen_forward_weighted_cuda(
       dev_weights,
       uvm_weights,
@@ -357,7 +360,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       offsets,
       pooling_mode,
       row_alignment ? *row_alignment : 16,
-      *indice_weights,
+      indice_weights_,
       output_dtype,
       lxu_cache_weights.value_or(at::empty({0, 0}, at::kByte)),
       lxu_cache_locations.value_or(at::empty({0}, at::kInt)),

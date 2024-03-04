@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 from typing import NamedTuple, Optional
 
 import torch
@@ -50,6 +52,7 @@ class OptimizerArgs(NamedTuple):
     stochastic_rounding: bool
     gradient_clipping: bool
     max_gradient: float
+    max_norm: float
     learning_rate: float
     eps: float
     beta1: float

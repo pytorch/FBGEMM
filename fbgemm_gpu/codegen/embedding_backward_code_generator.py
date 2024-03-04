@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # flake8: noqa F401
 
 import re
@@ -65,6 +67,13 @@ def generate(**kwargs: Any) -> None:
         "embedding_backward_split_template.cu",
         optimizer,
         "gen_embedding_backward_{}_split_{}_cuda.cu",
+        kwargs,
+    )
+
+    generate_backward_embedding_cuda(
+        "embedding_backward_split_meta_template.cpp",
+        optimizer,
+        "gen_embedding_backward_{}_split_{}_meta.cpp",
         kwargs,
     )
 

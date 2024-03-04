@@ -31,28 +31,23 @@ Tensor dense_to_jagged_forward(
 
   CUDA_DEVICE_GUARD(dense);
 
-#define DISPATCH_DENSE_TO_JAGGED_CASE(TYPE)                          \
-  AT_DISPATCH_CASE(TYPE, [&] {                                       \
-    jagged_dense_elementwise_jagged_output_opt_<scalar_t>(           \
-        values,                                                      \
-        offsets,                                                     \
-        dense,                                                       \
-        output,                                                      \
-        [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t { \
-          return y;                                                  \
-        });                                                          \
-  })
-
-  // clang-format off
   AT_DISPATCH_SWITCH(
       values.scalar_type(),
       "dense_to_jagged_gpu_op_forward",
-      DISPATCH_DENSE_TO_JAGGED_CASE(at::ScalarType::Half)
-      AT_DISPATCH_CASE_FLOATING_TYPES_AND3(
-          at::ScalarType::Int,
-          at::ScalarType::Long,
-          at::ScalarType::BFloat16,
+      AT_DISPATCH_CASE(
+          at::ScalarType::Half,
           [&] {
+            jagged_dense_elementwise_jagged_output_opt_<scalar_t>(
+                values,
+                offsets,
+                dense,
+                output,
+                [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
+                  return y;
+                });
+          })
+
+          FBGEMM_DISPATCH_ALL_TYPES_BUT_HALF_CASE([&] {
             jagged_dense_elementwise_jagged_output_<scalar_t>(
                 values,
                 offsets,
@@ -60,13 +55,8 @@ Tensor dense_to_jagged_forward(
                 output,
                 [] __device__(scalar_t /*unused*/, scalar_t y) -> scalar_t {
                   return y;
-                }); // device lambda
-          } // lambda
-          ) // CASE_FLOATING_TYPES_AND
-  ); // SWITCH
-  // clang-format on
-
-#undef DISPATCH_DENSE_TO_JAGGED_CASE
+                });
+          }));
 
   return output;
 }

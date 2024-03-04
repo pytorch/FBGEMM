@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # pyre-ignore-all-errors[56]
 
 import contextlib
@@ -36,7 +38,7 @@ class IndexSelectTest(unittest.TestCase):
             st.lists(st.integers(1, 128), max_size=1),
             st.lists(st.integers(1, 16), min_size=2, max_size=2),
         ),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         consecutive_indices=st.booleans(),
         skip_indices_sorting_fwd=st.booleans(),
@@ -84,19 +86,25 @@ class IndexSelectTest(unittest.TestCase):
 
         if not use_inference_mode:
             gradcheck_args = [
-                input.clone().detach().double().requires_grad_(True),
+                input.clone().detach().float().requires_grad_(True),
                 indices,
             ]
             for k in kwargs:
                 gradcheck_args.append(kwargs[k])
 
-            torch.autograd.gradcheck(torch.ops.fbgemm.index_select_dim0, gradcheck_args)
+            torch.autograd.gradcheck(
+                torch.ops.fbgemm.index_select_dim0,
+                gradcheck_args,
+                eps=1e-2,
+                atol=1e-3,
+                rtol=1e-3,
+            )
 
     @given(
         num_indices=st.integers(1, 32),
         max_num_input_rows=st.integers(1, 32),
         shape=st.lists(st.integers(1, 32), min_size=1, max_size=2),
-        dtype=st.sampled_from([torch.float, torch.half, torch.double]),
+        dtype=st.sampled_from([torch.float, torch.half]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
         num_groups=st.integers(1, 32),
         use_var_cols=st.booleans(),

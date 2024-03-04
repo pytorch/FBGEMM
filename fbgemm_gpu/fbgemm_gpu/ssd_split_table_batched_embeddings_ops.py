@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # pyre-ignore-all-errors[56]
 
 import itertools
@@ -94,6 +96,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
         max_gradient: float = 1.0,
+        max_norm: float = 0.0,
         learning_rate: float = 0.01,
         eps: float = 1.0e-8,  # used by Adagrad, LAMB, and Adam
         momentum: float = 0.9,  # used by LARS-SGD
@@ -254,6 +257,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
+            max_norm=max_norm,
             learning_rate=learning_rate,
             eps=eps,
             beta1=beta1,
@@ -428,6 +432,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
         (indices, offsets) = indices.long(), offsets.long()
+        # Force casting per_sample_weights to float
+        if per_sample_weights is not None:
+            per_sample_weights = per_sample_weights.float()
         if len(self.timesteps_prefetched) == 0:
             with record_function("## prefetch ##"):
                 linear_cache_indices = self.prefetch(indices, offsets)

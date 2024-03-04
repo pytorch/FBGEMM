@@ -226,8 +226,7 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
     AT_DISPATCH_SWITCH(
         x_values.scalar_type(),
         "jagged_dense_dense_elementwise_jagged_output_forward",
-        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
-            at::ScalarType::BFloat16,
+        FBGEMM_DISPATCH_FLOAT_AND_BFLOAT16_CASE(
             [&] {
               jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
                   x_values,
@@ -238,7 +237,7 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
                   [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
                       -> scalar_t { return x + y_0 + y_1; });
             } // lambda
-            ) // AT_DISPATCH_CASE_FLOATING_TYPES_AND
+            ) // FBGEMM_DISPATCH_FLOAT_AND_BFLOAT16_CASE
     ); // SWITCH
   } else {
     AT_DISPATCH_SWITCH(
@@ -257,20 +256,17 @@ Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
                       -> scalar_t { return x + y_0 + y_1; });
             } // lambda
             ) // CASE
-        AT_DISPATCH_CASE_FLOATING_TYPES_AND(
-            at::ScalarType::BFloat16,
-            [&] {
-              jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
-                  x_values,
-                  offsets,
-                  dense_0,
-                  dense_1,
-                  output,
-                  [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
-                      -> scalar_t { return x + y_0 + y_1; });
-            } // lambda
-            ) // CASE_FLOATING_TYPES_AND
-    ); // SWITCH
+        FBGEMM_DISPATCH_FLOAT_AND_BFLOAT16_CASE([&] {
+          jagged_dense_dense_elementwise_jagged_output_<scalar_t>(
+              x_values,
+              offsets,
+              dense_0,
+              dense_1,
+              output,
+              [] __device__(scalar_t x, scalar_t y_0, scalar_t y_1)
+                  -> scalar_t { return x + y_0 + y_1; });
+        } // lambda
+                                                )); // SWITCH
   }
 
   return output;

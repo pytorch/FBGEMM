@@ -193,8 +193,8 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     embedding_forward_split_template.cu
 */
 
-{%- for output_type in ['uint8_t', 'at::Half', 'float'] %}
-{%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
+{%- for output_type in ['float', 'at::Half'] %}
+{%- for emb_type in ['float', 'at::Half'] %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for kEmbeddingSize in [4, 8, 16, 32] %}
 {%- set index_type = 'int64_t' %}

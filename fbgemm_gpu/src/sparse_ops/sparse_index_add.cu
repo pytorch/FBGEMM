@@ -102,7 +102,7 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       sorted_indices.scalar_type(), "index_add_2d_kernel_1", [&] {
-        AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        FBGEMM_DISPATCH_FLOAT_AND_HALF(
             grad_output.scalar_type(), "index_add_2d_kernel_2", [&] {
               // UNROLL_FACTOR is determined based on the empirical study
               const int UNROLL_FACTOR = std::is_same<scalar_t, float>() ? 4 : 2;

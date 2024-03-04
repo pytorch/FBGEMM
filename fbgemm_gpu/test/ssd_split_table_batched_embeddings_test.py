@@ -4,9 +4,10 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 # pyre-ignore-all-errors[56]
 
-import copy
 import random
 import unittest
 
@@ -101,7 +102,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.manual_seed(42)
         xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
         xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-        xws_acc_type = copy.deepcopy(xws)
 
         fs = (
             [b_indices(b, x) for (b, x) in zip(bs, xs)]
@@ -122,7 +122,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
         (indices, offsets) = get_table_batched_offsets_from_dense(x)
         fc2 = (
             emb(indices.cuda(), offsets.cuda())
@@ -177,7 +177,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.manual_seed(42)
         xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
         xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-        xws_acc_type = copy.deepcopy(xws)
 
         fs = (
             [b_indices(b, x) for (b, x) in zip(bs, xs)]
@@ -200,7 +199,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
         (indices, offsets) = get_table_batched_offsets_from_dense(x)
         fc2 = (
             emb(indices.cuda(), offsets.cuda())
@@ -303,8 +302,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
             xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-            xws_acc_type = copy.deepcopy(xws)
-            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
             (indices, offsets) = get_table_batched_offsets_from_dense(x)
             (indices, offsets) = indices.cuda(), offsets.cuda()
@@ -493,7 +491,6 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.manual_seed(42)
         xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
         xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-        xws_acc_type = copy.deepcopy(xws)
 
         for t in range(T):
             (weights, scale_shift) = emb.split_embedding_weights()[t]
@@ -557,7 +554,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         f = torch.cat([f.view(B, -1) for f in fs], dim=1)
 
         x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+        xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
         (indices, offsets) = get_table_batched_offsets_from_dense(x)
         fc2 = (
             emb(indices.cuda().int(), offsets.cuda().int())
@@ -706,8 +703,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
             xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-            xws_acc_type = copy.deepcopy(xws)
-            xw = torch.cat([xw.view(1, B, L) for xw in xws_acc_type], dim=0)
+            xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
 
             (indices, offsets) = get_table_batched_offsets_from_dense(x)
             (indices, offsets) = indices.cuda(), offsets.cuda()
