@@ -58,7 +58,7 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
-    const int64_t vbe_output_size,
+    const c10::SymInt vbe_output_size,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
     {%- endif %}
@@ -177,9 +177,9 @@ class {{ autograd_func }} :
     const c10::optional<Tensor>& B_offsets,
     const c10::optional<Tensor>& vbe_output_offsets_feature_rank,
     const c10::optional<Tensor>& vbe_B_offsets_rank_per_feature,
-    const int32_t max_B,
-    const int32_t max_B_feature_rank,
-    const int64_t vbe_output_size,
+    const c10::SymInt max_B,
+    const c10::SymInt max_B_feature_rank,
+    const c10::SymInt vbe_output_size,
     {%- endif %}
     const bool is_experimental,
     const bool use_uniq_cache_locations_bwd,
@@ -209,7 +209,7 @@ class {{ autograd_func }} :
     static auto generate_vbe_metadata_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::generate_vbe_metadata", "")
-            .typed<decltype(generate_vbe_metadata)>();
+            .typed<std::tuple<Tensor, Tensor>(const Tensor&, const Tensor&, const Tensor&, const Tensor&, const int64_t, const bool, const c10::SymInt, const int64_t, const c10::SymInt)>();
 
     auto [
         vbe_row_output_offsets,
@@ -673,9 +673,9 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const c10::optional<Tensor>& B_offsets = c10::optional<Tensor>(),
     const c10::optional<Tensor>& vbe_output_offsets_feature_rank = c10::optional<Tensor>(),
     const c10::optional<Tensor>& vbe_B_offsets_rank_per_feature = c10::optional<Tensor>(),
-    const int64_t max_B = -1,
-    const int64_t max_B_feature_rank = -1,
-    const int64_t vbe_output_size = -1,
+    const c10::SymInt max_B = -1,
+    const c10::SymInt max_B_feature_rank = -1,
+    const c10::SymInt vbe_output_size = -1,
     const bool is_experimental = false,
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
@@ -790,9 +790,9 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    Tensor? B_offsets=None, "
           "    Tensor? vbe_output_offsets_feature_rank=None, "
           "    Tensor? vbe_B_offsets_rank_per_feature=None, "
-          "    int max_B=-1, "
-          "    int max_B_feature_rank=-1, "
-          "    int vbe_output_size=-1, "
+          "    SymInt max_B=-1, "
+          "    SymInt max_B_feature_rank=-1, "
+          "    SymInt vbe_output_size=-1, "
           "    bool is_experimental=False, "
           "    bool use_uniq_cache_locations_bwd=False, "
           "    bool use_homogeneous_placements=False, "
