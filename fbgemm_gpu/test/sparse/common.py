@@ -33,7 +33,6 @@ if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
 
 suppressed_list: List[HealthCheck] = (
-    # pyre-fixme[16]: Module `HealthCheck` has no attribute `differing_executors`.
     [HealthCheck.differing_executors]
     if getattr(HealthCheck, "differing_executors", False)
     else []
