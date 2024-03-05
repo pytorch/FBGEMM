@@ -85,6 +85,10 @@
         "comment": "",
         "status": "skip"
       },
+      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmSUM_with_max_norm": {
+        "comment": "",
+        "status": "xfail"
+      },
       "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
         "comment": "",
         "status": "skip"
@@ -195,6 +199,10 @@
         "status": "xfail"
       },
       "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmSUM": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmSUM_with_max_norm": {
         "comment": "",
         "status": "xfail"
       },

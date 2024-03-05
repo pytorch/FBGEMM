@@ -256,6 +256,11 @@ class BackwardAdagradTest(unittest.TestCase):
                 for (b, x, xw) in zip(bs, xs, xws)
             ]
         )
+
+        # Cast output type to output_dtype
+        if weights_precision != output_dtype:
+            fs = [f.to(output_dtype.as_dtype()) for f in fs]
+
         gos = [torch.randn_like(f) for f in fs]
         [f.backward(go) for (f, go) in zip(fs, gos)]
         # do SGD update
@@ -505,7 +510,9 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -574,7 +581,9 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         compile=st.booleans(),
     )
     @settings(
@@ -643,7 +652,9 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         compile=st.booleans(),
     )
     @settings(
@@ -708,7 +719,9 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         compile=st.booleans(),
     )
     @settings(
@@ -777,7 +790,9 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         compile=st.booleans(),
     )
     @settings(
@@ -846,7 +861,9 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=use_cpu_strategy(),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         compile=st.booleans(),
     )
     @settings(
@@ -912,7 +929,9 @@ class BackwardAdagradTest(unittest.TestCase):
         use_cache=st.booleans(),
         cache_algorithm=st.sampled_from(CacheAlgorithm),
         use_cpu=st.just(False),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
         max_norm=st.floats(min_value=0.01, max_value=1.0),
     )
     @settings(

@@ -604,6 +604,7 @@ class ForwardTest(unittest.TestCase):
             [
                 SparseType.FP32,
                 SparseType.FP16,
+                SparseType.BF16,
             ]
         )
         if pooling_mode == PoolingMode.NONE:
@@ -670,6 +671,7 @@ class ForwardTest(unittest.TestCase):
             [
                 SparseType.FP32,
                 SparseType.FP16,
+                SparseType.BF16,
             ]
         )
         if pooling_mode == PoolingMode.NONE:
@@ -736,6 +738,7 @@ class ForwardTest(unittest.TestCase):
             [
                 SparseType.FP32,
                 SparseType.FP16,
+                SparseType.BF16,
             ]
         )
         if pooling_mode == PoolingMode.NONE:

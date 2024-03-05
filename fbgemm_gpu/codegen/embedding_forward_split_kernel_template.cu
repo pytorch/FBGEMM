@@ -550,7 +550,7 @@ batch_index_select_dim0_codegen_forward_kernel
 {%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
-    {%- for output_type in ['float', 'at::Half'] %}
+    {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
         {{ template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
     {%- endfor %}
     {%- endfor %}

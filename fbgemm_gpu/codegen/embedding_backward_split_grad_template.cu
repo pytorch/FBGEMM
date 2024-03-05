@@ -211,7 +211,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
 // Explicitly instantiate the template based on DISPATCH_EMB_GRAD_CACHE_TYPES
 ////////////////////////////////////////////////////////////////////////////////
 
-{% for grad_type in ['at::Half', 'float'] %}
+{% for grad_type in ['at::Half', 'float', 'at::BFloat16'] %}
 template __global__ __launch_bounds__(kMaxThreads)
 void grad_mean{{ vdesc }}_kernel
 <{{ grad_type }}> (

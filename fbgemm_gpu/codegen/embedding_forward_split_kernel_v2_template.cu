@@ -83,6 +83,11 @@ struct Vec4Type<at::Half> {
 };
 
 template <>
+struct Vec4Type<at::BFloat16> {
+  using type = float2;
+};
+
+template <>
 struct Vec4Type<uint8_t> {
   using type = uint8_t;
 };
@@ -973,7 +978,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     embedding_forward_split_template.cu
 */
 
-{%- for output_type in ['float', 'at::Half'] %}
+{%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
 {%- for emb_type in ['float', 'at::Half'] %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for use_cache in ['true', 'false'] %}
