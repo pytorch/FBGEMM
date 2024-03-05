@@ -5,25 +5,23 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-
 # pyre-ignore-all-errors[56]
 
 import inspect
 import sys
 import unittest
 from itertools import accumulate
-from typing import Any, Callable, Dict, List, Tuple
+from typing import List
 
-import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
-import torch._dynamo
+import torch.nn as nn
 from fbgemm_gpu.permute_pooled_embedding_modules import PermutePooledEmbeddings
 from hypothesis import given, HealthCheck, settings
-from torch import nn, Tensor
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-if getattr(fbgemm_gpu, "open_source", False):
+from .common import Net, open_source
+
+if open_source:
     # pyre-ignore[21]
     from test_utils import cpu_and_maybe_gpu, gpu_unavailable, on_arm_platform, optests
 else:
@@ -33,9 +31,6 @@ else:
         on_arm_platform,
         optests,
     )
-
-typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
-typed_on_arm_platform: Tuple[bool, str] = on_arm_platform
 
 suppressed_list: List[HealthCheck] = (
     [HealthCheck.not_a_test_method]
@@ -71,64 +66,14 @@ FWD_COMPAT_MSG = (
 )
 
 
-class PermutePooledEmbeddingsFwdOnly(PermutePooledEmbeddings):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-
-    def __call__(self, pooled_embs: torch.Tensor) -> torch.Tensor:
-        result = torch.ops.fbgemm.permute_pooled_embs(
-            pooled_embs,
-            self._offset_dim_list.to(device=pooled_embs.device),
-            self._permute.to(device=pooled_embs.device),
-            self._inv_offset_dim_list.to(device=pooled_embs.device),
-            self._inv_permute.to(device=pooled_embs.device),
-        )
-        return result
-
-
-class Net(torch.nn.Module):
-    def __init__(self, fwd_only: bool = False) -> None:
-        super(Net, self).__init__()
-        self.fc1 = torch.nn.Linear(1, 10, bias=False)
-        op_cls = PermutePooledEmbeddingsFwdOnly if fwd_only else PermutePooledEmbeddings
-        self.permute_pooled_embeddings: PermutePooledEmbeddings = op_cls(
-            [2, 3, 1, 4],
-            [3, 0, 2, 1],
-        )
-        self.fc2 = torch.nn.Linear(10, 1, bias=False)
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.fc1(x)
-        x = self.permute_pooled_embeddings(x)
-        x = self.fc2(x)
-        return x
-
-
-# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
-# Please avoid putting tests here, you should put operator-specific
-# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
-# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: Dict[str, List[Callable]] = {
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add_jagged_output": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
-}
-
-
-# @parameterized_class([{"device_type": "cpu"}, {"device_type": "cuda"}])
-@optests.generate_opcheck_tests(additional_decorators=additional_decorators)
+@optests.generate_opcheck_tests()
 class PooledEmbeddingModulesTest(unittest.TestCase):
     @settings(deadline=10000, suppress_health_check=suppressed_list)
     @given(device_type=cpu_and_maybe_gpu())
     def setUp(self, device_type: torch.device) -> None:
         self.device = device_type
 
-    @settings(deadline=500)
+    @settings(deadline=10000)
     @given(fwd_only=st.booleans())
     def test_permutation(self, fwd_only: bool) -> None:
         net = Net(fwd_only=fwd_only).to(self.device)
@@ -139,7 +84,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             [6, 7, 8, 9, 0, 1, 5, 2, 3, 4],
         )
 
-    @unittest.skipIf(*typed_on_arm_platform)
+    @unittest.skipIf(*on_arm_platform)
     def test_permutation_autograd(self) -> None:
         net = Net().to(self.device)
 
@@ -214,7 +159,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             ref_permuted_pooled_emb.to(self.device), permuted_pooled_emb
         )
 
-    @unittest.skipIf(*typed_on_arm_platform)
+    @unittest.skipIf(*on_arm_platform)
     def test_permutation_autograd_meta(self) -> None:
         """
         Test that permute_pooled_embeddings_autograd works with meta tensor and
@@ -229,7 +174,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
         assert output_meta.shape == output_cpu.shape
         assert input.shape == output_meta.shape
 
-    @unittest.skipIf(*typed_gpu_unavailable)
+    @unittest.skipIf(*gpu_unavailable)
     def test_duplicate_permutations(self) -> None:
         embs_dims = [2, 3, 1, 4]
         permute = [3, 0, 2, 0, 1, 3]
