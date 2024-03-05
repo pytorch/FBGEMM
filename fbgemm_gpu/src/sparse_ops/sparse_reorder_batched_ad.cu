@@ -210,7 +210,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     const dim3 blocks(cuda_calc_xblock_count(
         reordered_cat_ad_offsets.numel() - 1,
         NUM_WARPS)); // one warp per sample
-    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+    FBGEMM_DISPATCH_ALL_TYPES(
         cat_ad_indices.scalar_type(), "narrow_broadcast_indices_kernel_1", [&] {
           AT_DISPATCH_INDEX_TYPES(
               cat_ad_offsets.scalar_type(),
