@@ -12,6 +12,7 @@
 import enum
 import functools
 import logging
+import math
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -827,6 +828,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self.is_experimental: bool = is_experimental
 
+    @torch.jit.ignore
     def log(self, msg: str) -> None:
         """Log with TBE id prefix to distinguish between multiple TBE instances per process."""
         logging.info(f"[TBE={self.uuid}] {msg}")
@@ -1336,6 +1338,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
+            if self.should_log():
+                self.print_uvm_cache_stats()
+
+    def should_log(self) -> bool:
+        """Determines if we should log for this step, using exponentially decreasing frequency.
+
+        Logs for steps: 100 200 ... 1,000 2,000 ... 10,000 20,000 ... 100,000 200,000 ...
+        """
+        s = self.step + 1  # step starts at 0
+        return s >= 100 and s % (10 ** int(math.log10(s))) == 0
 
     def _prefetch_tensors_record_stream(
         self, forward_stream: torch.cuda.Stream
