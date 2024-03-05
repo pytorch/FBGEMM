@@ -2413,7 +2413,7 @@ def hashtable(  # noqa C901
     )
 
     if use_cpu:
-        ht = torch.classes.fbgemm.PrunedMapCPU()
+        ht = torch.classes.fbgemm.PrunedMapCPU()  # pyre-ignore
         ht.insert(chosen_indices, dense_indices, offsets, T)
 
         time_per_iter = benchmark_requests(

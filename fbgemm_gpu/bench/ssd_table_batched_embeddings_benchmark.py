@@ -108,7 +108,7 @@ def benchmark_read_write(
     elem_size = 4
 
     with tempfile.TemporaryDirectory(prefix=ssd_prefix) as ssd_directory:
-        ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+        ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(  # pyre-ignore
             ssd_directory,
             num_shards,
             num_threads,
