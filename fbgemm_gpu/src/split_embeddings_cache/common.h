@@ -26,9 +26,11 @@ using Tensor = at::Tensor;
 namespace fbgemm_gpu {
 
 Tensor linearize_cache_indices_cpu(
-    Tensor cache_hash_size_cumsum,
-    Tensor indices,
-    Tensor offsets);
+    const Tensor& cache_hash_size_cumsum,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const c10::optional<Tensor>& B_offsets,
+    const int64_t max_B);
 
 Tensor linearize_cache_indices_from_row_idx_cpu(
     Tensor cache_hash_size_cumsum,

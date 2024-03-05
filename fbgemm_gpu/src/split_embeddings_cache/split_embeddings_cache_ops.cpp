@@ -12,7 +12,7 @@ namespace {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets) -> Tensor");
+      "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets, Tensor? B_offsets=None, int max_B=-1) -> Tensor");
   m.def(
       "linearize_cache_indices_from_row_idx(Tensor cache_hash_size_cumsum, Tensor update_table_indices, Tensor update_row_indices) -> Tensor");
   m.def(
