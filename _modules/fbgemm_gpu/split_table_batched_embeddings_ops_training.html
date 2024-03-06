@@ -383,6 +383,7 @@
 
 <span class="c1"># pyre-ignore-all-errors[56]</span>
 
+<span class="kn">import</span> <span class="nn">contextlib</span>
 <span class="kn">import</span> <span class="nn">enum</span>
 <span class="kn">import</span> <span class="nn">functools</span>
 <span class="kn">import</span> <span class="nn">logging</span>
@@ -390,13 +391,17 @@
 <span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
 <span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">accumulate</span>
 <span class="kn">from</span> <span class="nn">math</span> <span class="kn">import</span> <span class="n">log2</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Type</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Type</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="kn">import</span> <span class="nn">torch</span>  <span class="c1"># usort:skip</span>
 <span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
 
 <span class="kn">import</span> <span class="nn">fbgemm_gpu.split_embedding_codegen_lookup_invokers</span> <span class="k">as</span> <span class="nn">invokers</span>
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.runtime_monitor</span> <span class="kn">import</span> <span class="n">TBEStatsReporter</span><span class="p">,</span> <span class="n">TBEStatsReporterConfig</span>
+<span class="kn">from</span> <span class="nn">fbgemm_gpu.runtime_monitor</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AsyncSeriesTimer</span><span class="p">,</span>
+    <span class="n">TBEStatsReporter</span><span class="p">,</span>
+    <span class="n">TBEStatsReporterConfig</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.split_embedding_configs</span> <span class="kn">import</span> <span class="n">EmbOptimType</span> <span class="k">as</span> <span class="n">OptimType</span><span class="p">,</span> <span class="n">SparseType</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">BoundsCheckMode</span><span class="p">,</span>
@@ -826,6 +831,20 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEStatsReporter</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">stats_reporter_config</span><span class="o">.</span><span class="n">create_reporter</span><span class="p">()</span> <span class="k">if</span> <span class="n">stats_reporter_config</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">bwd_wait_prefetch_timer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AsyncSeriesTimer</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="p">:</span>
+            <span class="c1"># When stats_reporter is present, we set up async series timer to</span>
+            <span class="c1"># measure the GPU time per tracked event accordingly. Each of them</span>
+            <span class="c1"># is attached to custom callback report function to report collected</span>
+            <span class="c1"># duration with the corresponding event name.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bwd_wait_prefetch_timer</span> <span class="o">=</span> <span class="n">AsyncSeriesTimer</span><span class="p">(</span>
+                <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span>
+                    <span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="o">.</span><span class="n">_report_wait_prefetch_time</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="p">,</span>
+                    <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;bwd_wait_for_prefetch&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">int8_emb_row_dim_offset</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">INT8_EMB_ROW_DIM_OFFSET</span>
 
@@ -1262,6 +1281,18 @@
         <span class="c1"># table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:</span>
 
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span>
+
+    <span class="c1"># The callback function for AsyncTimer to record duration to different event</span>
+    <span class="k">def</span> <span class="nf">_report_wait_prefetch_time</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">it_step</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">dur_ms</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">event_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span>
+        <span class="p">),</span> <span class="s2">&quot;We should not be here. AsyncTimer only happens with reporter present.&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_duration</span><span class="p">(</span><span class="n">it_step</span><span class="p">,</span> <span class="n">event_name</span><span class="p">,</span> <span class="n">dur_ms</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -2189,6 +2220,20 @@
                 <span class="sa">f</span><span class="s2">&quot;or </span><span class="si">{</span><span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LFU</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
 
+    <span class="c1"># pyre-ignore</span>
+    <span class="k">def</span> <span class="nf">_recording_to_timer</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">timer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AsyncSeriesTimer</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">should_report</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">step</span>
+        <span class="p">):</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">timer</span>
+            <span class="p">),</span> <span class="s2">&quot;We shouldn&#39;t be here, async timer must have been initiated if reporter is present.&quot;</span>
+            <span class="k">return</span> <span class="n">timer</span><span class="o">.</span><span class="n">recording</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="c1"># No-Op context manager</span>
+        <span class="k">return</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">nullcontext</span><span class="p">()</span>
+
     <span class="k">def</span> <span class="nf">_sync_stream_post_backward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">grad</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -2249,7 +2294,12 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="c1"># need to wait for the prefetch of next batch,</span>
             <span class="c1"># so that cache states are valid</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_stream</span><span class="p">()</span><span class="o">.</span><span class="n">wait_stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span><span class="p">)</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recording_to_timer</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bwd_wait_prefetch_timer</span><span class="p">,</span>
+                <span class="n">context</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
+                <span class="n">stream</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_stream</span><span class="p">(),</span>
+            <span class="p">):</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_stream</span><span class="p">()</span><span class="o">.</span><span class="n">wait_stream</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span><span class="p">)</span>
 
         <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lxu_cache_locking_counter_decrement</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locking_counter</span><span class="p">,</span>
