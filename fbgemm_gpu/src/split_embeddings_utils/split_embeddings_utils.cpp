@@ -6,8 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/split_embeddings_utils.cuh"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
+#include "fbgemm_gpu/sparse_ops_utils.h" // @manual
 
 #include <ATen/ATen.h>
 #include <torch/library.h>
