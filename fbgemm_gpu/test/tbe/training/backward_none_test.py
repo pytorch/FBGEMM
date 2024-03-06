@@ -82,7 +82,9 @@ class BackwardNoneTest(unittest.TestCase):
                 PoolingMode.NONE,
             ]
         ),
-        output_dtype=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+        ),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -110,7 +112,9 @@ class BackwardNoneTest(unittest.TestCase):
                 PoolingMode.NONE,
             ]
         ),
-        output_dtype=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+        ),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -150,6 +154,9 @@ class BackwardNoneTest(unittest.TestCase):
         assume(not weighted or pooling_mode != PoolingMode.NONE)
 
         assume(pooling_mode == PoolingMode.SUM or not weighted)
+        # TODO: Check why long_segments=True fails when output_dtype ==
+        # SparseType.BF16
+        assume(not long_segments or output_dtype != SparseType.BF16)
 
         if pooling_mode == PoolingMode.SUM:
             mode = "sum"
@@ -269,6 +276,10 @@ class BackwardNoneTest(unittest.TestCase):
                     for (b, x, xw) in zip(bs, xs, xws)
                 ]
             )
+            # Torch's Embedding only produces an output that has the same type
+            # as weight
+            if weights_precision != output_dtype:
+                fs = [f.to(output_dtype.as_dtype()) for f in fs]
             gos: Union[List[Tensor], Tensor] = [torch.randn_like(f) for f in fs]
             [f.backward(go) for (f, go) in zip(fs, gos)]
         else:

@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 
 import json
 import logging
@@ -2411,6 +2413,7 @@ def hashtable(  # noqa C901
     )
 
     if use_cpu:
+        # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
         ht = torch.classes.fbgemm.PrunedMapCPU()
         ht.insert(chosen_indices, dense_indices, offsets, T)
 

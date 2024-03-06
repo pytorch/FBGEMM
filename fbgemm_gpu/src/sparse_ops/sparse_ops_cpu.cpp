@@ -1183,7 +1183,7 @@ Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
 
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
-  FBGEMM_DISPATCH_INTEGRAL_TYPES(
+  FBGEMM_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
       "asynchronous_exclusive_cumsum_cpu_kernel",
       [&] {
@@ -1200,7 +1200,7 @@ Tensor asynchronous_inclusive_cumsum_cpu(const Tensor& t_in) {
 
   const auto t_in_contig = t_in.expect_contiguous();
   auto output = native_empty_like(*t_in_contig);
-  FBGEMM_DISPATCH_INTEGRAL_TYPES(
+  FBGEMM_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
       "asynchronous_inclusive_cumsum_cpu_kernel",
       [&] {
@@ -1227,7 +1227,7 @@ Tensor asynchronous_complete_cumsum_cpu(const Tensor& t_in) {
       ? at::empty({t_in.numel() + 1}, t_in.options())
       : at::empty({t_in.size(0), t_in.size(1) + 1}, t_in.options());
 
-  FBGEMM_DISPATCH_INTEGRAL_TYPES(
+  FBGEMM_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
       "asynchronous_complete_cumsum_cpu_kernel",
       [&] {

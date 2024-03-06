@@ -25,7 +25,7 @@ generate_vbe_metadata_meta(
     const Tensor& D_offsets,
     const int64_t D,
     const bool nobag,
-    const int64_t max_B_feature_rank,
+    const c10::SymInt max_B_feature_rank,
     const int64_t info_B_num_bits,
     const c10::SymInt total_B) {
   Tensor row_output_offsets =
@@ -62,7 +62,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor D_offsets, "
       "    int D, "
       "    bool nobag, "
-      "    int max_B_feature_rank, "
+      "    SymInt max_B_feature_rank, "
       "    int info_B_num_bits, "
       "    SymInt total_B"
       ") -> (Tensor, Tensor)");

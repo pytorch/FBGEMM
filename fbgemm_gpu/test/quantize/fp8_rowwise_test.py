@@ -10,7 +10,6 @@ import logging
 import os
 import sys
 import unittest
-from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
 import torch
@@ -31,23 +30,7 @@ else:
     )
 
 
-# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
-# Please avoid putting tests here, you should put operator-specific
-# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
-# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: Dict[str, List[Callable]] = {
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add_jagged_output": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
-}
-
-
-@optests.generate_opcheck_tests(additional_decorators=additional_decorators)
+@optests.generate_opcheck_tests()
 class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
     enable_logging: bool = False
     max_examples: int = 40
