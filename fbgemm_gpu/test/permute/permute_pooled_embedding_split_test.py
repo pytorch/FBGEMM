@@ -6,27 +6,20 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
+# pyre-ignore-all-errors[56]
 
 import unittest
 from itertools import accumulate
 from typing import List, Tuple
 
 import torch
-import torch._dynamo
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
+from .common import open_source
 
+if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
-except Exception:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_gpu"
-    )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_cpu"
-    )
+else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
@@ -37,7 +30,7 @@ class PermutePooledEmbeddingSplitTest(unittest.TestCase):
         super().setUp()
         self.device = "cuda"
 
-    @unittest.skipIf(*typed_gpu_unavailable)
+    @unittest.skipIf(*gpu_unavailable)
     def test_duplicate_permutations(self) -> None:
         # self.device = "cuda"
         embs_dims = [2, 3, 1, 4]
