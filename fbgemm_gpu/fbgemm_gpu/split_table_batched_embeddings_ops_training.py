@@ -842,6 +842,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.step = 0
+        self.last_reported_step = 0
 
         # Check whether to use TBE v2
         is_experimental = False
@@ -1057,6 +1058,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._offsets = offsets
 
         self.step += 1
+        if self.stats_reporter is not None and self.stats_reporter.should_report(
+            self.step
+        ):
+            stats_reporter: TBEStatsReporter = self.stats_reporter
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.fwd_input_size",
+                data_bytes=indices.element_size() * indices.numel(),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.fwd_input_count",
+                data_bytes=indices.numel(),
+            )
+
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets)
 
@@ -1286,6 +1302,59 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self.log(f"uvm_cache_stats={m}")
 
+    def report_uvm_cache_stats(self) -> None:
+        if self.stats_reporter is None:
+            return
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        passed_steps = self.step - self.last_reported_step
+        if passed_steps == 0:
+            return
+        if not stats_reporter.should_report(self.step):
+            return
+
+        uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
+            use_local_cache=False
+        ).tolist()
+        self.last_reported_step = self.step
+        self.uvm_cache_stats.zero_()
+
+        element_size = self.lxu_cache_weights.element_size()
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.prefetch.cache_stats_by_data_size.requested",
+            data_bytes=int(
+                uvm_cache_stats[1] * element_size * self.max_D_cache / passed_steps
+            ),
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.prefetch.cache_stats_by_data_size.unique",
+            data_bytes=int(
+                uvm_cache_stats[2] * element_size * self.max_D_cache / passed_steps
+            ),
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.prefetch.cache_stats_by_data_size.unique_miss",
+            data_bytes=int(
+                uvm_cache_stats[3] * element_size * self.max_D_cache / passed_steps
+            ),
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.prefetch.cache_stats_by_data_size.conflict_unique_miss",
+            data_bytes=int(
+                uvm_cache_stats[4] * element_size * self.max_D_cache / passed_steps
+            ),
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.prefetch.cache_stats_by_data_size.conflict_miss",
+            data_bytes=int(
+                uvm_cache_stats[5] * element_size * self.max_D_cache / passed_steps
+            ),
+        )
+
     def prefetch(
         self,
         indices: Tensor,
@@ -1313,6 +1382,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # forward step
         if self.gather_uvm_cache_stats:
             self.local_uvm_cache_stats.zero_()
+        if self.stats_reporter is not None and self.stats_reporter.should_report(
+            self.step
+        ):
+            stats_reporter: TBEStatsReporter = self.stats_reporter
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.prefetch_input_size",
+                data_bytes=indices.element_size() * indices.numel(),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.prefetch_input_count",
+                data_bytes=indices.numel(),
+            )
 
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
@@ -1395,6 +1478,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
+            self.report_uvm_cache_stats()
             if self.should_log():
                 self.print_uvm_cache_stats(use_local_cache=False)
 

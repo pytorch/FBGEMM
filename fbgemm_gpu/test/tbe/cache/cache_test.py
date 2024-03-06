@@ -10,7 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import cast, Optional, Tuple
+from typing import cast, List, Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -178,8 +178,16 @@ class CacheTest(unittest.TestCase):
                 cc.prefetch(indices, offsets, stream)
 
         _prefetch(cc, batch_i)
+
+        input_batch_count: List[int] = []
+        intput_original_size: int = 0
+        intput_long_size: int = 0
         while batch_i:
             indices, offsets, _ = batch_i
+            # We force the conversion because this is what TBE kernel did in forward
+            intput_original_size = indices.element_size()
+            intput_long_size = indices.long().element_size()
+            input_batch_count.append(indices.numel())
             batch_ip1 = next(req_iter, None)
             if prefetch_stream:
                 cur_stream.wait_stream(prefetch_stream)
@@ -217,21 +225,77 @@ class CacheTest(unittest.TestCase):
             cc.bwd_wait_prefetch_timer._lazy_report()
 
             self.assertIsInstance(cc.stats_reporter, TestingStatsReporter)
-            stats_reporter = cast(TestingStatsReporter, cc.stats_reporter)
-            self.assertEqual(len(stats_reporter.reported_data), 3)
-            for step in [1, 3, 5]:
-                (
-                    rep_step,
-                    rep_event,
-                    rep_duration,
-                    rep_emb_id,
-                    rep_tbe_id,
-                ) = stats_reporter.reported_data.pop(0)
-                self.assertEqual(rep_step, step)
-                self.assertEqual(rep_event, "bwd_wait_for_prefetch")
-                self.assertGreaterEqual(float(rep_duration), 0)
-                self.assertEqual(rep_emb_id, "")
-                self.assertEqual(rep_tbe_id, "")
+            stats_reporter: TestingStatsReporter = cast(
+                TestingStatsReporter, cc.stats_reporter
+            )
+
+            def assert_event_exist(
+                event_name: str, steps: List[int], expected_value: List[int] = []
+            ) -> None:
+                self.assertEqual(
+                    len(stats_reporter.reported_data[event_name]), len(steps)
+                )
+                if len(expected_value) > 0:
+                    self.assertEqual(len(expected_value), len(steps))
+                for i, step in enumerate(steps):
+                    (
+                        rep_step,
+                        rep_event,
+                        rep_val,
+                        rep_emb_id,
+                        rep_tbe_id,
+                    ) = stats_reporter.reported_data[event_name].pop(0)
+                    self.assertEqual(rep_step, step)
+                    self.assertEqual(rep_event, event_name)
+                    if len(expected_value) > 0:
+                        self.assertEqual(rep_val, expected_value[i])
+                    else:
+                        self.assertGreaterEqual(float(rep_val), 0)
+                    self.assertEqual(rep_emb_id, "")
+                    self.assertEqual(rep_tbe_id, "")
+
+            def assert_event_not_exist(event_name: str) -> None:
+                self.assertFalse(event_name in stats_reporter.reported_data)
+
+            # Any reporting event happen before forward() will bear step timestamp
+            # of 1 ~ 5, only odd step will be reported, so 1, 3, 5 steps will be in
+            #
+            # On the other side, if a reporting event happens after forward(), it'll
+            # have step timestamp 0 ~ 4, so only 1, 3 steps will be in.
+            assert_event_exist("bwd_wait_for_prefetch", [1, 3, 5])
+            assert_event_exist(
+                "tbe.fwd_input_size",
+                [1, 3, 5],
+                [input_batch_count[i] * intput_long_size for i in [0, 2, 4]],
+            )
+            assert_event_exist(
+                "tbe.fwd_input_count",
+                [1, 3, 5],
+                [input_batch_count[i] for i in [0, 2, 4]],
+            )
+
+            uvm_cache_events = [
+                "tbe.prefetch.cache_stats_by_data_size.requested",
+                "tbe.prefetch.cache_stats_by_data_size.unique",
+                "tbe.prefetch.cache_stats_by_data_size.unique_miss",
+                "tbe.prefetch.cache_stats_by_data_size.conflict_unique_miss",
+                "tbe.prefetch.cache_stats_by_data_size.conflict_miss",
+            ]
+            for event in uvm_cache_events:
+                if gather_uvm_cache_stats:
+                    assert_event_exist(event, [1, 3])
+                else:
+                    assert_event_not_exist(event)
+            assert_event_exist(
+                "tbe.prefetch_input_size",
+                [1, 3],
+                [input_batch_count[i] * intput_original_size for i in [1, 3]],
+            )
+            assert_event_exist(
+                "tbe.prefetch_input_count",
+                [1, 3],
+                [input_batch_count[i] for i in [1, 3]],
+            )
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
