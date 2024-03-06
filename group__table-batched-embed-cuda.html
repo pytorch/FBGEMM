@@ -85,8 +85,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga76807cfe283a9e8f258818f3f439e6cd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga920da453c443675fc7fbc9d68e272a61" id="r_ga920da453c443675fc7fbc9d68e272a61"><td class="memItemLeft" align="right" valign="top">int64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga920da453c443675fc7fbc9d68e272a61">host_lxu_cache_slot</a> (int64_t h_in, int64_t C)</td></tr>
 <tr class="separator:ga920da453c443675fc7fbc9d68e272a61"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga23e7545e51b296d9b72c86f37c360dc6" id="r_ga23e7545e51b296d9b72c86f37c360dc6"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga23e7545e51b296d9b72c86f37c360dc6">linearize_cache_indices_cuda</a> (at::Tensor cache_hash_size_cumsum, at::Tensor indices, at::Tensor offsets)</td></tr>
-<tr class="separator:ga23e7545e51b296d9b72c86f37c360dc6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5a008c45a63d5822b1c77b2aae20c04f" id="r_ga5a008c45a63d5822b1c77b2aae20c04f"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga5a008c45a63d5822b1c77b2aae20c04f">linearize_cache_indices_cuda</a> (const at::Tensor &amp;cache_hash_size_cumsum, const at::Tensor &amp;indices, const at::Tensor &amp;offsets, const c10::optional&lt; at::Tensor &gt; &amp;B_offsets, const int64_t max_B)</td></tr>
+<tr class="separator:ga5a008c45a63d5822b1c77b2aae20c04f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6eed85d3e9b5dbef8a753bb81c2d6e05" id="r_ga6eed85d3e9b5dbef8a753bb81c2d6e05"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga6eed85d3e9b5dbef8a753bb81c2d6e05">linearize_cache_indices_from_row_idx_cuda</a> (at::Tensor cache_hash_size_cumsum, at::Tensor update_table_indices, at::Tensor update_row_indices)</td></tr>
 <tr class="separator:ga6eed85d3e9b5dbef8a753bb81c2d6e05"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga00d12767ad238d73598bf7dc4d1afa06" id="r_ga00d12767ad238d73598bf7dc4d1afa06"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga00d12767ad238d73598bf7dc4d1afa06">lru_cache_populate_cuda</a> (at::Tensor weights, at::Tensor hash_size_cumsum, int64_t total_cache_hash_size, at::Tensor cache_index_table_map, at::Tensor weights_offsets, at::Tensor D_offsets, at::Tensor linear_cache_indices, at::Tensor lxu_cache_state, at::Tensor lxu_cache_weights, int64_t time_stamp, at::Tensor lru_state, bool stochastic_rounding, bool gather_cache_stats, c10::optional&lt; at::Tensor &gt; uvm_cache_stats, bool lock_cache_line, c10::optional&lt; at::Tensor &gt; lxu_cache_locking_counter)</td></tr>
@@ -430,8 +430,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga23e7545e51b296d9b72c86f37c360dc6" name="ga23e7545e51b296d9b72c86f37c360dc6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga23e7545e51b296d9b72c86f37c360dc6">&#9670;&#160;</a></span>linearize_cache_indices_cuda()</h2>
+<a id="ga5a008c45a63d5822b1c77b2aae20c04f" name="ga5a008c45a63d5822b1c77b2aae20c04f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga5a008c45a63d5822b1c77b2aae20c04f">&#9670;&#160;</a></span>linearize_cache_indices_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -439,17 +439,27 @@ Functions</h2></td></tr>
         <tr>
           <td class="memname">at::Tensor linearize_cache_indices_cuda </td>
           <td>(</td>
-          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>cache_hash_size_cumsum</em>, </span></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>cache_hash_size_cumsum</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>offsets</em></span>&#160;)</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>offsets</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const c10::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>B_offsets</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_B</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
