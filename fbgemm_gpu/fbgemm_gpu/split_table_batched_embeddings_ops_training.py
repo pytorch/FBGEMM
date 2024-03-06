@@ -124,6 +124,16 @@ class CowClipDefinition:
     lower_bound: float = 0.0
 
 
+# Keep in sync with fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh
+class UVMCacheStatsIndex(enum.IntEnum):
+    num_calls = 0
+    num_requested_indices = 1
+    num_unique_indices = 2
+    num_unique_misses = 3
+    num_conflict_unique_misses = 4
+    num_conflict_misses = 5
+
+
 def construct_split_state(
     embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]],
     rowwise: bool,
@@ -1242,23 +1252,39 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
         return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
+    @torch.jit.ignore
     def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
         uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
             use_local_cache
         ).tolist()
-        self.log(
-            f"N_called: {uvm_cache_stats[0]}\n"
-            f"N_requested_indices: {uvm_cache_stats[1]}\n"
-            f"N_unique_indices: {uvm_cache_stats[2]}\n"
-            f"N_unique_misses: {uvm_cache_stats[3]}\n"
-            f"N_conflict_unique_misses: {uvm_cache_stats[4]}\n"
-            f"N_conflict_misses: {uvm_cache_stats[5]}\n"
-        )
+        m = {
+            "N_called": uvm_cache_stats[UVMCacheStatsIndex.num_calls],
+            "N_requested_indices": uvm_cache_stats[
+                UVMCacheStatsIndex.num_requested_indices
+            ],
+            "N_unique_indices": uvm_cache_stats[UVMCacheStatsIndex.num_unique_indices],
+            "N_unique_misses": uvm_cache_stats[UVMCacheStatsIndex.num_unique_misses],
+            "N_conflict_unique_misses": uvm_cache_stats[
+                UVMCacheStatsIndex.num_conflict_unique_misses
+            ],
+            "N_conflict_misses": uvm_cache_stats[
+                UVMCacheStatsIndex.num_conflict_misses
+            ],
+        }
         if uvm_cache_stats[1]:
-            self.log(
-                f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
-                f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
+            m.update(
+                {
+                    "unique indices / requested indices": uvm_cache_stats[
+                        UVMCacheStatsIndex.num_unique_indices
+                    ]
+                    / uvm_cache_stats[UVMCacheStatsIndex.num_requested_indices],
+                    "unique misses / requested indices": uvm_cache_stats[
+                        UVMCacheStatsIndex.num_unique_misses
+                    ]
+                    / uvm_cache_stats[UVMCacheStatsIndex.num_requested_indices],
+                }
             )
+        self.log(f"uvm_cache_stats={m}")
 
     def prefetch(
         self,
@@ -1370,7 +1396,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
             if self.should_log():
-                self.print_uvm_cache_stats()
+                self.print_uvm_cache_stats(use_local_cache=False)
 
     def should_log(self) -> bool:
         """Determines if we should log for this step, using exponentially decreasing frequency.
