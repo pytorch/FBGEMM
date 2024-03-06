@@ -57,28 +57,45 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
 } // namespace
 
 DLL_PUBLIC Tensor linearize_cache_indices_cuda(
-    Tensor cache_hash_size_cumsum,
-    Tensor indices,
-    Tensor offsets) {
+    const Tensor& cache_hash_size_cumsum,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const c10::optional<Tensor>& B_offsets,
+    const int64_t max_B) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cache_hash_size_cumsum, indices, offsets);
 
-  CUDA_DEVICE_GUARD(cache_hash_size_cumsum);
-
   const auto T = cache_hash_size_cumsum.size(0) - 1;
   TORCH_CHECK(T > 0);
-  // offsets = [B x T  + 1]
-  const auto B = (offsets.size(0) - 1) / T;
-  TORCH_CHECK(B >= 0);
+  const int32_t total_B = offsets.size(0) - 1;
+  const auto num_indices = indices.numel();
+
+  CUDA_DEVICE_GUARD(cache_hash_size_cumsum);
 
   auto linear_cache_indices =
       at::empty(indices.sizes(), indices.options().dtype(at::kLong));
-  const auto num_indices = indices.numel();
-  if (B == 0 || num_indices == 0) {
+
+  if (total_B == 0 || num_indices == 0) {
     return linear_cache_indices;
   }
 
-  const auto table_offsets = offsets.slice(0, B, B * T, B);
+  const auto vbe = B_offsets.has_value();
+
+  Tensor table_offsets;
+  if (vbe) {
+    TORCH_CHECK(max_B >= 0, "Invalid max_B ", max_B, ". max_B must be >= 0");
+    table_offsets =
+        at::index_select(offsets, 0, B_offsets.value().slice(0, 1, T, 1));
+  } else {
+    // offsets = [B x T + 1]
+    const auto B = total_B / T;
+    TORCH_CHECK(
+        B >= 0,
+        "Invalid B ",
+        B,
+        ". Please check the size of offsets and cache_hash_size_cumsum.");
+    table_offsets = offsets.slice(0, B, B * T, B);
+  }
 
   AT_DISPATCH_INDEX_TYPES(
       table_offsets.scalar_type(), "linearize_cache_indices_kernel_1", [&] {

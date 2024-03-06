@@ -56,9 +56,11 @@ int64_t host_lxu_cache_slot(int64_t h_in, int64_t C);
 ///@ingroup table-batched-embed-cuda
 /// Linearize the indices of all tables to make it be unique
 at::Tensor linearize_cache_indices_cuda(
-    at::Tensor cache_hash_size_cumsum,
-    at::Tensor indices,
-    at::Tensor offsets);
+    const at::Tensor& cache_hash_size_cumsum,
+    const at::Tensor& indices,
+    const at::Tensor& offsets,
+    const c10::optional<at::Tensor>& B_offsets,
+    const int64_t max_B);
 
 ///@ingroup table-batched-embed-cuda
 /// Linearize the indices of all tables to make it be unique.
