@@ -14,6 +14,7 @@ import enum
 import functools
 import logging
 import os
+import uuid
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
@@ -305,6 +306,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     record_cache_metrics: RecordCacheMetrics
     uvm_cache_stats: torch.Tensor
     local_uvm_cache_stats: torch.Tensor
+    uuid: str
 
     def __init__(  # noqa C901
         self,
@@ -358,9 +360,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # should be set.
         prefetch_pipeline: bool = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
+        # Embedding table names that are contained in this TBE.
+        table_names: Optional[List[str]] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
-
+        self.uuid = str(uuid.uuid4())
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
@@ -818,8 +822,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=cache_embedding_dtype,
         )
 
-        logging.info(
-            f"Using fused {optimizer} with optimizer_args={self.optimizer_args if optimizer != OptimType.NONE else None}\n"
+        self.log(f"Contents: {table_names}")
+        self.log(
+            f"Using fused {optimizer} with optimizer_args={self.optimizer_args if optimizer != OptimType.NONE else None}"
+        )
+        self.log(
             f"Using rowwise_adagrad_with_counter={self._used_rowwise_adagrad_with_counter}"
         )
 
@@ -830,16 +837,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         fbgemm_exp_tbe = os.environ.get("FBGEMM_EXPERIMENTAL_TBE")
         if use_experimental_tbe:
             is_experimental = True
-            logging.info(
-                "use_experimental_tbe is set to True; Use experimental TBE: True"
-            )
+            self.log("use_experimental_tbe is set to True; Use experimental TBE: True")
         elif fbgemm_exp_tbe is not None:
             is_experimental = int(fbgemm_exp_tbe) == 1
-            logging.info(
+            self.log(
                 f"FBGEMM_EXPERIMENTAL_TBE is set to {fbgemm_exp_tbe}; "
                 f"Use experimental TBE: {is_experimental}"
             )
         self.is_experimental: bool = is_experimental
+
+    def log(self, msg: str) -> None:
+        """Log with TBE id prefix to distinguish between multiple TBE instances per process."""
+        logging.info(f"[TBE={self.uuid}] {msg}")
 
     def _register_nonpersistent_buffers(self, prefix: str) -> None:
         # NOTE: make TorchScript work!
@@ -1235,7 +1244,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
             use_local_cache
         ).tolist()
-        logging.info(
+        self.log(
             f"N_called: {uvm_cache_stats[0]}\n"
             f"N_requested_indices: {uvm_cache_stats[1]}\n"
             f"N_unique_indices: {uvm_cache_stats[2]}\n"
@@ -1244,7 +1253,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"N_conflict_misses: {uvm_cache_stats[5]}\n"
         )
         if uvm_cache_stats[1]:
-            logging.info(
+            self.log(
                 f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
                 f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
             )
@@ -1771,7 +1780,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2**24 - 1
         cache_size = cache_sets * DEFAULT_ASSOC * element_size * self.max_D_cache
-        logging.info(
+        self.log(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
             f"load_factor: {cache_load_factor : .3f}, "
