@@ -8,6 +8,7 @@
 # pyre-strict
 
 import abc
+import logging
 from collections import deque
 from dataclasses import dataclass
 from types import TracebackType
@@ -47,6 +48,27 @@ class TBEStatsReporter(abc.ABC):
         ...
 
 
+class StdLogStatsReporter(TBEStatsReporter):
+    def __init__(self, report_interval: int) -> None:
+        assert report_interval > 0, "Report interval must be positive"
+        self.report_interval = report_interval
+
+    def should_report(self, iteration_step: int) -> bool:
+        return iteration_step % self.report_interval == 0
+
+    def report_duration(
+        self,
+        iteration_step: int,
+        event_name: str,
+        duration_ms: float,
+        embedding_id: str = "",
+        tbe_id: str = "",
+    ) -> None:
+        logging.info(
+            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} ms"
+        )
+
+
 @dataclass
 class TBEStatsReporterConfig:
     """
@@ -64,6 +86,14 @@ class TBEStatsReporterConfig:
             self.interval <= 0
         ), "Cannot specify interval without an actual implementation of reporter"
         return None
+
+
+@dataclass
+class StdLogStatsReporterConfig(TBEStatsReporterConfig):
+    def create_reporter(self) -> Optional[TBEStatsReporter]:
+        if self.interval <= 0:
+            return None
+        return StdLogStatsReporter(report_interval=self.interval)
 
 
 T = TypeVar("T")

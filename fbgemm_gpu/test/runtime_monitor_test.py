@@ -6,11 +6,16 @@
 
 
 import unittest
-from typing import List, Tuple
+from typing import cast, List, Tuple
 
 import fbgemm_gpu
 import torch
-from fbgemm_gpu.runtime_monitor import AsyncSeriesTimer
+from fbgemm_gpu.runtime_monitor import (
+    AsyncSeriesTimer,
+    StdLogStatsReporter,
+    StdLogStatsReporterConfig,
+    TBEStatsReporterConfig,
+)
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -133,3 +138,33 @@ class RuntimeMonitorTest(unittest.TestCase):
         self.assertGreaterEqual(timer.outputs[0][1], 0)
         self.assertGreaterEqual(timer.outputs[1][1], 0)
         self.assertGreaterEqual(timer.outputs[2][1], 0)
+
+    def test_noop_reporter(self) -> None:
+        """
+        Test the base reporter config can only create noop-reporter (None) or
+        fail if interval is positive (which requires a real reporting)
+        """
+        # This config can create a None reporter, because interval is non-positive
+        config = TBEStatsReporterConfig()
+        self.assertIsNone(config.create_reporter())
+
+        # This config cannot, because it provides a positive interval without
+        # giving any actual implementation
+        config = TBEStatsReporterConfig(interval=100)
+        with self.assertRaises(AssertionError):
+            config.create_reporter()
+
+    def test_stdlog_reporter(self) -> None:
+        """
+        Test std log reporter be created with different config and log as expected
+        """
+        config = StdLogStatsReporterConfig(interval=0)
+        self.assertIsNone(config.create_reporter())
+
+        config = StdLogStatsReporterConfig(interval=100)
+        reporter = config.create_reporter()
+        self.assertIsInstance(reporter, StdLogStatsReporter)
+        r = cast(StdLogStatsReporter, reporter)
+        self.assertTrue(r.should_report(500))
+        self.assertFalse(r.should_report(101))
+        r.report_duration(iteration_step=500, event_name="test_event", duration_ms=404)
