@@ -432,6 +432,15 @@
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
     <span class="k">pass</span>
 
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">torch._dynamo</span> <span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">is_torchdynamo_compiling</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">is_torchdynamo_compiling</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>  <span class="c1"># type: ignore[misc]</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+
 <span class="n">DEFAULT_ASSOC</span> <span class="o">=</span> <span class="mi">32</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">hip</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">64</span>
 <span class="n">INT8_EMB_ROW_DIM_OFFSET</span> <span class="o">=</span> <span class="mi">8</span>
 
@@ -1339,11 +1348,14 @@
 
             <span class="c1"># Create B offsets</span>
             <span class="n">total_batch_size_per_feature</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
-                <span class="p">[</span><span class="nb">sum</span><span class="p">(</span><span class="n">batch_sizes</span><span class="p">)</span> <span class="k">for</span> <span class="n">batch_sizes</span> <span class="ow">in</span> <span class="n">batch_size_per_feature_per_rank</span><span class="p">],</span>
-                <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
-                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
-            <span class="p">)</span>
-            <span class="n">max_B</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">total_batch_size_per_feature</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+                <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="n">max_B</span> <span class="o">=</span> <span class="n">total_batch_size_per_feature</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">max_B</span><span class="p">)</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B</span> <span class="o">&lt;=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+
             <span class="n">Bs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">zero_tensor</span><span class="p">,</span> <span class="n">total_batch_size_per_feature</span><span class="p">])</span>
             <span class="n">B_offsets</span> <span class="o">=</span> <span class="n">Bs</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">)</span>
 
@@ -1353,7 +1365,10 @@
                 <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
                 <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="n">max_B_feature_rank</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">B_feature_rank</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+            <span class="n">max_B_feature_rank</span> <span class="o">=</span> <span class="n">B_feature_rank</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">max_B_feature_rank</span><span class="p">)</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B_feature_rank</span> <span class="o">&lt;=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
             <span class="c1"># D-&gt;H only once</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
             <span class="n">output_sizes_feature_rank</span> <span class="o">=</span> <span class="n">B_feature_rank</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span>
@@ -1365,7 +1380,9 @@
                     <span class="n">output_sizes_feature_rank</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
                 <span class="p">]</span>
             <span class="p">)</span>
-            <span class="n">output_size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">output_offsets_feature_rank</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+            <span class="n">output_size</span> <span class="o">=</span> <span class="n">output_offsets_feature_rank</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">output_size</span><span class="p">)</span>
 
             <span class="c1"># TODO: Support INT8 output</span>
             <span class="c1"># B_offsets_rank_per_feature is for rank and (b, t) mapping</span>
@@ -1395,8 +1412,11 @@
                 <span class="n">B_offsets</span><span class="o">=</span><span class="n">B_offsets</span><span class="p">,</span>
                 <span class="n">output_offsets_feature_rank</span><span class="o">=</span><span class="n">output_offsets_feature_rank</span><span class="p">,</span>
                 <span class="n">B_offsets_rank_per_feature</span><span class="o">=</span><span class="n">B_offsets_rank_per_feature</span><span class="p">,</span>
+                <span class="c1"># pyre-ignore</span>
                 <span class="n">max_B</span><span class="o">=</span><span class="n">max_B</span><span class="p">,</span>
+                <span class="c1"># pyre-ignore</span>
                 <span class="n">max_B_feature_rank</span><span class="o">=</span><span class="n">max_B_feature_rank</span><span class="p">,</span>
+                <span class="c1"># pyre-ignore</span>
                 <span class="n">output_size</span><span class="o">=</span><span class="n">output_size</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
