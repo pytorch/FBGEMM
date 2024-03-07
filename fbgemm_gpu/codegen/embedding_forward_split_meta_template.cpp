@@ -78,7 +78,7 @@ Tensor
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
-    const int64_t vbe_output_size,
+    const c10::SymInt vbe_output_size,
     const int64_t info_B_num_bits, // int32_t
     const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
