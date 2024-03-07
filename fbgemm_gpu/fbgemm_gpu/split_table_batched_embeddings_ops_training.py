@@ -58,6 +58,15 @@ try:
 except Exception:
     pass
 
+
+try:
+    from torch._dynamo import is_compiling as is_torchdynamo_compiling
+except Exception:
+
+    def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
+        return False
+
+
 DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
 INT8_EMB_ROW_DIM_OFFSET = 8
 
@@ -965,11 +974,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             # Create B offsets
             total_batch_size_per_feature = torch.tensor(
-                [sum(batch_sizes) for batch_sizes in batch_size_per_feature_per_rank],
-                device="cpu",
-                dtype=torch.int32,
-            )
-            max_B = int(total_batch_size_per_feature.max().item())
+                batch_size_per_feature_per_rank, dtype=torch.int32, device="cpu"
+            ).sum(dim=1)
+
+            max_B = total_batch_size_per_feature.max().item()
+            if not torch.jit.is_scripting() and is_torchdynamo_compiling():
+                torch._check_is_size(max_B)
+                torch._check(max_B <= offsets.size(0))
+
             Bs = torch.concat([zero_tensor, total_batch_size_per_feature])
             B_offsets = Bs.cumsum(dim=0).to(torch.int)
 
@@ -979,7 +991,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 device="cpu",
                 dtype=torch.int64,
             )
-            max_B_feature_rank = int(B_feature_rank.max().item())
+            max_B_feature_rank = B_feature_rank.max().item()
+            if not torch.jit.is_scripting() and is_torchdynamo_compiling():
+                torch._check_is_size(max_B_feature_rank)
+                torch._check(max_B_feature_rank <= offsets.size(0))
             # D->H only once
             self.feature_dims = self.feature_dims.cpu()
             output_sizes_feature_rank = B_feature_rank.transpose(
@@ -991,7 +1006,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     output_sizes_feature_rank.flatten().cumsum(dim=0),
                 ]
             )
-            output_size = int(output_offsets_feature_rank[-1].item())
+            output_size = output_offsets_feature_rank[-1].item()
+            if not torch.jit.is_scripting() and is_torchdynamo_compiling():
+                torch._check_is_size(output_size)
 
             # TODO: Support INT8 output
             # B_offsets_rank_per_feature is for rank and (b, t) mapping
@@ -1021,8 +1038,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 B_offsets=B_offsets,
                 output_offsets_feature_rank=output_offsets_feature_rank,
                 B_offsets_rank_per_feature=B_offsets_rank_per_feature,
+                # pyre-ignore
                 max_B=max_B,
+                # pyre-ignore
                 max_B_feature_rank=max_B_feature_rank,
+                # pyre-ignore
                 output_size=output_size,
             )
         else:

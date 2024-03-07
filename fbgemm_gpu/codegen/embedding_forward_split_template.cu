@@ -747,7 +747,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- if vbe %}
           "    Tensor vbe_row_output_offsets, "
           "    Tensor vbe_b_t_map, "
-          "    int vbe_output_size, "
+          "    SymInt vbe_output_size, "
           "    int info_B_num_bits, "
           "    int info_B_mask_int64, "
           {%- endif %}
