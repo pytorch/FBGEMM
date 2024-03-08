@@ -126,19 +126,19 @@
     },
     "fbgemm::masked_select_jagged_1d": {},
     "fbgemm::offsets_range": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_1d_to_dense": {
+      "Jagged1DToDenseTest.test_aot_dispatch_dynamic__test_jagged_1d_to_dense": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_2d_to_dense": {
+      "Jagged2DToDenseTest.test_aot_dispatch_dynamic__test_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_2d_to_dense_truncation": {
+      "Jagged2DToDenseTest.test_aot_dispatch_dynamic__test_jagged_2d_to_dense_truncation": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
+      "Jagged2DToDenseTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
       }
@@ -169,81 +169,28 @@
         "status": "xfail"
       }
     },
-    "fbgemm::padding_fused_tbe_input_combine_with_length": {
-      "InputCombineTest.test_aot_dispatch_dynamic__test_padding_fused_input_combine_int32_with_length": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_aot_dispatch_dynamic__test_padding_fused_input_combine_int64_with_length": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_aot_dispatch_dynamic__test_padding_fused_input_combined_mix_with_length": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_faketensor__test_padding_fused_input_combine_int32_with_length": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_faketensor__test_padding_fused_input_combine_int64_with_length": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "InputCombineTest.test_faketensor__test_padding_fused_input_combined_mix_with_length": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
     "fbgemm::stacked_jagged_1d_to_dense": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_1d_to_dense": {
+      "Jagged1DToDenseTest.test_aot_dispatch_dynamic__test_stacked_jagged_1d_to_dense": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_faketensor__test_stacked_jagged_1d_to_dense": {
+      "Jagged1DToDenseTest.test_faketensor__test_stacked_jagged_1d_to_dense": {
         "comment": "",
         "status": "xfail"
       }
     },
     "fbgemm::stacked_jagged_2d_to_dense": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
+      "Jagged2DToDenseTest.test_aot_dispatch_dynamic__test_stacked_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_autograd_registration__test_stacked_jagged_2d_to_dense": {
+      "Jagged2DToDenseTest.test_autograd_registration__test_stacked_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_faketensor__test_stacked_jagged_2d_to_dense": {
+      "Jagged2DToDenseTest.test_faketensor__test_stacked_jagged_2d_to_dense": {
         "comment": "",
         "status": "xfail"
-      }
-    },
-    "fbgemm::tbe_input_combine": {},
-    "fbgemm::tbe_input_combine_with_length": {
-      "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_int32_with_length": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_int64_with_length": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "InputCombineTest.test_aot_dispatch_dynamic__test_input_combine_mix_with_length": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "InputCombineTest.test_faketensor__test_input_combine_int32_with_length": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "InputCombineTest.test_faketensor__test_input_combine_int64_with_length": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "InputCombineTest.test_faketensor__test_input_combine_mix_with_length": {
-        "comment": "",
-        "status": "xsuccess"
       }
     }
   }

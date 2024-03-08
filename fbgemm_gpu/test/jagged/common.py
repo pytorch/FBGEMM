@@ -106,20 +106,6 @@ def var_list_to_coo(lengths: torch.Tensor, values: torch.Tensor, N: int, D: int)
     )
 
 
-def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
-    hash_size_offsets_list = [0]
-    count = 0
-    for f in range(1, len(hash_size_cum_sum_list)):
-        count = count + 1
-        if hash_size_cum_sum_list[f] == hash_size_cum_sum_list[f - 1]:
-            curr_offsets = hash_size_offsets_list[-1]
-            hash_size_offsets_list.append(curr_offsets)
-        else:
-            hash_size_offsets_list.append(count)
-    hash_size_offsets_list[-1] = count
-    return hash_size_offsets_list
-
-
 # pyre-fixme[2]
 # pyre-fixme[24]
 def torch_compiled(model: Callable, **kwargs) -> Callable:
