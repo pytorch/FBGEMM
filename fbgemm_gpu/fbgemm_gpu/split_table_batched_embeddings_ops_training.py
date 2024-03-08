@@ -952,21 +952,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.stats_reporter.report_duration(it_step, event_name, dur_ms)
 
     @torch.jit.ignore
-    def _report_fwd_input(self, indices: Tensor) -> None:
+    def _report_io_size_count(self, event: str, data: Tensor) -> Tensor:
         if self.stats_reporter is None:
-            return None
+            return data
         stats_reporter: TBEStatsReporter = self.stats_reporter
         if stats_reporter.should_report(self.step):
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
-                event_name="tbe.fwd_input_size",
-                data_bytes=indices.element_size() * indices.numel(),
+                event_name=f"tbe.{event}_size",
+                data_bytes=data.element_size() * data.numel(),
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
-                event_name="tbe.fwd_input_count",
-                data_bytes=indices.numel(),
+                event_name=f"tbe.{event}_count",
+                data_bytes=data.numel(),
             )
+        return data
 
     def forward(  # noqa: C901
         self,
@@ -1095,7 +1096,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._offsets = offsets
 
         self.step += 1
-        self._report_fwd_input(indices)
+        self._report_io_size_count("fwd_input", indices)
 
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets)
@@ -1150,11 +1151,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 total_unique_indices is not None
                 and total_unique_indices <= indices.numel()
             ), f"OptimType.NONE requires total_unique_indices. Please pass it or check the value (total_unique_indices = {total_unique_indices})"
-            return invokers.lookup_none.invoke(
-                common_args, self.optimizer_args, total_unique_indices
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_none.invoke(
+                    common_args, self.optimizer_args, total_unique_indices
+                ),
             )
         elif self.optimizer == OptimType.EXACT_SGD:
-            return invokers.lookup_sgd.invoke(common_args, self.optimizer_args)
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_sgd.invoke(common_args, self.optimizer_args),
+            )
 
         momentum1 = invokers.lookup_args.Momentum(
             dev=self.momentum1_dev,
@@ -1165,12 +1172,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if self.optimizer == OptimType.LARS_SGD:
-            return invokers.lookup_lars_sgd.invoke(
-                common_args, self.optimizer_args, momentum1
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_lars_sgd.invoke(
+                    common_args, self.optimizer_args, momentum1
+                ),
             )
         if self.optimizer == OptimType.EXACT_ADAGRAD:
-            return invokers.lookup_adagrad.invoke(
-                common_args, self.optimizer_args, momentum1
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_adagrad.invoke(
+                    common_args, self.optimizer_args, momentum1
+                ),
             )
 
         momentum2 = invokers.lookup_args.Momentum(
@@ -1186,53 +1199,68 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.iter[0] += 1
 
         if self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
-            return invokers.lookup_rowwise_weighted_adagrad.invoke(
-                common_args,
-                self.optimizer_args,
-                momentum1,
-                # pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,
-                #  int]`.
-                self.iter.item(),
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_rowwise_weighted_adagrad.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    # pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,
+                    #  int]`.
+                    self.iter.item(),
+                ),
             )
         if self.optimizer == OptimType.ADAM:
-            return invokers.lookup_adam.invoke(
-                common_args,
-                self.optimizer_args,
-                momentum1,
-                momentum2,
-                # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                #  int]`.
-                self.iter.item(),
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_adam.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    momentum2,
+                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
+                    #  int]`.
+                    self.iter.item(),
+                ),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
-            return invokers.lookup_partial_rowwise_adam.invoke(
-                common_args,
-                self.optimizer_args,
-                momentum1,
-                momentum2,
-                # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                #  int]`.
-                self.iter.item(),
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_partial_rowwise_adam.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    momentum2,
+                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
+                    #  int]`.
+                    self.iter.item(),
+                ),
             )
         if self.optimizer == OptimType.LAMB:
-            return invokers.lookup_lamb.invoke(
-                common_args,
-                self.optimizer_args,
-                momentum1,
-                momentum2,
-                # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                #  int]`.
-                self.iter.item(),
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_lamb.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    momentum2,
+                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
+                    #  int]`.
+                    self.iter.item(),
+                ),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB:
-            return invokers.lookup_partial_rowwise_lamb.invoke(
-                common_args,
-                self.optimizer_args,
-                momentum1,
-                momentum2,
-                # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                #  int]`.
-                self.iter.item(),
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_partial_rowwise_lamb.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    momentum2,
+                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
+                    #  int]`.
+                    self.iter.item(),
+                ),
             )
 
         prev_iter = invokers.lookup_args.Momentum(
@@ -1262,19 +1290,25 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
             if self._used_rowwise_adagrad_with_counter:
-                return invokers.lookup_rowwise_adagrad_with_counter.invoke(
-                    common_args,
-                    self.optimizer_args,
-                    momentum1,
-                    prev_iter,
-                    row_counter,
-                    # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                    self.iter.item(),
-                    self.max_counter.item(),
+                return self._report_io_size_count(
+                    "fwd_output",
+                    invokers.lookup_rowwise_adagrad_with_counter.invoke(
+                        common_args,
+                        self.optimizer_args,
+                        momentum1,
+                        prev_iter,
+                        row_counter,
+                        # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
+                        self.iter.item(),
+                        self.max_counter.item(),
+                    ),
                 )
             else:
-                return invokers.lookup_rowwise_adagrad.invoke(
-                    common_args, self.optimizer_args, momentum1
+                return self._report_io_size_count(
+                    "fwd_output",
+                    invokers.lookup_rowwise_adagrad.invoke(
+                        common_args, self.optimizer_args, momentum1
+                    ),
                 )
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
@@ -1372,23 +1406,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if forward_stream is not None:
             self._prefetch_tensors_record_stream(forward_stream)
 
-    @torch.jit.ignore
-    def _report_prefetch_input(self, indices: Tensor) -> None:
-        if self.stats_reporter is None:
-            return None
-        stats_reporter: TBEStatsReporter = self.stats_reporter
-        if stats_reporter.should_report(self.step):
-            stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name="tbe.prefetch_input_size",
-                data_bytes=indices.element_size() * indices.numel(),
-            )
-            stats_reporter.report_data_amount(
-                iteration_step=self.step,
-                event_name="tbe.prefetch_input_count",
-                data_bytes=indices.numel(),
-            )
-
     def _prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
@@ -1400,7 +1417,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # forward step
         if self.gather_uvm_cache_stats:
             self.local_uvm_cache_stats.zero_()
-        self._report_prefetch_input(indices)
+        self._report_io_size_count("prefetch_input", indices)
 
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
