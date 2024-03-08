@@ -208,8 +208,8 @@ class {{ autograd_func }} :
     int32_t info_B_num_bits = DEFAULT_INFO_B_NUM_BITS;
     uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
     if (max_B_.is_symbolic()) {
-      int32_t info_B_num_bits = 22;
-      uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
+      info_B_num_bits = 22;
+      info_B_mask = (1u << info_B_num_bits) - 1;
 
       // TODO(ivankobzarev): Guarding Dynamo that T and B fits in constanted number of bits.
       // TORCH_CHECK(max_B_ < 1u << info_B_num_bits)
