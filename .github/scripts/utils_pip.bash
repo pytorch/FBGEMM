@@ -42,7 +42,7 @@ __export_package_variant_info () {
   local package_variant_type_version="$1"
 
   local FALLBACK_VERSION_CUDA="12.1.1"
-  local FALLBACK_VERSION_ROCM="5.7.0"
+  local FALLBACK_VERSION_ROCM="6.0.2"
 
   if [ "$package_variant_type_version" == "cuda" ]; then
     # If "cuda", default to latest CUDA
@@ -80,7 +80,7 @@ __export_package_variant_info () {
       local rocm_version="${variant_version:-${FALLBACK_VERSION_ROCM}}"
       # shellcheck disable=SC2206
       local rocm_version_arr=(${rocm_version//./ })
-      # Convert, i.e. rocm 5.5.1 => rocm5.5
+      # Convert, i.e. rocm 5.6.1 => rocm5.6
       local variant_type="rocm"
       local variant_version="${rocm_version_arr[0]}.${rocm_version_arr[1]}"
 

@@ -91,5 +91,10 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 
+# Visual Studio Code
+.history/
+.vscode/
+*.vsix
+
 # Sphinx repos
 pytorch-sphinx-theme/
