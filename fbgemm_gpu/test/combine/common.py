@@ -14,7 +14,6 @@ import torch
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
-
 if not open_source:
     if torch.version.hip:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")

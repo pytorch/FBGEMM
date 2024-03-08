@@ -6,25 +6,28 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-
 # pyre-ignore-all-errors[56]
 
 import itertools
 import random
-import sys
 import unittest
-from typing import Callable, Dict, List, Tuple
+from typing import List, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 import torch._dynamo
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
+from .common import (
+    additional_decorators,
+    open_source,
+    torch_compiled,
+    var_list_to_coo,
+    var_list_to_coo_1d,
+)
 
+if open_source:
     # pyre-ignore[21]
     from test_utils import (
         gpu_available,
@@ -35,14 +38,7 @@ try:
         symint_vector_unsupported,
         use_cpu_strategy,
     )
-except Exception:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-    import fbgemm_gpu.sparse_ops  # noqa: F401, E402
+else:
     from fbgemm_gpu.test.test_utils import (
         gpu_available,
         gpu_unavailable,
@@ -52,106 +48,6 @@ except Exception:
         symint_vector_unsupported,
         use_cpu_strategy,
     )
-
-
-suppressed_list: List[HealthCheck] = (
-    [HealthCheck.differing_executors]
-    if getattr(HealthCheck, "differing_executors", False)
-    else []
-)
-
-# This health check seems incorrect
-settings.register_profile(
-    "suppress_differing_executors_check", suppress_health_check=suppressed_list
-)
-settings.load_profile("suppress_differing_executors_check")
-
-
-def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
-    return torch.repeat_interleave(
-        torch._dim_arange(lengths, 0).long(),
-        lengths.long(),
-    )
-
-
-# Converts lengths + values format to COO format
-# [B], [N] -> [B, N'].
-# pyre-ignore Missing return annotation [3]
-def var_list_to_coo_1d(
-    lengths: torch.Tensor,
-    values: torch.Tensor,
-    N: int,
-):
-    rows = lengths_to_segment_ids(lengths)
-    num_rows = lengths.size()[0]
-    # This does D&H sync
-    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-    output_size = lengths.sum()
-    # This does D&H sync
-    cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
-    indices = torch.stack([rows, cols])
-    dims = [num_rows, N]
-    # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
-    return torch.sparse_coo_tensor(
-        indices=indices,
-        values=values,
-        size=dims,
-    )
-
-
-# Converts lengths + values format to COO format
-# [B], [N, D] -> [B, N', D].
-# pyre-ignore Missing return annotation [3]
-def var_list_to_coo(lengths: torch.Tensor, values: torch.Tensor, N: int, D: int):
-    rows = lengths_to_segment_ids(lengths)
-    num_rows = lengths.size()[0]
-    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-    output_size = lengths.sum()
-    # This does D&H sync
-    cols = torch.ops.fbgemm.offsets_range(offsets, output_size)
-    indices = torch.stack([rows, cols])
-    dims = [num_rows, N, D]
-    # torch.sparse_coo_tensor is not supported by torch.fx, wrap it.
-    return torch.sparse_coo_tensor(
-        indices=indices,
-        values=values,
-        size=dims,
-    )
-
-
-def hash_size_cumsum_to_offsets(hash_size_cum_sum_list: List[int]) -> List[int]:
-    hash_size_offsets_list = [0]
-    count = 0
-    for f in range(1, len(hash_size_cum_sum_list)):
-        count = count + 1
-        if hash_size_cum_sum_list[f] == hash_size_cum_sum_list[f - 1]:
-            curr_offsets = hash_size_offsets_list[-1]
-            hash_size_offsets_list.append(curr_offsets)
-        else:
-            hash_size_offsets_list.append(count)
-    hash_size_offsets_list[-1] = count
-    return hash_size_offsets_list
-
-
-# pyre-fixme[2]
-# pyre-fixme[24]
-def torch_compiled(model: Callable, **kwargs) -> Callable:
-    if sys.version_info < (3, 12, 0):
-        return torch.compile(model, **kwargs)
-    else:
-        return model
-
-
-# e.g. "test_faketensor__test_cumsum": [unittest.expectedFailure]
-# Please avoid putting tests here, you should put operator-specific
-# skips and failures in deeplearning/fbgemm/fbgemm_gpu/test/failures_dict.json
-# pyre-ignore[24]: Generic type `Callable` expects 2 type parameters.
-additional_decorators: Dict[str, List[Callable]] = {
-    "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
-        # This operator has been grandfathered in. We need to fix this test failure.
-        unittest.expectedFailure,
-    ],
-}
 
 
 @optests.generate_opcheck_tests(additional_decorators=additional_decorators)
@@ -2588,324 +2484,6 @@ class JaggedTensorOpsTest(unittest.TestCase):
 
         torch.testing.assert_close(x_values.grad, x_values_ref.grad)
         torch.testing.assert_close(y.grad, y_ref.grad)
-
-    @given(
-        B=st.integers(10, 512),
-        N=st.integers(10, 64),
-        slice_length=st.integers(0, 64),
-        dtype=st.sampled_from([torch.float]),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
-    def test_jagged_slice(
-        self,
-        B: int,
-        N: int,
-        slice_length: int,
-        dtype: torch.dtype,
-    ) -> None:
-        assume(B != 0)
-        device = torch.device("cpu")
-        torch.backends.cuda.matmul.allow_tf32 = False
-        lengths = torch.randint(N + 1, size=(B,), device=device)
-        start_list = [random.randint(0, max(len_ - 1, 0)) for len_ in lengths.tolist()]
-        start = torch.tensor(start_list, device=device)
-
-        total_length = int(lengths.sum().item())
-        x_values = torch.rand(
-            (total_length), requires_grad=True, dtype=dtype, device=device
-        )
-
-        output, output_lengths = torch.ops.fbgemm.jagged_slice(
-            x_values,
-            lengths,
-            start,
-            slice_length,
-        )
-        output_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(output_lengths)
-
-        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-        x_values_ref = x_values.detach().clone().requires_grad_(True)
-
-        def jagged_slice_ref(
-            x_values: torch.Tensor,
-            offsets: torch.Tensor,
-            start: torch.Tensor,
-            slice_length: int,
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
-            end_offsets_ = slice_length + start + offsets[:-1]
-            end_offsets = torch.where(
-                end_offsets_ > offsets[1:], offsets[1:], end_offsets_
-            )
-            start_offsets = start + offsets[:-1]
-            indices_to_select: List[torch.Tensor] = []
-            for i in range(end_offsets.size(0)):
-                indices_to_select.append(
-                    torch.arange(start_offsets[i].item(), end_offsets[i].item())
-                )
-            output_ref = torch.index_select(x_values, 0, torch.cat(indices_to_select))
-            new_lengths = end_offsets - start_offsets
-            new_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(new_lengths)
-            return output_ref, new_offsets
-
-        output_ref, output_offsets_ref = jagged_slice_ref(
-            x_values_ref, offsets, start, slice_length
-        )
-
-        # verify forward
-        torch.testing.assert_close(
-            output, output_ref, msg=f"output={output} output_ref={output_ref}"
-        )
-        torch.testing.assert_close(
-            output_offsets,
-            output_offsets_ref,
-            msg=f"output_off={output_offsets} output_off_ref={output_offsets_ref}",
-        )
-        # verify backward
-        grad_output = output.detach().clone().requires_grad_(True)
-
-        output.backward(grad_output)
-        output_ref.backward(grad_output)
-
-        torch.testing.assert_close(
-            x_values.grad,
-            x_values_ref.grad,
-            msg=f"grad={x_values.grad} x_values_ref.grad={x_values_ref.grad}",
-        )
-
-    def test_jagged_slice_errors(
-        self,
-    ) -> None:
-        lengths = torch.tensor([1, 2, 3, 4, 5, 6])
-        values = torch.tensor([x + y for x in range(6) for y in range(x)])
-
-        with self.assertRaises(RuntimeError):
-            torch.ops.fbgemm.jagged_slice(
-                values, lengths, torch.tensor([2, 1, 2, 3, 4, 2]), 7
-            )
-
-        with self.assertRaises(RuntimeError):
-            torch.ops.fbgemm.jagged_slice(
-                values, lengths, torch.tensor([-2, 1, 1, 0, 1, 2]), 7
-            )
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        B=st.integers(min_value=100, max_value=200),
-        F=st.integers(min_value=50, max_value=100),
-        max_length=st.integers(min_value=5, max_value=10),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    def test_jagged_unique_indices(
-        self,
-        B: int,  # Batch size
-        F: int,  # The number of features
-        max_length: int,  # The maximum value of pooling factor
-    ) -> None:
-        hash_size_list = []
-        lengths_list = []
-        indices_list = []
-        linearized_indices_list = []
-        hash_size_offsets_list = [0]
-        for _ in range(F):
-            # We generate a small hash size to increase index duplication
-            hash_size = random.randint(3, 5)
-            hash_size_list.append(hash_size)
-            hash_size_offset = hash_size_offsets_list[-1] + 1
-            hash_size_offsets_list.append(hash_size_offset)
-            for _ in range(B):
-                length = random.randint(0, max_length)
-                lengths_list.append(length)
-                if length > 0:
-                    indices = np.random.randint(0, hash_size, size=length)
-                    linearized_indices = indices + sum(hash_size_list[:-1])
-                    indices_list.extend(indices)
-                    linearized_indices_list.extend(linearized_indices)
-
-        device = torch.device("cuda")
-        dtype = torch.int64
-        hash_size = torch.as_tensor(hash_size_list, dtype=dtype, device=device)
-        hash_size_offsets = torch.as_tensor(
-            hash_size_offsets_list, dtype=dtype, device=device
-        )
-        lengths = torch.as_tensor(lengths_list, dtype=dtype, device=device)
-        indices = torch.as_tensor(indices_list, dtype=dtype, device=device)
-        linearized_indices = torch.as_tensor(
-            linearized_indices_list, dtype=dtype, device=device
-        )
-
-        hash_size_cum_sum = torch.zeros(F + 1, dtype=dtype, device=device)
-        hash_size_cum_sum[1:] = torch.cumsum(hash_size, dim=0)
-        offsets = torch.zeros(F * B + 1, dtype=dtype, device=device)
-        offsets[1:] = torch.cumsum(lengths, dim=0)
-
-        (
-            output_lengths,
-            output_offsets,
-            unique_indices,
-            reverse_index,
-        ) = torch.ops.fbgemm.jagged_unique_indices(
-            hash_size_cum_sum, hash_size_offsets, offsets, indices
-        )
-
-        # Check hash size cumsum to offsets function
-        output_hash_size_offsets_list = hash_size_cumsum_to_offsets(
-            hash_size_cum_sum.tolist()
-        )
-        self.assertEqual(output_hash_size_offsets_list, hash_size_offsets_list)
-
-        # Compute hash size cumsum and offsets based on KJT offsets and indices
-        (
-            inferred_hash_size_cum_sum,
-            inferred_hash_size_offsets,
-        ) = torch.ops.fbgemm.jagged_hash_size_cumsum(offsets, indices, B)
-        (
-            output_lengths_inf,
-            output_offsets_inf,
-            unique_indices_inf,
-            reverse_index_inf,
-        ) = torch.ops.fbgemm.jagged_unique_indices(
-            inferred_hash_size_cum_sum, inferred_hash_size_offsets, offsets, indices
-        )
-
-        self.assertTrue(torch.equal(output_lengths, output_lengths_inf))
-        self.assertTrue(torch.equal(output_offsets, output_offsets_inf))
-        self.assertTrue(torch.equal(unique_indices, unique_indices_inf))
-        self.assertTrue(torch.equal(reverse_index, reverse_index_inf))
-
-        unique_linearized_indices = torch.unique(linearized_indices, sorted=True)
-        self.assertTrue(unique_linearized_indices.numel() == unique_indices.numel())
-
-        unique_indices_list = unique_indices.tolist()
-        reverse_index_list = reverse_index.tolist()
-        for i in range(len(reverse_index_list)):
-            pos = reverse_index_list[i]
-            self.assertTrue(unique_indices_list[pos] == indices_list[i])
-
-        input_offsets_list = offsets.tolist()
-        output_offsets_list = output_offsets.tolist()
-        for i in range(F):
-            input_start = input_offsets_list[i * B]
-            input_end = input_offsets_list[(i + 1) * B]
-            output_start = output_offsets_list[i * B]
-            output_end = output_offsets_list[(i + 1) * B]
-            for each_offset in range(input_start, input_end):
-                pos = reverse_index_list[each_offset]
-                self.assertTrue((output_start <= pos) and (pos < output_end))
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        B=st.integers(min_value=100, max_value=200),
-        F=st.integers(min_value=50, max_value=100),
-        max_length=st.integers(min_value=5, max_value=10),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=10, deadline=None)
-    def test_jagged_unique_indices_multi_keys(
-        self,
-        B: int,  # Batch size
-        F: int,  # The number of features
-        max_length: int,  # The maximum value of pooling factor
-    ) -> None:
-        hash_size_list = []
-        lengths_list = []
-        indices_list = []
-        linearized_indices_list = []
-        MAX_HASH_SIZE = 10
-        for _ in range(F):
-            # We generate a small hash size to increase index duplication
-            hash_size = random.randint(3, 6)
-            self.assertTrue(hash_size <= MAX_HASH_SIZE)
-            masked_hash_size = MAX_HASH_SIZE if random.randint(1, 3) == 3 else 0
-            hash_size_list.append(masked_hash_size)
-            for _ in range(B):
-                length = random.randint(0, max_length)
-                lengths_list.append(length)
-                if length > 0:
-                    indices = np.random.randint(0, hash_size, size=length)
-                    linearized_indices = indices + sum(hash_size_list[:-1])
-                    indices_list.extend(indices)
-                    linearized_indices_list.extend(linearized_indices)
-
-        device = torch.device("cuda")
-        dtype = torch.int64
-        hash_size = torch.as_tensor(hash_size_list, dtype=dtype, device=device)
-        lengths = torch.as_tensor(lengths_list, dtype=dtype, device=device)
-        indices = torch.as_tensor(indices_list, dtype=dtype, device=device)
-        linearized_indices = torch.as_tensor(
-            linearized_indices_list, dtype=dtype, device=device
-        )
-
-        hash_size_cum_sum = torch.zeros(F + 1, dtype=dtype, device=device)
-        hash_size_cum_sum[1:] = torch.cumsum(hash_size, dim=0)
-        offsets = torch.zeros(F * B + 1, dtype=dtype, device=device)
-        offsets[1:] = torch.cumsum(lengths, dim=0)
-
-        # Compute hash size offsets based on hash size cumsum to dedup
-        # indices from multiple keys
-        hash_size_cum_sum_list = hash_size_cum_sum.tolist()
-        hash_size_offsets_list = hash_size_cumsum_to_offsets(hash_size_cum_sum_list)
-        hash_size_offsets = torch.as_tensor(
-            hash_size_offsets_list, dtype=dtype, device=device
-        )
-
-        (
-            _,  # output lengths
-            _,  # output offsets
-            unique_indices,
-            reverse_index,
-        ) = torch.ops.fbgemm.jagged_unique_indices(
-            hash_size_cum_sum, hash_size_offsets, offsets, indices
-        )
-
-        unique_linearized_indices = torch.unique(linearized_indices, sorted=True)
-        self.assertTrue(unique_linearized_indices.numel() == unique_indices.numel())
-
-        unique_indices_list = unique_indices.tolist()
-        reverse_index_list = reverse_index.tolist()
-        for i in range(len(reverse_index_list)):
-            pos = reverse_index_list[i]
-            self.assertTrue(unique_indices_list[pos] == indices_list[i])
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        B=st.integers(min_value=100, max_value=200),
-        F=st.integers(min_value=50, max_value=100),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
-    def test_jagged_unique_indices_empty(
-        self,
-        B: int,  # Batch size
-        F: int,  # The number of features
-    ) -> None:
-        hash_size_cumsum_list = [0] + list(itertools.accumulate([10] * F))
-        hash_size_offsets_list = [0] + list(itertools.accumulate([1] * F))
-        offsets_list = [0] * (B * F + 1)
-        indices_list = []
-
-        device = torch.device("cuda")
-        dtype = torch.int64
-        hash_size_cumsum = torch.as_tensor(
-            hash_size_cumsum_list, device=device, dtype=dtype
-        )
-        hash_size_offsets = torch.as_tensor(
-            hash_size_offsets_list, device=device, dtype=dtype
-        )
-        offsets = torch.as_tensor(offsets_list, device=device, dtype=dtype)
-        indices = torch.as_tensor(indices_list, device=device, dtype=dtype)
-
-        (
-            output_lengths,
-            output_offsets,
-            unique_indices,
-            reverse_index,
-        ) = torch.ops.fbgemm.jagged_unique_indices(
-            hash_size_cumsum, hash_size_offsets, offsets, indices
-        )
-
-        # The output should be empty since there are no input indices
-        self.assertEqual(unique_indices.numel(), 0)
-        self.assertEqual(reverse_index.numel(), 0)
-        self.assertEqual(torch.sum(output_lengths).item(), 0)
-        self.assertEqual(torch.sum(output_offsets).item(), 0)
 
 
 if __name__ == "__main__":
