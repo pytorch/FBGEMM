@@ -26,14 +26,14 @@ from .common import (
 if open_source:
     # pyre-ignore[21]
     from test_utils import (
-        gpu_available,
+        cpu_and_maybe_gpu,
         gpu_unavailable,
         optests,
         symint_vector_unsupported,
     )
 else:
     from fbgemm_gpu.test.test_utils import (
-        gpu_available,
+        cpu_and_maybe_gpu,
         gpu_unavailable,
         optests,
         symint_vector_unsupported,
@@ -149,12 +149,14 @@ class Jagged1DToDenseTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=500),
         padding_value=st.integers(min_value=-100000, max_value=100000),
-        device_type=(
-            st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
-        ),
+        device=cpu_and_maybe_gpu(),
     )
     def test_jagged_1d_to_dense_dynamic_shape(
-        self, B: int, max_sequence_length: int, padding_value: int, device_type: str
+        self,
+        B: int,
+        max_sequence_length: int,
+        padding_value: int,
+        device: torch.device,
     ) -> None:
         # Start a fresh compile for each parameter of the test case
         torch._dynamo.reset()
@@ -183,10 +185,10 @@ class Jagged1DToDenseTest(unittest.TestCase):
             + (1 - ref_values_mask) * torch.ones_like(ref_values_mask) * padding_value
         )
 
-        ref_values = ref_values.to(device_type)
+        ref_values = ref_values.to(device)
         values = ref_values.clone().detach().requires_grad_(False)
-        offsets = offsets.to(device_type)
-        ref_output_values = ref_output_values.to(device_type)
+        offsets = offsets.to(device)
+        ref_output_values = ref_output_values.to(device)
         output_values = torch_compiled(
             torch.ops.fbgemm.jagged_1d_to_dense, dynamic=True, fullgraph=True
         )(
@@ -208,7 +210,7 @@ class Jagged1DToDenseTest(unittest.TestCase):
         B=st.integers(min_value=1, max_value=128),
         max_sequence_length=st.integers(min_value=1, max_value=500),
         padding_value=st.integers(min_value=-100000, max_value=100000),
-        use_cpu=st.booleans() if gpu_available else st.just(True),
+        device=cpu_and_maybe_gpu(),
     )
     def test_stacked_jagged_1d_to_dense(
         self,
@@ -216,10 +218,8 @@ class Jagged1DToDenseTest(unittest.TestCase):
         B: int,
         max_sequence_length: int,
         padding_value: int,
-        use_cpu: bool,
+        device: torch.device,
     ) -> None:
-        device = torch.device("cpu" if use_cpu else "cuda")
-
         def lengths_to_segment_ids(lengths: torch.Tensor) -> torch.Tensor:
             return torch.repeat_interleave(
                 torch._dim_arange(lengths, 0).long(),
