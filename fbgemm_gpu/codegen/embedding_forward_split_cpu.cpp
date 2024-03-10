@@ -384,7 +384,7 @@ void csr2csc_template_(
         fbgemm::fbgemmAlignedAlloc(64, nnz * sizeof(float)));
   }
 
-  int column_ptr_curr = 0;
+  [[maybe_unused]] int column_ptr_curr = 0;
   bool is_shared_table =
       table_to_feature_offset[1] > table_to_feature_offset[0] + 1;
   auto NS = csr_offsets[table_to_feature_offset[1] * B] -
