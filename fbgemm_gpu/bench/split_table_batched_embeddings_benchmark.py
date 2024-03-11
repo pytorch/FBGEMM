@@ -24,7 +24,12 @@ import numpy as np
 import torch
 
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import generate_requests, get_device, round_up
+from fbgemm_gpu.split_embedding_utils import (
+    generate_requests,
+    get_device,
+    round_up,
+    TBERequest,
+)
 
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -508,7 +513,8 @@ def uvm(
             )
         )
         num_cache_slots = emb_uvm.lxu_cache_weights.shape[0]
-        for it, (indices, offsets, _) in enumerate(requests_uvm):
+        for it, req in enumerate(requests_uvm):
+            indices, offsets = req.unpack_2()
             num_uniq = 0
             all_inverse = []
             for t in range(T_uvm):
@@ -578,19 +584,19 @@ def uvm(
         requests = []
         assert requests_gpu is not None
         for rs_uvm, rs_gpu in zip(requests_uvm, requests_gpu):
-            indices = torch.cat([rs_uvm[0], rs_gpu[0]])
+            indices = torch.cat([rs_uvm.indices, rs_gpu.indices])
             lengths = [L_uvm] * (T_uvm * B) + [L] * (T_gpu * B)
             offsets = torch.tensor(([0] + np.cumsum(lengths).tolist())).int().cuda()
             per_sample_weights = None
             if weighted:
-                this_rs_uvm_weights = rs_uvm[2]
+                this_rs_uvm_weights = rs_uvm.per_sample_weights
                 assert this_rs_uvm_weights is not None
-                this_rs_gpu_weights = rs_gpu[2]
+                this_rs_gpu_weights = rs_gpu.per_sample_weights
                 assert this_rs_gpu_weights is not None
                 per_sample_weights = torch.cat(
                     [this_rs_uvm_weights, this_rs_gpu_weights]
                 )
-            requests.append((indices, offsets, per_sample_weights))
+            requests.append(TBERequest(indices, offsets, per_sample_weights))
 
         # forward
         time_per_iter = benchmark_requests(
@@ -771,13 +777,15 @@ def cache(  # noqa C901
     )
 
     # warm up
-    for indices, offsets, _ in warmup_requests:
+    for req in warmup_requests:
+        indices, offsets = req.unpack_2()
         emb.forward(indices.long(), offsets.long())
     # get cache miss rate (forward and backward) and exchanged cache lines (prefetch)
     cache_misses = []
     exchanged_cache_lines = []
     NOT_FOUND = -1
-    for indices, offsets, _ in requests:
+    for req in requests:
+        indices, offsets = req.unpack_2()
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices.long(), offsets.long())
         exchanged_cache_lines.append(
@@ -796,7 +804,8 @@ def cache(  # noqa C901
 
     # benchmark prefetch
     emb.reset_cache_states()
-    for indices, offsets, _ in warmup_requests:
+    for req in warmup_requests:
+        indices, offsets = req.unpack_2()
         emb.forward(indices, offsets)
     # TODO: Add warmup_runs
     prefetch_time, forward_backward_time = benchmark_pipelined_requests(
@@ -822,7 +831,7 @@ def cache(  # noqa C901
 
 
 def benchmark_cpu_requests(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
+    requests: List[TBERequest],
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
     num_warmups: int = 0,
 ) -> float:
@@ -830,11 +839,11 @@ def benchmark_cpu_requests(
 
     if num_warmups > 0:
         for _ in range(num_warmups):
-            func(*requests[0])
+            func(*(requests[0].unpack_3()))
 
     start_time = time.perf_counter()
-    for indices, offsets, weights in requests:
-        func(indices, offsets, weights)
+    for req in requests:
+        func(*(req.unpack_3()))
     end_time = time.perf_counter()
     return (end_time - start_time) / len(requests)
 
@@ -962,12 +971,15 @@ def nbit_cpu(  # noqa C901
         use_cpu=True,
     )
     requests = [
-        (a.cpu().int(), b.cpu().int(), c.cpu() if c else None) for (a, b, c) in requests
+        TBERequest(
+            req.indices.cpu().int(),
+            req.offsets.cpu().int(),
+            req.per_sample_weights.cpu() if req.per_sample_weights else None,
+        )
+        for req in requests
     ]
 
     time_per_iter = benchmark_cpu_requests(
-        # pyre-fixme[6]: For 1st param expected `List[Tuple[IntTensor, IntTensor,
-        #  Optional[Tensor]]]` but got `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`.
         requests,
         lambda indices, offsets, per_sample_weights: emb.forward(
             indices,
@@ -1142,7 +1154,10 @@ def nbit_device(  # noqa C901
             requests_data_file=requests_data_file,
             tables=tables,
         )
-        requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+        requests = [
+            TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+            for req in requests
+        ]
 
         # forward
         time_per_iter = benchmark_requests(
@@ -1215,7 +1230,10 @@ def nbit_device(  # noqa C901
                 requests_data_file=requests_data_file,
                 tables=tables,
             )
-            requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+            requests = [
+                TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+                for req in requests
+            ]
 
             # forward
             time_per_iter_refer = benchmark_requests_refer(
@@ -1440,7 +1458,8 @@ def nbit_device_with_spec(  # noqa C901
                 weighted=weighted,
                 use_cpu=use_cpu,
             )
-            for it, (indices, offsets, weights) in enumerate(requests):
+            for it, req in enumerate(requests):
+                indices, offsets, weights = req.unpack_3()
                 all_requests["indices"][it].append(indices)
                 if t > 0:
                     offsets = offsets[1:]  # remove the first element
@@ -1455,14 +1474,21 @@ def nbit_device_with_spec(  # noqa C901
                 weights = torch.concat(all_requests["weights"][it])
             else:
                 weights = None
-            requests.append((indices, offsets, weights))
+            requests.append(TBERequest(indices, offsets, weights))
         if use_cpu:
             requests = [
-                (a.cpu().int(), b.cpu().int(), c.cpu() if c else None)
-                for (a, b, c) in requests
+                TBERequest(
+                    req.indices.cpu().int(),
+                    req.offsets.cpu().int(),
+                    req.per_sample_weigths.cpu() if req.per_sample_weights else None,
+                )
+                for req in requests
             ]
         else:
-            requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+            requests = [
+                TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+                for req in requests
+            ]
         del all_requests
         assert len(requests) == iters
 
@@ -1684,7 +1710,10 @@ def nbit_uvm(
         alpha=alpha,
         weighted=weighted,
     )
-    requests_uvm = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests_uvm]
+    requests_uvm = [
+        TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+        for req in requests_uvm
+    ]
 
     requests_gpu = None
     if T_gpu > 0:
@@ -1699,7 +1728,8 @@ def nbit_uvm(
             weighted=False,
         )
         requests_gpu = [
-            (a.int(), b.int(), c if c else None) for (a, b, c) in requests_gpu
+            TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+            for req in requests_gpu
         ]
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -1744,19 +1774,19 @@ def nbit_uvm(
         requests = []
         assert requests_gpu is not None
         for rs_uvm, rs_gpu in zip(requests_uvm, requests_gpu):
-            indices = torch.cat([rs_uvm[0], rs_gpu[0]])
+            indices = torch.cat([rs_uvm.indices, rs_gpu.indices])
             lengths = [L_uvm] * (T_uvm * B) + [L] * (T_gpu * B)
             offsets = torch.tensor(([0] + np.cumsum(lengths).tolist())).int().cuda()
             per_sample_weights = None
             if weighted:
-                this_rs_uvm_weights = rs_uvm[2]
+                this_rs_uvm_weights = rs_uvm.per_sample_weights
                 assert this_rs_uvm_weights is not None
-                this_rs_gpu_weights = rs_gpu[2]
+                this_rs_gpu_weights = rs_gpu.per_sample_weights
                 assert this_rs_gpu_weights is not None
                 per_sample_weights = torch.cat(
                     [this_rs_uvm_weights, this_rs_gpu_weights]
                 )
-            requests.append((indices, offsets, per_sample_weights))
+            requests.append(TBERequest(indices, offsets, per_sample_weights))
 
         # forward
         time_per_iter = benchmark_requests(
@@ -1800,7 +1830,8 @@ def nbit_uvm(
 
         # benchmark prefetch
         emb_mixed.reset_cache_states()
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             emb_mixed.forward(indices, offsets)
         # TODO: Add warmup runs
         prefetch_time, forward_time = benchmark_pipelined_requests(
@@ -1917,10 +1948,9 @@ def nbit_uvm_compare_direct_mapped(
         alpha=alpha,
         weighted=weighted,
     )
-    # pyre-fixme[9]: requests_uvm has type `List[Tuple[IntTensor, IntTensor,
-    #  Optional[Tensor]]]`; used as `List[Tuple[Tensor, Tensor, Optional[Tensor]]]`.
-    requests_uvm: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[Tensor]]] = [
-        (a.int(), b.int(), c if c else None) for (a, b, c) in _requests_uvm
+    requests_uvm: List[TBERequest] = [
+        TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+        for req in _requests_uvm
     ]
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -2054,7 +2084,7 @@ def nbit_uvm_compare_direct_mapped(
         if dump_requests:
             with (folder / "requests.txt").open("w") as f:
                 for req in requests_uvm[:dump_requests]:
-                    ind, off, _ = req
+                    ind, off = req.unpack_2()
                     print(ind.cpu().numpy().tolist(), file=f)
                     print(off.cpu().numpy().tolist(), file=f)
 
@@ -2191,7 +2221,10 @@ def nbit_cache(  # noqa C901
     requests = generate_requests(
         2 * iters, B, T, L, E, reuse=reuse, alpha=alpha, weighted=weighted
     )
-    requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+    requests = [
+        TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+        for req in requests
+    ]
     warmup_requests, requests = requests[:iters], requests[iters:]
 
     time_per_iter = benchmark_requests(
@@ -2209,7 +2242,8 @@ def nbit_cache(  # noqa C901
     )
 
     # warm up
-    for indices, offsets, _ in warmup_requests:
+    for req in warmup_requests:
+        indices, offsets = req.unpack_2()
         emb.forward(indices.int(), offsets.int())
 
     # get cache miss rate (forward only) and exchanged cache lines (prefetch)
@@ -2224,7 +2258,8 @@ def nbit_cache(  # noqa C901
     if gather_uvm_cache_stats:
         emb.reset_uvm_cache_stats()
 
-    for indices, offsets, _ in requests:
+    for req in requests:
+        indices, offsets = req.unpack_2()
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
@@ -2274,7 +2309,8 @@ def nbit_cache(  # noqa C901
     if gather_uvm_cache_stats:
         emb.reset_uvm_cache_stats()
 
-    for indices, offsets, _ in warmup_requests:
+    for req in warmup_requests:
+        indices, offsets = req.unpack_2()
         emb.forward(indices, offsets)
 
     torch.cuda.cudart().cudaProfilerStart()
@@ -2382,20 +2418,32 @@ def hashtable(  # noqa C901
     if not use_cpu:
         hash_table = hash_table.cuda()
         hash_table_offsets = hash_table_offsets.cuda()
-        requests = [(a.cuda().int(), b.cuda().int(), c) for (a, b, c) in requests]
+        requests = [
+            TBERequest(
+                req.indices.cuda().int(),
+                req.offsets.cuda().int(),
+                req.per_sample_weights,
+            )
+            for req in requests
+        ]
     else:
-        requests = [(a.int().cpu(), b.int().cpu(), c) for (a, b, c) in requests]
+        requests = [
+            TBERequest(
+                req.indices.int().cpu(), req.offsets.int().cpu(), req.per_sample_weights
+            )
+            for req in requests
+        ]
 
     empirical_hit_rate = np.mean(
         [
             torch.ops.fbgemm.pruned_hashmap_lookup(
-                indices, offsets, hash_table, hash_table_offsets
+                req.indices, req.offsets, hash_table, hash_table_offsets
             )
             .ne(-1)
             .sum()
             .item()
-            / indices.numel()
-            for indices, offsets, _ in requests
+            / req.indices.numel()
+            for req in requests
         ]
     )
 
@@ -2483,7 +2531,14 @@ def pruned_array(  # noqa C901
         tables=tables,
         use_cpu=True if device == "cpu" else False,
     )
-    requests = [(a.int().to(device), b.int().to(device), c) for (a, b, c) in requests]
+    requests = [
+        TBERequest(
+            req.indices.int().to(device),
+            req.offsets.int().to(device),
+            req.per_sample_weights,
+        )
+        for req in requests
+    ]
 
     time_per_iter = benchmark_requests(
         requests,
@@ -2539,7 +2594,6 @@ def bounds_check_indices(  # noqa C901
         requests_data_file=requests_data_file,
         tables=tables,
     )
-    # requests = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
 
     warning = torch.tensor([0]).long().to(get_device())
     rows_per_table = torch.tensor([E for _ in range(T)]).long().to(get_device())
@@ -2910,7 +2964,8 @@ def device_with_spec(  # noqa C901
             sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
             zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
         )
-        for i, (indices, offsets, weights) in enumerate(requests):
+        for i, req in enumerate(requests):
+            indices, offsets, weights = req.unpack_3()
             all_requests["indices"][i].append(indices)
             if t > 0:
                 offsets = offsets[1:]  # remove the first element
@@ -2932,7 +2987,7 @@ def device_with_spec(  # noqa C901
             weights = torch.concat(all_requests["weights"][i])
         else:
             weights = None
-        requests.append((indices, offsets, weights))
+        requests.append(TBERequest(indices, offsets, weights))
 
     del all_requests
 
@@ -2991,7 +3046,7 @@ def device_with_spec(  # noqa C901
         # Obtain B * L from indices len
         # pyre-ignore[19]
         # pyre-fixme[61]: `D` is undefined, or not always defined.
-        grad_output = torch.randn(requests[0][0].numel(), D).to(get_device())
+        grad_output = torch.randn(requests[0].indices.numel(), D).to(get_device())
     # backward
     time_per_iter = benchmark_requests(
         requests,

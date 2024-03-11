@@ -23,6 +23,7 @@ from fbgemm_gpu.split_embedding_utils import (  # noqa: F401
     generate_requests,  # noqa: F401
     get_device,  # noqa: F401
     round_up,  # noqa: F401
+    TBERequest,
 )
 from torch import nn
 
@@ -142,7 +143,7 @@ def benchmark_torch_function(  # noqa: C901
 
 
 def benchmark_requests(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
+    requests: List[TBERequest],
     func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     flush_gpu_cache_size_mb: int = 0,
     check_median: bool = False,
@@ -163,7 +164,7 @@ def benchmark_requests(
     num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
 
     if num_warmups > 0:
-        indices, offsets, weights = requests[0]
+        indices, offsets, weights = requests[0].unpack_3()
         for _ in range(num_warmups):
             out = func(indices, offsets, weights)
             if bwd_only:
@@ -176,7 +177,8 @@ def benchmark_requests(
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-    for it, (indices, offsets, weights) in enumerate(requests):
+    for it, req in enumerate(requests):
+        indices, offsets, weights = req.unpack_3()
         if bwd_only:
             # Run forward before profiling if does backward only
             out = func(indices, offsets, weights)
@@ -217,7 +219,7 @@ def benchmark_requests(
 
 
 def benchmark_requests_refer(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
+    requests: List[TBERequest],
     T: int,
     B: int,
     L: int,
@@ -242,7 +244,8 @@ def benchmark_requests_refer(
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-    for indices, _, weights in requests:
+    for req in requests:
+        indices, _, weights = req.unpack_3()
         indices_list = indices.view(T, B, L).split(1)
 
         if weighted:
@@ -308,7 +311,7 @@ def benchmark_requests_refer(
 
 
 def benchmark_pipelined_requests(
-    requests: List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]],
+    requests: List[TBERequest],
     func1: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
     func2: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], None],
     flush_gpu_cache_size_mb: int = 0,
@@ -323,9 +326,8 @@ def benchmark_pipelined_requests(
         (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
         for _ in requests
     ]
-    for (indices, offsets, indices_weights), start_event, end_event in zip(
-        requests, start_events, end_events
-    ):
+    for req, start_event, end_event in zip(requests, start_events, end_events):
+        indices, offsets, indices_weights = req.unpack_3()
         if flush_gpu_cache_size_mb:
             _ = torch.rand(
                 flush_gpu_cache_size_mb * 1024 * 1024 // 4,

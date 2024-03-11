@@ -7,6 +7,7 @@
 # pyre-strict
 
 import logging
+from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple, TypeVar
 
 import numpy as np
@@ -23,6 +24,21 @@ logging.basicConfig(level=logging.DEBUG)
 Deviceable = TypeVar(
     "Deviceable", torch.nn.EmbeddingBag, torch.nn.Embedding, torch.Tensor
 )
+
+
+@dataclass
+class TBERequest:
+    indices: torch.Tensor
+    offsets: torch.Tensor
+    per_sample_weights: Optional[torch.Tensor] = None
+
+    def unpack_2(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        return (self.indices, self.offsets)
+
+    def unpack_3(
+        self,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        return (self.indices, self.offsets, self.per_sample_weights)
 
 
 def round_up(a: int, b: int) -> int:
@@ -102,7 +118,7 @@ def generate_requests_from_data_file(
     E: int,
     weighted: bool,
     tables: Optional[str] = None,
-) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
+) -> List[TBERequest]:
     """
     Generate TBE requests from the input data file (`requests_data_file`)
     """
@@ -160,7 +176,7 @@ def generate_requests_from_data_file(
     rs = []
     for _ in range(iters):
         rs.append(
-            (
+            TBERequest(
                 indices_tensor.to(get_device()),
                 offsets_tensor.to(get_device()),
                 weights_tensor,
@@ -367,7 +383,7 @@ def generate_requests(  # noqa C901
     deterministic_output: bool = False,
     # distribution of embedding sequence lengths
     length_dist: str = "normal",
-) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
+) -> List[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
     if requests_data_file is not None:
@@ -444,7 +460,7 @@ def generate_requests(  # noqa C901
                 )  # per sample weights will always be FP32
             )
             rs.append(
-                (
+                TBERequest(
                     all_indices[start_offset : L_offsets[(it + 1) * T * B]],
                     it_L_offsets.to(get_device()),
                     weights_tensor,
@@ -458,12 +474,10 @@ def generate_requests(  # noqa C901
                     T * B * L, device=get_device()
                 )  # per sample weights will always be FP32
             )
-            rs.append(
-                get_table_batched_offsets_from_dense(
-                    all_indices[it].view(T, B, L), use_cpu=use_cpu
-                )
-                + (weights_tensor,)
+            indices, offsets = get_table_batched_offsets_from_dense(
+                all_indices[it].view(T, B, L), use_cpu=use_cpu
             )
+            rs.append(TBERequest(indices, offsets, weights_tensor))
     return rs
 
 
