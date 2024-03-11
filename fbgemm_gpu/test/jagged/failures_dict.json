@@ -19,11 +19,11 @@
     "fbgemm::jagged_dense_bmm": {},
     "fbgemm::jagged_dense_dense_elementwise_add_jagged_output": {},
     "fbgemm::jagged_dense_elementwise_add": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary": {
+      "ElementwiseBinaryTest.test_aot_dispatch_dynamic__test_jagged_elementwise_binary": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_autograd_registration__test_jagged_elementwise_binary": {
+      "ElementwiseBinaryTest.test_autograd_registration__test_jagged_elementwise_binary": {
         "comment": "",
         "status": "xfail"
       }
