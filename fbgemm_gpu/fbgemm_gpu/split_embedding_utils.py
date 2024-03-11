@@ -93,6 +93,252 @@ def b_indices(
         return b(to_device(indices, use_cpu))
 
 
+def generate_requests_from_data_file(
+    requests_data_file: str,
+    iters: int,
+    B: int,
+    T: int,
+    L: int,
+    E: int,
+    weighted: bool,
+    tables: Optional[str] = None,
+) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
+    """
+    Generate TBE requests from the input data file (`requests_data_file`)
+    """
+    indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
+
+    average_L = 0
+    if tables is not None:
+        emb_tables = tuple(int(x) for x in tables.split(","))
+        indices = torch.zeros(0, dtype=indices_tensor.dtype)
+        offsets = torch.zeros(1, dtype=offsets_tensor.dtype)
+        total_L = 0
+        for t in emb_tables:
+            t_offsets = offsets_tensor[B * t : B * (t + 1) + 1]
+            total_L += t_offsets[-1] - t_offsets[0]
+            indices = torch.cat((indices, indices_tensor[t_offsets[0] : t_offsets[-1]]))
+            offsets = torch.cat(
+                (
+                    offsets,
+                    t_offsets[1:] - t_offsets[0] + offsets[-1],
+                )
+            )
+        indices_tensor = indices
+        offsets_tensor = offsets
+        average_L = int(total_L / B)
+
+        assert np.prod(offsets_tensor.size()) - 1 == np.prod((T, B)), (
+            f"Requested tables: {emb_tables} "
+            f"does not conform to inputs (T, B) = ({T}, {B})."
+        )
+        logging.warning(
+            f"Using (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}) based "
+            f"on tables: {emb_tables}"
+        )
+    else:
+        average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
+        assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
+            f"Data file (indices = {indices_tensor.size()}, "
+            f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
+            f"does not conform to inputs (T, B) = ({T}, {B})."
+        )
+
+    assert (
+        L == average_L
+    ), f"Requested L does not align with provided data file ({L} vs. {average_L})"
+    assert E > max(indices_tensor), (
+        f"Number of embeddings is not enough to support maximum index "
+        f"provided by data file {E} vs. {max(indices_tensor)}"
+    )
+
+    weights_tensor = (
+        None
+        if not weighted
+        else torch.randn(indices_tensor.size(), device=get_device())
+    )
+    rs = []
+    for _ in range(iters):
+        rs.append(
+            (
+                indices_tensor.to(get_device()),
+                offsets_tensor.to(get_device()),
+                weights_tensor,
+            )
+        )
+    return rs
+
+
+def generate_pooling_factors_from_stats(
+    iters: int,
+    B: int,
+    T: int,
+    L: int,
+    sigma_L: int,
+    # distribution of pooling factors
+    length_dist: str,
+) -> Tuple[int, torch.Tensor]:
+    """
+    Generate pooling factors for the TBE requests from the given stats
+    """
+    if length_dist == "uniform":
+        # TODO: either make these separate parameters or make a separate version of
+        # generate_requests to handle the uniform dist case once whole
+        # generate_requests function is refactored to split into helper functions
+        # for each use case.
+        # L represents the lower bound when the uniform distribution is used
+        lower_bound = L
+        # sigma_L represetns the upper bound when the uniform distribution is used
+        upper_bound = sigma_L + 1
+        Ls = np.random.randint(
+            lower_bound,
+            upper_bound,
+            (T, B),
+            dtype=np.int32,
+        )
+    else:  # normal dist
+        Ls = np.random.normal(loc=L, scale=sigma_L, size=T * B).astype(int)
+
+    # Make sure that Ls are positive
+    Ls[Ls < 0] = 0
+    # Use the same L distribution across iters
+    Ls = np.tile(Ls, iters)
+    L = Ls.max()
+    # Make it exclusive cumsum
+    L_offsets = torch.from_numpy(np.insert(Ls.cumsum(), 0, 0)).to(torch.long)
+    return L, L_offsets
+
+
+def generate_indices_uniform(
+    iters: int,
+    B: int,
+    T: int,
+    L: int,
+    E: int,
+    use_variable_L: bool,
+    L_offsets: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Generate indices for the TBE requests using the uniform distribution
+    """
+    indices = torch.randint(
+        low=0,
+        high=E,
+        size=(iters, T, B, L),
+        device="cpu" if use_variable_L else get_device(),
+        dtype=torch.int32,
+    )
+    # each bag is usually sorted
+    (indices, _) = torch.sort(indices)
+    if use_variable_L:
+        indices = torch.ops.fbgemm.bottom_k_per_row(
+            indices.to(torch.long), L_offsets, False
+        )
+        indices = indices.to(get_device()).int()
+    else:
+        indices = indices.reshape(iters, T, B * L)
+    return indices
+
+
+def generate_indices_zipf(
+    iters: int,
+    B: int,
+    T: int,
+    L: int,
+    E: int,
+    alpha: float,
+    zipf_oversample_ratio: int,
+    use_variable_L: bool,
+    L_offsets: torch.Tensor,
+    deterministic_output: bool,
+) -> torch.Tensor:
+    """
+    Generate indices for the TBE requests using the zipf distribution
+    """
+    assert E >= L, "num-embeddings must be greater than equal to bag-size"
+    # oversample and then remove duplicates to obtain sampling without
+    # replacement
+    zipf_shape = (iters, T, B, zipf_oversample_ratio * L)
+    if torch.cuda.is_available():
+        zipf_shape_total_len = np.prod(zipf_shape)
+        indices_list = []
+        # process 8 GB at a time on GPU
+        chunk_len = int(1e9)
+        for chunk_begin in range(0, zipf_shape_total_len, chunk_len):
+            indices_gpu = torch.ops.fbgemm.zipf_cuda(
+                alpha,
+                min(zipf_shape_total_len - chunk_begin, chunk_len),
+                seed=torch.randint(2**31 - 1, (1,))[0],
+            )
+            indices_list.append(indices_gpu.cpu())
+        indices = torch.cat(indices_list).reshape(zipf_shape)
+    else:
+        indices = torch.as_tensor(np.random.zipf(a=alpha, size=zipf_shape))
+    indices = (indices - 1) % E
+    if use_variable_L:
+        indices = torch.ops.fbgemm.bottom_k_per_row(indices, L_offsets, True)
+    else:
+        indices = torch.ops.fbgemm.bottom_k_per_row(
+            indices, torch.tensor([0, L], dtype=torch.long), True
+        )
+    if deterministic_output:
+        rng = default_rng(12345)
+    else:
+        rng = default_rng()
+    permutation = torch.as_tensor(
+        rng.choice(E, size=indices.max().item() + 1, replace=False)
+    )
+    indices = permutation.gather(0, indices.flatten())
+    indices = indices.to(get_device()).int()
+    if not use_variable_L:
+        indices = indices.reshape(iters, T, B * L)
+    return indices
+
+
+def update_indices_with_random_reuse(
+    iters: int,
+    B: int,
+    T: int,
+    L: int,
+    reuse: float,
+    indices: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Update the generated indices with random reuse
+    """
+    for it in range(iters - 1):
+        for t in range(T):
+            reused_indices = torch.randperm(B * L, device=get_device())[
+                : int(B * L * reuse)
+            ]
+            indices[it + 1, t, reused_indices] = indices[it, t, reused_indices]
+    return indices
+
+
+def update_indices_with_random_pruning(
+    iters: int,
+    B: int,
+    T: int,
+    L: int,
+    indices: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Update the generated indices with random pruning
+    """
+    for it in range(iters):
+        for t in range(T):
+            num_negative_indices = B // 2
+            random_locations = torch.randint(
+                low=0,
+                high=(B * L),
+                size=(num_negative_indices,),
+                device=torch.cuda.current_device(),
+                dtype=torch.int32,
+            )
+            indices[it, t, random_locations] = -1
+    return indices
+
+
 def generate_requests(  # noqa C901
     iters: int,
     B: int,
@@ -114,195 +360,72 @@ def generate_requests(  # noqa C901
     sigma_L: Optional[int] = None,
     emulate_pruning: bool = False,
     use_cpu: bool = False,
-    deterministic_output: bool = False,  # generate_requests uses numpy.random.default_rng without a set random seed be default, causing the indices tensor to vary with each call to generate_requests - set generate_repeatable_output to use a fixed random seed instead for repeatable outputs
-    length_dist: str = "normal",  # distribution of embedding sequence lengths
+    # generate_requests uses numpy.random.default_rng without a set random seed
+    # be default, causing the indices tensor to vary with each call to
+    # generate_requests - set generate_repeatable_output to use a fixed random
+    # seed instead for repeatable outputs
+    deterministic_output: bool = False,
+    # distribution of embedding sequence lengths
+    length_dist: str = "normal",
 ) -> List[Tuple[torch.IntTensor, torch.IntTensor, Optional[torch.Tensor]]]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
     if requests_data_file is not None:
-        indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
-
-        average_L = 0
-        if tables is not None:
-            emb_tables = tuple(int(x) for x in tables.split(","))
-            indices = torch.zeros(0, dtype=indices_tensor.dtype)
-            offsets = torch.zeros(1, dtype=offsets_tensor.dtype)
-            total_L = 0
-            for t in emb_tables:
-                t_offsets = offsets_tensor[B * t : B * (t + 1) + 1]
-                total_L += t_offsets[-1] - t_offsets[0]
-                indices = torch.cat(
-                    (indices, indices_tensor[t_offsets[0] : t_offsets[-1]])
-                )
-                offsets = torch.cat(
-                    (
-                        offsets,
-                        t_offsets[1:] - t_offsets[0] + offsets[-1],
-                    )
-                )
-            indices_tensor = indices
-            offsets_tensor = offsets
-            average_L = int(total_L / B)
-
-            assert np.prod(offsets_tensor.size()) - 1 == np.prod((T, B)), (
-                f"Requested tables: {emb_tables} "
-                f"does not conform to inputs (T, B) = ({T}, {B})."
-            )
-            logging.warning(
-                f"Using (indices = {indices_tensor.size()}, offsets = {offsets_tensor.size()}) based "
-                f"on tables: {emb_tables}"
-            )
-        else:
-            average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
-            assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
-                f"Data file (indices = {indices_tensor.size()}, "
-                f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
-                f"does not conform to inputs (T, B) = ({T}, {B})."
-            )
-
-        assert (
-            L == average_L
-        ), f"Requested L does not align with provided data file ({L} vs. {average_L})"
-        assert E > max(indices_tensor), (
-            f"Number of embeddings is not enough to support maximum index "
-            f"provided by data file {E} vs. {max(indices_tensor)}"
+        return generate_requests_from_data_file(
+            requests_data_file,
+            iters,
+            B,
+            T,
+            L,
+            E,
+            weighted,
+            tables,
         )
 
-        weights_tensor = (
-            None
-            if not weighted
-            else torch.randn(indices_tensor.size(), device=get_device())
-        )
-        rs = []
-        for _ in range(iters):
-            rs.append(
-                (
-                    indices_tensor.to(get_device()),
-                    offsets_tensor.to(get_device()),
-                    weights_tensor,
-                )
-            )
-        return rs
-
-    # Generate L from stats
     if sigma_L is not None:
+        # Generate L from stats
         use_variable_L = True
-        if length_dist == "uniform":
-            # TODO: either make these separate parameters or make a separate version of
-            # generate_requests to handle the uniform dist case once whole
-            # generate_requests function is refactored to split into helper functions
-            # for each use case.
-            # L represents the lower bound when the uniform distribution is used
-            lower_bound = L
-            # sigma_L represetns the upper bound when the uniform distribution is used
-            upper_bound = sigma_L + 1
-            Ls = np.random.randint(
-                lower_bound,
-                upper_bound,
-                (T, B),
-                dtype=np.int32,
-            )
-        else:  # normal dist
-            Ls = np.random.normal(loc=L, scale=sigma_L, size=T * B).astype(int)
-
-        # Make sure that Ls are positive
-        Ls[Ls < 0] = 0
-        # Use the same L distribution across iters
-        Ls = np.tile(Ls, iters)
-        L = Ls.max()
-        # Make it exclusive cumsum
-        L_offsets = torch.from_numpy(np.insert(Ls.cumsum(), 0, 0)).to(torch.long)
+        L, L_offsets = generate_pooling_factors_from_stats(
+            iters, B, T, L, sigma_L, length_dist
+        )
     else:
         use_variable_L = False
         # Init to suppress the pyre error
         L_offsets = torch.empty(1)
 
     if alpha <= 1.0:
-        all_indices = torch.randint(
-            low=0,
-            high=E,
-            size=(iters, T, B, L),
-            device="cpu" if use_variable_L else get_device(),
-            dtype=torch.int32,
+        # Generate indices using uniform dist
+        all_indices = generate_indices_uniform(
+            iters, B, T, L, E, use_variable_L, L_offsets
         )
-        # each bag is usually sorted
-        (all_indices, _) = torch.sort(all_indices)
-        if use_variable_L:
-            all_indices = torch.ops.fbgemm.bottom_k_per_row(
-                all_indices.to(torch.long), L_offsets, False
-            )
-            all_indices = all_indices.to(get_device()).int()
-        else:
-            all_indices = all_indices.reshape(iters, T, B * L)
     else:
-        assert E >= L, "num-embeddings must be greater than equal to bag-size"
-        # oversample and then remove duplicates to obtain sampling without
-        # replacement
-        zipf_shape = (iters, T, B, zipf_oversample_ratio * L)
-        if torch.cuda.is_available():
-            zipf_shape_total_len = np.prod(zipf_shape)
-            all_indices_list = []
-            # process 8 GB at a time on GPU
-            chunk_len = int(1e9)
-            for chunk_begin in range(0, zipf_shape_total_len, chunk_len):
-                all_indices_gpu = torch.ops.fbgemm.zipf_cuda(
-                    alpha,
-                    min(zipf_shape_total_len - chunk_begin, chunk_len),
-                    seed=torch.randint(2**31 - 1, (1,))[0],
-                )
-                all_indices_list.append(all_indices_gpu.cpu())
-            all_indices = torch.cat(all_indices_list).reshape(zipf_shape)
-        else:
-            all_indices = torch.as_tensor(np.random.zipf(a=alpha, size=zipf_shape))
-        all_indices = (all_indices - 1) % E
-        if use_variable_L:
-            all_indices = torch.ops.fbgemm.bottom_k_per_row(
-                all_indices, L_offsets, True
-            )
-        else:
-            all_indices = torch.ops.fbgemm.bottom_k_per_row(
-                all_indices, torch.tensor([0, L], dtype=torch.long), True
-            )
-        if deterministic_output:
-            rng = default_rng(12345)
-        else:
-            rng = default_rng()
-        permutation = torch.as_tensor(
-            rng.choice(E, size=all_indices.max().item() + 1, replace=False)
+        # Generate indices using zipf dist
+        all_indices = generate_indices_zipf(
+            iters,
+            B,
+            T,
+            L,
+            E,
+            alpha,
+            zipf_oversample_ratio,
+            use_variable_L,
+            L_offsets,
+            deterministic_output,
         )
-        all_indices = permutation.gather(0, all_indices.flatten())
-        all_indices = all_indices.to(get_device()).int()
-        if not use_variable_L:
-            all_indices = all_indices.reshape(iters, T, B * L)
 
     if reuse > 0.0:
         assert (
             not use_variable_L
         ), "Does not support generating Ls from stats for reuse > 0.0"
-
-        for it in range(iters - 1):
-            for t in range(T):
-                reused_indices = torch.randperm(B * L, device=get_device())[
-                    : int(B * L * reuse)
-                ]
-                all_indices[it + 1, t, reused_indices] = all_indices[
-                    it, t, reused_indices
-                ]
+        all_indices = update_indices_with_random_reuse(
+            iters, B, T, L, reuse, all_indices
+        )
 
     # Some indices are set to -1 for emulating pruned rows.
     if emulate_pruning:
-        for it in range(iters):
-            for t in range(T):
-                num_negative_indices = B // 2
-                random_locations = torch.randint(
-                    low=0,
-                    high=(B * L),
-                    size=(num_negative_indices,),
-                    device=torch.cuda.current_device(),
-                    dtype=torch.int32,
-                )
-                all_indices[it, t, random_locations] = -1
+        all_indices = update_indices_with_random_pruning(iters, B, T, L, all_indices)
 
+    # Pack requests
     rs = []
     for it in range(iters):
         if use_variable_L:
