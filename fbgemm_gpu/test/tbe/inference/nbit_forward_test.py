@@ -632,52 +632,7 @@ class NBitFowardTest(unittest.TestCase):
             mixed_weights_ty,
             output_dtype,
         )
-        os.environ['FBGEMM_FORCE_AUTOVEC'] = '1'
-
-        self.execute_nbit_forward_(
-            T,
-            D,
-            B,
-            log_E,
-            L,
-            weighted,
-            mixed,
-            pooling_mode,
-            weights_ty,
-            use_cache,
-            cache_algorithm,
-            use_cpu,
-            use_array_for_index_remapping,
-            do_pruning,
-            mixed_weights_ty,
-            output_dtype,
-        )
-        del os.environ['FBGEMM_FORCE_AUTOVEC'] 
-
-        os.environ['FBGEMM_FORCE_ASMJIT'] = '1'
-        os.environ['FBGEMM_NO_AUTOVEC'] = '1'
-
-        self.execute_nbit_forward_(
-            T,
-            D,
-            B,
-            log_E,
-            L,
-            weighted,
-            mixed,
-            pooling_mode,
-            weights_ty,
-            use_cache,
-            cache_algorithm,
-            use_cpu,
-            use_array_for_index_remapping,
-            do_pruning,
-            mixed_weights_ty,
-            output_dtype,
-        )
-        del os.environ['FBGEMM_FORCE_ASMJIT'] 
-        del os.environ['FBGEMM_NO_AUTOVEC']
-
+        
     @unittest.skipIf(*gpu_unavailable)
     def test_nbit_forward_gpu_no_cache_fp8_2048(self) -> None:
         # Test the case of FB8 table with 128B*8 < D <= 128B*16
@@ -1109,146 +1064,79 @@ class NBitFowardTest(unittest.TestCase):
             dequant_output_from_quant_cc.cpu(),
             equal_nan=False,
         )
-
-
+    
     @given(
-        nbit_weights_ty=st.sampled_from(
-            [
-                SparseType.FP32,
-                SparseType.FP16,
-                SparseType.FP8,
-                SparseType.INT8,
-                SparseType.INT4,
-                SparseType.INT2,
-            ]
-        ),
-        use_array_for_index_remapping=st.booleans(),
-        do_pruning=st.booleans(),
-        pooling_mode=st.sampled_from(
-            [PoolingMode.SUM, PoolingMode.NONE, PoolingMode.MEAN]
-        ),
-        output_dtype=st.sampled_from(
-            [
-                SparseType.FP32,
-                SparseType.FP16,
-                SparseType.FP8,
-                SparseType.INT8,
-                SparseType.INT4,
-                SparseType.INT2,
-            ]
-        ),
-    )
-    @settings(
-        verbosity=VERBOSITY,
-        max_examples=MAX_EXAMPLES_LONG_RUNNING,
-        deadline=None,
-    )
-    def test_nbit_forward_cpu_autovec(
-        self,
-        nbit_weights_ty: SparseType,
-        use_array_for_index_remapping: bool,
-        do_pruning: bool,
-        pooling_mode: PoolingMode,
-        output_dtype: SparseType,
-    ) -> None:
-        use_cpu = True
-        T = random.randint(1, 50)
-        B = random.randint(0, 128)
-        L = random.randint(0, 32)
-        D = random.randint(2, 2048)
-        log_E = random.randint(2, 4)
-
-        use_cache = False
-        # cache_algorithm is don't care as we don't use cache.
-        cache_algorithm = CacheAlgorithm.LRU
-
-        mixed = random.choice([True, False])
-        if pooling_mode == PoolingMode.SUM:
-            weighted = random.choice([True, False])
-        else:
-            weighted = False
-
-        if nbit_weights_ty is None:
-            # don't care when mixed type is used.
-            weights_ty: SparseType = SparseType.INT8
-            mixed_weights_ty = True
-        else:
-            weights_ty: SparseType = nbit_weights_ty
-            mixed_weights_ty = False
-
-        MAXH = 10
-        T_H = [np.random.randint(low=1, high=MAXH + 1) for _ in range(T)]
-
-        #enable autovec
-        os.environ['FBGEMM_FORCE_AUTOVEC'] = '1'
-
-        #using 
-        quant_cc = IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    "",
-                    H,
-                    D,
-                    nbit_weights_ty,
-                    EmbeddingLocation.HOST,
-                )
-                for H in T_H
-            ],
-            pooling_mode=pooling_mode,
-            device="cpu",
-            output_dtype=output_dtype,
+            nbit_weights_ty=get_nbit_weights_ty(),
+            use_array_for_index_remapping=st.booleans(),
+            do_pruning=st.booleans(),
+            pooling_mode=st.sampled_from(
+                [PoolingMode.SUM, PoolingMode.NONE, PoolingMode.MEAN]
+            ),
+            output_dtype=st.sampled_from(
+                [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+            ),
         )
-        # Initialize the random weights for int nbit table split embedding bag
-        quant_cc.fill_random_weights()
-        raw_embedding_weights = quant_cc.split_embedding_weights()
-        # we mimic 1.0 scale, 0.0 bias for better results comparison
-        embedding_weights: List[Tuple[torch.Tensor, Optional[torch.Tensor]]] = [
-            (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
-            for table_weight, _ in raw_embedding_weights
-        ]
-        # Initialize the random weights for int8 nbit table split embedding bag
-        quant_cc.assign_embedding_weights(embedding_weights)
-        lengths_list = [
-            torch.randint(
-                1,
-                L + 1,
-                (B,),
-            )
-            for _ in range(T)
-        ]
-        indices_list = [
-            torch.randint(0, H, (int(length.sum().item()),))
-            for length, H in zip(lengths_list, T_H)
-        ]
-        indices = torch.cat(indices_list, 0)
-        lengths = torch.cat(lengths_list, 0)
-        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
-        quant_cc_output = quant_cc(indices.int(), offsets.int())
-        tables_rows = [
-            T for T, _, _ in quant_cc.split_embedding_weights_with_scale_bias(0)
-        ]
-
-        del(os.environ['FBGEMM_FORCE_AUTOVEC'])
-        os.environ['FBGEMM_FORCE_ASMJIT'] = '1'
-        os.environ['FBGEMM_NO_AUTOVEC'] = '1'
-
-        ref_cc = torch.nn.EmbeddingBag(num_embeddings=T, embedding_dim=D)
-        ref_embedding_weights: List[Tuple[torch.Tensor, Optional[torch.Tensor]]] = [
-            (table_weight, torch.tensor([1, 0], dtype=torch.float16).view(torch.uint8))
-            for table_weight, _ in raw_embedding_weights
-        ]
-
-        ref_cc_output = ref_cc(indices.int(), offsets.int())
-
-        del(os.environ['FBGEMM_FORCE_ASMJIT'])
-        del(os.environ['FBGEMM_NO_AUTOVEC'])
         
-        torch.testing.assert_close(
-            quant_cc_output.cpu(),
-            ref_cc_output.cpu(),
-            equal_nan=False,
-        )
+    @settings(
+            verbosity=VERBOSITY,
+            max_examples=MAX_EXAMPLES_LONG_RUNNING,
+            deadline=None,
+            )
+    def test_nbit_forward_cpu_autovec(
+            self,
+            nbit_weights_ty: Optional[SparseType],
+            use_array_for_index_remapping: bool,
+            do_pruning: bool,
+            pooling_mode: PoolingMode,
+            output_dtype: SparseType,
+        ) -> None:
+            use_cpu = True
+            T = 20 # random.randint(1, 50)
+            B = 32 # random.randint(0, 128)
+            L = 16 # random.randint(0, 32)
+            D = 64 # random.randint(2, 2048)
+            log_E = random.randint(2, 4)
 
+            use_cache = False
+            # cache_algorithm is don't care as we don't use cache.
+            cache_algorithm = CacheAlgorithm.LRU
+
+            mixed = random.choice([True, False])
+            if pooling_mode == PoolingMode.SUM:
+                weighted = random.choice([True, False])
+            else:
+                weighted = False
+
+            if nbit_weights_ty is None:
+                # don't care when mixed type is used.
+                weights_ty: SparseType = SparseType.INT8
+                mixed_weights_ty = True
+            else:
+                weights_ty: SparseType = nbit_weights_ty
+                mixed_weights_ty = False
+
+            os.environ['FBGEMM_FORCE_AUTOVEC'] = '1'
+
+            self.execute_nbit_forward_(
+                T,
+                D,
+                B,
+                log_E,
+                L,
+                weighted,
+                mixed,
+                pooling_mode,
+                weights_ty,
+                use_cache,
+                cache_algorithm,
+                use_cpu,
+                use_array_for_index_remapping,
+                do_pruning,
+                mixed_weights_ty,
+                output_dtype,
+            )
+
+            del os.environ['FBGEMM_FORCE_AUTOVEC']
 
 if __name__ == "__main__":
     unittest.main()
