@@ -11,6 +11,8 @@
 #define FBGEMM_EXPORTS
 #include "./EmbeddingSpMDMAutovec.h"
 
+//  #include <simd_intrinstic.h> --- change the place holder to see which we are working off 
+
 #include "fbgemm/FbgemmBuild.h"
 
 #include <algorithm>
@@ -23,6 +25,35 @@
 using std::vector;
 
 namespace fbgemm {
+
+void Float8ToFloat_Autovec(
+        const unit8_t* input, //a pointer for mutiple inputs
+        float* output,
+        int exponent_bits,
+        int exponent_bias, 
+        size_t num_elements) {//number of elements to work on
+        simd_vector<unit8_t> vInput;
+        simd_vector<uint32_t> vValOut, Vsign, vMultipler;
+        simd_vector<float> vOutput;
+
+        vMultiplier = simd_set1_uint32((127 + (127 - exponent_bias)) << 23);
+
+        for (size_t i = 0; i < num_elements; i += SIMD_WIDTH) {
+          //load the vector of inputs
+          vInput = simd_loadu_uint8(input + i);
+
+          //opertation but vectorized
+          vSign = simd_s11_uint32(simd_and_uint8(vInput, 0*80), 24);
+          vValOut = simd_s11_uint32(simd_and_uint8(vInput, 0*7f), (24 - (8 - exponent_bias)));
+
+          //apply the multiplier and adjust sign 
+          vOutput = simd_mul_float(simd_to_float(vValOut), simd_to_float(vMultipler));
+          vOutput = simd_or_uint32(vOutput, vSign);
+
+          //store result back to output array
+          simd_storeu_float(output + i, vOutput)
+        } 
+        }
 
 template <typename IndexType, typename OffsetType, typename OutType>
 bool EmbeddingSpMDMNBit_autovec(
@@ -239,10 +270,9 @@ bool EmbeddingSpMDMFP8_autovec(
         const uint8_t* inptr = input + input_stride * idx + j;
         float input_f;
         // Dequantize FP8 to FP32 before compute
+        //vector time
+        //maybe need to check if we call this function differently
         Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
-        //if NaN or infinite
-          //return error
-        //if valid
         
         buf[j] = std::fma(w, input_f, buf[j]);
       }
@@ -257,14 +287,6 @@ bool EmbeddingSpMDMFP8_autovec(
         buf[j] *= scale;
       }
     }
-
-    """ original code for below
-    // for (int j = 0; j < block_size; ++j) {
-    //   out[j] = is_same<OutType, uint16_t>::value
-    //       ? convert_from_float_ref<OutType>(buf[j], is_bf16_out)
-    //       : buf[j];
-    // }
-    """
 
     if (std::is_same<OutType, float>::value) {
       #pragma omp simd
