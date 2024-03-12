@@ -286,6 +286,8 @@ foreach(optimizer
     ${GPU_ONLY_OPTIMIZERS})
   list(APPEND gen_python_source_files
     "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
+  list(APPEND gen_python_source_files
+    "${CMAKE_BINARY_DIR}/lookup_${optimizer}_pt2.py")
 endforeach()
 
 # Generate the backend API for all optimizers to preserve the backward
@@ -293,8 +295,18 @@ endforeach()
 foreach(optimizer ${ALL_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
     "gen_embedding_backward_split_${optimizer}_cpu.cpp")
+  list(APPEND gen_cpu_source_files
+    "gen_embedding_forward_split_pt2_cpu_wrapper.cpp")
+  list(APPEND gen_cpu_source_files
+    "gen_embedding_backward_split_${optimizer}_pt2_cpu_wrapper.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}.cpp")
+  list(APPEND gen_gpu_host_source_files
+    "gen_embedding_split_${optimizer}_pt2_autograd.cpp")
+  list(APPEND gen_gpu_host_source_files
+     "gen_embedding_forward_split_pt2_cuda_wrapper.cpp")
+  list(APPEND gen_gpu_host_source_files
+    "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp")
 endforeach()
 
 foreach(optimizer ${CPU_OPTIMIZERS})
@@ -360,6 +372,9 @@ set(embedding_codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_nobag_small_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_split_template.cu
     ${CMAKE_CODEGEN_DIR}/embedding_forward_template_helpers.cuh
+    ${CMAKE_CODEGEN_DIR}/embedding_split_host_pt2_autograd_template.cpp
+    ${CMAKE_CODEGEN_DIR}/embedding_split_host_pt2_cpu_wrapper_template.cpp
+    ${CMAKE_CODEGEN_DIR}/embedding_split_host_pt2_cuda_wrapper_template.cpp
     ${CMAKE_CODEGEN_DIR}/__init__.template
     ${CMAKE_CODEGEN_DIR}/lookup_args.py
     ${CMAKE_CODEGEN_DIR}/split_embedding_codegen_lookup_invoker.template
