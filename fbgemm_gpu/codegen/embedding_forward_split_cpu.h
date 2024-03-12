@@ -33,6 +33,61 @@ at::Tensor split_embedding_codegen_grad_indice_weights_cpu(
     at::Tensor offsets,
     at::Tensor feature_requires_grad);
 
+at::Tensor split_embedding_codegen_forward_weighted_pt2_cpu(
+    const at::Tensor& /*host_weights*/,
+    const at::Tensor& /*dev_weights*/,
+    const at::Tensor& /*uvm_weights*/,
+    const at::Tensor& /*lxu_cache_weights*/,
+    const at::Tensor& /*weights_placements*/,
+    const at::Tensor& /*weights_offsets*/,
+    const at::Tensor& /*D_offsets*/,
+    const int64_t /*total_D*/,
+    const int64_t /*max_D*/,
+    const at::Tensor& /*hash_size_cumsum*/,
+    const at::Tensor& /*indices*/,
+    const at::Tensor& /*offsets*/,
+    const int64_t /*pooling_mode*/,
+    const at::Tensor& /*indice_weights*/,
+    const at::Tensor& /*lxu_cache_locations*/,
+    const at::Tensor& /*uvm_cache_stats*/,
+    const bool /*is_experimental = false*/,
+    const int64_t /*output_dtype*/);
+
+at::Tensor split_embedding_codegen_forward_unweighted_pt2_cpu(
+    const at::Tensor& /*host_weights*/,
+    const at::Tensor& /*dev_weights*/,
+    const at::Tensor& /*uvm_weights*/,
+    const at::Tensor& /*lxu_cache_weights*/,
+    const at::Tensor& /*weights_placements*/,
+    const at::Tensor& /*weights_offsets*/,
+    const at::Tensor& /*D_offsets*/,
+    const int64_t /*total_D*/,
+    const int64_t /*max_D*/,
+    const at::Tensor& /*hash_size_cumsum*/,
+    const at::Tensor& /*indices*/,
+    const at::Tensor& /*offsets*/,
+    const int64_t /*pooling_mode*/,
+    const at::Tensor& /*indice_weights*/,
+    const at::Tensor& /*lxu_cache_locations*/,
+    const at::Tensor& /*uvm_cache_stats*/,
+    const bool /*is_experimental = false*/,
+    const int64_t /*output_dtype*/);
+
+at::Tensor split_embedding_codegen_grad_indice_weights_pt2_cpu(
+    const at::Tensor& /*grad_output*/,
+    const at::Tensor& /*host_weights*/,
+    const at::Tensor& /*dev_weights*/,
+    const at::Tensor& /*uvm_weights*/,
+    const at::Tensor& /*lxu_cache_weights*/,
+    const at::Tensor& /*weights_placements*/,
+    const at::Tensor& /*weights_offsets*/,
+    const at::Tensor& /*D_offsets*/,
+    const int64_t /*max_D*/,
+    const at::Tensor& /*indices*/,
+    const at::Tensor& /*offsets*/,
+    const at::Tensor& /*lxu_cache_locations*/,
+    const at::Tensor& /*feature_requires_grad*/);
+
 namespace internal {
 // A compressed sparse column but each sparse matrix is hyper sparse
 // meaning there can be many columns without any non-zeros.
