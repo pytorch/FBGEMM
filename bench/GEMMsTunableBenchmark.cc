@@ -160,7 +160,7 @@ void performance_test(
     }
   }
   if (flush) {
-    ((volatile char*)(llc.data()))[0] += 1;
+    ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
