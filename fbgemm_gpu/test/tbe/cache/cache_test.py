@@ -10,7 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import cast, Optional, Tuple
+from typing import cast, Optional
 
 import hypothesis.strategies as st
 import numpy as np
