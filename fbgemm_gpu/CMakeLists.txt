@@ -292,19 +292,19 @@ endforeach()
 
 # Generate the backend API for all optimizers to preserve the backward
 # compatibility
+list(APPEND gen_cpu_source_files
+    "gen_embedding_forward_split_pt2_cpu_wrapper.cpp")
+  list(APPEND gen_gpu_host_source_files
+     "gen_embedding_forward_split_pt2_cuda_wrapper.cpp")
 foreach(optimizer ${ALL_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
     "gen_embedding_backward_split_${optimizer}_cpu.cpp")
-  list(APPEND gen_cpu_source_files
-    "gen_embedding_forward_split_pt2_cpu_wrapper.cpp")
   list(APPEND gen_cpu_source_files
     "gen_embedding_backward_split_${optimizer}_pt2_cpu_wrapper.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_split_${optimizer}_pt2_autograd.cpp")
-  list(APPEND gen_gpu_host_source_files
-     "gen_embedding_forward_split_pt2_cuda_wrapper.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp")
 endforeach()
