@@ -28,17 +28,17 @@ test  --verbose_explanations --verbose_failures
 build  --compilation_mode opt
 test   --compilation_mode opt
 
-# Build FBGEMM with C17 and C++17
-build:linux --cxxopt=-std=c++17
-build:linux --host_cxxopt=-std=c++17
+# Build FBGEMM with C17 and C++20
+build:linux --cxxopt=-std=c++20
+build:linux --host_cxxopt=-std=c++20
 build:linux --conlyopt=-std=c17
 build:linux --host_conlyopt=-std=c17
-build:macos --cxxopt=-std=c++17
-build:macos --host_cxxopt=-std=c++17
+build:macos --cxxopt=-std=c++20
+build:macos --host_cxxopt=-std=c++20
 build:macos --conlyopt=-std=c17
 build:macos --host_conlyopt=-std=c17
-build:windows --cxxopt=/std:c++17
-build:windows --host_cxxopt=/std:c++17
+build:windows --cxxopt=/std:c++20
+build:windows --host_cxxopt=/std:c++20
 build:windows --conlyopt=/std:c17
 build:windows --host_conlyopt=/std:c17
 

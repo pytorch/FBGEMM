@@ -222,7 +222,7 @@ The instructions in this section apply to builds for all variants of FBGEMM_GPU.
 C/C++ Compiler (GCC)
 ~~~~~~~~~~~~~~~~~~~~
 
-Install a version of the GCC toolchain **that supports C++17**.  The ``sysroot``
+Install a version of the GCC toolchain **that supports C++20**.  The ``sysroot``
 package will also need to be installed to avoid issues with missing versioned
 symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
 

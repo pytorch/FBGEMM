@@ -167,7 +167,7 @@ void performance_test() {
     ttot *= 1e9; // convert to ns
 
     if (flush) {
-      ((volatile char*)(llc.data()))[0] += 1;
+      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
     }
     cout << setw(16) << runType << ", " << fixed << setw(5) << setprecision(1)
          << nops / ttot << endl;
@@ -421,7 +421,7 @@ void performance_test() {
       }
 
       if (flush) {
-        ((volatile char*)(llc.data()))[0] += 1;
+        ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
       }
       // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
       // unpacked");
