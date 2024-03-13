@@ -28,9 +28,14 @@ Deviceable = TypeVar(
 
 @dataclass
 class TBERequest:
+    """
+    `generate_requests`'s output wrapper
+    """
+
     indices: torch.Tensor
     offsets: torch.Tensor
     per_sample_weights: Optional[torch.Tensor] = None
+    Bs_per_feature_per_rank: Optional[List[List[int]]] = None
 
     def unpack_2(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return (self.indices, self.offsets)
@@ -39,6 +44,18 @@ class TBERequest:
         self,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         return (self.indices, self.offsets, self.per_sample_weights)
+
+    def unpack_4(
+        self,
+    ) -> Tuple[
+        torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[List[List[int]]]
+    ]:
+        return (
+            self.indices,
+            self.offsets,
+            self.per_sample_weights,
+            self.Bs_per_feature_per_rank,
+        )
 
 
 def round_up(a: int, b: int) -> int:
@@ -185,10 +202,37 @@ def generate_requests_from_data_file(
     return rs
 
 
+def generate_int_data_from_stats(
+    mu: int,
+    sigma: int,
+    size: int,
+    distribution: str,
+) -> np.ndarray:
+    """
+    Generate integer data based on stats
+    """
+    if distribution == "uniform":
+        # TODO: either make these separate parameters or make a separate version of
+        # generate_requests to handle the uniform dist case once whole
+        # generate_requests function is refactored to split into helper functions
+        # for each use case.
+        # mu represents the lower bound when the uniform distribution is used
+        lower_bound = mu
+        # sigma represetns the upper bound when the uniform distribution is used
+        upper_bound = sigma + 1
+        return np.random.randint(
+            lower_bound,
+            upper_bound,
+            (size,),
+            dtype=np.int32,
+        )
+    else:  # normal dist
+        return np.random.normal(loc=mu, scale=sigma, size=size).astype(int)
+
+
 def generate_pooling_factors_from_stats(
     iters: int,
-    B: int,
-    T: int,
+    Bs: List[int],
     L: int,
     sigma_L: int,
     # distribution of pooling factors
@@ -197,23 +241,12 @@ def generate_pooling_factors_from_stats(
     """
     Generate pooling factors for the TBE requests from the given stats
     """
-    if length_dist == "uniform":
-        # TODO: either make these separate parameters or make a separate version of
-        # generate_requests to handle the uniform dist case once whole
-        # generate_requests function is refactored to split into helper functions
-        # for each use case.
-        # L represents the lower bound when the uniform distribution is used
-        lower_bound = L
-        # sigma_L represetns the upper bound when the uniform distribution is used
-        upper_bound = sigma_L + 1
-        Ls = np.random.randint(
-            lower_bound,
-            upper_bound,
-            (T, B),
-            dtype=np.int32,
-        )
-    else:  # normal dist
-        Ls = np.random.normal(loc=L, scale=sigma_L, size=T * B).astype(int)
+    Ls_list = []
+    for B in Bs:
+        Ls_list.append(generate_int_data_from_stats(L, sigma_L, B, length_dist))
+
+    # Concat all Ls
+    Ls = np.concatenate(Ls_list)
 
     # Make sure that Ls are positive
     Ls[Ls < 0] = 0
@@ -225,10 +258,37 @@ def generate_pooling_factors_from_stats(
     return L, L_offsets
 
 
-def generate_indices_uniform(
-    iters: int,
+def generate_batch_sizes_from_stats(
     B: int,
     T: int,
+    sigma_B: int,
+    vbe_num_ranks: int,
+    # Distribution of batch sizes
+    batch_size_dist: str,
+) -> Tuple[List[int], List[List[int]]]:
+    """
+    Generate batch sizes for features from the given stats
+    """
+    # Generate batch size per feature per rank
+    Bs_feature_rank = generate_int_data_from_stats(
+        B, sigma_B, T * vbe_num_ranks, batch_size_dist
+    )
+
+    # Make sure that Bs are at least one
+    Bs_feature_rank = np.absolute(Bs_feature_rank)
+    Bs_feature_rank[Bs_feature_rank == 0] = 1
+
+    # Convert numpy array to Torch tensor
+    Bs_feature_rank = torch.from_numpy(Bs_feature_rank).view(T, vbe_num_ranks)
+    # Compute batch sizes per feature
+    Bs = Bs_feature_rank.sum(1).tolist()
+
+    return Bs, Bs_feature_rank.tolist()
+
+
+def generate_indices_uniform(
+    iters: int,
+    Bs: List[int],
     L: int,
     E: int,
     use_variable_L: bool,
@@ -237,10 +297,11 @@ def generate_indices_uniform(
     """
     Generate indices for the TBE requests using the uniform distribution
     """
+    total_B = sum(Bs)
     indices = torch.randint(
         low=0,
         high=E,
-        size=(iters, T, B, L),
+        size=(iters, total_B, L),
         device="cpu" if use_variable_L else get_device(),
         dtype=torch.int32,
     )
@@ -252,14 +313,13 @@ def generate_indices_uniform(
         )
         indices = indices.to(get_device()).int()
     else:
-        indices = indices.reshape(iters, T, B * L)
+        indices = indices.reshape(iters, total_B * L)
     return indices
 
 
 def generate_indices_zipf(
     iters: int,
-    B: int,
-    T: int,
+    Bs: List[int],
     L: int,
     E: int,
     alpha: float,
@@ -274,7 +334,8 @@ def generate_indices_zipf(
     assert E >= L, "num-embeddings must be greater than equal to bag-size"
     # oversample and then remove duplicates to obtain sampling without
     # replacement
-    zipf_shape = (iters, T, B, zipf_oversample_ratio * L)
+    total_B = sum(Bs)
+    zipf_shape = (iters, total_B, zipf_oversample_ratio * L)
     if torch.cuda.is_available():
         zipf_shape_total_len = np.prod(zipf_shape)
         indices_list = []
@@ -307,14 +368,13 @@ def generate_indices_zipf(
     indices = permutation.gather(0, indices.flatten())
     indices = indices.to(get_device()).int()
     if not use_variable_L:
-        indices = indices.reshape(iters, T, B * L)
+        indices = indices.reshape(iters, total_B * L)
     return indices
 
 
 def update_indices_with_random_reuse(
     iters: int,
-    B: int,
-    T: int,
+    Bs: List[int],
     L: int,
     reuse: float,
     indices: torch.Tensor,
@@ -323,11 +383,14 @@ def update_indices_with_random_reuse(
     Update the generated indices with random reuse
     """
     for it in range(iters - 1):
-        for t in range(T):
+        B_offset = 0
+        for B in Bs:
             reused_indices = torch.randperm(B * L, device=get_device())[
                 : int(B * L * reuse)
             ]
-            indices[it + 1, t, reused_indices] = indices[it, t, reused_indices]
+            reused_indices += B_offset
+            indices[it + 1, reused_indices] = indices[it, reused_indices]
+            B_offset += B
     return indices
 
 
@@ -374,6 +437,8 @@ def generate_requests(  # noqa C901
     # If sigma_L is not None, treat L as mu_L and generate Ls from sigma_L
     # and mu_L
     sigma_L: Optional[int] = None,
+    # If sigma_B is not None, treat B as mu_B and generate Bs from sigma_B
+    sigma_B: Optional[int] = None,
     emulate_pruning: bool = False,
     use_cpu: bool = False,
     # generate_requests uses numpy.random.default_rng without a set random seed
@@ -383,10 +448,16 @@ def generate_requests(  # noqa C901
     deterministic_output: bool = False,
     # distribution of embedding sequence lengths
     length_dist: str = "normal",
+    # distribution of batch sizes
+    batch_size_dist: str = "normal",
+    # Number of ranks for variable batch size generation
+    vbe_num_ranks: Optional[int] = None,
 ) -> List[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
     if requests_data_file is not None:
+        assert sigma_L is None, "Variable pooling factors is not supported"
+        assert sigma_B is None, "Variable batch sizes is not supported"
         return generate_requests_from_data_file(
             requests_data_file,
             iters,
@@ -398,12 +469,29 @@ def generate_requests(  # noqa C901
             tables,
         )
 
+    if sigma_B is not None:
+        assert (
+            vbe_num_ranks is not None
+        ), "vbe_num_ranks must be set for varaible batch size generation"
+        use_variable_B = True
+        Bs, Bs_feature_rank = generate_batch_sizes_from_stats(
+            B, T, sigma_B, vbe_num_ranks, batch_size_dist
+        )
+    else:
+        use_variable_B = False
+        Bs = [B] * T
+        Bs_feature_rank = None
+
     if sigma_L is not None:
         # Generate L from stats
         use_variable_L = True
         L, L_offsets = generate_pooling_factors_from_stats(
-            iters, B, T, L, sigma_L, length_dist
+            iters, Bs, L, sigma_L, length_dist
         )
+    elif use_variable_B:
+        use_variable_L = False
+        Ls = [L] * (sum(Bs) * iters)
+        L_offsets = torch.tensor([0] + Ls, dtype=torch.long).cumsum(0)
     else:
         use_variable_L = False
         # Init to suppress the pyre error
@@ -412,14 +500,13 @@ def generate_requests(  # noqa C901
     if alpha <= 1.0:
         # Generate indices using uniform dist
         all_indices = generate_indices_uniform(
-            iters, B, T, L, E, use_variable_L, L_offsets
+            iters, Bs, L, E, use_variable_L, L_offsets
         )
     else:
         # Generate indices using zipf dist
         all_indices = generate_indices_zipf(
             iters,
-            B,
-            T,
+            Bs,
             L,
             E,
             alpha,
@@ -433,23 +520,32 @@ def generate_requests(  # noqa C901
         assert (
             not use_variable_L
         ), "Does not support generating Ls from stats for reuse > 0.0"
-        all_indices = update_indices_with_random_reuse(
-            iters, B, T, L, reuse, all_indices
-        )
+        all_indices = update_indices_with_random_reuse(iters, Bs, L, reuse, all_indices)
 
     # Some indices are set to -1 for emulating pruned rows.
     if emulate_pruning:
-        all_indices = update_indices_with_random_pruning(iters, B, T, L, all_indices)
+        assert (
+            not use_variable_L
+        ), "Does not support generating Ls from stats for emulate_pruning=True"
+        assert (
+            not use_variable_B
+        ), "Does not support generating Bs from stats for emulate_pruning=True"
+
+        all_indices = update_indices_with_random_pruning(
+            iters, B, T, L, all_indices.view(iters, T, B * L)
+        )
 
     # Pack requests
     rs = []
-    for it in range(iters):
-        if use_variable_L:
-            start_offset = L_offsets[it * T * B]
+    if use_variable_L or use_variable_B:
+        total_B = sum(Bs)
+        all_indices = all_indices.flatten()
+        for it in range(iters):
+            start_offset = L_offsets[it * total_B]
             it_L_offsets = torch.concat(
                 [
-                    torch.zeros(1),
-                    L_offsets[it * T * B + 1 : (it + 1) * T * B + 1] - start_offset,
+                    torch.zeros(1, dtype=L_offsets.dtype, device=L_offsets.device),
+                    L_offsets[it * total_B + 1 : (it + 1) * total_B + 1] - start_offset,
                 ]
             )
             weights_tensor = (
@@ -461,12 +557,14 @@ def generate_requests(  # noqa C901
             )
             rs.append(
                 TBERequest(
-                    all_indices[start_offset : L_offsets[(it + 1) * T * B]],
+                    all_indices[start_offset : L_offsets[(it + 1) * total_B]],
                     it_L_offsets.to(get_device()),
                     weights_tensor,
+                    Bs_feature_rank if use_variable_B else None,
                 )
             )
-        else:
+    else:
+        for it in range(iters):
             weights_tensor = (
                 None
                 if not weighted
