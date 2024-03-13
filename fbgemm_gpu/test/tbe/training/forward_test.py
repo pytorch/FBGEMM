@@ -833,7 +833,8 @@ class ForwardTest(unittest.TestCase):
 
         requests = generate_requests(2, B, T, L, min(Es), reuse=0.1)
 
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             lowp_pooled_output = op(
                 indices=indices,
                 offsets=offsets,

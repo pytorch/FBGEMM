@@ -6,7 +6,6 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-
 # pyre-ignore-all-errors[56]
 
 import os

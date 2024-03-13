@@ -10,7 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 import unittest
-from typing import cast, Optional, Tuple
+from typing import cast, Optional
 
 import hypothesis.strategies as st
 import numpy as np
@@ -20,6 +20,7 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import (
     generate_requests,
     get_table_batched_offsets_from_dense,
+    TBERequest,
     to_device,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
@@ -91,7 +92,8 @@ class CacheTest(unittest.TestCase):
         requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
         grad_output = torch.randn(B, sum_Ds).cuda()
 
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             output = cc(indices, offsets)
             output_ref = cc_ref(indices, offsets)
             assert_cache(output, output_ref, stochastic_rounding)
@@ -167,19 +169,19 @@ class CacheTest(unittest.TestCase):
 
         def _prefetch(
             cc: SplitTableBatchedEmbeddingBagsCodegen,
-            batch: Optional[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
+            batch: Optional[TBERequest],
         ) -> None:
             if not batch:
                 return
             context_stream = prefetch_stream if prefetch_stream else cur_stream
             stream = cur_stream if prefetch_stream else None
-            indices, offsets, _ = batch
+            indices, offsets = batch.unpack_2()
             with torch.cuda.stream(context_stream):
                 cc.prefetch(indices, offsets, stream)
 
         _prefetch(cc, batch_i)
         while batch_i:
-            indices, offsets, _ = batch_i
+            indices, offsets = batch_i.unpack_2()
             batch_ip1 = next(req_iter, None)
             if prefetch_stream:
                 cur_stream.wait_stream(prefetch_stream)
@@ -193,7 +195,8 @@ class CacheTest(unittest.TestCase):
             batch_ip1 = None
         cc.flush()
 
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             output_ref = cc_ref(indices, offsets)
             output_ref.backward(grad_output)
 

@@ -6,10 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/input_combine.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
-
 #include <ATen/ATen.h>
 #include <ATen/Context.h>
 #include <ATen/Dispatch.h>
@@ -20,6 +16,10 @@
 #include <c10/core/TensorOptions.h>
 #include <c10/util/Exception.h>
 #include <torch/script.h>
+
+#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/input_combine.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -384,14 +384,12 @@ padding_fused_tbe_input_combine_with_length_cpu(
   auto combined_lengths = _cat_int_tensors_with_padding(
       lengths_list, total_lengths, pin_memory, batch_size);
 
-  if (need_weights) {
-    return {
-        std::move(combined_indices),
-        std::move(combined_lengths),
-        _cat_per_sample_weights_list(
-            per_sample_weights, indices_list, total_indices, pin_memory)};
-  }
-  return {combined_indices, combined_lengths, at::empty({0})};
+  auto combined_per_sample_weights = need_weights
+      ? _cat_per_sample_weights_list(
+            per_sample_weights, indices_list, total_indices, pin_memory)
+      : at::empty({0});
+
+  return {combined_indices, combined_lengths, combined_per_sample_weights};
 }
 
 } // namespace fbgemm_gpu
