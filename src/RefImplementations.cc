@@ -1530,6 +1530,9 @@ bool EmbeddingSpMDMFP8_ref(
     input_stride = block_size;
   }
 
+  // test print statement
+  printf("running the reference code");
+
   // Reference implementation of FP8 SLS. The algorithm is similar to FP32 SLS
   // except for the FP8->FP32 conversion after reading the embedding weight.
   int64_t current = 0;
