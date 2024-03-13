@@ -13,7 +13,9 @@ import contextlib
 import enum
 import functools
 import logging
+import math
 import os
+import uuid
 from dataclasses import dataclass, field
 from itertools import accumulate
 from math import log2
@@ -55,6 +57,15 @@ try:
     )
 except Exception:
     pass
+
+
+try:
+    from torch._dynamo import is_compiling as is_torchdynamo_compiling
+except Exception:
+
+    def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
+        return False
+
 
 DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
 INT8_EMB_ROW_DIM_OFFSET = 8
@@ -120,6 +131,16 @@ class CowClipDefinition:
     counter_halflife: int = -1
     weight_norm_coefficient: float = 0.0
     lower_bound: float = 0.0
+
+
+# Keep in sync with fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh
+class UVMCacheStatsIndex(enum.IntEnum):
+    num_calls = 0
+    num_requested_indices = 1
+    num_unique_indices = 2
+    num_unique_misses = 3
+    num_conflict_unique_misses = 4
+    num_conflict_misses = 5
 
 
 def construct_split_state(
@@ -305,6 +326,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     record_cache_metrics: RecordCacheMetrics
     uvm_cache_stats: torch.Tensor
     local_uvm_cache_stats: torch.Tensor
+    uuid: str
 
     def __init__(  # noqa C901
         self,
@@ -358,9 +380,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # should be set.
         prefetch_pipeline: bool = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
+        # Embedding table names that are contained in this TBE.
+        table_names: Optional[List[str]] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
-
+        self.uuid = str(uuid.uuid4())
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
@@ -818,8 +842,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=cache_embedding_dtype,
         )
 
-        logging.info(
-            f"Using fused {optimizer} with optimizer_args={self.optimizer_args if optimizer != OptimType.NONE else None}\n"
+        self.log(f"Contents: {table_names}")
+        self.log(
+            f"Using fused {optimizer} with optimizer_args={self.optimizer_args if optimizer != OptimType.NONE else None}"
+        )
+        self.log(
             f"Using rowwise_adagrad_with_counter={self._used_rowwise_adagrad_with_counter}"
         )
 
@@ -830,16 +857,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         fbgemm_exp_tbe = os.environ.get("FBGEMM_EXPERIMENTAL_TBE")
         if use_experimental_tbe:
             is_experimental = True
-            logging.info(
-                "use_experimental_tbe is set to True; Use experimental TBE: True"
-            )
+            self.log("use_experimental_tbe is set to True; Use experimental TBE: True")
         elif fbgemm_exp_tbe is not None:
             is_experimental = int(fbgemm_exp_tbe) == 1
-            logging.info(
+            self.log(
                 f"FBGEMM_EXPERIMENTAL_TBE is set to {fbgemm_exp_tbe}; "
                 f"Use experimental TBE: {is_experimental}"
             )
         self.is_experimental: bool = is_experimental
+
+    @torch.jit.ignore
+    def log(self, msg: str) -> None:
+        """Log with TBE id prefix to distinguish between multiple TBE instances per process."""
+        logging.info(f"[TBE={self.uuid}] {msg}")
 
     def _register_nonpersistent_buffers(self, prefix: str) -> None:
         # NOTE: make TorchScript work!
@@ -944,11 +974,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             # Create B offsets
             total_batch_size_per_feature = torch.tensor(
-                [sum(batch_sizes) for batch_sizes in batch_size_per_feature_per_rank],
-                device="cpu",
-                dtype=torch.int32,
-            )
-            max_B = int(total_batch_size_per_feature.max().item())
+                batch_size_per_feature_per_rank, dtype=torch.int32, device="cpu"
+            ).sum(dim=1)
+
+            max_B = total_batch_size_per_feature.max().item()
+            if not torch.jit.is_scripting() and is_torchdynamo_compiling():
+                torch._check_is_size(max_B)
+                torch._check(max_B <= offsets.size(0))
+
             Bs = torch.concat([zero_tensor, total_batch_size_per_feature])
             B_offsets = Bs.cumsum(dim=0).to(torch.int)
 
@@ -958,7 +991,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 device="cpu",
                 dtype=torch.int64,
             )
-            max_B_feature_rank = int(B_feature_rank.max().item())
+            max_B_feature_rank = B_feature_rank.max().item()
+            if not torch.jit.is_scripting() and is_torchdynamo_compiling():
+                torch._check_is_size(max_B_feature_rank)
+                torch._check(max_B_feature_rank <= offsets.size(0))
             # D->H only once
             self.feature_dims = self.feature_dims.cpu()
             output_sizes_feature_rank = B_feature_rank.transpose(
@@ -970,7 +1006,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     output_sizes_feature_rank.flatten().cumsum(dim=0),
                 ]
             )
-            output_size = int(output_offsets_feature_rank[-1].item())
+            output_size = output_offsets_feature_rank[-1].item()
+            if not torch.jit.is_scripting() and is_torchdynamo_compiling():
+                torch._check_is_size(output_size)
 
             # TODO: Support INT8 output
             # B_offsets_rank_per_feature is for rank and (b, t) mapping
@@ -1000,8 +1038,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 B_offsets=B_offsets,
                 output_offsets_feature_rank=output_offsets_feature_rank,
                 B_offsets_rank_per_feature=B_offsets_rank_per_feature,
+                # pyre-ignore
                 max_B=max_B,
+                # pyre-ignore
                 max_B_feature_rank=max_B_feature_rank,
+                # pyre-ignore
                 output_size=output_size,
             )
         else:
@@ -1231,23 +1272,39 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
         return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
+    @torch.jit.ignore
     def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
         uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
             use_local_cache
         ).tolist()
-        logging.info(
-            f"N_called: {uvm_cache_stats[0]}\n"
-            f"N_requested_indices: {uvm_cache_stats[1]}\n"
-            f"N_unique_indices: {uvm_cache_stats[2]}\n"
-            f"N_unique_misses: {uvm_cache_stats[3]}\n"
-            f"N_conflict_unique_misses: {uvm_cache_stats[4]}\n"
-            f"N_conflict_misses: {uvm_cache_stats[5]}\n"
-        )
+        m = {
+            "N_called": uvm_cache_stats[UVMCacheStatsIndex.num_calls],
+            "N_requested_indices": uvm_cache_stats[
+                UVMCacheStatsIndex.num_requested_indices
+            ],
+            "N_unique_indices": uvm_cache_stats[UVMCacheStatsIndex.num_unique_indices],
+            "N_unique_misses": uvm_cache_stats[UVMCacheStatsIndex.num_unique_misses],
+            "N_conflict_unique_misses": uvm_cache_stats[
+                UVMCacheStatsIndex.num_conflict_unique_misses
+            ],
+            "N_conflict_misses": uvm_cache_stats[
+                UVMCacheStatsIndex.num_conflict_misses
+            ],
+        }
         if uvm_cache_stats[1]:
-            logging.info(
-                f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
-                f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
+            m.update(
+                {
+                    "unique indices / requested indices": uvm_cache_stats[
+                        UVMCacheStatsIndex.num_unique_indices
+                    ]
+                    / uvm_cache_stats[UVMCacheStatsIndex.num_requested_indices],
+                    "unique misses / requested indices": uvm_cache_stats[
+                        UVMCacheStatsIndex.num_unique_misses
+                    ]
+                    / uvm_cache_stats[UVMCacheStatsIndex.num_requested_indices],
+                }
             )
+        self.log(f"uvm_cache_stats={m}")
 
     def prefetch(
         self,
@@ -1358,6 +1415,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
+            if self.should_log():
+                self.print_uvm_cache_stats(use_local_cache=False)
+
+    def should_log(self) -> bool:
+        """Determines if we should log for this step, using exponentially decreasing frequency.
+
+        Logs for steps: 100 200 ... 1,000 2,000 ... 10,000 20,000 ... 100,000 200,000 ...
+        """
+        s = self.step + 1  # step starts at 0
+        return s >= 100 and s % (10 ** int(math.log10(s))) == 0
 
     def _prefetch_tensors_record_stream(
         self, forward_stream: torch.cuda.Stream
@@ -1771,7 +1838,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2**24 - 1
         cache_size = cache_sets * DEFAULT_ASSOC * element_size * self.max_D_cache
-        logging.info(
+        self.log(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
             f"load_factor: {cache_load_factor : .3f}, "
