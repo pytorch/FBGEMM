@@ -282,24 +282,12 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
           w = weights[is_weight_positional ? i : current];
         }
 
-        if(is_same<InType, float16>::value){
-          #pragma omp simd
-          for (int j = 0; j < block_size; ++j) {
-            const InType* inptr = input + block_size * idx + j;
-            out[j] = std::fma(
-                w,
-                cpu_half2float(*inptr),
-                out[j]);
-          }    
-        } else {
-          #pragma omp simd
-          for (int j = 0; j < block_size; ++j) {
-            const InType* inptr = input + block_size * idx + j;
-            out[j] = std::fma(
-                w,
-                *inptr,
-                out[j]);
-          }
+        for (int j = 0; j < block_size; ++j) {
+          const InType* inptr = input + block_size * idx + j;
+          out[j] = std::fma(
+              w,
+              is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
+              out[j]);
         }
         
         ++current;
