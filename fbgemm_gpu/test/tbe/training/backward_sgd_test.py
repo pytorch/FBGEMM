@@ -94,7 +94,6 @@ class BackwardSGDTest(unittest.TestCase):
                 weights_precision != SparseType.INT8
                 and output_dtype != SparseType.INT8
                 and not use_cpu
-                and not use_cache
                 and pooling_mode != PoolingMode.NONE
             )
         )
