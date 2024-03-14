@@ -702,6 +702,8 @@
     <span class="n">local_uvm_cache_stats</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="n">uuid</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">last_uvm_cache_print_state</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+    <span class="n">_vbe_B_offsets</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+    <span class="n">_vbe_max_B</span><span class="p">:</span> <span class="nb">int</span>
 
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>  <span class="c1"># noqa C901</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1325,17 +1327,26 @@
         <span class="p">),</span> <span class="s2">&quot;We should not be here. AsyncTimer only happens with reporter present.&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_duration</span><span class="p">(</span><span class="n">it_step</span><span class="p">,</span> <span class="n">event_name</span><span class="p">,</span> <span class="n">dur_ms</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
+    <span class="k">def</span> <span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">feature_requires_grad</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="c1"># 2D tensor of batch size for each rank and feature.</span>
-        <span class="c1"># Shape (number of features, number of ranks)</span>
-        <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">total_unique_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate VBE metadata based on batch_size_per_feature_per_rank.</span>
+<span class="sd">        Metadata includes:</span>
+<span class="sd">            1) B_offsets - A tensor that contains batch size offsets for each</span>
+<span class="sd">                           feature</span>
+<span class="sd">            2) output_offsets_feature_rank - A tensor that contains output</span>
+<span class="sd">                                             offsets for each feature</span>
+<span class="sd">            3) B_offsets_per_rank_per_feature - A tensor that contains batch</span>
+<span class="sd">                                                size offsets for each feature</span>
+<span class="sd">                                                and rank</span>
+<span class="sd">            4) max_B - The maximum batch size for all features</span>
+<span class="sd">            5) max_B_feature_rank - The maximum batch size for all ranks and</span>
+<span class="sd">                                    features</span>
+<span class="sd">            6) output_size - The output size (number of elements)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">batch_size_per_feature_per_rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">assert</span> <span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
@@ -1355,7 +1366,7 @@
             <span class="n">max_B</span> <span class="o">=</span> <span class="n">total_batch_size_per_feature</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
                 <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">max_B</span><span class="p">)</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B</span> <span class="o">&lt;=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B</span> <span class="o">&lt;</span> <span class="n">offsets</span><span class="o">.</span><span class="n">numel</span><span class="p">())</span>
 
             <span class="n">Bs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">zero_tensor</span><span class="p">,</span> <span class="n">total_batch_size_per_feature</span><span class="p">])</span>
             <span class="n">B_offsets</span> <span class="o">=</span> <span class="n">Bs</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">)</span>
@@ -1429,6 +1440,23 @@
                 <span class="n">max_B_feature_rank</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
                 <span class="n">output_size</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
             <span class="p">)</span>
+        <span class="k">return</span> <span class="n">vbe_metadata</span>
+
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">feature_requires_grad</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="c1"># 2D tensor of batch size for each rank and feature.</span>
+        <span class="c1"># Shape (number of features, number of ranks)</span>
+        <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">total_unique_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># Generate VBE metadata</span>
+        <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_vbe_metadata</span><span class="p">(</span>
+            <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
+        <span class="p">)</span>
 
         <span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">offsets</span><span class="o">.</span><span class="n">long</span><span class="p">()</span>
         <span class="c1"># Force casting per_sample_weights to float</span>
@@ -1447,13 +1475,15 @@
                 <span class="n">max_B</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
             <span class="p">)</span>
 
-        <span class="c1"># Storing indices and offsets for linear_cache_indices recomputation</span>
+        <span class="c1"># Storing tensors for linear_cache_indices recomputation</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_indices</span> <span class="o">=</span> <span class="n">indices</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_offsets</span> <span class="o">=</span> <span class="n">offsets</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_B_offsets</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_max_B</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+=</span> <span class="mi">1</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
@@ -1697,18 +1727,27 @@
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">forward_stream</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">forward_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_stream</span><span class="p">()</span>
             <span class="k">assert</span> <span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span> <span class="o">!=</span> <span class="n">forward_stream</span>
             <span class="p">),</span> <span class="s2">&quot;prefetch_stream and forward_stream should not be the same stream&quot;</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span>
+        <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_vbe_metadata</span><span class="p">(</span>
+            <span class="n">offsets</span><span class="p">,</span>
+            <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">forward_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch_tensors_record_stream</span><span class="p">(</span><span class="n">forward_stream</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_prefetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">_prefetch</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">vbe_metadata</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep</span> <span class="o">+=</span> <span class="mi">1</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
@@ -1724,6 +1763,8 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
             <span class="n">indices</span><span class="p">,</span>
             <span class="n">offsets</span><span class="p">,</span>
+            <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span> <span class="k">if</span> <span class="n">vbe_metadata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span> <span class="k">if</span> <span class="n">vbe_metadata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="p">(</span>
@@ -2148,6 +2189,8 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_empty</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_empty</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_offsets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_empty</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_B_offsets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_empty</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_max_B</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">_init_uvm_cache_stats</span><span class="p">()</span>
@@ -2389,6 +2432,8 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_indices</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_offsets</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_B_offsets</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_max_B</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="p">(</span>
             <span class="n">linear_unique_indices</span><span class="p">,</span>
