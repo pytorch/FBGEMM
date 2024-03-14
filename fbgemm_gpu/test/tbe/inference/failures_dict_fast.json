@@ -274,12 +274,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::pruned_array_lookup": {
-      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::pruned_array_lookup": {},
     "fbgemm::pruned_hashmap_insert": {},
     "fbgemm::pruned_hashmap_lookup": {
       "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {

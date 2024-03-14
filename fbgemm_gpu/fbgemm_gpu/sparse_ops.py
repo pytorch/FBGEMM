@@ -272,6 +272,17 @@ def check_all_same_device(*tensors: Optional[Tensor]) -> None:
         torch._check(tensor.device == first_tensor.device)
 
 
+@impl_abstract("fbgemm::pruned_array_lookup")
+def pruned_array_lookup_meta(
+    indices: Tensor,
+    offsets: Tensor,
+    index_remappings: Tensor,
+    index_remappings_offsets: Tensor,
+) -> Tensor:
+    check_all_same_device(indices, offsets, index_remappings, index_remappings_offsets)
+    return indices.new_empty(indices.shape)
+
+
 @impl_abstract("fbgemm::int_nbit_split_embedding_codegen_lookup_function")
 def int_nbit_split_embedding_codegen_lookup_function_meta(
     dev_weights: torch.Tensor,
