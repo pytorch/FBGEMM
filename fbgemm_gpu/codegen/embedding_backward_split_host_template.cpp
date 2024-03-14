@@ -244,7 +244,7 @@ class {{ autograd_func }} :
         {%- endif %}
         max_B_feature_rank,
         info_B_num_bits,
-        /*total_B=*/offsets.size(0) - 1
+        /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %}
 
