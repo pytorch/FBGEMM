@@ -327,6 +327,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     uvm_cache_stats: torch.Tensor
     local_uvm_cache_stats: torch.Tensor
     uuid: str
+    last_uvm_cache_print_state: torch.Tensor
 
     def __init__(  # noqa C901
         self,
@@ -1272,24 +1273,35 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
         return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
+    def _get_uvm_cache_print_state(self, use_local_cache: bool = False) -> List[float]:
+        snapshot = self.get_uvm_cache_stats(use_local_cache)
+        if use_local_cache:
+            return snapshot.tolist()
+
+        # Stats are accumulated over multiple steps.  Compute delta, and update state.
+        delta = snapshot - self.last_uvm_cache_print_state
+        self.last_uvm_cache_print_state = snapshot.clone()
+        return delta.tolist()
+
     @torch.jit.ignore
     def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
-        uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
-            use_local_cache
-        ).tolist()
+        uvm_cache_stats: List[float] = self._get_uvm_cache_print_state(use_local_cache)
+        N = max(1, uvm_cache_stats[0])
         m = {
             "N_called": uvm_cache_stats[UVMCacheStatsIndex.num_calls],
-            "N_requested_indices": uvm_cache_stats[
+            "requested_indices": uvm_cache_stats[
                 UVMCacheStatsIndex.num_requested_indices
-            ],
-            "N_unique_indices": uvm_cache_stats[UVMCacheStatsIndex.num_unique_indices],
-            "N_unique_misses": uvm_cache_stats[UVMCacheStatsIndex.num_unique_misses],
-            "N_conflict_unique_misses": uvm_cache_stats[
+            ]
+            / N,
+            "unique_indices": uvm_cache_stats[UVMCacheStatsIndex.num_unique_indices]
+            / N,
+            "unique_misses": uvm_cache_stats[UVMCacheStatsIndex.num_unique_misses] / N,
+            "conflict_unique_misses": uvm_cache_stats[
                 UVMCacheStatsIndex.num_conflict_unique_misses
-            ],
-            "N_conflict_misses": uvm_cache_stats[
-                UVMCacheStatsIndex.num_conflict_misses
-            ],
+            ]
+            / N,
+            "conflict_misses": uvm_cache_stats[UVMCacheStatsIndex.num_conflict_misses]
+            / N,
         }
         if uvm_cache_stats[1]:
             m.update(
@@ -2080,6 +2092,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
             )
             self.reset_uvm_cache_stats()
+        self.last_uvm_cache_print_state = torch.zeros_like(self.uvm_cache_stats)
 
     def reset_cache_states(self) -> None:
         if not self.lxu_cache_weights.numel():
