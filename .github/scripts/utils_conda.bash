@@ -37,17 +37,18 @@ setup_miniconda () {
 
   test_network_connection || return 1
 
-  # Download and install Miniconda if doesn't exist
-  if [ ! -f "${miniconda_prefix}/bin/conda" ]; then
-    print_exec mkdir -p "$miniconda_prefix"
-
-    echo "[SETUP] Downloading the Miniconda installer ..."
-    (exec_with_retries 3 wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh) || return 1
-
-    echo "[SETUP] Installing Miniconda ..."
-    print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
-    print_exec rm -f miniconda.sh
+  if [ -f "${miniconda_prefix}/bin/conda" ]; then
+    echo "[SETUP] A Miniconda installation appears to already exist; will override ..."
   fi
+
+  print_exec mkdir -p "$miniconda_prefix"
+
+  echo "[SETUP] Downloading the Miniconda installer ..."
+  (exec_with_retries 3 wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh) || return 1
+
+  echo "[SETUP] Installing Miniconda ..."
+  print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
+  print_exec rm -f miniconda.sh
 
   echo "[SETUP] Reloading the bash configuration ..."
   print_exec "${miniconda_prefix}/bin/conda" init bash

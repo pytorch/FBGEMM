@@ -60,8 +60,8 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { instance: "linux.4xlarge" },
-          { instance: "linux.arm64.2xlarge" },
+          { arch: x86, instance: "linux.4xlarge", timeout: 20 },
+          { arch: arm, instance: "linux.arm64.2xlarge", timeout: 30 },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
 
@@ -98,7 +98,7 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cpu
 
     - name: Test with PyTest
-      timeout-minutes: 10
+      timeout-minutes: ${{ matrix.host-machine.timeout }}
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpu
 
 
@@ -158,7 +158,7 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 15
+      timeout-minutes: 20
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cuda
 
 
@@ -223,6 +223,6 @@ jobs:
     - name: Install FBGEMM_GPU-ROCm
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} rocm/${{ matrix.rocm-version }}
 
-    - name: Test FBGEMM_GPU-ROCm
-      timeout-minutes: 15
+    - name: Test with PyTest
+      timeout-minutes: 20
       run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm

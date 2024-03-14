@@ -214,25 +214,6 @@ __configure_fbgemm_gpu_build () {
   echo "[BUILD] FBGEMM_GPU build arguments have been set:  ${build_args[@]}"
 }
 
-__build_fbgemm_gpu_set_package_name () {
-  # Determine the package name based on release type and variant
-  export package_name="fbgemm_gpu"
-
-  # Append qualifiers for the non-release version
-  if [ "$fbgemm_release_type" != "release" ]; then
-    export package_name="${package_name}_${fbgemm_release_type}"
-  fi
-
-  # Append cpu or rocm for the non-CUDA case
-  if [ "$fbgemm_variant" == "cpu" ]; then
-    export package_name="${package_name}-cpu"
-  elif [ "$fbgemm_variant" == "rocm" ]; then
-    export package_name="${package_name}-rocm"
-  fi
-
-  echo "[BUILD] Determined and set Python package name to use: ${package_name}"
-}
-
 __build_fbgemm_gpu_set_python_tag () {
   # shellcheck disable=SC2207,SC2086
   local python_version=($(conda run --no-capture-output ${env_prefix} python --version))
@@ -297,9 +278,6 @@ __build_fbgemm_gpu_common_pre_steps () {
   if [ "$fbgemm_variant" != "cpu" ] && [ "$fbgemm_variant" != "rocm" ]; then
     export fbgemm_variant="cuda"
   fi
-
-  # Extract and set the package name given the FBGEMM_GPU variant
-  __build_fbgemm_gpu_set_package_name
 
   # Extract and set the Python tag
   __build_fbgemm_gpu_set_python_tag
@@ -389,17 +367,17 @@ run_fbgemm_gpu_postbuild_checks () {
 
 build_fbgemm_gpu_package () {
   env_name="$1"
-  fbgemm_release_type="$2"
+  fbgemm_release_channel="$2"
   fbgemm_variant="$3"
   fbgemm_variant_targets="$4"
   if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_TYPE VARIANT [VARIANT_TARGETS]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_CHANNEL VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env release cpu                      # CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env nightly cuda                     # CUDA variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'              # CUDA variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env test rocm                        # ROCm variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env test rocm 'gfx906;gfx908;gfx90a' # ROCm variant for custom target(s)"
     return 1
   fi
 
@@ -422,7 +400,7 @@ build_fbgemm_gpu_package () {
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py "${run_multicore}" bdist_wheel \
-      --package_name="${package_name}" \
+      --package_channel="${fbgemm_release_channel}" \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --verbose \
