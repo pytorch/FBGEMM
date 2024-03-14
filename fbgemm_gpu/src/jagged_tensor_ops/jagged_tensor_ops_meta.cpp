@@ -141,6 +141,13 @@ Tensor batched_dense_vec_jagged_2d_mul_forward_meta(
   return at::empty_symint({B * H, D}, v.options());
 }
 
+Tensor batched_dense_vec_jagged_2d_mul_meta(
+    const Tensor& v,
+    const Tensor& a_values,
+    const Tensor& a_offsets) {
+  return batched_dense_vec_jagged_2d_mul_forward_meta(v, a_values, a_offsets);
+}
+
 std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward_meta(
     const Tensor& grad_output,
     const Tensor& v,
@@ -225,6 +232,10 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
           fbgemm_gpu::
               jagged_dense_dense_elementwise_add_jagged_output_forward_meta));
   m.impl(
+      "jagged_dense_dense_elementwise_add_jagged_output",
+      TORCH_FN(
+          fbgemm_gpu::jagged_dense_dense_elementwise_add_jagged_output_meta));
+  m.impl(
       "jagged_dense_elementwise_add_jagged_output",
       TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_add_jagged_output_meta));
   m.impl(
@@ -239,6 +250,9 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "jagged_dense_elementwise_mul_backward",
       TORCH_FN(fbgemm_gpu::jagged_dense_elementwise_mul_backward_meta));
+  m.impl(
+      "batched_dense_vec_jagged_2d_mul",
+      TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul_meta));
   m.impl(
       "batched_dense_vec_jagged_2d_mul_forward",
       TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul_forward_meta));
