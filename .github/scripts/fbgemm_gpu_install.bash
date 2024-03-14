@@ -20,6 +20,16 @@ __fbgemm_gpu_post_install_checks () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
+  # shellcheck disable=SC2086,SC2155
+  local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
+  echo "################################################################################"
+  echo "[CHECK] !!!!    INFO    !!!!"
+  echo "[CHECK] The installed version of PyTorch is: ${installed_pytorch_version}"
+  echo "[CHECK]"
+  echo "[CHECK] NOTE: If the PyTorch package channel is different from the FBGEMM_GPU"
+  echo "[CHECK]       package channel; the package may be broken at runtime!!!"
+  echo "################################################################################"
+
   echo "[INSTALL] Checking imports and symbols ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
   (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
@@ -28,7 +38,9 @@ __fbgemm_gpu_post_install_checks () {
   echo "[CHECK] Printing out the FBGEMM-GPU version ..."
   # shellcheck disable=SC2086,SC2155
   local installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
-  echo "[CHECK] The installed version is: ${installed_fbgemm_gpu_version}"
+  echo "################################################################################"
+  echo "[CHECK] The installed version of FBGEMM_GPU is: ${installed_fbgemm_gpu_version}"
+  echo "################################################################################"
 }
 
 install_fbgemm_gpu_wheel () {
