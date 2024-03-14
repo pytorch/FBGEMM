@@ -160,9 +160,8 @@ Tensor
     }
 
     {%- if vbe %}
-    // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
     output = at::empty_symint(
-        {1, vbe_output_size},
+        {vbe_output_size},
         dev_weights.options().dtype(getScalarType(o_dtype))
     );
     {%- else %}
@@ -172,17 +171,6 @@ Tensor
     );
     {%- endif %}
     {%- endif %} // if nobag
-
-    if (B == 0) {
-        {%- if vbe %}
-        output = output.reshape({-1});
-        {%- endif %}
-        return output;
-    }
-
-    {%- if not nobag and vbe %}
-    output = output.reshape({-1});
-    {%- endif %}
 
     return output;
 }
