@@ -155,7 +155,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
         const int32_t sl_start = 0;
         const int32_t sl_end = SL;
-        Vec4T<at::acc_type<cache_t, true>> grad_sum[kMaxVecsPerThread];
+        Vec4TAcc<cache_t> grad_sum[kMaxVecsPerThread];
 
         compute_grad_sum_{{ kdesc }}
           <grad_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH>(

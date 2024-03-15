@@ -193,7 +193,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
         const int32_t sl_start = SL_per_warp * warp_id;
         const int32_t sl_end = min(SL_per_warp * (warp_id + 1), SL);
-        Vec4T<at::acc_type<cache_t, true>> grad_sum[kMaxVecsPerThread];
+        Vec4TAcc<cache_t> grad_sum[kMaxVecsPerThread];
 
         compute_grad_sum_{{ kdesc }}<grad_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH>(
             grad_sum,
@@ -228,8 +228,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 
         // Do shared memory reduction only if we used multiple warps.
         if (SL > SL_per_warp) {
-            struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> smem;
-            Vec4T<at::acc_type<cache_t, true>>* shared_grad_sums = smem.getPointer();
+            struct SharedMemory<Vec4TAcc<cache_t>> smem;
+            Vec4TAcc<cache_t>* shared_grad_sums = smem.getPointer();
 
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
@@ -268,8 +268,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 
         if (num_ctas_on_current_run > 1) {
             int really_long_run_id = long_run_id_to_really_long_run_ids[long_run_id];
-            Vec4T<at::acc_type<cache_t, true>> *temp_grad_accum_ptr =
-                reinterpret_cast<Vec4T<at::acc_type<cache_t, true>>*>(&temp_grad_accum[really_long_run_id][0]);
+            Vec4TAcc<cache_t> *temp_grad_accum_ptr =
+                reinterpret_cast<Vec4TAcc<cache_t>*>(&temp_grad_accum[really_long_run_id][0]);
             #pragma unroll kMaxVecsPerThread
             for (int32_t i = 0;
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
