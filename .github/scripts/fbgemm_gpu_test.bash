@@ -240,31 +240,23 @@ test_setup_conda_environment () {
   fi
 
   echo "Creating the Build Environment: ${env_name} ..."
-  create_conda_environment    "${env_name}" "${python_version}" || return 1
+  create_conda_environment  "${env_name}" "${python_version}"           || return 1
 
-  # Set up the build tools and/or GPU runtimes
-  if [ "$pytorch_variant_type" == "cuda" ]; then
-    if [ "$compiler" != "" ]; then
-      install_cxx_compiler      "${env_name}" "${compiler}"                                                         || return 1
-    fi
-    install_build_tools       "${env_name}"                                                                         || return 1
-    install_cuda              "${env_name}" "${pytorch_variant_version}"                                            || return 1
-    install_cudnn             "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
+  # Install ROCm tools and runtime
+  if [ "$pytorch_variant_type" == "rocm" ]; then
+    install_rocm_ubuntu     "${env_name}" "${pytorch_variant_version}"  || return 1
 
-  elif [ "$pytorch_variant_type" == "rocm" ]; then
-    install_rocm_ubuntu       "${env_name}" "${pytorch_variant_version}"  || return 1
-    if [ "$compiler" != "" ]; then
-      install_cxx_compiler      "${env_name}" "${compiler}"               || return 1
-    fi
-    install_build_tools       "${env_name}"                               || return 1
-    return 1
-
-  else
-    if [ "$compiler" != "" ]; then
-      install_cxx_compiler      "${env_name}" "${compiler}"   || return 1
-    fi
-    install_build_tools       "${env_name}"                   || return 1
+  # Install CUDA tools and runtime
+  elif [ "$pytorch_variant_type" == "cuda" ]; then
+    install_cuda  "${env_name}" "${pytorch_variant_version}"                                            || return 1
+    install_cudnn "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
   fi
+
+  # Install C++ compiler and build tools (all FBGEMM_GPU variants)
+  if [ "$compiler" == "gcc" ] || [ "$compiler" == "clang" ]; then
+    install_cxx_compiler  "${env_name}" "${compiler}"   || return 1
+  fi
+  install_build_tools     "${env_name}"                 || return 1
 
   # Install PyTorch
   if [ "$pytorch_installer" == "conda" ]; then
@@ -332,7 +324,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
 
     local env_name="test_py${py_version}_pytorch_${pytorch_channel_version}_fbgemm_${fbgemm_gpu_channel_version}_${variant_type}/${variant_version}"
     local env_name="${env_name//\//_}"
-    test_setup_conda_environment  "${env_name}" '' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"  || return 1
+    test_setup_conda_environment  "${env_name}" 'no-compiler' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"  || return 1
     install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                        || return 1
     cd ~/FBGEMM/fbgemm_gpu/test                                                                                                             || return 1
 

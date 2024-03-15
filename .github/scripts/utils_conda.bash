@@ -77,6 +77,54 @@ setup_miniconda () {
   echo "[SETUP] Successfully set up Miniconda at ${miniconda_prefix}"
 }
 
+__handle_pyopenssl_version_issue () {
+  # NOTE: pyOpenSSL needs to be above a certain version for PyPI publishing to
+  # work correctly.
+  local env_name="$1"
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # The pyOpenSSL and cryptography packages versions need to line up for PyPI publishing to work
+  # https://stackoverflow.com/questions/74981558/error-updating-python3-pip-attributeerror-module-lib-has-no-attribute-openss
+  echo "[SETUP] Upgrading pyOpenSSL ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda run ${env_prefix} python -m pip install "pyOpenSSL>22.1.0") || return 1
+
+  # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
+  echo "[SETUP] Testing pyOpenSSL import ..."
+  (test_python_import_package "${env_name}" OpenSSL) || return 1
+
+}
+
+__handle_libcrypt_header_issue () {
+  # NOTE: <crypt.h> appears to be missing, especially in Python 3.8 and under,
+  # which results in runtime errors when `torch.compile()` is called.
+  local env_name="$1"
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # https://git.sr.ht/~andir/nixpkgs/commit/4ace88d63b14ef62f24d26c984775edc2ab1737c
+  echo "[SETUP] Installing libxcrypt ..."
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y libxcrypt) || return 1
+
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2207,SC2086
+  local python_version=($(conda run --no-capture-output ${env_prefix} python --version))
+  # shellcheck disable=SC2206
+  local python_version_arr=(${python_version[1]//./ })
+
+  # Copy the header file from include/ to include/python3.X/
+  #   https://github.com/stanford-futuredata/ColBERT/issues/309
+  echo "[SETUP] Copying <crypt.h> over ..."
+  # shellcheck disable=SC2206
+  local dst_file="${conda_prefix}/include/python${python_version_arr[0]}.${python_version_arr[1]}/crypt.h"
+  print_exec cp "${conda_prefix}/include/crypt.h" "${dst_file}"
+}
+
 create_conda_environment () {
   local env_name="$1"
   local python_version="$2"
@@ -119,15 +167,11 @@ create_conda_environment () {
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda run ${env_prefix} pip install --upgrade pip) || return 1
 
-  # The pyOpenSSL and cryptography packages versions need to line up for PyPI publishing to work
-  # https://stackoverflow.com/questions/74981558/error-updating-python3-pip-attributeerror-module-lib-has-no-attribute-openss
-  echo "[SETUP] Upgrading pyOpenSSL ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} python -m pip install "pyOpenSSL>22.1.0") || return 1
+  # Handle pyOpenSSL version issue
+  __handle_pyopenssl_version_issue "${env_name}"
 
-  # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
-  echo "[SETUP] Testing pyOpenSSL import ..."
-  (test_python_import_package "${env_name}" OpenSSL) || return 1
+  # Handle missing <crypt.h> issue
+  __handle_libcrypt_header_issue "${env_name}"
 
   # shellcheck disable=SC2086
   echo "[SETUP] Installed Python version: $(conda run ${env_prefix} python --version)"
