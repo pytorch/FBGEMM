@@ -235,6 +235,8 @@ set(gen_gpu_kernel_source_files
     "gen_batch_index_select_dim0_backward_kernel_warp.cu"
     "gen_embedding_backward_split_grad_embedding_ops.cu"
     "gen_embedding_backward_split_grad_index_select.cu"
+    "gen_embedding_backward_common_split_device_kernel.cuh"
+    "gen_embedding_backward_batch_index_select_split_device_kernel.cuh"
 )
 
 if(NOT USE_ROCM)
@@ -254,10 +256,9 @@ foreach(wdesc weighted unweighted_nobag unweighted)
       "gen_embedding_forward_dense_${wdesc}_kernel.cu"
       "gen_embedding_backward_dense_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_dense_split_${wdesc}_kernel_cta.cu"
-      "gen_embedding_backward_dense_split_${wdesc}_kernel_warp.cu")
-
-  list(APPEND gen_gpu_kernel_source_files
-      "gen_embedding_forward_split_${wdesc}_kernel.cu")
+      "gen_embedding_backward_dense_split_${wdesc}_kernel_warp.cu"
+      "gen_embedding_forward_split_${wdesc}_kernel.cu"
+      "gen_embedding_backward_${wdesc}_split_device_kernel.cuh")
 
   foreach(etype fp32 fp16 fp8 int8 int4 int2)
     list(APPEND gen_gpu_kernel_source_files
@@ -265,9 +266,12 @@ foreach(wdesc weighted unweighted_nobag unweighted)
   endforeach()
 endforeach()
 
-list(APPEND gen_gpu_kernel_source_files
-     "gen_embedding_forward_split_weighted_vbe_kernel.cu"
-     "gen_embedding_forward_split_unweighted_vbe_kernel.cu")
+# Generate VBE files
+foreach(wdesc weighted unweighted)
+  list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_forward_split_${wdesc}_vbe_kernel.cu"
+      "gen_embedding_backward_${wdesc}_vbe_split_device_kernel.cuh")
+endforeach()
 
 set(gen_cpu_source_files
     "gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp"
@@ -379,6 +383,7 @@ set(embedding_codegen_dependencies
     ${CMAKE_CODEGEN_DIR}/lookup_args.py
     ${CMAKE_CODEGEN_DIR}/split_embedding_codegen_lookup_invoker.template
     ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_device_kernel_template.cuh
+    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_device_kernel_template.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cpu_utils.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cub_namespace_prefix.cuh
     ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cub_namespace_postfix.cuh
