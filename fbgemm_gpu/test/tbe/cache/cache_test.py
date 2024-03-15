@@ -9,8 +9,9 @@
 
 # pyre-ignore-all-errors[56]
 
+import random
 import unittest
-from typing import cast, Optional
+from typing import Any, cast, List, Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -49,6 +50,29 @@ from .cache_common import (
 
 @optests.generate_opcheck_tests(fast=True)
 class CacheTest(unittest.TestCase):
+    def _compute_grad_output_shape(
+        self,
+        B: int,
+        D_offsets: List[int],
+        mixed_B: bool,
+        Bs_feature_rank: Optional[List[List[int]]] = None,
+    ) -> Tuple[int, ...]:
+        """
+        Compute output gradient shape
+        If mixed_B = True (variable batch size), the shape is sum(Bi * Di for
+            all i's), where Bi is the batch size of feature i and Di is the
+            embedding dimension of feature i.
+        Otherwise, the shape is (B, sum(Di for all i's)), where Di is the
+            embedding dimension of feature i
+        """
+        if mixed_B:
+            assert Bs_feature_rank is not None, "Bs_feature_rank must not be None"
+            Bs = [sum(Bs_feature) for Bs_feature in Bs_feature_rank]
+            Ds = [D_offsets[i + 1] - D_offsets[i] for i in range(len(D_offsets) - 1)]
+            return (sum([B * D for B, D in zip(Bs, Ds)]),)
+        else:
+            return (B, D_offsets[-1])
+
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -62,6 +86,7 @@ class CacheTest(unittest.TestCase):
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
         gather_uvm_cache_stats=st.booleans(),
+        mixed_B=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_pipeline(
@@ -76,8 +101,11 @@ class CacheTest(unittest.TestCase):
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
         gather_uvm_cache_stats: bool,
+        mixed_B: bool,
     ) -> None:
         assume(weights_cache_precision == SparseType.FP16 or not stochastic_rounding)
+        # Need more than one table for variable batch sizes
+        assume(not mixed_B or T > 1)
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T,
             D,
@@ -89,13 +117,36 @@ class CacheTest(unittest.TestCase):
             gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
         iters = 3
-        requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
-        grad_output = torch.randn(B, sum_Ds).cuda()
+        vbe_num_ranks = random.randint(2, 5)
+        requests = generate_requests(
+            iters,
+            max(B // vbe_num_ranks, 1) if mixed_B else B,
+            T,
+            L,
+            min_Es,
+            reuse=0.1,
+            sigma_B=1 if mixed_B else None,
+            vbe_num_ranks=vbe_num_ranks if mixed_B else None,
+        )
+
+        # Generate grad_output
+        assert len(requests) > 0, "There must be at least one request"
+        output_shape = self._compute_grad_output_shape(
+            B,
+            cc.D_offsets.detach().cpu().tolist(),
+            mixed_B,
+            requests[0].Bs_per_feature_per_rank,
+        )
+        grad_output = torch.randn(*output_shape).cuda()
 
         for req in requests:
-            indices, offsets = req.unpack_2()
-            output = cc(indices, offsets)
-            output_ref = cc_ref(indices, offsets)
+            indices, offsets, _, Bs_feature_rank = req.unpack_4()
+            output = cc(
+                indices, offsets, batch_size_per_feature_per_rank=Bs_feature_rank
+            )
+            output_ref = cc_ref(
+                indices, offsets, batch_size_per_feature_per_rank=Bs_feature_rank
+            )
             assert_cache(output, output_ref, stochastic_rounding)
             output.backward(grad_output)
             output_ref.backward(grad_output)
@@ -120,6 +171,7 @@ class CacheTest(unittest.TestCase):
         weights_cache_precision: SparseType,
         stochastic_rounding: bool,
         gather_uvm_cache_stats: bool,
+        mixed_B: bool = False,
     ) -> None:
         """
         test cache prefetch pipeline with prefetch_pipeline=True.
@@ -130,7 +182,8 @@ class CacheTest(unittest.TestCase):
         In addition, we make the TBE weights initialized as integer values, learning_rate
         as integer value, and gradients as integer values so that the test is more stable.
         """
-
+        # Need more than one table for variable batch sizes
+        assume(not mixed_B or T > 1)
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
         reporter = TestingStatsReporterConfig(interval=2)
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
@@ -147,12 +200,32 @@ class CacheTest(unittest.TestCase):
             reporter_config=reporter,
         )
         iters = 5
-        requests = generate_requests(iters, B, T, L, min_Es, reuse=0.1)
+        vbe_num_ranks = random.randint(2, 5)
+        requests = generate_requests(
+            iters,
+            max(B // vbe_num_ranks, 1) if mixed_B else B,
+            T,
+            L,
+            min_Es,
+            reuse=0.1,
+            sigma_B=1 if mixed_B else None,
+            vbe_num_ranks=vbe_num_ranks if mixed_B else None,
+        )
+
+        # Generat grad_output
+        assert len(requests) > 0, "There must be at least one request"
+        output_shape = self._compute_grad_output_shape(
+            B,
+            cc.D_offsets.detach().cpu().tolist(),
+            mixed_B,
+            requests[0].Bs_per_feature_per_rank,
+        )
+
         grad_output = (
             torch.randint(
                 low=-10,
                 high=10,
-                size=(B, sum_Ds),
+                size=output_shape,
             )
             .float()
             .cuda()
@@ -173,21 +246,28 @@ class CacheTest(unittest.TestCase):
         ) -> None:
             if not batch:
                 return
-            context_stream = prefetch_stream if prefetch_stream else cur_stream
             stream = cur_stream if prefetch_stream else None
-            indices, offsets = batch.unpack_2()
+            indices, offsets, _, Bs_feature_rank = batch.unpack_4()
+            context_stream = prefetch_stream if prefetch_stream else cur_stream
             with torch.cuda.stream(context_stream):
-                cc.prefetch(indices, offsets, stream)
+                cc.prefetch(
+                    indices,
+                    offsets,
+                    forward_stream=stream,
+                    batch_size_per_feature_per_rank=Bs_feature_rank,
+                )
 
         _prefetch(cc, batch_i)
         while batch_i:
-            indices, offsets = batch_i.unpack_2()
+            indices, offsets, _, Bs_feature_rank = batch_i.unpack_4()
             batch_ip1 = next(req_iter, None)
             if prefetch_stream:
                 cur_stream.wait_stream(prefetch_stream)
             if prefetch_location == "before_fwd":
                 _prefetch(cc, batch_ip1)
-            output = cc(indices, offsets)
+            output = cc(
+                indices, offsets, batch_size_per_feature_per_rank=Bs_feature_rank
+            )
             if prefetch_location == "between_fwd_bwd":
                 _prefetch(cc, batch_ip1)
             output.backward(grad_output)
@@ -196,8 +276,10 @@ class CacheTest(unittest.TestCase):
         cc.flush()
 
         for req in requests:
-            indices, offsets = req.unpack_2()
-            output_ref = cc_ref(indices, offsets)
+            indices, offsets, _, Bs_feature_rank = req.unpack_4()
+            output_ref = cc_ref(
+                indices, offsets, batch_size_per_feature_per_rank=Bs_feature_rank
+            )
             output_ref.backward(grad_output)
 
         for t in range(T):
@@ -253,29 +335,11 @@ class CacheTest(unittest.TestCase):
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        mixed: bool,
-        prefetch_location: str,
-        weights_cache_precision: SparseType,
-        stochastic_rounding: bool,
-        gather_uvm_cache_stats: bool,
+        **kwargs: Any,
     ) -> None:
         self._test_cache_prefetch_pipeline(
-            T,
-            D,
-            B,
-            log_E,
-            L,
-            mixed,
-            prefetch_location,
+            **kwargs,
             prefetch_stream=None,
-            weights_cache_precision=weights_cache_precision,
-            stochastic_rounding=stochastic_rounding,
-            gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
@@ -290,32 +354,17 @@ class CacheTest(unittest.TestCase):
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
         gather_uvm_cache_stats=st.booleans(),
+        mixed_B=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_1(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        mixed: bool,
-        weights_cache_precision: SparseType,
-        stochastic_rounding: bool,
-        gather_uvm_cache_stats: bool,
+        **kwargs: Any,
     ) -> None:
         self._test_cache_prefetch_pipeline(
-            T,
-            D,
-            B,
-            log_E,
-            L,
-            mixed,
+            **kwargs,
             prefetch_location="before_fwd",
             prefetch_stream=torch.cuda.Stream(),
-            weights_cache_precision=weights_cache_precision,
-            stochastic_rounding=stochastic_rounding,
-            gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
@@ -330,32 +379,17 @@ class CacheTest(unittest.TestCase):
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
         gather_uvm_cache_stats=st.booleans(),
+        mixed_B=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_2(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        mixed: bool,
-        weights_cache_precision: SparseType,
-        stochastic_rounding: bool,
-        gather_uvm_cache_stats: bool,
+        **kwargs: Any,
     ) -> None:
         self._test_cache_prefetch_pipeline(
-            T,
-            D,
-            B,
-            log_E,
-            L,
-            mixed,
+            **kwargs,
             prefetch_location="between_fwd_bwd",
             prefetch_stream=torch.cuda.Stream(),
-            weights_cache_precision=weights_cache_precision,
-            stochastic_rounding=stochastic_rounding,
-            gather_uvm_cache_stats=gather_uvm_cache_stats,
         )
 
     @unittest.skipIf(*gpu_unavailable)
