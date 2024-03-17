@@ -243,7 +243,8 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         requests = generate_requests(
             iters, B, T, L, min(Es), reuse=0.1, emulate_pruning=emulate_pruning
         )
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             indices = indices.int()
             offsets = offsets.int()
             output_ref = cc_ref(indices, offsets)

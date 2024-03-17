@@ -327,6 +327,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     uvm_cache_stats: torch.Tensor
     local_uvm_cache_stats: torch.Tensor
     uuid: str
+    last_uvm_cache_print_state: torch.Tensor
+    _vbe_B_offsets: Optional[torch.Tensor]
+    _vbe_max_B: int
 
     def __init__(  # noqa C901
         self,
@@ -950,17 +953,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "We should not be here. AsyncTimer only happens with reporter present."
         self.stats_reporter.report_duration(it_step, event_name, dur_ms)
 
-    def forward(  # noqa: C901
+    def _generate_vbe_metadata(
         self,
-        indices: Tensor,
         offsets: Tensor,
-        per_sample_weights: Optional[Tensor] = None,
-        feature_requires_grad: Optional[Tensor] = None,
-        # 2D tensor of batch size for each rank and feature.
-        # Shape (number of features, number of ranks)
-        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-        total_unique_indices: Optional[int] = None,
-    ) -> Tensor:
+        batch_size_per_feature_per_rank: Optional[List[List[int]]],
+    ) -> invokers.lookup_args.VBEMetadata:
+        """
+        Generate VBE metadata based on batch_size_per_feature_per_rank.
+        Metadata includes:
+            1) B_offsets - A tensor that contains batch size offsets for each
+                           feature
+            2) output_offsets_feature_rank - A tensor that contains output
+                                             offsets for each feature
+            3) B_offsets_per_rank_per_feature - A tensor that contains batch
+                                                size offsets for each feature
+                                                and rank
+            4) max_B - The maximum batch size for all features
+            5) max_B_feature_rank - The maximum batch size for all ranks and
+                                    features
+            6) output_size - The output size (number of elements)
+        """
         if batch_size_per_feature_per_rank is not None:
             assert (
                 self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
@@ -980,7 +992,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_B = total_batch_size_per_feature.max().item()
             if not torch.jit.is_scripting() and is_torchdynamo_compiling():
                 torch._check_is_size(max_B)
-                torch._check(max_B <= offsets.size(0))
+                torch._check(max_B < offsets.numel())
 
             Bs = torch.concat([zero_tensor, total_batch_size_per_feature])
             B_offsets = Bs.cumsum(dim=0).to(torch.int)
@@ -1054,6 +1066,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 max_B_feature_rank=-1,
                 output_size=-1,
             )
+        return vbe_metadata
+
+    def forward(  # noqa: C901
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+        feature_requires_grad: Optional[Tensor] = None,
+        # 2D tensor of batch size for each rank and feature.
+        # Shape (number of features, number of ranks)
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        total_unique_indices: Optional[int] = None,
+    ) -> Tensor:
+        # Generate VBE metadata
+        vbe_metadata = self._generate_vbe_metadata(
+            offsets, batch_size_per_feature_per_rank
+        )
 
         (indices, offsets) = indices.long(), offsets.long()
         # Force casting per_sample_weights to float
@@ -1072,13 +1101,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 max_B=vbe_metadata.max_B,
             )
 
-        # Storing indices and offsets for linear_cache_indices recomputation
+        # Storing tensors for linear_cache_indices recomputation
         self._indices = indices
         self._offsets = offsets
+        self._vbe_B_offsets = vbe_metadata.B_offsets
+        self._vbe_max_B = vbe_metadata.max_B
 
         self.step += 1
         if len(self.timesteps_prefetched) == 0:
-            self._prefetch(indices, offsets)
+            self._prefetch(indices, offsets, vbe_metadata)
 
         if len(self.timesteps_prefetched) > 0:
             self.timesteps_prefetched.pop(0)
@@ -1272,24 +1303,35 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
         return self.local_uvm_cache_stats if use_local_cache else self.uvm_cache_stats
 
+    def _get_uvm_cache_print_state(self, use_local_cache: bool = False) -> List[float]:
+        snapshot = self.get_uvm_cache_stats(use_local_cache)
+        if use_local_cache:
+            return snapshot.tolist()
+
+        # Stats are accumulated over multiple steps.  Compute delta, and update state.
+        delta = snapshot - self.last_uvm_cache_print_state
+        self.last_uvm_cache_print_state = snapshot.clone()
+        return delta.tolist()
+
     @torch.jit.ignore
     def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
-        uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
-            use_local_cache
-        ).tolist()
+        uvm_cache_stats: List[float] = self._get_uvm_cache_print_state(use_local_cache)
+        N = max(1, uvm_cache_stats[0])
         m = {
             "N_called": uvm_cache_stats[UVMCacheStatsIndex.num_calls],
-            "N_requested_indices": uvm_cache_stats[
+            "requested_indices": uvm_cache_stats[
                 UVMCacheStatsIndex.num_requested_indices
-            ],
-            "N_unique_indices": uvm_cache_stats[UVMCacheStatsIndex.num_unique_indices],
-            "N_unique_misses": uvm_cache_stats[UVMCacheStatsIndex.num_unique_misses],
-            "N_conflict_unique_misses": uvm_cache_stats[
+            ]
+            / N,
+            "unique_indices": uvm_cache_stats[UVMCacheStatsIndex.num_unique_indices]
+            / N,
+            "unique_misses": uvm_cache_stats[UVMCacheStatsIndex.num_unique_misses] / N,
+            "conflict_unique_misses": uvm_cache_stats[
                 UVMCacheStatsIndex.num_conflict_unique_misses
-            ],
-            "N_conflict_misses": uvm_cache_stats[
-                UVMCacheStatsIndex.num_conflict_misses
-            ],
+            ]
+            / N,
+            "conflict_misses": uvm_cache_stats[UVMCacheStatsIndex.num_conflict_misses]
+            / N,
         }
         if uvm_cache_stats[1]:
             m.update(
@@ -1311,18 +1353,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         forward_stream: Optional[torch.cuda.Stream] = None,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
     ) -> None:
         if self.prefetch_stream is None and forward_stream is not None:
             self.prefetch_stream = torch.cuda.current_stream()
             assert (
                 self.prefetch_stream != forward_stream
             ), "prefetch_stream and forward_stream should not be the same stream"
-
-        self._prefetch(indices, offsets)
+        vbe_metadata = self._generate_vbe_metadata(
+            offsets,
+            batch_size_per_feature_per_rank,
+        )
+        self._prefetch(indices, offsets, vbe_metadata)
         if forward_stream is not None:
             self._prefetch_tensors_record_stream(forward_stream)
 
-    def _prefetch(self, indices: Tensor, offsets: Tensor) -> None:
+    def _prefetch(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
+    ) -> None:
         self.timestep += 1
         self.timesteps_prefetched.append(self.timestep)
         if not self.lxu_cache_weights.numel():
@@ -1338,6 +1389,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.cache_hash_size_cumsum,
             indices,
             offsets,
+            vbe_metadata.B_offsets if vbe_metadata is not None else None,
+            vbe_metadata.max_B if vbe_metadata is not None else -1,
         )
 
         if (
@@ -1762,6 +1815,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.lxu_cache_locations = self.lxu_cache_locations_empty
         self._indices = self.lxu_cache_locations_empty
         self._offsets = self.lxu_cache_locations_empty
+        self._vbe_B_offsets = self.lxu_cache_locations_empty
+        self._vbe_max_B = -1
         self.prefetch_stream: Optional[torch.cuda.Stream] = None
 
         self._init_uvm_cache_stats()
@@ -2003,6 +2058,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.cache_hash_size_cumsum,
             self._indices,
             self._offsets,
+            self._vbe_B_offsets,
+            self._vbe_max_B,
         )
         (
             linear_unique_indices,
@@ -2080,6 +2137,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
             )
             self.reset_uvm_cache_stats()
+        self.last_uvm_cache_print_state = torch.zeros_like(self.uvm_cache_stats)
 
     def reset_cache_states(self) -> None:
         if not self.lxu_cache_weights.numel():

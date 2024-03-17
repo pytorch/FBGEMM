@@ -7,12 +7,33 @@
  */
 
 // clang-format off
+{#-/* This file contains a template for unified optimizer lookup
+      function for Split TBE
+      (i.e., split_embedding_codegen_lookup_{optimizer}_function_pt2),
+      its op registration to PyTorch dispatcher and its corresponding
+      Autograd function
+      (i.e., `Split{nobag}{vbe}LookupFunction_{optimizer}_Op_pt2`).
+      Codegen file: gen_embedding_split_{optimizer}_pt2_autograd.cpp
+
+    [Lookup function invoker] (Python) --Torch dispatch-->  |
+      [PT2 Lookup function] (C++) --apply--> [PT2 Autograd] | <<<
+        --Torch dispatch--> [PT2 wrapper function]          | <<<
+          --Torch dispatch--> [CPU/CUDA backend]            |
+            --Fn call/kernel dispatch--> [CPU/CUDA kernel]  |
+
+    The `_pt2` suffix indicates the unified API, i.e., the operators
+    have the same name and function signature and dispatching between
+    versions of the same operator is done via the PyTorch dispatcher
+    based on input device type.
+*/#}
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
-#include <ATen/core/op_registration/op_registration.h>
+////////////////////////////////////////////////////////////////////////////////
+// Required for op registrations and dispatchers
+#include "fbgemm_gpu/embedding_op_registration.h"
 #include <torch/script.h>
-
 #include "fbgemm_gpu/dispatch_macros.h"
+////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
@@ -20,124 +41,26 @@ using Tensor = at::Tensor;
 
 using namespace fbgemm_gpu;
 
-{%- if has_gpu_support %}
-/// @defgroup embedding-cuda Embedding CUDA Operators
+{%- if has_gpu_support or has_cpu_support %}
 
 {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
-{%- for weighted in [True, False] %}
-{%- for nobag in ([False] if (weighted or vbe) else [True, False]) %}
-{%- set wdesc = "weighted" if weighted else "unweighted" %}
-{%- set ndesc = "_nobag" if nobag else "" %}
-
-Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
-    const Tensor& dev_weights,
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
-    const Tensor& weights_offsets,
-    {%- if nobag %}
-    const int64_t D,
-    {%- else %}
-    const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
-    {%- endif %}
-    const Tensor& indices,
-    const Tensor& offsets,
-    {%- if not nobag %}
-    const int64_t pooling_mode,
-    {%- endif %}
-    {%- if weighted %}
-    const Tensor& indice_weights,
-    {%- endif %}
-    const Tensor& lxu_cache_locations,
-    const Tensor& uvm_cache_stats,
-    const int64_t output_dtype,
-    {%- if vbe %}
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    const c10::SymInt vbe_output_size,
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64,
-    {%- endif %}
-    const bool is_experimental);
-
-Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}_cuda(
-    const Tensor& grad_output,
-    const Tensor& dev_weights,
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
-    const Tensor& weights_offsets,
-    {%- if nobag %}
-    const int64_t D,
-    {%- else %}
-    const Tensor& D_offsets,
-    const int64_t max_D,
-    {%- endif %}
-    const Tensor& hash_size_cumsum,
-    const int64_t total_hash_size_bits,
-    const Tensor& indices,
-    const Tensor& offsets,
-    {%- if not nobag %}
-    const int64_t pooling_mode,
-    {%- endif %}
-    {%- if weighted %}
-    const Tensor& indice_weights,
-    {%- endif %}
-    const Tensor& lxu_cache_locations,
-    const int64_t BT_block_size,
-    const int64_t max_segment_length_per_warp,
-    {%- if optimizer != "none" %}
-    const bool stochastic_rounding,
-    {%- endif %}
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64,
-    {%- if vbe %}
-    const Tensor& B_offsets,
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    {%- endif %}
-    const bool use_uniq_cache_locations,
-    const bool use_homogeneous_placements,
-    {{ args.split_function_args | join(", ") }});
-
-{%- endfor %} {#-/*for nobag*/#}
-{%- endfor %} {#-/*for weighted*/#}
-
-Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
-    const Tensor& grad_output,
-    const Tensor& dev_weights,
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
-    const Tensor& weights_offsets,
-    const Tensor& D_offsets,
-    const int64_t max_D,
-    const Tensor& indices,
-    const Tensor& offsets,
-    const Tensor& lxu_cache_locations,
-    {%- if vbe %}
-    const Tensor& feature_requires_grad,
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64
-    {%- else %}
-    const Tensor& feature_requires_grad
-    {%- endif %}
-);
-
 {%- for nobag in [True, False] %}
 {%- if not nobag or not vbe %} {#-/* nobag does not support vbe */#}
-{%- set autograd_func = "Split{}{}LookupFunction_{}_Op".format(
-      "NoBag" if nobag else "",
-      "VBE" if vbe else "",
-      optimizer
+{%- set autograd_func = "Split{}{}LookupFunction_{}_Op_pt2".format(
+    "NoBag" if nobag else "",
+    "VBE" if vbe else "",
+    optimizer
     )
 %}
+
+{#-/* This unified Autograd function
+      `Split{nobag}{vbe}LookupFunction_{optimizer}_Op_pt2` calls the
+      wrapper ops (e.g.,
+      `split_embedding_codegen_forward_{wdesc}{vbe}_pt2`) and
+      dispatches to the version of the op based on input device type.
+*/#}
 class {{ autograd_func }} :
     public torch::autograd::Function<{{ autograd_func }}> {
  public:
@@ -145,6 +68,7 @@ class {{ autograd_func }} :
     torch::autograd::AutogradContext* ctx,
     const Tensor& placeholder_autograd_tensor,
     const int64_t output_dtype,
+    const Tensor& host_weights,
     const Tensor& dev_weights,
     const Tensor& uvm_weights,
     const Tensor& lxu_cache_weights,
@@ -184,7 +108,7 @@ class {{ autograd_func }} :
     const bool is_experimental,
     const bool use_uniq_cache_locations_bwd,
     const bool use_homogeneous_placements,
-    {{ args.split_function_args | join(", ") }}) {
+    {{ args_pt2.split_function_args | join(", ") }}) {
 
     const auto T = weights_offsets.sym_numel();
     {%- if vbe %}
@@ -244,11 +168,16 @@ class {{ autograd_func }} :
         {%- endif %}
         max_B_feature_rank,
         info_B_num_bits,
-        /*total_B=*/offsets.sym_size(0) - 1
+        /*total_B=*/offsets.size(0) - 1
         );
+    {%- endif %} // vbe
+
+    {%- if not nobag %}
+    const auto indice_weights_value = indice_weights.value_or(Tensor());
     {%- endif %}
 
     ctx->save_for_backward({
+        host_weights,
         dev_weights,
         uvm_weights,
         lxu_cache_weights,
@@ -261,7 +190,7 @@ class {{ autograd_func }} :
         indices,
         offsets,
         {%- if not nobag %}
-        indice_weights.value_or(Tensor()),
+        indice_weights_value,
         feature_requires_grad.value_or(Tensor()),
         {%- endif %}
         lxu_cache_locations,
@@ -270,7 +199,7 @@ class {{ autograd_func }} :
         vbe_row_output_offsets,
         vbe_b_t_map,
         {%- endif %}
-        {{ args.split_saved_tensors | join(", ") }}
+        {{ args_pt2.split_saved_tensors | join(", ") }}
     });
 
     {%- if not nobag %}
@@ -291,8 +220,11 @@ class {{ autograd_func }} :
     ctx->saved_data["info_B_mask"] = info_B_mask_int64;
     ctx->saved_data["use_uniq_cache_locations_bwd"] = use_uniq_cache_locations_bwd;
     ctx->saved_data["use_homogeneous_placements"] = use_homogeneous_placements;
+    {%- if not nobag %}
+    ctx->saved_data["output_dtype"] = output_dtype;
+    {%- endif %}
 
-    {%- for (var, _) in args.saved_data %}
+    {%- for (var, _) in args_pt2.saved_data %}
     ctx->saved_data["{{ var }}"] = {{ var }};
     {%- endfor %}
 
@@ -307,21 +239,57 @@ class {{ autograd_func }} :
     {%- for weighted in [False, True] %}
     {%- set wdesc = "weighted" if weighted else "unweighted" %}
     {%- if not weighted %}
-    if (!indice_weights) {
+    if (!indice_weights_value.defined()) {
     {%- else %}
     else {
     {%- endif %}
-        {%- set forward_op = "split_embedding_codegen_forward_{}{}_cuda".format(
+        {%- set forward_op = "split_embedding_codegen_forward_{}{}_pt2_wrapper".format(
                 wdesc, vdesc
             )
         %}
         static auto split_embedding_codegen_forward_op =
             torch::Dispatcher::singleton()
                 .findSchemaOrThrow("fbgemm::{{ forward_op }}", "")
-                .typed<decltype({{ forward_op }})>();
-
+                .typed<Tensor(
+                    const Tensor& /*host_weights*/,
+                    const Tensor& /*dev_weights*/,
+                    {%- if not dense %}
+                    const Tensor& /*uvm_weights*/,
+                    const Tensor& /*lxu_cache_weights*/,
+                    const Tensor& /*weights_placements*/,
+                    {%- endif %}
+                    const Tensor& /*weights_offsets*/,
+                    {%- if nobag %}
+                    const int64_t /*D*/,
+                    {%- else %}
+                    const Tensor& /*D_offsets*/,
+                    const int64_t /*total_D*/,
+                    const int64_t /*max_D*/,
+                    {%- endif %}
+                    const Tensor& /*hash_size_cumsum*/,
+                    const Tensor& /*indices*/,
+                    const Tensor& /*offsets*/,
+                    {%- if not nobag %}
+                    const int64_t /*pooling_mode*/,
+                    const Tensor& /*indice_weights*/, // CPU always takes indice_weights
+                    {%- endif %}
+                    {%- if not dense %}
+                    const Tensor& /*lxu_cache_locations*/,
+                    const Tensor& /*uvm_cache_stats*/,
+                    {%- endif %}
+                    {%- if vbe %}
+                    const Tensor& /*vbe_row_output_offsets*/,
+                    const Tensor& /*vbe_b_t_map*/,
+                    const c10::SymInt /*vbe_output_size*/,
+                    const int64_t /*info_B_num_bits*/,
+                    const int64_t /*info_B_mask_int64*/,
+                    {%- endif %}
+                    const bool /*is_experimental*/,
+                    const int64_t /*output_dtype*/
+                )>();
         return {
-          split_embedding_codegen_forward_op.call(
+        split_embedding_codegen_forward_op.call(
+            host_weights,
             flatten_dev_weights,
             uvm_weights,
             lxu_cache_weights,
@@ -330,15 +298,13 @@ class {{ autograd_func }} :
             D_offsets,
             total_D,
             max_D,
+            hash_size_cumsum,
             indices,
             offsets,
             pooling_mode,
-            {%- if weighted %}
-            *indice_weights,
-            {%- endif %}
+            indice_weights_value,
             lxu_cache_locations,
             uvm_cache_stats_,
-            output_dtype,
             {%- if vbe %}
             vbe_row_output_offsets,
             vbe_b_t_map,
@@ -346,41 +312,62 @@ class {{ autograd_func }} :
             info_B_num_bits,
             info_B_mask_int64,
             {%- endif %}
-            is_experimental
-          )
+            is_experimental,
+            output_dtype
+        )
         };
     }
     {%- endfor %}
     {%- else %}
-    {%- set forward_nobag_op = "split_embedding_nobag_codegen_forward_unweighted_cuda" %}
+    {%- set forward_nobag_op = "split_embedding_nobag_codegen_forward_unweighted_pt2_wrapper" %}
     static auto split_embedding_codegen_forward_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ forward_nobag_op }}", "")
-            .typed<decltype({{ forward_nobag_op }})>();
+            .typed<Tensor(
+                const Tensor& /*host_weights*/,
+                const Tensor& /*dev_weights*/,
+                {%- if not dense %}
+                const Tensor& /*uvm_weights*/,
+                const Tensor& /*lxu_cache_weights*/,
+                const Tensor& /*weights_placements*/,
+                {%- endif %}
+                const Tensor& /*weights_offsets*/,
+                const int64_t /*D*/,
+                const Tensor& /*hash_size_cumsum*/,
+                const Tensor& /*indices*/,
+                const Tensor& /*offsets*/,
+                const Tensor& /*lxu_cache_locations*/,
+                const Tensor& /*uvm_cache_stats*/,
+                const bool /*is_experimental*/,
+                const int64_t /*output_dtype*/
+            )>();
     return {
       split_embedding_codegen_forward_op.call(
+        host_weights,
         flatten_dev_weights,
         uvm_weights,
         lxu_cache_weights,
         weights_placements,
         weights_offsets,
         D,
+        hash_size_cumsum,
         indices,
         offsets,
         lxu_cache_locations,
         uvm_cache_stats_,
-        output_dtype,
-        /*is_experimental=*/false
+        /*is_experimental=*/false,
+        output_dtype
       )
     };
     {%- endif %}
   }
 
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
+static torch::autograd::variable_list backward(
+    torch::autograd::AutogradContext* ctx,
+    torch::autograd::variable_list grad_outputs) {
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
+    auto host_weights = *savedItr++;
     auto dev_weights = *savedItr++;
     auto uvm_weights = *savedItr++;
     auto lxu_cache_weights = *savedItr++;
@@ -403,7 +390,7 @@ class {{ autograd_func }} :
     auto vbe_b_t_map = *savedItr++;
     {%- endif %}
 
-    {%- for tensor in args.split_saved_tensors %}
+    {%- for tensor in args_pt2.split_saved_tensors %}
     auto {{ tensor }} = *savedItr++;
     {%- endfor %}
 
@@ -422,12 +409,13 @@ class {{ autograd_func }} :
     {%- endif %} {#-/* if optimizer != "none" */#}
     const int32_t info_B_num_bits = ctx->saved_data["info_B_num_bits"].toInt();
     const int64_t info_B_mask_int64 = ctx->saved_data["info_B_mask"].toInt();
-    const auto use_uniq_cache_locations_bwd =
-      ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
-    const auto use_homogeneous_placements =
-      ctx->saved_data["use_homogeneous_placements"].toBool();
+    const auto use_uniq_cache_locations_bwd = ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
+    const auto use_homogeneous_placements = ctx->saved_data["use_homogeneous_placements"].toBool();
+    {%- if not nobag %}
+    auto output_dtype = ctx->saved_data["output_dtype"].toInt();
+    {%- endif %}
 
-    {%- for (var, ivalue_cast) in args.saved_data %}
+    {%- for (var, ivalue_cast) in args_pt2.saved_data %}
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
     {%- endfor %}
 
@@ -451,22 +439,45 @@ class {{ autograd_func }} :
     {%- if not nobag %}
     {%- if optimizer == "none" %}
     // Flatten (dev_weights is used in
-    // split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda)
+    // split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda)
     dev_weights = dev_weights.flatten();
     {%- endif %}
 
     {%- set grad_indice_weights_op =
-        "split_embedding_codegen_grad_indice_weights{}_cuda".format(vdesc)
+        "split_embedding_codegen_grad_indice_weights{}_pt2_wrapper".format(vdesc)
     %}
     static auto split_embedding_codegen_grad_indice_weights_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ grad_indice_weights_op }}", "")
-            .typed<decltype({{ grad_indice_weights_op }})>();
+            .typed<Tensor(
+                const Tensor& /*grad_output*/,
+                const Tensor& /*host_weights*/,
+                const Tensor& /*dev_weights*/,
+                const Tensor& /*uvm_weights*/,
+                const Tensor& /*lxu_cache_weights*/,
+                const Tensor& /*weights_placements*/,
+                const Tensor& /*weights_offsets*/,
+                const Tensor& /*D_offsets*/,
+                const int64_t /*max_D*/,
+                const Tensor& /*indices*/,
+                const Tensor& /*offsets*/,
+                const Tensor& /*lxu_cache_locations*/,
+                {%- if vbe %}
+                const Tensor& /*feature_requires_grad*/,
+                const Tensor& /*vbe_row_output_offsets*/,
+                const Tensor& /*vbe_b_t_map*/,
+                const int64_t /*info_B_num_bits*/,
+                const int64_t /*info_B_mask_int64*/
+                {%- else %}
+                const Tensor& /*feature_requires_grad*/
+                {%- endif %}
+            )>();
 
     const auto grad_indice_weights = !indice_weights.defined() ?
       Variable() :
       split_embedding_codegen_grad_indice_weights_op.call(
         grad_output,
+        host_weights,
         dev_weights,
         uvm_weights,
         lxu_cache_weights,
@@ -490,57 +501,103 @@ class {{ autograd_func }} :
 
     {%- for weighted in [False, True] %}
     {%- set wdesc = "weighted" if weighted else "unweighted" %}
-    {%- set backward_op = "split_embedding_backward_codegen_{}_{}_exact{}_cuda".format(
+    {%- set backward_op = "split_embedding_backward_codegen_{}_{}_exact{}_pt2_wrapper".format(
             optimizer, wdesc, vdesc
         )
     %}
     static auto split_embedding_codegen_{{ wdesc }}_backward_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ backward_op }}", "")
-            .typed<decltype({{ backward_op }})>();
+            .typed<Tensor(
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                {%- if nobag %}
+                const int64_t,
+                {%- else %}
+                const Tensor&,
+                const int64_t,
+                {%- endif %}
+                const Tensor&,
+                const int64_t,
+                const Tensor&,
+                const Tensor&,
+                {%- if not nobag %}
+                const int64_t,
+                const Tensor&, // currently supports no bag with unweighted
+                {%- endif %}
+                const Tensor&,
+                const int64_t,
+                const int64_t,
+                {%- if optimizer != "none" %}
+                const bool,
+                {%- endif %}
+                const int64_t,
+                const int64_t,
+                {%- if vbe %}
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                {%- endif %}
+                const bool,
+                const bool,
+                {%- for arg_type in args_pt2.split_function_args %}
+                {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
+                {%- endfor %}
+                {%- if not nobag %}
+                , const int64_t
+                {%- endif %}
+            )>();
     {%- endfor %} {#-/* for weighted */#}
 
     const auto grad_dev_weights = !indice_weights.defined() ?
       {%- for weighted in [False, True] %}
       {%- set wdesc = "weighted" if weighted else "unweighted" %}
       split_embedding_codegen_{{ wdesc }}_backward_op.call(
-          grad_output,
-          dev_weights,
-          uvm_weights,
-          lxu_cache_weights,
-          weights_placements,
-          weights_offsets,
-          D_offsets,
-          max_D,
-          hash_size_cumsum,
-          total_hash_size_bits,
-          indices,
-          offsets,
-          pooling_mode,
-          {%- if weighted %}
-          indice_weights,
-          {%- endif %}
-          lxu_cache_locations,
-          BT_block_size,
-          max_segment_length_per_warp,
-          {%- if optimizer != "none" %}
-          stochastic_rounding,
-          {%- endif %}
-          info_B_num_bits,
-          info_B_mask_int64,
-          {%- if vbe %}
-          B_offsets,
-          vbe_row_output_offsets,
-          vbe_b_t_map,
-          {%- endif %}
-          use_uniq_cache_locations_bwd,
-          use_homogeneous_placements,
-          {{ args.split_function_arg_names | join(", ") }}
-      ) {{ ":" if not weighted else ";" }}
-      {%- endfor %} {#-/* for weighted in [False, True] */#}
+        grad_output,
+        host_weights,
+        dev_weights,
+        uvm_weights,
+        lxu_cache_weights,
+        weights_placements,
+        weights_offsets,
+        D_offsets,
+        max_D,
+        hash_size_cumsum,
+        total_hash_size_bits,
+        indices,
+        offsets,
+        pooling_mode,
+        indice_weights,
+        lxu_cache_locations,
+        BT_block_size,
+        max_segment_length_per_warp,
+        {%- if optimizer != "none" %}
+        stochastic_rounding,
+        {%- endif %}
+        info_B_num_bits,
+        info_B_mask_int64,
+        {%- if vbe %}
+        B_offsets,
+        vbe_row_output_offsets,
+        vbe_b_t_map,
+        {%- endif %}
+        use_uniq_cache_locations_bwd,
+        use_homogeneous_placements,
+        {{ args_pt2.split_function_arg_names | join(", ") }}
+        {%- if not nobag %}
+        , output_dtype
+        {%- endif %}
+        ) {{ ":" if not weighted else ";" }}
+        {%- endfor %} {#-/* for weighted in [False, True] */#}
     return {
         Tensor(), // placeholder autograd tensor
         Variable(), // output_dtype
+        Variable(), // host_weights
         grad_dev_weights, // dev_weights
         Variable(), // uvm_weights
         Variable(), // lxu_cache_weights
@@ -574,22 +631,63 @@ class {{ autograd_func }} :
         Variable(), // is_experimental
         Variable(), // use_uniq_cache_locations_bwd
         Variable(), // use_homogeneous_placements
-        {{ args.split_variables | join(", ") }}
+        {{ args_pt2.split_variables | join(", ") }}
     };
     {%- else %}
     {%- set backward_nobag_op =
-        "split_embedding_nobag_backward_codegen_{}_unweighted_exact_cuda".format(
-           optimizer
+        "split_embedding_nobag_backward_codegen_{}_unweighted_exact_pt2_wrapper".format(
+        optimizer
         )
     %}
 
     static auto split_embedding_nobag_codegen_backward_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ backward_nobag_op }}", "")
-            .typed<decltype({{ backward_nobag_op }})>();
+            .typed<Tensor(
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                {%- if nobag %}
+                const int64_t,
+                {%- else %}
+                const Tensor&,
+                const int64_t,
+                {%- endif %}
+                const Tensor&,
+                const int64_t,
+                const Tensor&,
+                const Tensor&,
+                {%- if not nobag %}
+                const int64_t,
+                const Tensor&, // currently supports no bag with unweighted
+                {%- endif %}
+                const Tensor&,
+                const int64_t,
+                const int64_t,
+                {%- if optimizer != "none" %}
+                const bool,
+                {%- endif %}
+                const int64_t,
+                const int64_t,
+                {%- if vbe %}
+                const Tensor&,
+                const Tensor&,
+                const Tensor&,
+                {%- endif %}
+                const bool,
+                const bool,
+                {%- for arg_type in args_pt2.split_function_args %}
+                {{ arg_type.split(' ')[0] }}{%- if not loop.last %}{{ "," }}{%- endif %}
+                {%- endfor %}
+            )>();
 
     const auto grad_dev_weights = split_embedding_nobag_codegen_backward_op.call(
         grad_output,
+        host_weights,
         dev_weights,
         uvm_weights,
         lxu_cache_weights,
@@ -615,11 +713,12 @@ class {{ autograd_func }} :
         {%- endif %}
         use_uniq_cache_locations_bwd,
         use_homogeneous_placements,
-        {{ args.split_function_arg_names | join(", ") }}
+        {{ args_pt2.split_function_arg_names | join(", ") }}
     );
     return {
         Tensor(), // placeholder autograd tensor
         Variable(), // output_dtype
+        Variable(), // host_weights
         grad_dev_weights, // dev_weights
         Variable(), // uvm_weights
         Variable(), // lxu_cache_weights
@@ -648,19 +747,19 @@ class {{ autograd_func }} :
         Variable(), // is_experimental
         Variable(), // use_uniq_cache_locations_bwd
         Variable(), // use_homogeneous_placements
-        {{ args.split_variables | join(", ") }}
+        {{ args_pt2.split_variables | join(", ") }}
     };
     {%- endif %}
-  }
+}
 };
 {%- endif %} {#-/* if not nobag or not vbe */#}
 {%- endfor %} {#-/* for nobag in [True, False] */#}
 {%- endfor %} {#-/* for vbe in [True, False] */#}
-{%- endif %} {#-/* if has_gpu_support */#}
 
 ///@ingroup embedding-cuda
-Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
+Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     const Tensor& placeholder_autograd_tensor,
+    const Tensor& host_weights,
     const Tensor& dev_weights,
     const Tensor& uvm_weights,
     const Tensor& lxu_cache_weights,
@@ -682,7 +781,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const double max_gradient,
     const bool stochastic_rounding,
     {%- endif %}
-    {{ args.split_function_args | join(", ") }},
+    {{ args_pt2.split_function_args | join(", ") }},
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
     const c10::optional<Tensor>& B_offsets = c10::optional<Tensor>(),
     const c10::optional<Tensor>& vbe_output_offsets_feature_rank = c10::optional<Tensor>(),
@@ -693,24 +792,21 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const bool is_experimental = false,
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
-    const c10::optional<Tensor>& uvm_cache_stats = c10::optional<Tensor>()
-) {
-  {%- if has_gpu_support %}
-  {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
-
-  {%- if has_vbe_support %}
-  {%- if vbe %}
-  if (B_offsets.has_value()) {
-  {%- else %}
-  else { // if (B_offsets.has_value())
-  {%- endif %}
-  {%- endif %} {#-/* if has_vbe_support */#}
+    const c10::optional<Tensor>& uvm_cache_stats = c10::optional<Tensor>()) {
+    {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
+    {%- if has_vbe_support %}
+    {%- if vbe %}
+    if (B_offsets.has_value()) {
+    {%- else %}
+    else { // if (B_offsets.has_value())
+    {%- endif %}
+    {%- endif %} {#-/* if has_vbe_support */#}
     {%- for nobag in [True, False] %}
     {%- set vbe = False if nobag else vbe %}
-    {%- set autograd_func = "Split{}{}LookupFunction_{}_Op".format(
-          "NoBag" if nobag else "",
-          "VBE" if vbe else "",
-          optimizer
+    {%- set autograd_func = "Split{}{}LookupFunction_{}_Op_pt2".format(
+        "NoBag" if nobag else "",
+        "VBE" if vbe else "",
+        optimizer
         )
     %}
     {%- if nobag %}
@@ -721,6 +817,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
       return {{ autograd_func }}::apply(
           placeholder_autograd_tensor,
           output_dtype,
+          host_weights,
           dev_weights,
           uvm_weights,
           lxu_cache_weights,
@@ -760,77 +857,74 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
           is_experimental,
           use_uniq_cache_locations_bwd,
           use_homogeneous_placements,
-          {{ args.split_function_arg_names | join(", ") }})[0];
-    }
+          {{ args_pt2.split_function_arg_names | join(", ") }}
+      )[0];
+        }
     {%- endfor %} {#-/* for nobag */#}
-  {%- if has_vbe_support %}
-  }
-  {%- endif %}
-  {%- endfor %}
-  {%- else %}
-  TORCH_CHECK(false, "split_embedding_codegen_lookup_{{ optimizer }}_function is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail.");
-  return Tensor();
-  {%- endif %} {#-/* if has_gpu_support */#}
+    {%- if has_vbe_support %}
+    }
+    {%- endif %}
+    {%- endfor %}  {#-/* vbe */#}
 }
 
-// Deprecated for fb namespace! Please use fbgemm namespace instead!
-{%- for lib_name in ["fb", "fbgemm"] %}
-TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function("
-          "    Tensor placeholder_autograd_tensor, "
-          "    Tensor dev_weights, "
-          "    Tensor uvm_weights, "
-          "    Tensor lxu_cache_weights, "
-          "    Tensor weights_placements, "
-          "    Tensor weights_offsets, "
-          "    Tensor D_offsets, "
-          "    int total_D, "
-          "    int max_D, "
-          "    Tensor hash_size_cumsum, "
-          "    int total_hash_size_bits, "
-          "    Tensor indices, "
-          "    Tensor offsets, "
-          "    int pooling_mode, "
-          "    Tensor? indice_weights, "
-          "    Tensor? feature_requires_grad, "
-          "    Tensor lxu_cache_locations, "
-          {%- if optimizer != "none" %}
-          "    bool gradient_clipping, "
-          "    float max_gradient, "
-          "    bool stochastic_rounding, "
-          {%- endif %}
-          "    {{ args.split_function_schemas | join(", ") }}, "
-          "    int output_dtype=0, "
-          "    Tensor? B_offsets=None, "
-          "    Tensor? vbe_output_offsets_feature_rank=None, "
-          "    Tensor? vbe_B_offsets_rank_per_feature=None, "
-          "    SymInt max_B=-1, "
-          "    SymInt max_B_feature_rank=-1, "
-          "    SymInt vbe_output_size=-1, "
-          "    bool is_experimental=False, "
-          "    bool use_uniq_cache_locations_bwd=False, "
-          "    bool use_homogeneous_placements=False, "
-          "    Tensor? uvm_cache_stats=None"
-          ") -> Tensor",
-          {PT2_COMPLIANT_TAG});
+
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_pt2("
+        "    Tensor placeholder_autograd_tensor, "
+        "    Tensor host_weights, "
+        "    Tensor dev_weights, "
+        "    Tensor uvm_weights, "
+        "    Tensor lxu_cache_weights, "
+        "    Tensor weights_placements, "
+        "    Tensor weights_offsets, "
+        "    Tensor D_offsets, "
+        "    int total_D, "
+        "    int max_D, "
+        "    Tensor hash_size_cumsum, "
+        "    int total_hash_size_bits, "
+        "    Tensor indices, "
+        "    Tensor offsets, "
+        "    int pooling_mode, "
+        "    Tensor? indice_weights, "
+        "    Tensor? feature_requires_grad, "
+        "    Tensor lxu_cache_locations, "
+        {%- if optimizer != "none" %}
+        "    bool gradient_clipping, "
+        "    float max_gradient, "
+        "    bool stochastic_rounding, "
+        {%- endif %}
+        "    {{ args_pt2.split_function_schemas | join(", ") }}, "
+        "    int output_dtype=0, "
+        "    Tensor? B_offsets=None, "
+        "    Tensor? vbe_output_offsets_feature_rank=None, "
+        "    Tensor? vbe_B_offsets_rank_per_feature=None, "
+        "    SymInt max_B=-1, "
+        "    SymInt max_B_feature_rank=-1, "
+        "    SymInt vbe_output_size=-1, "
+        "    bool is_experimental=False, "
+        "    bool use_uniq_cache_locations_bwd=False, "
+        "    bool use_homogeneous_placements=False, "
+        "    Tensor? uvm_cache_stats=None"
+        ") -> Tensor",
+        {PT2_COMPLIANT_TAG});
     // We're playing a funny trick here: we're using the autograd
     // implementation of the operator at all the dispatch keys.  This is OK
-    // because autograd.Function works even in a context where there is
+    // because autograd function works even in a context where there is
     // no autograd enabled, and all of the internal implementations redispatch
     // appropriately
     m.impl(
-        "split_embedding_codegen_lookup_{{ optimizer }}_function",
+        "split_embedding_codegen_lookup_{{ optimizer }}_function_pt2",
         torch::dispatch(
           c10::DispatchKey::Autograd,
-          TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
+          TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_pt2)));
     m.impl(
-        "split_embedding_codegen_lookup_{{ optimizer }}_function",
+        "split_embedding_codegen_lookup_{{ optimizer }}_function_pt2",
         torch::dispatch(
           c10::DispatchKey::Meta,
-          TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
+          TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function_pt2)));
     DISPATCH_TO_CUDA(
-        "split_embedding_codegen_lookup_{{ optimizer }}_function",
-        split_embedding_codegen_lookup_{{ optimizer }}_function);
+        "split_embedding_codegen_lookup_{{ optimizer }}_function_pt2",
+        split_embedding_codegen_lookup_{{ optimizer }}_function_pt2);
 }
-{%- endfor %} {#-/* for lib_name */#}
-    // clang-format on
+
+{%- endif %} {#-/* if has_gpu_support or has_cpu_support */#}

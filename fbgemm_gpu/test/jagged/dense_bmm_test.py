@@ -19,10 +19,10 @@ from .common import additional_decorators, open_source, torch_compiled
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, optests, symint_vector_unsupported
+    from test_utils import cpu_and_maybe_gpu, optests, symint_vector_unsupported
 else:
     from fbgemm_gpu.test.test_utils import (
-        gpu_available,
+        cpu_and_maybe_gpu,
         optests,
         symint_vector_unsupported,
     )
@@ -36,9 +36,7 @@ class DenseBmmTest(unittest.TestCase):
         N=st.integers(1, 32),
         max_L=st.integers(1, 32),
         dtype=st.sampled_from([torch.float]),
-        device_type=(
-            st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
-        ),
+        device=cpu_and_maybe_gpu(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_jagged_bmm(
@@ -48,10 +46,9 @@ class DenseBmmTest(unittest.TestCase):
         N: int,
         max_L: int,
         dtype: torch.dtype,
-        device_type: str,
+        device: torch.device,
     ) -> None:
         assume(B != 0)
-        device = torch.device(device_type)
         torch.backends.cuda.matmul.allow_tf32 = False
         lengths = torch.randint(max_L + 1, size=(B,), device=device)
         offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
@@ -101,9 +98,7 @@ class DenseBmmTest(unittest.TestCase):
         N=st.integers(1, 32),
         max_L=st.integers(1, 32),
         dtype=st.sampled_from([torch.float]),
-        device_type=(
-            st.sampled_from(["cpu", "cuda"]) if gpu_available else st.just("cpu")
-        ),
+        device=cpu_and_maybe_gpu(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
     def test_jagged_dense_bmm(
@@ -113,10 +108,9 @@ class DenseBmmTest(unittest.TestCase):
         N: int,
         max_L: int,
         dtype: torch.dtype,
-        device_type: str,
+        device: torch.device,
     ) -> None:
         assume(B != 0)
-        device = torch.device(device_type)
         torch.backends.cuda.matmul.allow_tf32 = False
         lengths = torch.randint(max_L + 1, size=(B,), device=device)
         total_length = int(lengths.sum().item())
@@ -165,7 +159,7 @@ class DenseBmmTest(unittest.TestCase):
         N=st.integers(2, 32),
         max_L=st.integers(2, 32),
         dtype=st.sampled_from([torch.float]),
-        device_type=st.just("cpu"),
+        device=st.just(torch.device("cpu")),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_jagged_dense_bmm_dynamic_shape(
@@ -175,13 +169,12 @@ class DenseBmmTest(unittest.TestCase):
         N: int,
         max_L: int,
         dtype: torch.dtype,
-        device_type: str,
+        device: torch.device,
     ) -> None:
         # Start a fresh compile for each parameter of the test case
         torch._dynamo.reset()
 
         assume(B != 0)
-        device = torch.device(device_type)
         torch.backends.cuda.matmul.allow_tf32 = False
         lengths = torch.randint(low=1, high=max_L + 1, size=(B,), device=device)
         total_length = int(lengths.sum().item())

@@ -15,7 +15,7 @@ import click
 import numpy as np
 import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_requests
-from fbgemm_gpu.split_embedding_utils import generate_requests, round_up
+from fbgemm_gpu.split_embedding_utils import generate_requests, round_up, TBERequest
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
@@ -322,7 +322,10 @@ def nbit_ssd(
         alpha=alpha,
         weighted=weighted,
     )
-    requests_gpu = [(a.int(), b.int(), c if c else None) for (a, b, c) in requests]
+    requests_gpu = [
+        TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+        for req in requests
+    ]
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
@@ -344,7 +347,6 @@ def nbit_ssd(
     torch.cuda.cudart().cudaProfilerStart()
     torch.cuda.nvtx.range_push("uvm forward")
     time_per_iter = benchmark_requests(
-        # pyre-ignore
         requests_gpu,
         lambda indices, offsets, per_sample_weights: emb_uvm.forward(
             indices.int(),
@@ -366,7 +368,6 @@ def nbit_ssd(
     torch.cuda.cudart().cudaProfilerStart()
     torch.cuda.nvtx.range_push("ssd forward")
     time_per_iter = benchmark_requests(
-        # pyre-ignore
         requests_gpu,
         lambda indices, offsets, per_sample_weights: emb_ssd.forward(
             indices.int(),
@@ -386,10 +387,12 @@ def nbit_ssd(
 
     # CPU
     requests_cpu = [
-        (a.int().cpu(), b.int().cpu(), c if c else None) for (a, b, c) in requests
+        TBERequest(
+            req.indices.int().cpu(), req.offsets.int().cpu(), req.per_sample_weights
+        )
+        for req in requests
     ]
     time_per_iter = benchmark_requests(
-        # pyre-ignore
         requests_cpu,
         lambda indices, offsets, per_sample_weights: emb_cpu.forward(
             indices.int().cpu(),

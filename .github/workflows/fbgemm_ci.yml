@@ -65,7 +65,7 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Build FBGEMM Library (${{ matrix.library-type }})
-      run: . $PRELUDE; build_fbgemm_library $BUILD_ENV $BUILD_DIR ${{ matrix.library-type }}
+      run: . $PRELUDE; build_fbgemm_library $BUILD_ENV cmake $BUILD_DIR ${{ matrix.library-type }}
 
     - name: Test FBGEMM Library (${{ matrix.library-type }})
       run: . $PRELUDE; test_fbgemm_library $BUILD_ENV $BUILD_DIR
@@ -107,25 +107,25 @@ jobs:
   build-bazel:
     runs-on: linux.12xlarge
     container:
-      image: ${{ matrix.container-image }}
+      image: amazonlinux:2023
       options: --user root
     defaults:
       run:
         shell: bash
     env:
       PRELUDE: .github/scripts/setup_env.bash
-      DEBIAN_FRONTEND: noninteractive
+      BUILD_ENV: build_bazel
     strategy:
       fail-fast: false
       matrix:
-        container-image: [ "ubuntu:20.04" ]
+        host-machine: [
+          { arch: x86, instance: "linux.12xlarge" },
+        ]
+        compiler: [ "gcc", "clang" ]
 
     steps:
     - name: Setup Build Container
-      run: |
-        apt update -y
-        apt install -y binutils build-essential cmake git libblas-dev pciutils python3 sudo unzip wget
-        git config --global --add safe.directory '*'
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
@@ -135,14 +135,23 @@ jobs:
     - name: Display System Info
       run: . $PRELUDE; print_system_info
 
-    - name: Download bazel
-      run: . $PRELUDE; setup_bazel
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.12
+
+    - name: Install C/C++ Compilers
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Build FBGEMM Library
-      run: bazel build -s :*
+      run: . $PRELUDE; build_fbgemm_library $BUILD_ENV bazel
 
     - name: Test FBGEMM Library
-      run: bazel test -s :*
+      run: . $PRELUDE; print_exec conda run --no-capture-output -n $BUILD_ENV bazel test -s :*
 
 
   build-windows:
@@ -155,7 +164,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ windows-2019 ]
+        os: [ windows-2022 ]
         library-type: [ static, shared ]
 
     steps:
@@ -172,7 +181,7 @@ jobs:
     - name: Build FBGEMM Library (${{ matrix.library-type }})
       shell: cmd
       run: |
-        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
         echo "INSTALL NINJA:"
         pip install ninja
         which ninja

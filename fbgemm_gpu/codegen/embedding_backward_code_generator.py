@@ -47,6 +47,7 @@ def generate_backward_embedding_cuda(
                             nobag=nobag,
                             vbe=vbe,
                             is_index_select=False,
+                            kdesc=wdesc,
                             **kwargs,
                         ),
                     )
@@ -61,6 +62,7 @@ def generate(**kwargs: Any) -> None:
     # Generate GPU variants of the operators
     #
     kwargs["args"] = gen_args["cuda"]
+    kwargs["args_pt2"] = gen_args["any_device"]
 
     # Generate the backward splits
     generate_backward_embedding_cuda(
@@ -102,6 +104,8 @@ def generate(**kwargs: Any) -> None:
     # We generate only the API to preserve the backward compatibility if
     # has_gpu_support=True
     if not kwargs.get("dense"):
+        # TO DO: deprecate
+        # Generate CUDA Autograd
         template = env.get_template("embedding_backward_split_host_template.cpp")
         filename = f"gen_embedding_backward_split_{optimizer}.cpp"
         write(filename, template.render(**kwargs))
@@ -116,10 +120,36 @@ def generate(**kwargs: Any) -> None:
             write(filename, template.render(is_fbcode=args.is_fbcode, **kwargs))
             print(f"[Backward Split] [{optimizer}]: {filename}")
 
+        # Generate PT2 unified Autograd
+        template_pt2 = env.get_template(
+            "embedding_split_host_pt2_autograd_template.cpp"
+        )
+        filename_pt2 = f"gen_embedding_split_{optimizer}_pt2_autograd.cpp"
+        write(filename_pt2, template_pt2.render(**kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename_pt2}")
+
+        # Generate PT2 backward wrapper
+        template_pt2 = env.get_template(
+            "embedding_split_host_pt2_cuda_wrapper_template.cpp"
+        )
+        filename_pt2 = f"gen_embedding_backward_split_{optimizer}_pt2_cuda_wrapper.cpp"
+        write(filename_pt2, template_pt2.render(is_forward=False, **kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename_pt2}")
+
+        if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
+            # Generate Python invoker for CUDA + CPU PT2
+            template_pt2 = env.get_template(
+                "split_embedding_codegen_lookup_invoker.template"
+            )
+            filename_pt2 = f"lookup_{optimizer}_pt2.py"
+            write(filename_pt2, template_pt2.render(is_fbcode=args.is_fbcode, **kwargs))
+            print(f"[Backward Split] [{optimizer}]: {filename_pt2}")
+
     #
     # Generate CPU variants of the operators
     #
     kwargs["args"] = gen_args["cpu"]
+    kwargs["args_pt2"] = gen_args["any_device"]
 
     # Generate the backward splits
     if kwargs.get("has_cpu_support"):
@@ -139,6 +169,14 @@ def generate(**kwargs: Any) -> None:
         filename = f"gen_embedding_backward_split_{optimizer}_cpu.cpp"
         write(filename, template.render(**kwargs))
         print(f"[Backward Split] [{optimizer}]: {filename}")
+
+        # Generate PT2 backward wrapper functions
+        template_pt2 = env.get_template(
+            "embedding_split_host_pt2_cpu_wrapper_template.cpp"
+        )
+        filename_pt2 = f"gen_embedding_backward_split_{optimizer}_pt2_cpu_wrapper.cpp"
+        write(filename_pt2, template_pt2.render(is_forward=False, **kwargs))
+        print(f"[Backward Split] [{optimizer}]: {filename_pt2}")
 
 
 # Format the way to generate PackedTensorAccessors
@@ -283,6 +321,59 @@ def forward_split() -> None:
         write(filename, template.render(dense=dense, is_index_select=False))
         print(f"[Forward Split]: {filename}")
 
+    # Generate PT2 forward wrapper cuda
+    template_pt2 = env.get_template(
+        "embedding_split_host_pt2_cuda_wrapper_template.cpp",
+    )
+    filename_pt2 = f"gen_embedding_forward_split_pt2_cuda_wrapper.cpp"
+    write(
+        filename_pt2,
+        template_pt2.render(
+            has_gpu_support=True,
+            is_forward=True,
+            has_vbe_support=True,
+        ),
+    )
+    print(f"[Forward Split]: {filename_pt2}")
+
+    # Generate PT2 forward wrapper cpu
+    template_pt2 = env.get_template(
+        "embedding_split_host_pt2_cpu_wrapper_template.cpp",
+    )
+    filename_pt2 = f"gen_embedding_forward_split_pt2_cpu_wrapper.cpp"
+    write(
+        filename_pt2,
+        template_pt2.render(
+            has_cpu_support=True,
+            is_forward=True,
+        ),
+    )
+    print(f"[Forward Split]: {filename_pt2}")
+
+
+def backward_device_kernel() -> None:
+    # Generate backward device kernels based on weighted (True/False), VBE
+    # (True/False), no bag (True/False)
+    template_filepath = "embedding_backward_split_device_kernel_template.cuh"
+    generate_backward_embedding_cuda(
+        template_filepath=template_filepath,
+        optimizer="",
+        filename_format="{}gen_embedding_backward_{}_split_device_kernel.cuh",
+        kwargs={
+            "has_gpu_support": True,
+            "has_vbe_support": True,
+            "dense": False,
+            "gen_once": False,
+        },
+    )
+
+    # Generate common backward device kernels (generate only once)
+    template = env.get_template(template_filepath)
+    write(
+        "gen_embedding_backward_common_split_device_kernel.cuh",
+        template.render(gen_once=True),
+    )
+
 
 # TODO: Separate this function into another codegen script
 def index_select() -> None:
@@ -313,6 +404,10 @@ def index_select() -> None:
             "embedding_backward_split_kernel_warp_template.cu",
             "gen_batch_index_select_dim0_backward_kernel_warp.cu",
         ),
+        (
+            "embedding_backward_split_device_kernel_template.cuh",
+            "gen_embedding_backward_batch_index_select_split_device_kernel.cuh",
+        ),
     ]:
         template = env.get_template(templ_file)
         write(
@@ -323,6 +418,8 @@ def index_select() -> None:
                 vbe=False,
                 nobag=True,
                 is_index_select=True,
+                gen_once=False,
+                kdesc="batch_index_select",
                 **kwargs,
             ),
         )
@@ -331,6 +428,13 @@ def index_select() -> None:
     write(
         "gen_embedding_backward_split_grad_index_select.cu",
         template.render(is_index_select=True),
+    )
+
+    # Generate common backward device kernels (generate only once)
+    template = env.get_template("embedding_backward_split_device_kernel_template.cuh")
+    write(
+        "gen_embedding_backward_common_split_device_kernel.cuh",
+        template.render(gen_once=True),
     )
 
 
@@ -522,6 +626,9 @@ def emb_codegen(
     backward_dense()
     forward_quantized()
     forward_split()
+
+    # Generate common device kernels for backwards
+    backward_device_kernel()
 
     # Generate backwards and optimizers
     generate(**(adagrad()))
