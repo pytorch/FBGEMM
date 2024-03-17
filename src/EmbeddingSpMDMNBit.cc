@@ -1050,7 +1050,7 @@ static inline bool is_autovec_disabled() {
   static bool res;
   static bool called_once = false;
   if (called_once) {
-    return res;
+    // return res;
   }
   called_once = true;
   char* env_val = std::getenv("FBGEMM_NO_AUTOVEC");
@@ -1062,7 +1062,7 @@ static inline bool is_autovec_forced() {
   static bool res;
   static bool called_once = false;
   if (called_once) {
-    return res;
+    // return res;
   }
   called_once = true;
   char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
@@ -1075,7 +1075,7 @@ static inline bool is_asmjit_disabled() {
   static bool res;
   static bool called_once = false;
   if (called_once) {
-    return res;
+    // return res;
   }
   called_once = true;
   char* env_val = std::getenv("FBGEMM_NO_ASMJIT");
