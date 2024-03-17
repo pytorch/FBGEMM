@@ -275,13 +275,34 @@ bool EmbeddingSpMDMFP8_autovec(
   // Reference implementation of FP8 SLS. The algorithm is similar to FP32 SLS
   // except for the FP8->FP32 conversion after reading the embedding weight.
   int64_t current = 0;
-  for (int m = 0; m < output_size; ++m) {
-    memset(buf.data(), 0, sizeof(float) * block_size);
-    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
-                          : offsets_or_lengths[m];
-    if (current + len > index_size) {
-      return false;
-    }
+
+  if (use_offsets) {
+    
+    for (int m = 0; m < output_size; ++m) {
+      memset(buf.data(), 0, sizeof(float) * block_size);
+      int len = offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+        if (current + len > index_size) {
+          return false;
+        }
+
+  } else {
+    
+    for (int m = 0; m < output_size; ++m) {
+      memset(buf.data(), 0, sizeof(float) * block_size);
+      int len = offsets_or_lengths[m]
+        if (current + len > index_size) {
+          return false;
+        }
+
+  }
+
+  // for (int m = 0; m < output_size; ++m) {
+  //   memset(buf.data(), 0, sizeof(float) * block_size);
+  //   int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+  //                         : offsets_or_lengths[m];
+  //   if (current + len > index_size) {
+  //     return false;
+  //   }
 
     constexpr int tile_size = 4;
     #if _OPENMP >= 202011
@@ -337,8 +358,8 @@ bool EmbeddingSpMDMFP8_autovec(
       //   block_width = 3
       
       // }
-      
-      // for (int j = 0; j < block_size; j+=block_width) {
+      //       #pragma omp simd
+      // for (int j = 0; j < block_size; j+=4) {
       //   // input stride equals the stride between different embeddings
       //   //idx is what vector is being process
       //   //j is each element of the specfic vector
