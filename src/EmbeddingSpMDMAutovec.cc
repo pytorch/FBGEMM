@@ -13,11 +13,13 @@
 //libaray check if works
 
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/FbgemmConvert.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include <numeric>
 #include <thread>
 
@@ -54,43 +56,43 @@ namespace fbgemm {
 //         } 
 //         }
 
-  void Float8ToFloat_Autovec(
-      const vector<uint8_t>& input,
-      float* output,
-      int exponent_bits,
-      int exponent_bias,
-      int chunk_size) {
+  // void Float8ToFloat_Autovec(
+  //     const vector<uint8_t>& input,
+  //     float* output,
+  //     int exponent_bits,
+  //     int exponent_bias,
+  //     int chunk_size) {
         
         
-     for (int i = 0; i < chunk_size; ++i) {
-        fint32 val_out, sign, multiplier;
+  //    for (int i = 0; i < chunk_size; ++i) {
+  //       fint32 val_out, sign, multiplier;
 
-        sign.I = (input[i] & 0x80) << 24;
-        val_out.I = (input[i] & 0x7F) << (24 - (8 - exponent_bits));
-        // so that the mantissa bits start at the mantissa bit positions of FP32
-        // encoding
+  //       sign.I = (input[i] & 0x80) << 24;
+  //       val_out.I = (input[i] & 0x7F) << (24 - (8 - exponent_bits));
+  //       // so that the mantissa bits start at the mantissa bit positions of FP32
+  //       // encoding
 
-        // Let the hfp8 mantissa bits correspond to the value frac, 0 <= frac < 1
-        // So if the hfp8 value is a normal number, it's value is 2^e x (1+frac)
-        // where e is its (true, unbiased) exponent
-        // If the hfp8 value is denormal, the value is 2^(1-bias) x frac
+  //       // Let the hfp8 mantissa bits correspond to the value frac, 0 <= frac < 1
+  //       // So if the hfp8 value is a normal number, it's value is 2^e x (1+frac)
+  //       // where e is its (true, unbiased) exponent
+  //       // If the hfp8 value is denormal, the value is 2^(1-bias) x frac
 
-        // However, the bit pattern in the 8-bit exponent field of val_out.F
-        // is bias+e when hfp8 is normal, and 0 when hfp8 is subnormal.
-        // So, as an FP32 value, when hfp8 is normal, val_out.F represents the value
-        // of 2^(bias+e-127) * (1+frac)
-        // And when hfp8 is subnormal, val_out.F is also subnormal, and represents the
-        // value of 2^(-126) * frac In either case, val_out.F corresponds to
-        // 2^(bias-127) * (value of hfp8 input) Thus, if we multiply val_out.F by
-        // 2^(127-bias), we obtain the hfp8 value as an FP32 number
+  //       // However, the bit pattern in the 8-bit exponent field of val_out.F
+  //       // is bias+e when hfp8 is normal, and 0 when hfp8 is subnormal.
+  //       // So, as an FP32 value, when hfp8 is normal, val_out.F represents the value
+  //       // of 2^(bias+e-127) * (1+frac)
+  //       // And when hfp8 is subnormal, val_out.F is also subnormal, and represents the
+  //       // value of 2^(-126) * frac In either case, val_out.F corresponds to
+  //       // 2^(bias-127) * (value of hfp8 input) Thus, if we multiply val_out.F by
+  //       // 2^(127-bias), we obtain the hfp8 value as an FP32 number
 
-        multiplier.I = (127 + (127 - exponent_bias))
-            << 23; // multiplier.F is 2^(127-bias)
-        val_out.F *= multiplier.F;
-        val_out.I |= sign.I;
-        output[i] = val_out.F;
-    }
-  }
+  //       multiplier.I = (127 + (127 - exponent_bias))
+  //           << 23; // multiplier.F is 2^(127-bias)
+  //       val_out.F *= multiplier.F;
+  //       val_out.I |= sign.I;
+  //       output[i] = val_out.F;
+  //   }
+  // }
 
 
 template <typename IndexType, typename OffsetType, typename OutType>
@@ -225,7 +227,7 @@ bool EmbeddingSpMDMNBit_autovec(
 }
 
 
-
+template <typename IndexType, typename OffsetType, typename OutType>
 bool EmbeddingSpMDMFP8_autovec(
     const int64_t block_size,
     const int64_t output_size,
@@ -307,7 +309,7 @@ bool EmbeddingSpMDMFP8_autovec(
       // the code is iterating thru a dimisonals of a embedding vectory
 
       // original
-      /*
+      
       #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         // input stride equals the stride between different embeddings
@@ -323,39 +325,39 @@ bool EmbeddingSpMDMFP8_autovec(
         
         buf[j] = std::fma(w, input_f, buf[j]);
       }
-      */
-      int block_width;
-      if (block_size % 1 == 0) {
-        block_width = 1
+      
+      // int block_width;
+      // if (block_size % 1 == 0) {
+      //   block_width = 1
 
-      } else if (block_size % 2 == 0) { 
-        block_width = 2
-      }
-      else if (block_size % 3 == 0) { 
-        block_width = 3
+      // } else if (block_size % 2 == 0) { 
+      //   block_width = 2
+      // }
+      // else if (block_size % 3 == 0) { 
+      //   block_width = 3
       
-      }
+      // }
       
-      for (int j = 0; j < block_size; j+=block_width) {
-        // input stride equals the stride between different embeddings
-        //idx is what vector is being process
-        //j is each element of the specfic vector
-        //input is start
-        const uint8_t* inptr1 = input + input_stride * idx + j;
-        const uint8_t* inptr2 = input + input_stride * idx + (j+1);
-        const uint8_t* inptr3 = input + input_stride * idx + (j+2);
-        const uint8_t* inptr4 = input + input_stride * idx + (j+3);
-        vector<uint8_t> inptr;
+      // for (int j = 0; j < block_size; j+=block_width) {
+      //   // input stride equals the stride between different embeddings
+      //   //idx is what vector is being process
+      //   //j is each element of the specfic vector
+      //   //input is start
+      //   const uint8_t* inptr1 = input + input_stride * idx + j;
+      //   const uint8_t* inptr2 = input + input_stride * idx + (j+1);
+      //   const uint8_t* inptr3 = input + input_stride * idx + (j+2);
+      //   const uint8_t* inptr4 = input + input_stride * idx + (j+3);
+      //   vector<uint8_t> inptr;
         
         
-        float input_f;
-        // Dequantize FP8 to FP32 before compute
-        //vector time
-        //maybe need to check if we call this function differently
-        Float8ToFloat_Autovec(inptr, &input_f, exponent_bits, exponent_bias, block_width);
+      //   float input_f;
+      //   // Dequantize FP8 to FP32 before compute
+      //   //vector time
+      //   //maybe need to check if we call this function differently
+      //   Float8ToFloat_Autovec(inptr, &input_f, exponent_bits, exponent_bias, block_width);
         
-        buf[j] = std::fma(w, input_f, buf[j]);
-      }
+      //   buf[j] = std::fma(w, input_f, buf[j]);
+      // }
 
       
       
