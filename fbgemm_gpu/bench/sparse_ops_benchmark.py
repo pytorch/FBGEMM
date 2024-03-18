@@ -972,17 +972,21 @@ def cat_reorder_batched_ad_indices_bench(
 
 @cli.command()
 @click.option("--row-size", default=2560000)
-@click.option("--batch-size", default=4096)
-@click.option("--element-num", default=300000)
+@click.option("--batch-size", default=2048)
+@click.option("--incidices-num", default=300000)
+@click.option("--lengths-num", default=300000)
 @click.option("--bucket-num", default=16)
 @click.option("--input-precision", type=str, default="long")
+@click.option("--sequence/--no-sequence", default=False)
 @click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cpu")
 def block_bucketize_sparse_features_bench(
     row_size: int,
     batch_size: int,
+    incidices_num: int,
+    lengths_num: int,
     bucket_num: int,
-    element_num: int,
     input_precision: str,
+    sequence: bool,
     device: str,
 ) -> None:
     dtype = torch.int
@@ -993,25 +997,27 @@ def block_bucketize_sparse_features_bench(
     else:
         raise RuntimeError(f"Does not support data type {input_precision}")
 
-    indices = torch.randint(0, row_size, (element_num,), dtype=dtype)
-    weights = torch.randint(0, row_size, (element_num,), dtype=torch.float)
+    lengths_num = lengths_num // batch_size * (batch_size)
+    assert lengths_num <= incidices_num
+    avg_len = incidices_num // lengths_num
+    indices = torch.randint(0, row_size, (incidices_num,), dtype=dtype)
+    weights = torch.randint(0, row_size, (incidices_num,), dtype=torch.float)
+    lengths = [0] * lengths_num
     total = 0
-    lengths = [0] * batch_size
-    avg_len = element_num // batch_size
-    for i in range(batch_size):
+    for i in range(lengths_num):
         length = int(random.gauss(mu=avg_len, sigma=1.0))
-        lengths[i] = min(length, element_num - total)
-        total += length
-        if total > element_num:
+        lengths[i] = min(length, incidices_num - total)
+        total += lengths[i]
+        if total > incidices_num:
             break
-    if total < element_num:
-        lengths[-1] += row_size - total
+    if total < incidices_num:
+        lengths[-1] += incidices_num - total
     lengths = torch.tensor(lengths, dtype=dtype)
     bucket_size = math.ceil(row_size / bucket_num)
-    block_sizes = torch.tensor([bucket_size] * lengths.numel(), dtype=dtype)
+    block_sizes = torch.tensor([bucket_size] * batch_size, dtype=dtype)
 
     bucket_pos = [j * bucket_size for j in range(bucket_num + 1)]
-    block_bucketize_pos = [torch.tensor(bucket_pos, device=device)] * lengths.numel()
+    block_bucketize_pos = [torch.tensor(bucket_pos, device=device)] * batch_size
     test_param = {"uneven": block_bucketize_pos, "even": None}
     print(f"device {device}")
     for name, is_block_bucketize_pos in test_param.items():
@@ -1021,7 +1027,7 @@ def block_bucketize_sparse_features_bench(
                 lengths if device == "cpu" else lengths.to(device),
                 indices if device == "cpu" else indices.to(device),
                 False,
-                True,
+                sequence,
                 block_sizes if device == "cpu" else block_sizes.to(device),
                 bucket_num,
                 (

@@ -9,6 +9,7 @@
 
 # pyre-ignore-all-errors[56]
 
+import random
 import unittest
 from typing import Optional, Type
 
@@ -48,6 +49,29 @@ def unbucketize_indices_value(
 
 
 class BlockBucketizeTest(unittest.TestCase):
+    def validate_out_of_order_output(
+        self,
+        expected: torch.Tensor,
+        actual: torch.Tensor,
+        lengths: torch.Tensor,
+        is_int: bool = True,
+    ) -> None:
+        self.assertEqual(actual.numel(), expected.numel())
+        self.assertEqual(torch.sum(lengths).item(), actual.numel())
+        expected_list = expected.tolist()
+        actual_list = actual.tolist()
+        offset_list = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths).tolist()
+
+        for i in range(len(offset_list) - 1):
+            expected_sample = sorted(expected_list[offset_list[i] : offset_list[i + 1]])
+            actual_sample = sorted(actual_list[offset_list[i] : offset_list[i + 1]])
+            if is_int:
+                self.assertEqual(expected_sample, actual_sample)
+            else:
+                for left, right in zip(expected_sample, actual_sample):
+                    self.assertAlmostEqual(left, right)
+        return
+
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -135,9 +159,23 @@ class BlockBucketizeTest(unittest.TestCase):
             )
 
             torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)
-            torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
+
             torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_cpu)
-            torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
+
+            if not sequence:
+                self.validate_out_of_order_output(
+                    new_indices_ref,
+                    new_indices_gpu.cpu(),
+                    new_lengths_gpu.cpu(),
+                )
+                self.validate_out_of_order_output(
+                    new_indices_cpu,
+                    new_indices_gpu.cpu(),
+                    new_lengths_gpu.cpu(),
+                )
+            else:
+                torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
+                torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
@@ -268,13 +306,7 @@ class BlockBucketizeTest(unittest.TestCase):
             torch.testing.assert_close(
                 new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
             )
-            torch.testing.assert_close(
-                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
-            )
-            if has_weight:
-                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_cpu)
-            if bucketize_pos:
-                torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
+
             if sequence:
                 value_unbucketized_indices = unbucketize_indices_value(
                     new_indices_gpu.cpu(),
@@ -289,6 +321,28 @@ class BlockBucketizeTest(unittest.TestCase):
                 torch.testing.assert_close(
                     unbucketized_indices, indices, rtol=0, atol=0
                 )
+                torch.testing.assert_close(
+                    new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+                )
+                if has_weight:
+                    torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_cpu)
+                if bucketize_pos:
+                    torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
+            else:
+                self.validate_out_of_order_output(
+                    new_indices_ref, new_indices_gpu.cpu(), new_lengths_ref
+                )
+                if has_weight:
+                    self.validate_out_of_order_output(
+                        new_weights_ref,
+                        new_weights_gpu.cpu(),
+                        new_lengths_ref,
+                        is_int=False,
+                    )
+                if bucketize_pos:
+                    self.validate_out_of_order_output(
+                        new_pos_ref, new_pos_gpu.cpu(), new_lengths_ref
+                    )
 
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
@@ -373,9 +427,14 @@ class BlockBucketizeTest(unittest.TestCase):
             torch.testing.assert_close(
                 new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
             )
-            torch.testing.assert_close(
-                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
-            )
+            if sequence:
+                torch.testing.assert_close(
+                    new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+                )
+            else:
+                self.validate_out_of_order_output(
+                    new_indices_ref, new_indices_gpu.cpu(), new_lengths_ref
+                )
 
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
@@ -514,11 +573,131 @@ class BlockBucketizeTest(unittest.TestCase):
             torch.testing.assert_close(
                 new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
             )
+            if sequence:
+                torch.testing.assert_close(
+                    new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+                )
+                if has_weight:
+                    torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_ref)
+            else:
+                self.validate_out_of_order_output(
+                    new_indices_ref, new_indices_gpu.cpu(), new_lengths_ref
+                )
+                if has_weight:
+                    self.validate_out_of_order_output(
+                        new_weights_ref,
+                        new_weights_gpu.cpu(),
+                        new_lengths_ref,
+                        is_int=False,
+                    )
+
+    @unittest.skipIf(not gpu_available, "Skip is GPU is not available.")
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+        has_weight=st.booleans(),
+        bucketize_pos=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_large(
+        self,
+        index_type: Type[torch.dtype],
+        has_weight: bool,
+        bucketize_pos: bool,
+        sequence: bool,
+    ) -> None:
+        my_size = 3
+        bucket_size = 5
+        warp_size = 32
+        max_num_thread_in_a_block = 1024
+        num_of_items = max_num_thread_in_a_block * 2
+        avg_item_len = warp_size + 8
+        lengths = [
+            int(random.gauss(mu=avg_item_len, sigma=1.0)) for _ in range(num_of_items)
+        ]
+        total_len = sum(lengths)
+        # pyre-ignore [6]
+        block_sizes = torch.tensor([bucket_size] * 4, dtype=index_type)
+        self.assertTrue(num_of_items % block_sizes.numel() == 0)
+        B = num_of_items // block_sizes.numel()
+        # pyre-ignore [6]
+        lengths = torch.tensor(lengths, dtype=index_type)
+        indices = torch.randint(
+            0,
+            my_size * bucket_size,
+            (total_len,),
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        weights = (
+            torch.rand(
+                (total_len,),
+                dtype=torch.float,
+            )
+            if has_weight
+            else None
+        )
+        (
+            new_lengths_cpu,
+            new_indices_cpu,
+            new_weights_cpu,
+            new_pos_cpu,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths, indices, bucketize_pos, sequence, block_sizes, my_size, weights
+        )
+
+        (
+            new_lengths_gpu,
+            new_indices_gpu,
+            new_weights_gpu,
+            new_pos_gpu,
+            unbucketize_permute_gpu,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda(),
+            indices.cuda(),
+            bucketize_pos,
+            sequence,
+            block_sizes.cuda(),
+            my_size,
+            # pyre-fixme[16]: `Optional` has no attribute `cuda`.
+            weights.cuda() if has_weight else None,
+        )
+
+        if sequence:
+            value_unbucketized_indices = unbucketize_indices_value(
+                new_indices_gpu.cpu(),
+                new_lengths_gpu.cpu(),
+                block_sizes,
+                my_size,
+                B,
+            )
+            unbucketized_indices = torch.index_select(
+                value_unbucketized_indices, 0, unbucketize_permute_gpu.cpu()
+            )
+            torch.testing.assert_close(unbucketized_indices, indices, rtol=0, atol=0)
             torch.testing.assert_close(
-                new_indices_gpu.cpu(), new_indices_ref, rtol=0, atol=0
+                new_indices_gpu.cpu(), new_indices_cpu, rtol=0, atol=0
             )
             if has_weight:
-                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_ref)
+                torch.testing.assert_close(new_weights_gpu.cpu(), new_weights_cpu)
+            if bucketize_pos:
+                torch.testing.assert_close(new_pos_gpu.cpu(), new_pos_cpu)
+        else:
+            self.validate_out_of_order_output(
+                new_indices_cpu, new_indices_gpu.cpu(), new_lengths_cpu
+            )
+            if has_weight:
+                self.validate_out_of_order_output(
+                    new_weights_cpu,
+                    new_weights_gpu.cpu(),
+                    new_lengths_cpu,
+                    is_int=False,
+                )
+            if bucketize_pos:
+                self.validate_out_of_order_output(
+                    new_pos_cpu, new_pos_gpu.cpu(), new_lengths_cpu
+                )
 
 
 extend_test_class(BlockBucketizeTest)
