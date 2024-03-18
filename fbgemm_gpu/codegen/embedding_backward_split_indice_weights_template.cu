@@ -113,13 +113,13 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     const grad_t* grad_output_ = &grad_output[b][D_start];
     {%- endif %}
 
-    Vec4T<at::acc_type<cache_t, true>> grad_out[kMaxVecsPerThread];
+    Vec4TAcc<cache_t> grad_out[kMaxVecsPerThread];
     #pragma unroll kMaxVecsPerThread
     for (int32_t i = 0;
         i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
         ++i) {
         int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-        Vec4T<at::acc_type<grad_t, true>> go(grad_output_ + d);
+        Vec4TAcc<grad_t> go(grad_output_ + d);
         grad_out[i] = go;
     }
 
@@ -160,7 +160,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     if (std::is_same<emb_t, uint8_t>::value) {
                         qparams = weight_row.load_qparams();
                     }
-                    Vec4T<at::acc_type<cache_t, true>> weight =
+                    Vec4TAcc<cache_t> weight =
                     weight_row.load(d, qparams);
                     grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
                         weight.acc.y * grad_out[i].acc.y +
@@ -179,7 +179,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                 if (std::is_same<emb_t, uint8_t>::value) {
                     qparams = weight_row.load_qparams();
                 }
-                Vec4T<at::acc_type<cache_t, true>> weight =
+                Vec4TAcc<cache_t> weight =
                 weight_row.load(d, qparams);
                 grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
                     weight.acc.y * grad_out[i].acc.y +
