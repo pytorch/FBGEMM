@@ -1594,7 +1594,6 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     bool is_weight_positional,
     bool use_offsets) {
   bool is8bit = is_same<InType, uint8_t>::value;
-
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
     // of an entire row, including scale and bias.
