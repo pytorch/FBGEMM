@@ -854,6 +854,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.step = 0
+        self.last_reported_step = 0
+        self.last_reported_uvm_stats: List[float] = []
 
         # Check whether to use TBE v2
         is_experimental = False
@@ -952,6 +954,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.stats_reporter
         ), "We should not be here. AsyncTimer only happens with reporter present."
         self.stats_reporter.report_duration(it_step, event_name, dur_ms)
+
+    @torch.jit.ignore
+    def _report_fwd_input(self, indices: Tensor) -> None:
+        if self.stats_reporter is None:
+            return None
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if stats_reporter.should_report(self.step):
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.fwd_input_size",
+                data_bytes=indices.element_size() * indices.numel(),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.fwd_input_count",
+                data_bytes=indices.numel(),
+            )
 
     def _generate_vbe_metadata(
         self,
@@ -1108,6 +1127,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._vbe_max_B = vbe_metadata.max_B
 
         self.step += 1
+        self._report_fwd_input(indices)
+
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets, vbe_metadata)
 
@@ -1315,6 +1336,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     @torch.jit.ignore
     def print_uvm_cache_stats(self, use_local_cache: bool = False) -> None:
+        # TODO: Create a separate reporter class to unify the stdlog reporting
         uvm_cache_stats: List[float] = self._get_uvm_cache_print_state(use_local_cache)
         N = max(1, uvm_cache_stats[0])
         m = {
@@ -1348,6 +1370,44 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self.log(f"uvm_cache_stats={m}")
 
+    @torch.jit.ignore
+    def report_uvm_cache_stats(self) -> None:
+        if self.stats_reporter is None:
+            return
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        passed_steps = self.step - self.last_reported_step
+        if passed_steps == 0:
+            return
+        if not stats_reporter.should_report(self.step):
+            return
+
+        uvm_cache_stats: List[float] = self.get_uvm_cache_stats(
+            use_local_cache=False
+        ).tolist()
+        self.last_reported_step = self.step
+
+        if len(self.last_reported_uvm_stats) == 0:
+            self.last_reported_uvm_stats = [0.0] * len(uvm_cache_stats)
+        uvm_cache_stats_delta: List[float] = [0.0] * len(uvm_cache_stats)
+        for i in range(len(uvm_cache_stats)):
+            uvm_cache_stats_delta[i] = (
+                uvm_cache_stats[i] - self.last_reported_uvm_stats[i]
+            )
+        self.last_reported_uvm_stats = uvm_cache_stats
+
+        element_size = self.lxu_cache_weights.element_size()
+        for stat_index in UVMCacheStatsIndex:
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"tbe.prefetch.cache_stats_by_data_size.{stat_index.name.lower()}",
+                data_bytes=int(
+                    uvm_cache_stats_delta[stat_index.value]
+                    * element_size
+                    * self.max_D_cache
+                    / passed_steps
+                ),
+            )
+
     def prefetch(
         self,
         indices: Tensor,
@@ -1368,6 +1428,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if forward_stream is not None:
             self._prefetch_tensors_record_stream(forward_stream)
 
+    @torch.jit.ignore
+    def _report_prefetch_input(self, indices: Tensor) -> None:
+        if self.stats_reporter is None:
+            return None
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if stats_reporter.should_report(self.step):
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.prefetch_input_size",
+                data_bytes=indices.element_size() * indices.numel(),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name="tbe.prefetch_input_count",
+                data_bytes=indices.numel(),
+            )
+
     def _prefetch(
         self,
         indices: Tensor,
@@ -1384,6 +1461,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # forward step
         if self.gather_uvm_cache_stats:
             self.local_uvm_cache_stats.zero_()
+        self._report_prefetch_input(indices)
 
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.cache_hash_size_cumsum,
@@ -1468,6 +1546,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.uvm_cache_stats = torch.add(
                 self.uvm_cache_stats, self.local_uvm_cache_stats
             )
+            self.report_uvm_cache_stats()
             if self.should_log():
                 self.print_uvm_cache_stats(use_local_cache=False)
 

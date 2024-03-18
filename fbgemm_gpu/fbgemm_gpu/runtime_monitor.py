@@ -47,6 +47,20 @@ class TBEStatsReporter(abc.ABC):
         """
         ...
 
+    @abc.abstractmethod
+    def report_data_amount(
+        self,
+        iteration_step: int,
+        event_name: str,
+        data_bytes: int,
+        embedding_id: str = "",
+        tbe_id: str = "",
+    ) -> None:
+        """
+        Report the size of some data amount.
+        """
+        ...
+
 
 class StdLogStatsReporter(TBEStatsReporter):
     def __init__(self, report_interval: int) -> None:
@@ -66,6 +80,18 @@ class StdLogStatsReporter(TBEStatsReporter):
     ) -> None:
         logging.info(
             f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} ms"
+        )
+
+    def report_data_amount(
+        self,
+        iteration_step: int,
+        event_name: str,
+        data_bytes: int,
+        embedding_id: str = "",
+        tbe_id: str = "",
+    ) -> None:
+        logging.info(
+            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} used {data_bytes} bytes"
         )
 
 
