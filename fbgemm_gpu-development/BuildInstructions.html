@@ -579,7 +579,7 @@ objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot
 <span id="fbgemm-gpu-build-setup-tools-install-compiler-clang"></span><h3>C/C++ Compiler (Clang)<a class="headerlink" href="#c-c-compiler-clang" title="Permalink to this heading">¶</a></h3>
 <p>It is possible to build FBGEMM and FBGEMM_GPU (just the CPU and CUDA variants)
 using Clang as the host compiler.  To do so, install a version of the Clang
-toolchain <strong>that supports C++17</strong>:</p>
+toolchain <strong>that supports C++20</strong>:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use a recent version of LLVM+Clang</span>
 <span class="nv">llvm_version</span><span class="o">=</span><span class="m">15</span>.0.7
 
@@ -597,7 +597,7 @@ conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> <
 conda<span class="w"> </span>env<span class="w"> </span>config<span class="w"> </span>vars<span class="w"> </span><span class="nb">set</span><span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">LD_LIBRARY_PATH</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ld_library_path</span><span class="si">}</span><span class="s2">:</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">/lib&quot;</span>
 
 <span class="c1"># Set NVCC_PREPEND_FLAGS in the Conda environment for Clang to work correctly as the host compiler</span>
-conda<span class="w"> </span>env<span class="w"> </span>config<span class="w"> </span>vars<span class="w"> </span><span class="nb">set</span><span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">NVCC_PREPEND_FLAGS</span><span class="o">=</span><span class="se">\&quot;</span>-std<span class="o">=</span>c++17<span class="w"> </span>-Xcompiler<span class="w"> </span>-std<span class="o">=</span>c++17<span class="w"> </span>-Xcompiler<span class="w"> </span>-stdlib<span class="o">=</span>libstdc++<span class="w"> </span>-ccbin<span class="w"> </span><span class="si">${</span><span class="nv">clangxx_path</span><span class="si">}</span><span class="w"> </span>-allow-unsupported-compiler<span class="se">\&quot;</span>
+conda<span class="w"> </span>env<span class="w"> </span>config<span class="w"> </span>vars<span class="w"> </span><span class="nb">set</span><span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">NVCC_PREPEND_FLAGS</span><span class="o">=</span><span class="se">\&quot;</span>-std<span class="o">=</span>c++20<span class="w"> </span>-Xcompiler<span class="w"> </span>-std<span class="o">=</span>c++20<span class="w"> </span>-Xcompiler<span class="w"> </span>-stdlib<span class="o">=</span>libstdc++<span class="w"> </span>-ccbin<span class="w"> </span><span class="si">${</span><span class="nv">clangxx_path</span><span class="si">}</span><span class="w"> </span>-allow-unsupported-compiler<span class="se">\&quot;</span>
 </pre></div>
 </div>
 <p><strong>Note</strong> that for CUDA code compilation, even though <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> supports Clang as
