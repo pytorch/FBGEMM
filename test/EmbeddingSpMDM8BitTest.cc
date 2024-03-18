@@ -509,7 +509,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
             output.data(),
             mapping_table.data());
       } else {
-        success_ref = EmbeddingSpMDMRowWiseSparse_a<uint8_t, int32_t>(
+        success_ref = EmbeddingSpMDMRowWiseSparse_ref<uint8_t, int32_t>(
             embedding_dim,
             batch_size,
             lengths_sum,
