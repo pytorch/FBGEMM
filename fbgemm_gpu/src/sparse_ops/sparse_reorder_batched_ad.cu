@@ -10,6 +10,15 @@
 
 using Tensor = at::Tensor;
 
+#define DISPATCH_FP32_BF16_INT32_16_CASE(...)             \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)    \
+  AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Int, __VA_ARGS__)      \
+  AT_DISPATCH_CASE(at::ScalarType::Long, __VA_ARGS__)
+
+#define DISPATCH_FP32_BF16_INT32_16_TYPES(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(TYPE, NAME, DISPATCH_FP32_BF16_INT32_16_CASE(__VA_ARGS__))
+
 namespace fbgemm_gpu {
 
 template <typename Dtype>
@@ -116,6 +125,56 @@ __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
 
 template <typename Dtype, typename index_t = int32_t>
 __global__
+__launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        cat_ad_offsets,
+    const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        cat_ad_indices,
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        reordered_cat_ad_offsets,
+    at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        reordered_cat_ad_indices,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        batch_offsets,
+    const int32_t T) {
+  const auto B = batch_offsets.size(0) - 1;
+  const auto num_ads_in_batch = static_cast<uint32_t>(batch_offsets[B]);
+  // calculate table_id and batch_id for this warp
+  const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) /
+      static_cast<uint32_t>(kWarpSize);
+  const auto table_id = warp_id / num_ads_in_batch;
+  const auto warp_id_in_table = warp_id % num_ads_in_batch;
+  // warps in a table equally splited for each B
+  const auto num_warp_in_batch = (num_ads_in_batch + B - 1) / B;
+  const auto batch_id = warp_id_in_table / num_warp_in_batch;
+  if (table_id >= T || batch_id >= B) {
+    return;
+  }
+
+  // all table_id and batch_id for this warp is the same
+  const auto num_ads_b = batch_offsets[batch_id + 1] - batch_offsets[batch_id];
+  const auto output_segment_offset_start =
+      table_id * num_ads_in_batch + batch_offsets[batch_id];
+  const auto output_segment_start =
+      reordered_cat_ad_offsets[output_segment_offset_start];
+  const auto input_segment_offset_start = T * batch_id + table_id;
+  const auto input_segment_offset_end = input_segment_offset_start + 1;
+  const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
+  const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
+  const auto num_elements = input_segment_end - input_segment_start;
+
+  const auto warp_id_in_batch = warp_id_in_table % num_warp_in_batch;
+  const auto lane_id_in_warp = threadIdx.x % kWarpSize;
+  for (auto i = warp_id_in_batch; i < num_ads_b; i += num_warp_in_batch) {
+    for (auto j = lane_id_in_warp; j < num_elements; j += kWarpSize) {
+      reordered_cat_ad_indices[output_segment_start + i * num_elements + j] =
+          cat_ad_indices[input_segment_start + j];
+    }
+  }
+}
+
+template <typename Dtype, typename index_t = int32_t>
+__global__
 __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
     // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
     // to [T][B][#num_ads_b][length_{b, t, a}], i.e. [sum(length_{b, t, a})],
@@ -202,46 +261,98 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     reordered_cat_ad_indices = at::empty_like(cat_ad_indices);
   }
 
-  if (broadcast_indices && B == 1 && T <= 320) {
-    // for B = 1 broadcast case
+  if (broadcast_indices && T <= 320 && B < 64) {
     TORCH_CHECK(num_ads_in_batch * T == reordered_cat_ad_offsets.numel() - 1);
-    constexpr auto NUM_WARPS = 16;
-    const dim3 threads(NUM_WARPS * kWarpSize); //  16 x 32
-    const dim3 blocks(cuda_calc_xblock_count(
-        reordered_cat_ad_offsets.numel() - 1,
-        NUM_WARPS)); // one warp per sample
-    FBGEMM_DISPATCH_ALL_TYPES(
-        cat_ad_indices.scalar_type(), "narrow_broadcast_indices_kernel_1", [&] {
-          AT_DISPATCH_INDEX_TYPES(
-              cat_ad_offsets.scalar_type(),
-              "narrow_broadcast_indices_kernel_2",
-              [&] {
-                narrow_broadcast_indices_kernel<scalar_t, index_t>
-                    <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                        cat_ad_offsets.packed_accessor32<
-                            index_t,
-                            1,
-                            at::RestrictPtrTraits>(),
-                        cat_ad_indices.packed_accessor32<
-                            scalar_t,
-                            1,
-                            at::RestrictPtrTraits>(),
-                        reordered_cat_ad_indices.packed_accessor32<
-                            scalar_t,
-                            1,
-                            at::RestrictPtrTraits>(),
-                        num_ads_in_batch,
-                        reordered_cat_ad_offsets.numel() - 1);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-              });
-        });
-    return reordered_cat_ad_indices;
+    if (B == 1) {
+      // for B = 1 broadcast case
+      constexpr auto NUM_WARPS = 16;
+      const dim3 threads(NUM_WARPS * kWarpSize); //  16 x 32
+      const dim3 blocks(cuda_calc_xblock_count(
+          reordered_cat_ad_offsets.numel() - 1,
+          NUM_WARPS)); // one warp per sample
+      DISPATCH_FP32_BF16_INT32_16_TYPES(
+          cat_ad_indices.scalar_type(),
+          "narrow_broadcast_indices_kernel_1",
+          [&] {
+            AT_DISPATCH_INDEX_TYPES(
+                cat_ad_offsets.scalar_type(),
+                "narrow_broadcast_indices_kernel_2",
+                [&] {
+                  narrow_broadcast_indices_kernel<scalar_t, index_t>
+                      <<<blocks,
+                         threads,
+                         0,
+                         at::cuda::getCurrentCUDAStream()>>>(
+                          cat_ad_offsets.packed_accessor32<
+                              index_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          cat_ad_indices.packed_accessor32<
+                              scalar_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          reordered_cat_ad_indices.packed_accessor32<
+                              scalar_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          num_ads_in_batch,
+                          reordered_cat_ad_offsets.numel() - 1);
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                });
+          });
+      return reordered_cat_ad_indices;
+    } else {
+      // for B > 1 and B < 64 broadcast case
+      constexpr auto NUM_WARPS = 16;
+      const dim3 threads(NUM_WARPS * kWarpSize); //  16 x 32
+      const dim3 blocks(cuda_calc_xblock_count(
+          T * num_ads_in_batch,
+          NUM_WARPS)); // num_ads_in_batch warps for all Bs
+      DISPATCH_FP32_BF16_INT32_16_TYPES(
+          cat_ad_indices.scalar_type(),
+          "narrow_batched_broadcast_indices_kernel_1",
+          [&] {
+            AT_DISPATCH_INDEX_TYPES(
+                cat_ad_offsets.scalar_type(),
+                "narrow_batched_broadcast_indices_kernel_2",
+                [&] {
+                  narrow_batched_broadcast_indices_kernel<scalar_t, index_t>
+                      <<<blocks,
+                         threads,
+                         0,
+                         at::cuda::getCurrentCUDAStream()>>>(
+                          cat_ad_offsets.packed_accessor32<
+                              index_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          cat_ad_indices.packed_accessor32<
+                              scalar_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          reordered_cat_ad_offsets.packed_accessor32<
+                              index_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          reordered_cat_ad_indices.packed_accessor32<
+                              scalar_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          batch_offsets.packed_accessor32<
+                              int32_t,
+                              1,
+                              at::RestrictPtrTraits>(),
+                          T);
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                });
+          });
+      return reordered_cat_ad_indices;
+    }
   }
+  constexpr auto NUM_WARPS = 32;
+  const dim3 threads(NUM_WARPS, kWarpSize); // 32 x 32
+  const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
 
-  const dim3 threads(32, 32);
-  const dim3 blocks((B * T + 32 - 1) / 32);
-
-  FBGEMM_DISPATCH_ALL_TYPES(
+  DISPATCH_FP32_BF16_INT32_16_TYPES(
       cat_ad_indices.scalar_type(),
       "reorder_batched_ad_indices_gpu_kernel_1",
       [&] {
