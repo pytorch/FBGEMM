@@ -29,7 +29,7 @@ class FbgemmGpuBuild:
     args: argparse.Namespace
     other_args: List[str]
 
-    """FBGEMM_GPU Package Build"""
+    """FBGEMM_GPU Package Build Configuration"""
 
     @classmethod
     def from_args(cls, argv: List[str]):
@@ -254,6 +254,8 @@ class FbgemmGpuBuild:
 
 
 class CudaUtils:
+    """CUDA Utilities"""
+
     @classmethod
     def nvcc_ok(cls, cuda_home: str, major: int, minor: int) -> bool:
         if not cuda_home:
@@ -337,7 +339,7 @@ class CudaUtils:
 
 
 class FbgemmGpuInstall(PipInstall):
-    """FBGEMM_GPU PIP Installer"""
+    """FBGEMM_GPU PIP Install Routines"""
 
     @classmethod
     def generate_version_file(cls, package_version: str) -> None:
