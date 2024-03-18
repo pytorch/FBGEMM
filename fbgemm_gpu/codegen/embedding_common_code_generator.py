@@ -479,7 +479,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
                 i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
                 ++i) {
             int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-            Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
+            Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
             weight_sum_square += weight_new.acc.x * weight_new.acc.x + weight_new.acc.y * weight_new.acc.y + weight_new.acc.z * weight_new.acc.z + weight_new.acc.w * weight_new.acc.w;
         }
         const at::acc_type<cache_t, true> weight_norm =
@@ -496,7 +496,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
                     i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
                     ++i) {
                 int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-                Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
+                Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
 
                 weight_new.acc.x *= multiplier;
                 weight_new.acc.y *= multiplier;
@@ -520,7 +520,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         if (weight_decay_mode == 1) {
             // L2 regularization
             int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-            Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+            Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
             gx += weight_decay * weight.acc.x;
             gy += weight_decay * weight.acc.y;
             gz += weight_decay * weight.acc.z;
@@ -655,7 +655,7 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         if (weight_decay_mode == 1) {
             // L2 regularization
             int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-            Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+            Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
             gx += weight_decay * weight.acc.x;
             gy += weight_decay * weight.acc.y;
             gz += weight_decay * weight.acc.z;
@@ -817,7 +817,7 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         auto gw = grad_sum[i].acc.w;
 
         int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-        Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+        Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
 
         // for L2 regularization (weight_decay_mode=1)
         // add weight_decay to gradient before other computation
@@ -1006,7 +1006,7 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
         i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
         ++i) {
         int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-        Vec4T<at::acc_type<cache_t, true>> weight = weight_row_template.load(d, qparams_template);
+        Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
         auto gx = grad_sum[i].acc.x + weight_decay * weight.acc.x;
         auto gy = grad_sum[i].acc.y + weight_decay * weight.acc.y;
         auto gz = grad_sum[i].acc.z + weight_decay * weight.acc.z;
@@ -1127,8 +1127,8 @@ def lamb() -> Dict[str, Any]:
       i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
       ++i) {
     int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-    Vec4T<at::acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
-    Vec4T<at::acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
+    Vec4TAcc<cache_t> weight = weight_row.load(d, qparams);
+    Vec4TAcc<cache_t> m1(&momentum1[idx * D + d]);
 
     m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad_sum[i].acc.x;
     m1.acc.y = beta1 * m1.acc.y + (1.0 - beta1) * grad_sum[i].acc.y;
@@ -1136,7 +1136,7 @@ def lamb() -> Dict[str, Any]:
     m1.acc.w = beta1 * m1.acc.w + (1.0 - beta1) * grad_sum[i].acc.w;
     m1.store(&momentum1[idx * D + d]);
 
-    Vec4T<at::acc_type<cache_t, true>> m2(&momentum2[idx * D + d]);
+    Vec4TAcc<cache_t> m2(&momentum2[idx * D + d]);
     m2.acc.x = beta2 * m2.acc.x + (1.0 - beta2) * grad_sum[i].acc.x * grad_sum[i].acc.x;
     m2.acc.y = beta2 * m2.acc.y + (1.0 - beta2) * grad_sum[i].acc.y * grad_sum[i].acc.y;
     m2.acc.z = beta2 * m2.acc.z + (1.0 - beta2) * grad_sum[i].acc.z * grad_sum[i].acc.z;
@@ -1225,7 +1225,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         ++i) {
         int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
 
-        Vec4T<at::acc_type<cache_t, true>> m1(&momentum1[idx * D + d]);
+        Vec4TAcc<cache_t> m1(&momentum1[idx * D + d]);
         m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad_sum[i].acc.x;
         m1.acc.y = beta1 * m1.acc.y + (1.0 - beta1) * grad_sum[i].acc.y;
         m1.acc.z = beta1 * m1.acc.z + (1.0 - beta1) * grad_sum[i].acc.z;
@@ -1233,7 +1233,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         m1.store(&momentum1[idx * D + d]);
 
         // now, we are finished with grad_sum. We can *reuse* grad_sum to store r_t + weight_decay * weight;
-        Vec4T<at::acc_type<cache_t, true>> weight = weight_row.load(d, qparams);
+        Vec4TAcc<cache_t> weight = weight_row.load(d, qparams);
         grad_sum[i].acc.x = (m1.acc.x / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.x;
         grad_sum[i].acc.y = (m1.acc.y / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.y;
         grad_sum[i].acc.z = (m1.acc.z / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.z;
@@ -1412,7 +1412,7 @@ def lars_sgd() -> Dict[str, Any]:
       i < kMaxVecsPerThread && 4 * kThreadGroupSize * i + threadIdx.x * 4 < D;
       ++i) {
     int32_t d = 4 * kThreadGroupSize * i + threadIdx.x * 4;
-    Vec4T<at::acc_type<cache_t,true>> weight = weight_row.load(d, qparams);
+    Vec4TAcc<cache_t> weight = weight_row.load(d, qparams);
     weight_sum_sq += weight.acc.x * weight.acc.x + weight.acc.y * weight.acc.y + weight.acc.z * weight.acc.z + weight.acc.w * weight.acc.w;
     grad_sum_sq += grad_sum[i].acc.x * grad_sum[i].acc.x + grad_sum[i].acc.y * grad_sum[i].acc.y + grad_sum[i].acc.z * grad_sum[i].acc.z + grad_sum[i].acc.w * grad_sum[i].acc.w;
   }

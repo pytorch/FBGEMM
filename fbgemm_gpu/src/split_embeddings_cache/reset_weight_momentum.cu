@@ -189,7 +189,7 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
 
     // reset weight
     float2 qparams_new = {1.0, 0.0}; // scaler=1.0, and offset=0.0, for int8.
-    Vec4T<at::acc_type<cache_t, true>> weight_new; // 0 weight
+    Vec4TAcc<cache_t> weight_new; // 0 weight
     weight_row_template.store(
         weight_new,
         d,
