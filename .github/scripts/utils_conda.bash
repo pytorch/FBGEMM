@@ -38,7 +38,9 @@ setup_miniconda () {
   test_network_connection || return 1
 
   if [ -f "${miniconda_prefix}/bin/conda" ]; then
-    echo "[SETUP] A Miniconda installation appears to already exist; will override ..."
+    echo "[SETUP] A Miniconda installation appears to already exist in ${miniconda_prefix} ..."
+    echo "[SETUP] Clearing out directory: ${miniconda_prefix} ..."
+    print_exec rm -rf "${miniconda_prefix}"
   fi
 
   print_exec mkdir -p "$miniconda_prefix"
@@ -56,6 +58,15 @@ setup_miniconda () {
 
   echo "[SETUP] Updating Miniconda base packages ..."
   (exec_with_retries 3 conda update -n base -c defaults --update-deps -y conda) || return 1
+
+  # https://medium.com/data-tyro/resolving-the-conda-libmamba-issue-and-environment-activation-trouble-9f911a6106a4
+  # https://www.reddit.com/r/learnpython/comments/160kjz9/how_do_i_get_anaconda_to_work_the_way_i_want_it_to/
+  echo "[SETUP] Installing libmamba-solver (required since Anaconda 2024.02-1) ..."
+  (exec_with_retries 3 conda install -n base conda-libmamba-solver --solver classic) || return 1
+
+  # https://stackoverflow.com/questions/77617946/solve-conda-libmamba-solver-libarchive-so-19-error-after-updating-conda-to-23
+  echo "[SETUP] Installing libarchive ..."
+  (exec_with_retries 3 conda install -n base -c main libarchive --force-reinstall) || return 1
 
   # Clean up packages
   conda_cleanup
@@ -127,6 +138,7 @@ __handle_libcrypt_header_issue () {
 
 create_conda_environment () {
   local env_name="$1"
+  # shellcheck disable=SC2178
   local python_version="$2"
   if [ "$python_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTHON_VERSION"

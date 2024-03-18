@@ -242,21 +242,20 @@ test_setup_conda_environment () {
   echo "Creating the Build Environment: ${env_name} ..."
   create_conda_environment  "${env_name}" "${python_version}"           || return 1
 
-  # Install ROCm tools and runtime
-  if [ "$pytorch_variant_type" == "rocm" ]; then
-    install_rocm_ubuntu     "${env_name}" "${pytorch_variant_version}"  || return 1
-
-  # Install CUDA tools and runtime
-  elif [ "$pytorch_variant_type" == "cuda" ]; then
-    install_cuda  "${env_name}" "${pytorch_variant_version}"                                            || return 1
-    install_cudnn "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
-  fi
-
   # Install C++ compiler and build tools (all FBGEMM_GPU variants)
   if [ "$compiler" == "gcc" ] || [ "$compiler" == "clang" ]; then
     install_cxx_compiler  "${env_name}" "${compiler}"   || return 1
   fi
   install_build_tools     "${env_name}"                 || return 1
+
+  # Install CUDA tools and runtime
+  if [ "$pytorch_variant_type" == "cuda" ]; then
+    install_cuda  "${env_name}" "${pytorch_variant_version}"                                            || return 1
+    install_cudnn "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
+  # Install ROCm tools and runtime
+  elif [ "$pytorch_variant_type" == "rocm" ]; then
+    install_rocm_ubuntu     "${env_name}" "${pytorch_variant_version}"  || return 1
+  fi
 
   # Install PyTorch
   if [ "$pytorch_installer" == "conda" ]; then
@@ -339,6 +338,8 @@ test_fbgemm_gpu_setup_and_pip_install () {
     echo "# PyTorch Version         : ${pytorch_channel_version}"
     echo "# FBGEMM_GPU Version      : ${fbgemm_gpu_channel_version}"
     echo "# Variant type / Version  : ${variant_type}/${variant_version}"
+    echo "#"
+    echo "# Run Result              : $([ $retcode -eq 0 ] && echo "PASSED" || echo "FAILED")"
     echo "################################################################################"
 
     cd - || return 1

@@ -55,10 +55,13 @@ endif()
 # FBGEMM_GPU C++ Setup
 ################################################################################
 
-# Set the default C++ standard to C++17
+# Set the default C++ standard to C++20 if CMAKE_CXX_STANDARD is not supplied
+# by CMake command invocation.
 # Individual targets can have this value overridden; see
 # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
-set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 20)
+endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
