@@ -55,21 +55,60 @@ prepare_fbgemm_gpu_build () {
   echo "[BUILD] Successfully ran git submodules update"
 }
 
-__configure_compiler_flags () {
+__configure_fbgemm_gpu_build_clang () {
+  echo "[BUILD] Clang is available; configuring for Clang-based build ..."
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
-    echo "[BUILD] Clang is available; configuring for Clang-based build ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2206
+  build_args+=(
+    --cxxprefix ${conda_prefix}
+  )
+}
 
-    # shellcheck disable=SC2155,SC2086
-    local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+__configure_fbgemm_gpu_build_nvcc () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
 
-    # shellcheck disable=SC2206
-    build_args+=(
-      --cxxprefix ${conda_prefix}
-    )
+  # shellcheck disable=SC2155,SC2086
+  local cxx_path=$(conda run ${env_prefix} which c++)
+  # shellcheck disable=SC2155,SC2086
+  local cuda_version=$(conda run ${env_prefix} nvcc --version | sed -n 's/^.*release \([0-9]\+\.[0-9]\+\).*$/\1/p')
+  # shellcheck disable=SC2206
+  local cuda_version_arr=(${cuda_version//./ })
+
+  # Only NVCC 12+ supports C++20
+  if [[ ${cuda_version_arr[0]} -lt 12 ]]; then
+    local cppstd_ver=17
+  else
+    local cppstd_ver=20
   fi
+
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
+  else
+    # `-stdlib=libstdc++` doesn't exist for GCC
+    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
+  fi
+
+  # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
+  # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the standard
+  # library
+  #
+  # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
+  #   https://github.com/ROCm/HIP/issues/931
+  #
+  echo "[BUILD] Setting NVCC flags ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags}\"
+
+  # shellcheck disable=SC2206
+  build_args+=(
+    # Override CMake configuration
+    -DCMAKE_CXX_STANDARD="${cppstd_ver}"
+  )
 }
 
 __configure_fbgemm_gpu_build_cpu () {
@@ -171,6 +210,9 @@ __configure_fbgemm_gpu_build_cuda () {
     # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
+
+  # Set NVCC flags
+  __configure_fbgemm_gpu_build_nvcc
 }
 
 __configure_fbgemm_gpu_build () {
@@ -194,6 +236,9 @@ __configure_fbgemm_gpu_build () {
     echo ""
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   if [ "$fbgemm_variant" == "cpu" ]; then
     echo "[BUILD] Configuring build as CPU variant ..."
     __configure_fbgemm_gpu_build_cpu
@@ -208,7 +253,9 @@ __configure_fbgemm_gpu_build () {
   fi
 
   # Set other compiler flags as needed
-  __configure_compiler_flags
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    __configure_fbgemm_gpu_build_clang
+  fi
 
   # shellcheck disable=SC2145
   echo "[BUILD] FBGEMM_GPU build arguments have been set:  ${build_args[@]}"
