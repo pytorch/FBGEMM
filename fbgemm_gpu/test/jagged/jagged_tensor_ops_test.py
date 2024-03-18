@@ -618,7 +618,7 @@ class JaggedTensorOpsTest(unittest.TestCase):
         )
         indices = torch.randint(
             low=0,
-            high=1,
+            high=input_batch_size,
             size=(output_batch_size,),
             dtype=index_dtype,
             device="cuda",
