@@ -31,7 +31,7 @@ template<
 >
 DEVICE_INLINE void store_grad_sum(
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& grad_dev_weights,
-    const Vec4T<at::acc_type<cache_t, true>>* grad_sum,
+    const Vec4TAcc<cache_t>* grad_sum,
     const int32_t D,
     const int64_t weights_offset,
     const int64_t idx
@@ -64,7 +64,7 @@ template <
     int32_t VEC_WIDTH
 >
 DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
-    Vec4T<at::acc_type<cache_t, true>>* grad_sum,
+    Vec4TAcc<cache_t>* grad_sum,
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits>& grad_output,
     {%- if not nobag or is_index_select %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& D_offsets,
@@ -129,7 +129,7 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
                 i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
                 ++i) {
                 int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
+                Vec4TAcc<grad_t> grad_out_vec(
                     {%- if nobag and is_index_select %}
                     // grad_output is 1d
                     &grad_output[grad_offset + l_j * grad_stride + d]

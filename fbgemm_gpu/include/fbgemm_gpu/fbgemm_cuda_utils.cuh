@@ -638,6 +638,10 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
   return s;
 }
 
+// A wrapper for Vec4T with acc_type
+template <typename T>
+using Vec4TAcc = Vec4T<at::acc_type<T, true>>;
+
 template <typename T>
 DEVICE_INLINE T shfl_xor(
     const T val,
@@ -1341,9 +1345,9 @@ struct SharedMemory<float> {
 };
 
 template <>
-struct SharedMemory<Vec4T<at::acc_type<float, true>>> {
-  __device__ Vec4T<at::acc_type<float, true>>* getPointer() {
-    extern __shared__ Vec4T<at::acc_type<float, true>> s_acc_float_vec_t[];
+struct SharedMemory<Vec4TAcc<float>> {
+  __device__ Vec4TAcc<float>* getPointer() {
+    extern __shared__ Vec4TAcc<float> s_acc_float_vec_t[];
     return s_acc_float_vec_t;
   }
 };

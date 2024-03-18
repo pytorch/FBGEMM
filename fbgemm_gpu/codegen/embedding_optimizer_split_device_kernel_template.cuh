@@ -27,7 +27,7 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& weights_placements,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>& weights_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& sorted_lxu_cache_locations,
-    Vec4T<at::acc_type<cache_t, true>>* grad_sum,
+    Vec4TAcc<cache_t>* grad_sum,
     const bool stochastic_rounding,
     const at::PhiloxCudaState& stochastic_rounding_philox_args,
     const uint32_t run_id,
@@ -70,8 +70,8 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     }
     {%- endfor %}
 
-    struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> weight_update_buffer;
-    Vec4T<at::acc_type<cache_t, true>>* shared_weight_update_row =
+    struct SharedMemory<Vec4TAcc<cache_t>> weight_update_buffer;
+    Vec4TAcc<cache_t>* shared_weight_update_row =
         is_int8 ? weight_update_buffer.getPointer() : nullptr;
 
     StochasticRoundingRNGState state;
@@ -97,7 +97,7 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
         i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
         ++i) {
         int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-        Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
+        Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
         auto& grad = grad_sum[i];
         {{ split_weight_update }}
         if (is_int8 && !cache_weights) {
