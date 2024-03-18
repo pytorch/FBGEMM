@@ -12,6 +12,7 @@
 #include <torch/csrc/api/include/torch/types.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include "fbgemm_gpu/ops_utils.h"
+#include "fbgemm_gpu/permute_pooled_embedding_function.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 /// @defgroup permute-pooled-embs-gpu Permute Pooled Embeddings Operators (CUDA)
@@ -63,26 +64,5 @@ at::Tensor permute_pooled_embs_gpu(
     const at::Tensor& permute_list,
     const at::Tensor& inv_offset_dim_list,
     const at::Tensor& inv_permute_list);
-
-using torch::autograd::AutogradContext;
-using torch::autograd::Variable;
-using torch::autograd::variable_list;
-
-class PermutePooledEmbsFunction
-    : public torch::autograd::Function<PermutePooledEmbsFunction> {
- public:
-  static Variable forward(
-      AutogradContext* ctx,
-      const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-      const at::Tensor& offset_dim_list,
-      const at::Tensor& permute_list,
-      const at::Tensor& inv_offset_dim_list,
-      const at::Tensor& inv_permute_list,
-      const bool& allow_duplicates = false);
-
-  static variable_list backward(
-      AutogradContext* ctx,
-      variable_list grad_output);
-};
 
 } // namespace fbgemm_gpu
