@@ -21,7 +21,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
 
-# torch.ops.import_module("fbgemm_gpu.sparse_ops")
+torch.ops.import_module("fbgemm_gpu.sparse_ops")
 settings.register_profile("derandomize", derandomize=True)
 settings.load_profile("derandomize")
 
