@@ -6,11 +6,20 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/permute_pooled_embedding_ops.h"
+#include "include/fbgemm_gpu/permute_pooled_embedding_function.h"
 
 using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
+
+namespace {
+at::Tensor permute_pooled_embs_cpu(
+    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
+    const at::Tensor& offset_dim_list,
+    const at::Tensor& permute_list,
+    const at::Tensor& inv_offset_dim_list,
+    const at::Tensor& inv_permute_list);
+}
 
 using torch::autograd::AutogradContext;
 using torch::autograd::Variable;
