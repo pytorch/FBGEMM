@@ -1330,21 +1330,22 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_duration</span><span class="p">(</span><span class="n">it_step</span><span class="p">,</span> <span class="n">event_name</span><span class="p">,</span> <span class="n">dur_ms</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_report_fwd_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">_report_io_size_count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="kc">None</span>
+            <span class="k">return</span> <span class="n">data</span>
         <span class="n">stats_reporter</span><span class="p">:</span> <span class="n">TBEStatsReporter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span>
         <span class="k">if</span> <span class="n">stats_reporter</span><span class="o">.</span><span class="n">should_report</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">):</span>
             <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
                 <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
-                <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.fwd_input_size&quot;</span><span class="p">,</span>
-                <span class="n">data_bytes</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">indices</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
+                <span class="n">event_name</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;tbe.</span><span class="si">{</span><span class="n">event</span><span class="si">}</span><span class="s2">_size&quot;</span><span class="p">,</span>
+                <span class="n">data_bytes</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">data</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
             <span class="p">)</span>
             <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
                 <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
-                <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.fwd_input_count&quot;</span><span class="p">,</span>
-                <span class="n">data_bytes</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
+                <span class="n">event_name</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;tbe.</span><span class="si">{</span><span class="n">event</span><span class="si">}</span><span class="s2">_count&quot;</span><span class="p">,</span>
+                <span class="n">data_bytes</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
             <span class="p">)</span>
+        <span class="k">return</span> <span class="n">data</span>
 
     <span class="k">def</span> <span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1501,7 +1502,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_max_B</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_report_fwd_input</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;fwd_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">)</span>
@@ -1556,11 +1557,17 @@
                 <span class="n">total_unique_indices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
                 <span class="ow">and</span> <span class="n">total_unique_indices</span> <span class="o">&lt;=</span> <span class="n">indices</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
             <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;OptimType.NONE requires total_unique_indices. Please pass it or check the value (total_unique_indices = </span><span class="si">{</span><span class="n">total_unique_indices</span><span class="si">}</span><span class="s2">)&quot;</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_none</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">total_unique_indices</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_none</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">total_unique_indices</span>
+                <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_sgd</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span><span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_sgd</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span><span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">),</span>
+            <span class="p">)</span>
 
         <span class="n">momentum1</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
             <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum1_dev</span><span class="p">,</span>
@@ -1571,12 +1578,18 @@
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">LARS_SGD</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_lars_sgd</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">momentum1</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_lars_sgd</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">momentum1</span>
+                <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">momentum1</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">momentum1</span>
+                <span class="p">),</span>
             <span class="p">)</span>
 
         <span class="n">momentum2</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
@@ -1592,53 +1605,68 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_weighted_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
-                <span class="n">momentum1</span><span class="p">,</span>
-                <span class="c1"># pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,</span>
-                <span class="c1">#  int]`.</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_weighted_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                    <span class="n">momentum1</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,</span>
+                    <span class="c1">#  int]`.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_adam</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
-                <span class="n">momentum1</span><span class="p">,</span>
-                <span class="n">momentum2</span><span class="p">,</span>
-                <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
-                <span class="c1">#  int]`.</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_adam</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                    <span class="n">momentum1</span><span class="p">,</span>
+                    <span class="n">momentum2</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
+                    <span class="c1">#  int]`.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_partial_rowwise_adam</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
-                <span class="n">momentum1</span><span class="p">,</span>
-                <span class="n">momentum2</span><span class="p">,</span>
-                <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
-                <span class="c1">#  int]`.</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_partial_rowwise_adam</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                    <span class="n">momentum1</span><span class="p">,</span>
+                    <span class="n">momentum2</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
+                    <span class="c1">#  int]`.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">LAMB</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_lamb</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
-                <span class="n">momentum1</span><span class="p">,</span>
-                <span class="n">momentum2</span><span class="p">,</span>
-                <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
-                <span class="c1">#  int]`.</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_lamb</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                    <span class="n">momentum1</span><span class="p">,</span>
+                    <span class="n">momentum2</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
+                    <span class="c1">#  int]`.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_partial_rowwise_lamb</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                <span class="n">common_args</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
-                <span class="n">momentum1</span><span class="p">,</span>
-                <span class="n">momentum2</span><span class="p">,</span>
-                <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
-                <span class="c1">#  int]`.</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_partial_rowwise_lamb</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                    <span class="n">momentum1</span><span class="p">,</span>
+                    <span class="n">momentum2</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,</span>
+                    <span class="c1">#  int]`.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                <span class="p">),</span>
             <span class="p">)</span>
 
         <span class="n">prev_iter</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
@@ -1668,19 +1696,25 @@
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">:</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span><span class="p">:</span>
-                <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad_with_counter</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                    <span class="n">common_args</span><span class="p">,</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
-                    <span class="n">momentum1</span><span class="p">,</span>
-                    <span class="n">prev_iter</span><span class="p">,</span>
-                    <span class="n">row_counter</span><span class="p">,</span>
-                    <span class="c1"># pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">max_counter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                    <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                    <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad_with_counter</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                        <span class="n">common_args</span><span class="p">,</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                        <span class="n">momentum1</span><span class="p">,</span>
+                        <span class="n">prev_iter</span><span class="p">,</span>
+                        <span class="n">row_counter</span><span class="p">,</span>
+                        <span class="c1"># pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">max_counter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                    <span class="p">),</span>
                 <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="k">return</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                    <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">momentum1</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                    <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                    <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                        <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">momentum1</span>
+                    <span class="p">),</span>
                 <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid OptimType: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -1802,23 +1836,6 @@
         <span class="k">if</span> <span class="n">forward_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch_tensors_record_stream</span><span class="p">(</span><span class="n">forward_stream</span><span class="p">)</span>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_report_prefetch_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="kc">None</span>
-        <span class="n">stats_reporter</span><span class="p">:</span> <span class="n">TBEStatsReporter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span>
-        <span class="k">if</span> <span class="n">stats_reporter</span><span class="o">.</span><span class="n">should_report</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">):</span>
-            <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
-                <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
-                <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.prefetch_input_size&quot;</span><span class="p">,</span>
-                <span class="n">data_bytes</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">indices</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
-            <span class="p">)</span>
-            <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
-                <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
-                <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.prefetch_input_count&quot;</span><span class="p">,</span>
-                <span class="n">data_bytes</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
-            <span class="p">)</span>
-
     <span class="k">def</span> <span class="nf">_prefetch</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1835,7 +1852,7 @@
         <span class="c1"># forward step</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_report_prefetch_input</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;prefetch_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
 
         <span class="n">linear_cache_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">linearize_cache_indices</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
