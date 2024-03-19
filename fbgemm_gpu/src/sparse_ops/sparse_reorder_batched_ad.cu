@@ -142,32 +142,35 @@ __launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
   // calculate table_id and batch_id for this warp
   const auto warp_id = (blockIdx.x * blockDim.x + threadIdx.x) /
       static_cast<uint32_t>(kWarpSize);
-  const auto table_id = warp_id / num_ads_in_batch;
-  const auto warp_id_in_table = warp_id % num_ads_in_batch;
-  // warps in a table equally splited for each B
-  const auto num_warp_in_batch = (num_ads_in_batch + B - 1) / B;
-  const auto batch_id = warp_id_in_table / num_warp_in_batch;
+  const auto batch_id = warp_id / num_ads_in_batch;
+  const auto warp_id_in_batch = warp_id % num_ads_in_batch;
+  // warps in a batch equally splited for T
+  const auto num_warp_in_table = num_ads_in_batch / T;
+  const auto table_id = warp_id_in_batch / num_warp_in_table;
+  // all table_id and batch_id for this warp is the same
   if (table_id >= T || batch_id >= B) {
     return;
   }
 
-  // all table_id and batch_id for this warp is the same
-  const auto num_ads_b = batch_offsets[batch_id + 1] - batch_offsets[batch_id];
+  const auto num_ads_b = batch_offsets[table_id + 1] - batch_offsets[table_id];
   const auto output_segment_offset_start =
-      table_id * num_ads_in_batch + batch_offsets[batch_id];
+      batch_id * num_ads_in_batch + batch_offsets[table_id];
   const auto output_segment_start =
       reordered_cat_ad_offsets[output_segment_offset_start];
-  const auto input_segment_offset_start = T * batch_id + table_id;
+  const auto input_segment_offset_start = T * table_id + batch_id;
   const auto input_segment_offset_end = input_segment_offset_start + 1;
   const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
   const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
   const auto num_elements = input_segment_end - input_segment_start;
 
-  const auto warp_id_in_batch = warp_id_in_table % num_warp_in_batch;
+  const auto warp_id_in_table = warp_id_in_batch % num_warp_in_table;
   const auto lane_id_in_warp = threadIdx.x % kWarpSize;
-  for (auto i = warp_id_in_batch; i < num_ads_b; i += num_warp_in_batch) {
+  for (auto i = warp_id_in_table; i < num_ads_b; i += num_warp_in_table) {
+    const auto output_segment_start_per_warp =
+        reordered_cat_ad_offsets[output_segment_offset_start + i];
+
     for (auto j = lane_id_in_warp; j < num_elements; j += kWarpSize) {
-      reordered_cat_ad_indices[output_segment_start + i * num_elements + j] =
+      reordered_cat_ad_indices[output_segment_start_per_warp + j] =
           cat_ad_indices[input_segment_start + j];
     }
   }
