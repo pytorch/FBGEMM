@@ -95,7 +95,7 @@ class StdLogStatsReporter(TBEStatsReporter):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class TBEStatsReporterConfig:
     """
     Configuration for TBEStatsReporter. It eventually instantiates the actual
@@ -114,7 +114,7 @@ class TBEStatsReporterConfig:
         return None
 
 
-@dataclass
+@dataclass(frozen=True)
 class StdLogStatsReporterConfig(TBEStatsReporterConfig):
     def create_reporter(self) -> Optional[TBEStatsReporter]:
         if self.interval <= 0:

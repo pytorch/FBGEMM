@@ -77,7 +77,7 @@ class TestingStatsReporter(TBEStatsReporter):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class TestingStatsReporterConfig(TBEStatsReporterConfig):
     def create_reporter(self) -> Optional[TBEStatsReporter]:
         return TestingStatsReporter(reporting_interval=self.interval)
