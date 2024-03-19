@@ -10,7 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -43,7 +43,8 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 class TestingStatsReporter(TBEStatsReporter):
     def __init__(self, reporting_interval: int = 1) -> None:
-        self.reported_data: List[List[Union[int, str, float]]] = []
+        # Event -> args for that call
+        self.reported_data: Dict[str, List[List[Union[int, str, float]]]] = {}
         self.reporting_interval = reporting_interval
 
     def should_report(self, iteration_step: int) -> bool:
@@ -57,8 +58,22 @@ class TestingStatsReporter(TBEStatsReporter):
         embedding_id: str = "",
         tbe_id: str = "",
     ) -> None:
-        self.reported_data.append(
+        self.reported_data.setdefault(event_name, [])
+        self.reported_data[event_name].append(
             [iteration_step, event_name, duration_ms, embedding_id, tbe_id]
+        )
+
+    def report_data_amount(
+        self,
+        iteration_step: int,
+        event_name: str,
+        data_bytes: int,
+        embedding_id: str = "",
+        tbe_id: str = "",
+    ) -> None:
+        self.reported_data.setdefault(event_name, [])
+        self.reported_data[event_name].append(
+            [iteration_step, event_name, data_bytes, embedding_id, tbe_id]
         )
 
 
