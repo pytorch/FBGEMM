@@ -225,6 +225,9 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
   m.def(
       "batch_index_select_dim0("
       "    Tensor inputs,"
