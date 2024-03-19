@@ -41,27 +41,11 @@
       }
     },
     "fbgemm::jagged_index_select": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_index_select_2d": {
+      "KeyedJaggedIndexSelectTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
         "comment": "",
         "status": "xsuccess"
       },
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_index_select_2d_in_inference": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "JaggedTensorOpsTest.test_faketensor__test_jagged_index_select_2d": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "JaggedTensorOpsTest.test_faketensor__test_jagged_index_select_2d_in_inference": {
-        "comment": "",
-        "status": "xsuccess"
-      },
-      "JaggedTensorOpsTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
+      "KeyedJaggedIndexSelectTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
         "comment": "",
         "status": "xsuccess"
       }
@@ -78,12 +62,7 @@
       }
     },
     "fbgemm::jagged_softmax": {},
-    "fbgemm::jagged_to_padded_dense": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_jagged_to_padded_dense": {
-        "comment": "seems nondeterministic, but error is real",
-        "status": "skip"
-      }
-    },
+    "fbgemm::jagged_to_padded_dense": {},
     "fbgemm::jagged_unique_indices": {
       "UniqueIndicesTest.test_aot_dispatch_dynamic__test_jagged_unique_indices": {
         "comment": "",
@@ -111,15 +90,15 @@
       }
     },
     "fbgemm::keyed_jagged_index_select_dim1": {
-      "JaggedTensorOpsTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
+      "KeyedJaggedIndexSelectTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_autograd_registration__test_keyed_jagged_index_select_dim1": {
+      "KeyedJaggedIndexSelectTest.test_autograd_registration__test_keyed_jagged_index_select_dim1": {
         "comment": "",
         "status": "xfail"
       },
-      "JaggedTensorOpsTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
+      "KeyedJaggedIndexSelectTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
         "comment": "",
         "status": "xfail"
       }
