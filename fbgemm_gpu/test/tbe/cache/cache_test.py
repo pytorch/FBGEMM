@@ -262,6 +262,8 @@ class CacheTest(unittest.TestCase):
         input_batch_count: List[int] = []
         intput_original_size: int = 0
         intput_long_size: int = 0
+        output_batch_count: List[int] = []
+        output_original_size: int = 0
         while batch_i:
             indices, offsets, _, Bs_feature_rank = batch_i.unpack_4()
             # We force the conversion because this is what TBE kernel did in forward
@@ -276,6 +278,8 @@ class CacheTest(unittest.TestCase):
             output = cc(
                 indices, offsets, batch_size_per_feature_per_rank=Bs_feature_rank
             )
+            output_batch_count.append(output.numel())
+            output_original_size = output.element_size()
             if prefetch_location == "between_fwd_bwd":
                 _prefetch(cc, batch_ip1)
             output.backward(grad_output)
@@ -357,6 +361,16 @@ class CacheTest(unittest.TestCase):
                 "tbe.fwd_input_count",
                 [1, 3, 5],
                 [input_batch_count[i] for i in [0, 2, 4]],
+            )
+            assert_event_exist(
+                "tbe.fwd_output_size",
+                [1, 3, 5],
+                [output_batch_count[i] * output_original_size for i in [0, 2, 4]],
+            )
+            assert_event_exist(
+                "tbe.fwd_output_count",
+                [1, 3, 5],
+                [output_batch_count[i] for i in [0, 2, 4]],
             )
 
             uvm_cache_events = [
