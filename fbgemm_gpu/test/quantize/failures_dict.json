@@ -19,8 +19,8 @@
         "status": "xfail"
       },
       "TestFP8RowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op_padded_fp8_rowwise": {
-        "comment": "",
-        "status": "xfail"
+        "comment": "flaky (CUDA IMA)",
+        "status": "skip"
       }
     },
     "fbgemm::PaddedFP8RowwiseQuantizedToFloat": {
@@ -29,8 +29,8 @@
         "status": "xfail"
       },
       "TestFP8RowwiseQuantizationConversion.test_faketensor__test_quantize_and_dequantize_op_padded_fp8_rowwise": {
-        "comment": "",
-        "status": "xfail"
+        "comment": "flaky (CUDA IMA)",
+        "status": "skip"
       }
     }
   }
