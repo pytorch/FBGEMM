@@ -6,7 +6,6 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-
 # pyre-ignore-all-errors[56]
 
 import unittest
@@ -22,9 +21,13 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available, gpu_unavailable, skipIfRocm
+    from test_utils import gpu_available, gpu_unavailable, skipIfRocmLessThan
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available, gpu_unavailable, skipIfRocm
+    from fbgemm_gpu.test.test_utils import (
+        gpu_available,
+        gpu_unavailable,
+        skipIfRocmLessThan,
+    )
 
 if gpu_available:
     import fbgemm_gpu.uvm
@@ -69,7 +72,7 @@ class CopyTest(unittest.TestCase):
         del uvm_t
         cpu_t.mul_(42)
 
-    @skipIfRocm()
+    @skipIfRocmLessThan(50700)
     @unittest.skipIf(
         not torch.cuda.is_available() or torch.cuda.device_count() < 2,
         "Skip unless two CUDA devices are detected",

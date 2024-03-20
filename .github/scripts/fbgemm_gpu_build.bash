@@ -108,6 +108,7 @@ __configure_fbgemm_gpu_build_nvcc () {
   build_args+=(
     # Override CMake configuration
     -DCMAKE_CXX_STANDARD="${cppstd_ver}"
+    -DHIP_STANDARD="${cppstd_ver}"
   )
 }
 
