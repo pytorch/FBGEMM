@@ -37,7 +37,7 @@ Args:
 
     enforce_hbm (bool, optional): If True, place all weights/momentums in HBM when using cache
 
-    optimizer (OptimType, optional): An optimizer to use for embedding table update in the backward pass. (`OptimType.ADAM`, `OptimType.EXACT_ADAGRAD`, `OptimType.EXACT_ROWWISE_ADAGRAD`, `OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD`, `OptimType.EXACT_SGD`, `OptimType.LAMB`, `OptimType.LARS_SGD`, `OptimType.PARTIAL_ROWWISE_ADAM`, `OptimType.PARTIAL_ROWWISE_LAMB`, `OptimType.SGD`)
+    optimizer (OptimType, optional): An optimizer to use for embedding table update in the backward pass. (`OptimType.ADAM`, `OptimType.EXACT_ADAGRAD`, `OptimType.EXACT_ROWWISE_ADAGRAD`, `OptimType.EXACT_SGD`, `OptimType.LAMB`, `OptimType.LARS_SGD`, `OptimType.PARTIAL_ROWWISE_ADAM`, `OptimType.PARTIAL_ROWWISE_LAMB`, `OptimType.SGD`)
 
     record_cache_metrics (RecordCacheMetrics, optional): Record number of hits, number of requests, etc if RecordCacheMetrics.record_cache_miss_counter is True and record the similar metrics table-wise if RecordCacheMetrics.record_tablewise_cache_miss is True (default is None).
 
