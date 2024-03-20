@@ -145,7 +145,7 @@ __launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
   const auto table_id = warp_id / num_ads_in_batch;
   const auto warp_id_in_table = warp_id % num_ads_in_batch;
   // warps in a table equally splited for each B
-  const auto num_warp_in_batch = (num_ads_in_batch + B - 1) / B;
+  const auto num_warp_in_batch = num_ads_in_batch / B;
   const auto batch_id = warp_id_in_table / num_warp_in_batch;
   if (table_id >= T || batch_id >= B) {
     return;
