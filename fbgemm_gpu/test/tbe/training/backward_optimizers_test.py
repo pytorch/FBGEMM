@@ -90,11 +90,28 @@ class BackwardOptimizersTest(unittest.TestCase):
             in [
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_SGD,
+                OptimType.EXACT_ROWWISE_ADAGRAD,
             ]
+        )
+        # weight decay mode is only supported in EXACT_ROWWISE_ADAGRAD
+        assume(
+            weight_decay_mode == WeightDecayMode.NONE
             or (
-                optimizer in [OptimType.EXACT_ROWWISE_ADAGRAD]
+                optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
                 and weight_decay_mode
-                not in [WeightDecayMode.COUNTER, WeightDecayMode.COWCLIP]
+                in [
+                    WeightDecayMode.L2,
+                    WeightDecayMode.DECOUPLE,
+                ]
+            )
+            or (
+                not use_cpu
+                and optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+                and weight_decay_mode
+                in [
+                    WeightDecayMode.COUNTER,
+                    WeightDecayMode.COWCLIP,
+                ]
             )
         )
 
