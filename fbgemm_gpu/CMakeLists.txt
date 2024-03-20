@@ -177,7 +177,6 @@ file(GLOB_RECURSE asmjit_sources
 set(COMMON_OPTIMIZERS
     adagrad
     rowwise_adagrad
-    rowwise_weighted_adagrad
     sgd)
 
 # To be populated in the subsequent diffs
@@ -197,7 +196,8 @@ set(DEPRECATED_OPTIMIZERS
   approx_rowwise_adagrad
   approx_rowwise_adagrad_with_counter
   approx_rowwise_adagrad_with_weight_decay
-  rowwise_adagrad_with_weight_decay)
+  rowwise_adagrad_with_weight_decay
+  rowwise_weighted_adagrad)
 
 set(ALL_OPTIMIZERS
   ${COMMON_OPTIMIZERS}

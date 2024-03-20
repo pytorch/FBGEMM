@@ -354,13 +354,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         max_gradient: float = 1.0,
         max_norm: float = 0.0,
         learning_rate: float = 0.01,
-        # used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, EXACT_ROWWISE_WEIGHTED_ADAGRAD, LAMB, and ADAM only
+        # used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, LAMB, and ADAM only
         # NOTE that default is different from nn.optim.Adagrad default of 1e-10
         eps: float = 1.0e-8,
         momentum: float = 0.9,  # used by LARS-SGD
         # EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay
         # LAMB, ADAM, PARTIAL_ROWWISE_ADAM, PARTIAL_ROWWISE_LAMB, LARS_SGD support decoupled weight decay
-        # EXACT_ROWWISE_WEIGHTED_ADAGRAD supports L2 weight decay
         # EXACT_ROWWISE_ADAGRAD support both L2 and decoupled weight decay (via weight_decay_mode)
         weight_decay: float = 0.0,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
@@ -597,7 +596,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert optimizer in (
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_SGD,
             ), f"Optimizer {optimizer} is not supported in CPU mode."
         else:
@@ -605,7 +603,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.ADAM,
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.EXACT_SGD,
                 OptimType.LAMB,
                 OptimType.LARS_SGD,
@@ -701,7 +698,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 rowwise = optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD,
-                    OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 ]
                 self._apply_split(
                     construct_split_state(
@@ -788,7 +784,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
             if optimizer in (
                 OptimType.ADAM,
-                OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                 OptimType.LAMB,
                 OptimType.PARTIAL_ROWWISE_ADAM,
                 OptimType.PARTIAL_ROWWISE_LAMB,
@@ -1230,18 +1225,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.iter = self.iter.cpu()
         self.iter[0] += 1
 
-        if self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD:
-            return self._report_io_size_count(
-                "fwd_output",
-                invokers.lookup_rowwise_weighted_adagrad.invoke(
-                    common_args,
-                    self.optimizer_args,
-                    momentum1,
-                    # pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,
-                    #  int]`.
-                    self.iter.item(),
-                ),
-            )
         if self.optimizer == OptimType.ADAM:
             return self._report_io_size_count(
                 "fwd_output",
@@ -1693,7 +1676,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         split_optimizer_states = self.split_optimizer_states()
         if (
             self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
-            or self.optimizer == OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD
             or self.optimizer == OptimType.EXACT_ADAGRAD
         ):
             list_of_state_dict = [
@@ -1775,7 +1757,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     rowwise=self.optimizer
                     in [
                         OptimType.EXACT_ROWWISE_ADAGRAD,
-                        OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
                     ],
                 )
             )
@@ -2261,7 +2242,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         rowwise = self.optimizer in [
             OptimType.EXACT_ROWWISE_ADAGRAD,
-            OptimType.EXACT_ROWWISE_WEIGHTED_ADAGRAD,
         ]
         if rowwise:
             torch.ops.fbgemm.reset_weight_momentum(

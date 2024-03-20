@@ -31,7 +31,7 @@ class EmbOptimType(enum.Enum):
     ROWWISE_ADAGRAD = "row_wise_adagrad"
     SHAMPOO = "shampoo"  # not currently supported for sparse embedding tables
     MADGRAD = "madgrad"
-    EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"
+    EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"  # deprecated
     NONE = "none"
 
     def __str__(self) -> str:
