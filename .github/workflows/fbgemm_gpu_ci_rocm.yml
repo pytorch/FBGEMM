@@ -76,8 +76,6 @@ jobs:
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
-      with:
-        submodules: true
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info

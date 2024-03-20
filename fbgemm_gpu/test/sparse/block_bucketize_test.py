@@ -21,9 +21,11 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, skipIfRocm
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, skipIfRocm
+
+ROCM_FAILURE_MESSAGE = "Test is causing HSA_STATUS_ERROR_MEMORY_APERTURE_VIOLATION"
 
 
 def unbucketize_indices_value(
@@ -72,6 +74,7 @@ class BlockBucketizeTest(unittest.TestCase):
                     self.assertAlmostEqual(left, right)
         return
 
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
@@ -177,6 +180,7 @@ class BlockBucketizeTest(unittest.TestCase):
                 torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
                 torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
 
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -344,6 +348,7 @@ class BlockBucketizeTest(unittest.TestCase):
                         new_pos_ref, new_pos_gpu.cpu(), new_lengths_ref
                     )
 
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -436,6 +441,7 @@ class BlockBucketizeTest(unittest.TestCase):
                     new_indices_ref, new_indices_gpu.cpu(), new_lengths_ref
                 )
 
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),
         has_weight=st.booleans(),
@@ -591,6 +597,7 @@ class BlockBucketizeTest(unittest.TestCase):
                         is_int=False,
                     )
 
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @unittest.skipIf(not gpu_available, "Skip is GPU is not available.")
     @given(
         index_type=st.sampled_from([torch.int, torch.long]),

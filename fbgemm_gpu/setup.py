@@ -223,7 +223,9 @@ class FbgemmGpuBuild:
 
         if self.args.verbose:
             print("[SETUP.PY] Building in VERBOSE mode ...")
-            cmake_args.append("-DCMAKE_VERBOSE_MAKEFILE=1")
+            cmake_args.extend(
+                ["-DCMAKE_VERBOSE_MAKEFILE=ON", "-DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE"]
+            )
 
         if self.args.package_variant == "cpu":
             print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
