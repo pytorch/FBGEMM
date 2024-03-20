@@ -8,7 +8,7 @@
 # CMake Prelude
 ################################################################################
 
-cmake_minimum_required(VERSION 3.21.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.25.0 FATAL_ERROR)
 
 function(BLOCK_PRINT)
   message("================================================================================")
@@ -58,16 +58,24 @@ endif()
 # Set the default C++ standard to C++20 if CMAKE_CXX_STANDARD is not supplied
 # by CMake command invocation.
 # Individual targets can have this value overridden; see
+# https://cmake.org/cmake/help/latest/variable/CMAKE_CXX_STANDARD.html
 # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
+# https://cmake.org/cmake/help/latest/prop_tgt/HIP_STANDARD.html
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_HIP_STANDARD 20)
+  set(CXX_STANDARD 20)
+  set(HIP_STANDARD 20)
 endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(HIP_STANDARD_REQUIRED ON)
 
 # Set the default C standard to C17
 # Individual targets can have this value overridden; see
+# https://cmake.org/cmake/help/latest/variable/CMAKE_C_STANDARD.html
 # https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
+set(C_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -79,6 +87,13 @@ if(DEFINED GLIBCXX_USE_CXX11_ABI)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
   endif()
 endif()
+
+BLOCK_PRINT(
+  "Default C compiler flags"
+  "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
+  ""
+  "${CMAKE_C_FLAGS}"
+)
 
 BLOCK_PRINT(
   "Default C++ compiler flags"

@@ -20,10 +20,10 @@ from .common import extend_test_class, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, skipIfRocm
 else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, skipIfRocm
 
 
 class ReorderBatchedTest(unittest.TestCase):
@@ -123,6 +123,7 @@ class ReorderBatchedTest(unittest.TestCase):
             cat_ad_lengths_broadcasted, reordered_batched_ad_lengths
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -468,6 +469,7 @@ class ReorderBatchedTest(unittest.TestCase):
             reordered_sequence_embedding_from_indices, reordered_cat_sequence_embeddings
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=1, max_value=20),
