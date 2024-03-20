@@ -728,13 +728,12 @@
         <span class="n">max_gradient</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
         <span class="n">max_norm</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
         <span class="n">learning_rate</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
-        <span class="c1"># used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, EXACT_ROWWISE_WEIGHTED_ADAGRAD, LAMB, and ADAM only</span>
+        <span class="c1"># used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, LAMB, and ADAM only</span>
         <span class="c1"># NOTE that default is different from nn.optim.Adagrad default of 1e-10</span>
         <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0e-8</span><span class="p">,</span>
         <span class="n">momentum</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>  <span class="c1"># used by LARS-SGD</span>
         <span class="c1"># EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay</span>
         <span class="c1"># LAMB, ADAM, PARTIAL_ROWWISE_ADAM, PARTIAL_ROWWISE_LAMB, LARS_SGD support decoupled weight decay</span>
-        <span class="c1"># EXACT_ROWWISE_WEIGHTED_ADAGRAD supports L2 weight decay</span>
         <span class="c1"># EXACT_ROWWISE_ADAGRAD support both L2 and decoupled weight decay (via weight_decay_mode)</span>
         <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
         <span class="n">weight_decay_mode</span><span class="p">:</span> <span class="n">WeightDecayMode</span> <span class="o">=</span> <span class="n">WeightDecayMode</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
@@ -971,7 +970,6 @@
             <span class="k">assert</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
-                <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,</span>
             <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Optimizer </span><span class="si">{</span><span class="n">optimizer</span><span class="si">}</span><span class="s2"> is not supported in CPU mode.&quot;</span>
         <span class="k">else</span><span class="p">:</span>
@@ -979,7 +977,6 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
-                <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">LAMB</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">LARS_SGD</span><span class="p">,</span>
@@ -1075,7 +1072,6 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">rowwise</span> <span class="o">=</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">[</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
-                    <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">,</span>
                 <span class="p">]</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
                     <span class="n">construct_split_state</span><span class="p">(</span>
@@ -1162,7 +1158,6 @@
                 <span class="p">)</span>
             <span class="k">if</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">,</span>
-                <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">LAMB</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
@@ -1604,18 +1599,6 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">iter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
 
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">:</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
-                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
-                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_weighted_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                    <span class="n">common_args</span><span class="p">,</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
-                    <span class="n">momentum1</span><span class="p">,</span>
-                    <span class="c1"># pyre-fixme[6]: Expected `int` for 4th param but got `Union[float,</span>
-                    <span class="c1">#  int]`.</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
-                <span class="p">),</span>
-            <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
                 <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
@@ -2067,7 +2050,6 @@
         <span class="n">split_optimizer_states</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">split_optimizer_states</span><span class="p">()</span>
         <span class="k">if</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
-            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span>
             <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span>
         <span class="p">):</span>
             <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
@@ -2149,7 +2131,6 @@
                     <span class="n">rowwise</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span>
                     <span class="ow">in</span> <span class="p">[</span>
                         <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
-                        <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">,</span>
                     <span class="p">],</span>
                 <span class="p">)</span>
             <span class="p">)</span>
@@ -2635,7 +2616,6 @@
 
         <span class="n">rowwise</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="ow">in</span> <span class="p">[</span>
             <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
-            <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_WEIGHTED_ADAGRAD</span><span class="p">,</span>
         <span class="p">]</span>
         <span class="k">if</span> <span class="n">rowwise</span><span class="p">:</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">reset_weight_momentum</span><span class="p">(</span>
