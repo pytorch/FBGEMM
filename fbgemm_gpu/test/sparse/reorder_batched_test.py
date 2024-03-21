@@ -123,7 +123,6 @@ class ReorderBatchedTest(unittest.TestCase):
             cat_ad_lengths_broadcasted, reordered_batched_ad_lengths
         )
 
-    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=1, max_value=20),
@@ -469,7 +468,6 @@ class ReorderBatchedTest(unittest.TestCase):
             reordered_sequence_embedding_from_indices, reordered_cat_sequence_embeddings
         )
 
-    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     @given(
         B=st.integers(min_value=1, max_value=20),
