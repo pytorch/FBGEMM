@@ -7,7 +7,6 @@
 
 # pyre-strict
 
-import logging
 from itertools import accumulate
 from typing import List, Optional
 
@@ -34,7 +33,6 @@ class PermutePooledEmbeddings:
         permute: List[int],
         device: Optional[torch.device] = None,
     ) -> None:
-        logging.info("Using Permute Pooled Embeddings")
         self._offset_dim_list: torch.Tensor = torch.tensor(
             [0] + list(accumulate(embs_dims)), device=device, dtype=torch.int64
         )
