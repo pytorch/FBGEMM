@@ -23,6 +23,7 @@
 #include <string>
 #include <tuple>
 #include "./CodeCache.h"
+#include "./EmbeddingSpMDMAutovec.h"
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
 #include "fbgemm/FbgemmConvert.h"
@@ -1092,7 +1093,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   if ((std::is_same<inType, float>::value ||
        std::is_same<inType, uint16_t>::value) &&
       block_size == 1 && isYmm(isa) && output_stride == block_size &&
-      input_stride == block_size && std::is_same<outType, float>::value) {
+      input_stride == block_size && std::is_same<outType, float>::value &&
+      !is_asmjit_disabled()) {
     return
         [=](int64_t output_size,
             int64_t index_size,
@@ -1116,7 +1118,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
               use_offsets,
               is_bf16_out);
         };
-  } else if (isZmm(isa)) {
+  } else if (isZmm(isa) && !is_asmjit_disabled()) {
     static GenEmbeddingSpMDMLookup<
         inType,
         indxType,
@@ -1157,7 +1159,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           out,
           nullptr /* mask not used in avx512 */);
     };
-  } else if (isYmm(isa)) {
+  } else if (isYmm(isa) && !is_asmjit_disabled()) {
     static GenEmbeddingSpMDMLookup<
         inType,
         indxType,
@@ -1198,8 +1200,42 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           out,
           internal::avx2_ps_or_epi32_combined_mask);
     };
-  } else {
+  } else if (
+#else
+  if (
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+      std::is_same<inType, uint8_t>::value == true &&
+      (is_autovec_forced() || fbgemmHasArmSve2Support()) &&
+      !is_autovec_disabled()) {
+    return [=](int64_t output_size,
+               int64_t index_size,
+               int64_t data_size,
+               const inType* input,
+               const indxType* indices,
+               const offsetType* offsets_or_lengths,
+               const float* weights,
+               outType* out) {
+      const uint8_t* input_u8 = reinterpret_cast<const uint8_t*>(input);
+      return EmbeddingSpMDM8Bit_autovec(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input_u8,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          is_bf16_out);
+    };
+  } else {
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
@@ -1231,9 +1267,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           is_bf16_out,
           is_bf16_in);
     };
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   }
-#endif
 }
 
 template <

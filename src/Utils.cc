@@ -849,4 +849,40 @@ bool is_radix_sort_accelerated_with_openmp() {
 #endif
 }
 
+bool is_autovec_disabled() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_NO_AUTOVEC");
+  res = (env_val != nullptr);
+  return res;
+}
+
+bool is_autovec_forced() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
+  res = (env_val != nullptr);
+  return res;
+}
+
+bool is_asmjit_disabled() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_NO_ASMJIT");
+  res = (env_val != nullptr);
+  return res;
+}
+
 } // namespace fbgemm
