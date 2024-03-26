@@ -117,6 +117,11 @@ DLL_PUBLIC Tensor lengths_range_cuda(
   const auto t_in_contig = t_in.contiguous();
   const auto num_seq = t_in_contig.numel();
 
+  if (num_seq == 0) {
+    // special path if the input tensor is empty
+    return at::empty({0}, t_in.options());
+  }
+
   Tensor offsets;
   int64_t output_size = 1;
 
