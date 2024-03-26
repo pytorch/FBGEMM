@@ -59,8 +59,11 @@ void split_{{ optimizer }}_update_kernel(
         grad_sum[i].load(&grad_dev_weights[run_id * D + d]);
     }
 
+    // TODO: Enable smem grad sum
+    constexpr bool kUseVecBlocking = false;
+
     split_{{ optimizer }}_table_update_kernel
-      <emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH>(
+      <emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH, kUseVecBlocking>(
           dev_weights,
           uvm_weights,
           lxu_cache_weights,
@@ -68,6 +71,8 @@ void split_{{ optimizer }}_update_kernel(
           weights_offsets,
           sorted_lxu_cache_locations,
           grad_sum,
+          nullptr, // smem_grad_sum (not yet supported)
+          nullptr, // shared_weight_update_row (not yet supported INT8)
           stochastic_rounding,
           stochastic_rounding_philox_args,
           run_id,
@@ -77,8 +82,7 @@ void split_{{ optimizer }}_update_kernel(
           0, // t
           grad_dev_indices[run_id], // idx
           shfl_sync_mask,
-          0, // shared_weight_offset (not used because shared memory is not
-             // needed as uint8_t is not supported)
+          kMaxVecsPerThread,
           {{ args.split_function_arg_names | join(", ") }});
 }
 
