@@ -247,7 +247,7 @@ using namespace embedding_ops;
 
 /*
   For the experimental optimizers, kThreadGroupSize, kFixedMaxVecsPerThread,
-  and kUseVecBlocking are fixed to kWarpSize, {{ fixed_max_vecs_per_thread }},
+  and kUseVecBlocking are fixed to kWarpSize, {{ fixed_max_vecs_per_thread["backward"] }},
   and true.
 */
 #define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                     \
@@ -255,7 +255,8 @@ using namespace embedding_ops;
     const int max_vecs_per_thread =                                             \
       (max_D + {{ items_per_warp }} - 1) / {{ items_per_warp }};                \
     constexpr int kThreadGroupSize = kWarpSize;                                 \
-    constexpr int kFixedMaxVecsPerThread = {{ fixed_max_vecs_per_thread }};     \
+    constexpr int kFixedMaxVecsPerThread =                                      \
+      {{ fixed_max_vecs_per_thread["backward"] }};                              \
     constexpr bool kUseVecBlocking = true;                                      \
     return __VA_ARGS__();                                                       \
   }()
@@ -266,44 +267,29 @@ using namespace embedding_ops;
   For the non-experimental optimizers, we determine the kernel template
   instantiation that is best optimized for MAX_D and invoke it.
 
-  Please see get_max_vecs_template_configs in
+  Please see dispatch_optimal_kernel in
   codegen/embedding_common_code_generator.py for more details
 */
-{%- macro dispatch_optimal_kernel(use_subwarp_shuffle) -%}
-    {%- for (kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking)
-        in get_max_vecs_template_configs(
-            items_per_warp,
-            fixed_max_vecs_per_thread,
-            use_subwarp_shuffle)
-    %}
-    {%- if kUseVecBlocking == "false" %}
-    if (max_D <= {{ kFixedMaxVecsPerThread * kThreadGroupSize * 4 }}) { \
-      const int max_vecs_per_thread = {{ kFixedMaxVecsPerThread }};           \
-      constexpr int kFixedMaxVecsPerThread = {{ kFixedMaxVecsPerThread }};    \
-      constexpr int kThreadGroupSize = {{ kThreadGroupSize }};                \
-      constexpr bool kUseVecBlocking = {{ kUseVecBlocking }};                 \
-      return __VA_ARGS__();                                                   \
-    }                                                                         \
-    {%- endif %}
-    {%- endfor %}
-    const int max_vecs_per_thread =                                           \
-      (max_D + {{ items_per_warp }} - 1) / {{ items_per_warp }};              \
-    constexpr int kFixedMaxVecsPerThread = {{ fixed_max_vecs_per_thread }};   \
-    constexpr int kThreadGroupSize = kWarpSize;                               \
-    constexpr bool kUseVecBlocking = true;                                    \
-    return __VA_ARGS__();                                                     \
-{%- endmacro -%}
-
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
 #define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                   \
   [&] {                                                                       \
-    {{- dispatch_optimal_kernel(use_subwarp_shuffle=True) }}
+    {{
+       dispatch_optimal_kernel(
+           items_per_warp,
+           fixed_max_vecs_per_thread["backward"],
+           use_subwarp_shuffle=True)
+    -}}
   }()
 
 #else
 #define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                   \
   [&] {                                                                       \
-    {{- dispatch_optimal_kernel(use_subwarp_shuffle=False) }}
+    {{
+       dispatch_optimal_kernel(
+           items_per_warp,
+           fixed_max_vecs_per_thread["backward"],
+           use_subwarp_shuffle=False)
+    -}}
   }()
 
 #endif
