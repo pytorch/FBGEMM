@@ -34,8 +34,9 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
-    size_t kMaxVecsPerThread,
-    int32_t kThreadGroupSize>
+    int32_t kFixedMaxVecsPerThread,
+    int32_t kThreadGroupSize,
+    bool kUseVecBlocking>
 __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
@@ -97,6 +98,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> grad_accum_counter,
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
+    const int32_t max_vecs_per_thread,
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -105,13 +107,13 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     {%- endif %}
 );
 
-
 template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
-    size_t kMaxVecsPerThread,
-    int32_t kThreadGroupSize = kWarpSize>
+    int32_t kFixedMaxVecsPerThread,
+    int32_t kThreadGroupSize,
+    bool kUseVecBlocking>
 __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
@@ -156,9 +158,6 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {%- if optimizer == "none" %}
-    const int32_t max_D,
-    {%- endif %}
     {%- endif %} // if not dense and optimizer != "none"
     {%- if vbe %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
@@ -168,6 +167,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
+    const int32_t max_D,
+    const int32_t max_vecs_per_thread,
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -245,14 +246,18 @@ using namespace embedding_ops;
 {%- if is_experimental_optimizer %}
 
 /*
-  For the experimental optimizers, kMaxVecsPerThread and kThreadGroupSize are
-  fixed to 8 (1024 elements) and kWarpSize, respectively.
+  For the experimental optimizers, kThreadGroupSize, kFixedMaxVecsPerThread,
+  and kUseVecBlocking are fixed to kWarpSize, {{ fixed_max_vecs_per_thread }},
+  and true.
 */
-#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                    \
-  [&] {                                                                        \
-    constexpr auto kMaxVecsPerThread = {{ max_embedding_dim // items_per_warp }};                  \
-    constexpr auto kThreadGroupSize = kWarpSize;                               \
-    return __VA_ARGS__();                                                      \
+#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                     \
+  [&] {                                                                         \
+    const int max_vecs_per_thread =                                             \
+      (max_D + {{ items_per_warp }} - 1) / {{ items_per_warp }};                \
+    constexpr int kThreadGroupSize = kWarpSize;                                 \
+    constexpr int kFixedMaxVecsPerThread = {{ fixed_max_vecs_per_thread }};     \
+    constexpr bool kUseVecBlocking = true;                                      \
+    return __VA_ARGS__();                                                       \
   }()
 
 {%- else %}
@@ -261,51 +266,88 @@ using namespace embedding_ops;
   For the non-experimental optimizers, we determine the kernel template
   instantiation that is best optimized for MAX_D and invoke it.
 
-  kMaxElemPerThread is the number of elements handled by each thread if we use
-  a full warp for a row. We consider kMaxElemPerThread values of 1, 2, and
-  multiples of 4.
-
-  The macro definition for both cases are almost the same except for the
-  definition of kThreadGroupSize.  In the FBGEMM_USE_SUBWARP_SHUFFLE case, if
-  MAX_D is small, then we use fewer number of threads than kWarpSize.
-
-  NOTE: kMaxVecsPerThread is computed using the ternary operator because HIPCC
-  is unable to use std::max in constexpr context.
+  Please see get_max_vecs_template_configs in
+  codegen/embedding_common_code_generator.py for more details
 */
-#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                    \
-  [&] {                                                                        \
-    {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-    {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    if (MAX_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {              \
-      constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
-      constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);                           \
-      return __VA_ARGS__();                                                    \
-    }                                                                          \
+{%- macro dispatch_optimal_kernel(use_subwarp_shuffle) -%}
+    {%- for (kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking)
+        in get_max_vecs_template_configs(
+            items_per_warp,
+            fixed_max_vecs_per_thread,
+            use_subwarp_shuffle)
+    %}
+    {%- if kUseVecBlocking == "false" %}
+    if (max_D <= {{ kFixedMaxVecsPerThread * kThreadGroupSize * 4 }}) { \
+      const int max_vecs_per_thread = {{ kFixedMaxVecsPerThread }};           \
+      constexpr int kFixedMaxVecsPerThread = {{ kFixedMaxVecsPerThread }};    \
+      constexpr int kThreadGroupSize = {{ kThreadGroupSize }};                \
+      constexpr bool kUseVecBlocking = {{ kUseVecBlocking }};                 \
+      return __VA_ARGS__();                                                   \
+    }                                                                         \
     {%- endif %}
     {%- endfor %}
-    return;                                                                    \
+    const int max_vecs_per_thread =                                           \
+      (max_D + {{ items_per_warp }} - 1) / {{ items_per_warp }};              \
+    constexpr int kFixedMaxVecsPerThread = {{ fixed_max_vecs_per_thread }};   \
+    constexpr int kThreadGroupSize = kWarpSize;                               \
+    constexpr bool kUseVecBlocking = true;                                    \
+    return __VA_ARGS__();                                                     \
+{%- endmacro -%}
+
+#ifdef FBGEMM_USE_SUBWARP_SHUFFLE
+#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                   \
+  [&] {                                                                       \
+    {{- dispatch_optimal_kernel(use_subwarp_shuffle=True) }}
   }()
 
 #else
-#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                    \
-  [&] {                                                                        \
-    constexpr int kThreadGroupSize = kWarpSize;                                \
-    {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-    {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    if (MAX_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {              \
-      constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
-      return __VA_ARGS__();                                                    \
-    }                                                                          \
-    {%- endif %}
-    {%- endfor %}
-    return;                                                                    \
+#define DISPATCH_OPTIMAL_KERNEL(MAX_D, ...)                                   \
+  [&] {                                                                       \
+    {{- dispatch_optimal_kernel(use_subwarp_shuffle=False) }}
   }()
 
 #endif
 
 {%- endif %}
 
+////////////////////////////////////////////////////////////////////////////////
+// Helper functions
+////////////////////////////////////////////////////////////////////////////////
+
+template<typename func_t, typename bwd_func_t>
+int32_t compute_num_groups_and_dynamic_smem_bytes(
+    int32_t* num_groups,
+    const func_t compute_smem_bytes_fn,
+    const bwd_func_t bwd_kernel_fn,
+    const int32_t used_shared_bytes) {
+  int32_t smem_bytes = 0;
+  // Stay under used_shared_kb of shared memory (V100: 64 KB;
+  // A100: 96 KB; H100: 144 KB), num_groups must be a power
+  // of two.
+  while (
+      (smem_bytes = compute_smem_bytes_fn(*num_groups))
+      >= used_shared_bytes
+  ) {
+    *num_groups /= 2;
+  }
+  TORCH_CHECK_GE(*num_groups, 1);
+
+  // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
+  // "Compute capability 7.x devices allow a single thread block to
+  // address the full capacity of shared memory: 96 KB on Volta,
+  // 64 KB on Turing. Kernels relying on shared memory allocations
+  // over 48 KB per block are architecture-specific, as such they
+  // must use dynamic shared memory (rather than statically sized
+  // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
+#ifndef USE_ROCM
+  cudaFuncSetAttribute(
+      bwd_kernel_fn,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+#endif
+  return smem_bytes;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Kernel Definition
@@ -480,8 +522,6 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const auto total_B = offsets.size(0) - 1;
     {%- endif %}
     TORCH_CHECK_GT(total_B, 0);
-    auto BT_block_size = kMaxThreads / kWarpSize;
-    TORCH_CHECK_LE(BT_block_size * kWarpSize, kMaxThreads);
 
     {%- if vbe %}
     TORCH_CHECK_EQ(B_offsets.numel(), T + 1);
@@ -517,7 +557,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     // MI100 has independent shared mem and L1
     int used_shared_kb = shared_kb;
 #endif
-    int used_shared_bytes = used_shared_kb << 10;
+    const int used_shared_bytes = used_shared_kb << 10;
 
     Tensor linear_indices, linear_indices_sorted, infos_sorted,
         sorted_linear_indices_run, sorted_linear_indices_run_lengths,
@@ -735,7 +775,6 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             }
             {%- endif %}
 
-
             {%- if not dense and optimizer != "none" %}
             at::PhiloxCudaState rng_engine_inputs;
             if (stochastic_rounding && !std::is_same<emb_t, float>::value) {
@@ -748,15 +787,6 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             {%- endif %}
 
             DISPATCH_OPTIMAL_KERNEL(max_D, [&] {
-                // Stay under used_shared_kb of shared memory (V100: 64 KB; A100: 96 KB; H100: 144 KB), BT_block_size must be a power of two.
-                while (BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread >= used_shared_bytes) {
-                    BT_block_size /= 2;
-                }
-                TORCH_CHECK_GE(BT_block_size, 1);
-                if (std::is_same<emb_t, double>::value) {
-                    // Otherwise we see CUDA kernel launch failures despite the above checks.
-                    BT_block_size = 1;
-                }
 
                 auto long_run_ids = at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
@@ -806,17 +836,6 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                     {use_deterministic_algorithms ? 0 : grad_accum_counter.numel(), max_D},
                     aligned_grad_output.options().dtype(std::is_same<cache_t, double>::value ? at::kDouble : at::kFloat));
 
-                int32_t grid_size = std::min(
-                    div_round_up(total_unique_indices, kMaxThreads),
-                    get_max_thread_blocks_());
-
-                // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
-                // "Compute capability 7.x devices allow a single thread block to
-                // address the full capacity of shared memory: 96 KB on Volta,
-                // 64 KB on Turing. Kernels relying on shared memory allocations
-                // over 48 KB per block are architecture-specific, as such they
-                // must use dynamic shared memory (rather than statically sized
-                // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
 
                 {%- set cta_kernel =
                     "batch_index_select_dim0_codegen_backward_kernel_cta_per_row"
@@ -834,27 +853,33 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         <emb_t,
                          grad_t,
                          cache_t,
-                         kMaxVecsPerThread,
-                         kThreadGroupSize>;
+                         kFixedMaxVecsPerThread,
+                         kThreadGroupSize,
+                         kUseVecBlocking>;
 
-#ifndef USE_ROCM
-                cudaFuncSetAttribute(
+                // Compute shared memory size for cta_per_row
+                constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
+                int32_t num_cta_per_row_groups = kMaxThreads / kWarpSize;
+                const int32_t cta_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
+                    &num_cta_per_row_groups,
+                    [&] (int num_groups) {
+                      return num_groups * kCacheAccBytes * 4 * kWarpSize * max_vecs_per_thread;
+                    },
                     backward_cta_per_row_kernel,
-                    cudaFuncAttributeMaxDynamicSharedMemorySize,
-                    used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
-#endif
+                    used_shared_bytes
+                );
+
+                const int32_t cta_per_row_grid_size = std::min(
+                    div_round_up(total_unique_indices, kMaxThreads),
+                    get_max_thread_blocks_());
 
 #ifdef FBGEMM_GPU_MEMCHECK
                 const auto func_name3 = "{{ cta_kernel }}";
 #endif
-
-                // dividing by kMaxThreads is a heuristic to avoid num of blocks far exceeding num_long_run_ids[0]
                 backward_cta_per_row_kernel
-                    <<<grid_size,
-                        dim3(kThreadGroupSize, BT_block_size),
-                        BT_block_size * sizeof(at::acc_type<cache_t, true>) * 4 * kWarpSize *
-                            kMaxVecsPerThread,
+                    <<<cta_per_row_grid_size,
+                        dim3(kThreadGroupSize, num_cta_per_row_groups),
+                        cta_per_row_smem_bytes,
                         at::cuda::getCurrentCUDAStream()>>>(
                         grad_output_accessor,
                         {%- if optimizer != "none" %}
@@ -913,6 +938,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         MAKE_PTA_WITH_NAME(func_name3, grad_accum_counter, int32_t, 1, 32),
                         max_segment_length_per_cta,
                         use_deterministic_algorithms,
+                        max_vecs_per_thread,
                         {%- if is_index_select %}
                         grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                         permute_output_dim_0_1
@@ -922,10 +948,6 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                 );
 
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
-                grid_size = std::min(
-                    div_round_up(total_unique_indices, kBackwardMaxThreads / kThreadGroupSize),
-                    get_max_thread_blocks_());
-
                 {%- set warp_kernel =
                     "batch_index_select_dim0_codegen_backward_kernel_warp_per_row"
                     if is_index_select else
@@ -936,37 +958,42 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         vdesc,
                     )
                 %}
-
                 const auto backward_warp_per_row_kernel =
                     {{ warp_kernel }}
                         <emb_t,
                          grad_t,
                          cache_t,
-                         kMaxVecsPerThread,
-                         kThreadGroupSize>;
+                         kFixedMaxVecsPerThread,
+                         kThreadGroupSize,
+                         kUseVecBlocking>;
 
-                // Shared memory is not needed for non uint8_t weights
-                size_t shmem_bytes = 0;
-                if (std::is_same<emb_t, uint8_t>::value) {
-                    shmem_bytes = BT_block_size * sizeof(
-                        at::acc_type<cache_t, true>) * 4 * kWarpSize * kMaxVecsPerThread;
-#ifndef USE_ROCM
-                    cudaFuncSetAttribute(
-                        backward_warp_per_row_kernel,
-                        cudaFuncAttributeMaxDynamicSharedMemorySize,
-                        used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
-                    C10_CUDA_KERNEL_LAUNCH_CHECK();
-#endif
+                // Compute shared memory size for warp_per_row
+                int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
+                int32_t warp_per_row_smem_bytes = 0;
+                if (kUseVecBlocking) {
+                  warp_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
+                      &num_warp_per_row_groups,
+                      // Use max_D to compute shmem_bytes (for smem_grad_sum)
+                      // instead of using kMaxVecsPerThread to minimize the
+                      // shared memory allocation
+                      [&] (int32_t num_groups) {
+                          return max_D * num_groups * kCacheAccBytes;
+                      },
+                      backward_warp_per_row_kernel,
+                      used_shared_bytes);
                 }
+
+                const int32_t warp_per_row_grid_size = std::min(
+                    div_round_up(total_unique_indices, num_warp_per_row_groups),
+                    get_max_thread_blocks_());
 
 #ifdef FBGEMM_GPU_MEMCHECK
                 const auto func_name4 = "{{ warp_kernel }}";
 #endif
-
                 backward_warp_per_row_kernel
-                    <<<grid_size,
-                        dim3(kThreadGroupSize, kBackwardMaxThreads / kThreadGroupSize),
-                        shmem_bytes,
+                    <<<warp_per_row_grid_size,
+                        dim3(kThreadGroupSize, num_warp_per_row_groups),
+                        warp_per_row_smem_bytes,
                         at::cuda::getCurrentCUDAStream()>>>(
                         grad_output_accessor,
                         {%- if optimizer != "none" %}
@@ -1008,9 +1035,6 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         rng_engine_inputs,
                         {%- else %}
                         MAKE_PTA_WITH_NAME(func_name4, grad_dev_weights, emb_t, 1, 64),
-                        {%- if optimizer == "none" %}
-                        max_D,
-                        {%- endif %}
                         {%- endif %} // if not dense and optimizer != "none"
                         {%- if vbe %}
                         MAKE_PTA_WITH_NAME(func_name4, B_offsets, int32_t, 1, 32),
@@ -1020,6 +1044,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         info_B_num_bits,
                         info_B_mask,
                         {%- endif %}
+                        max_D,
+                        max_vecs_per_thread,
                         {%- if is_index_select %}
                         grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                         permute_output_dim_0_1
