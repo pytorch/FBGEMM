@@ -383,7 +383,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 
 {{
   bulk_template_instantiations(
-    fixed_max_vecs_per_thread,
+    fixed_max_vecs_per_thread["backward"],
     'kWarpSize',
     'true'
   )
@@ -395,7 +395,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 {%- for (kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking)
     in get_max_vecs_template_configs(
         items_per_warp,
-        fixed_max_vecs_per_thread,
+        fixed_max_vecs_per_thread["backward"],
         use_subwarp_shuffle,
     )
 %}

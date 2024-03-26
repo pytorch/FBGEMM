@@ -50,7 +50,9 @@ env.globals["max_embedding_dim"] = 1024
 # An optimization for ROCm
 env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
 env.globals["dense"] = False
-env.globals["fixed_max_vecs_per_thread"] = 2
+# The fixed max vectors per thread for different kernels.  The numbers were
+# derived from empirical studies
+env.globals["fixed_max_vecs_per_thread"] = {"backward": 2, "backward_indice_weights": 6}
 
 ######################################################################
 ## Helper functions in Jinja's env.globals                          ##
@@ -154,11 +156,103 @@ def get_max_vecs_template_configs(
     return configs
 
 
+def dispatch_non_vec_blocking_kernel(
+    items_per_warp: int,
+    fixed_max_vecs_per_thread: int,
+    use_subwarp_shuffle: bool,
+) -> str:
+    """
+    Generate code for kernel dispatching for kernels that do not use vector
+    blocking (i.e., an entire embedding row can fit in the allocated Vec4T
+    buffer)
+    """
+    blob = ""
+    for (
+        kFixedMaxVecsPerThread,
+        kThreadGroupSize,
+        kUseVecBlocking,
+    ) in get_max_vecs_template_configs(
+        items_per_warp, fixed_max_vecs_per_thread, use_subwarp_shuffle
+    ):
+        if kUseVecBlocking == "false":
+            formats = {
+                "max_D_val": kFixedMaxVecsPerThread * kThreadGroupSize * 4,
+                "kFixedMaxVecsPerThread": kFixedMaxVecsPerThread,
+                "kThreadGroupSize": kThreadGroupSize,
+                "kUseVecBlocking": kUseVecBlocking,
+            }
+            max_D_val = kFixedMaxVecsPerThread * kThreadGroupSize * 4
+            d_blob = """if (MAX_D <= {max_D_val}) {                               \\
+                 [[ maybe_unused ]] const int max_vecs_per_thread =               \\
+                   {kFixedMaxVecsPerThread};                                      \\
+                 constexpr int kFixedMaxVecsPerThread = {kFixedMaxVecsPerThread}; \\
+                 [[ maybe_unused ]] constexpr int kThreadGroupSize =              \\
+                   {kThreadGroupSize};                                            \\
+                 [[ maybe_unused ]] constexpr bool kUseVecBlocking =              \\
+                   {kUseVecBlocking};                                             \\
+                 return __VA_ARGS__();                                            \\
+               }                                                                  \\
+            """
+            d_blob = prepare_string_for_formatting(d_blob, list(formats.keys()))
+            blob += d_blob.format(**formats)
+    return blob
+
+
+def dispatch_vec_blocking_kernel(
+    items_per_warp: int,
+    fixed_max_vecs_per_thread: int,
+) -> str:
+    """
+    Generate code for kernel dispatching for kernels that use vector blocking
+    (i.e., an entire embedding row cannot fit in the allocated Vec4T buffer)
+    """
+    formats = {
+        "max_D_val": fixed_max_vecs_per_thread * items_per_warp,
+        "items_per_warp": items_per_warp,
+        "fixed_max_vecs_per_thread": fixed_max_vecs_per_thread,
+    }
+    blob = """if (MAX_D > {max_D_val}) {                                     \\
+         [[ maybe_unused ]] const int max_vecs_per_thread =                  \\
+           (MAX_D + {items_per_warp} - 1) / {items_per_warp};                \\
+         constexpr int kFixedMaxVecsPerThread = {fixed_max_vecs_per_thread}; \\
+         [[ maybe_unused ]] constexpr int kThreadGroupSize = kWarpSize;      \\
+         [[ maybe_unused ]] constexpr bool kUseVecBlocking = true;           \\
+         return __VA_ARGS__();                                               \\
+       }                                                                     \\
+    """
+    blob = prepare_string_for_formatting(blob, list(formats.keys()))
+    return blob.format(**formats)
+
+
+def dispatch_optimal_kernel(
+    items_per_warp: int,
+    fixed_max_vecs_per_thread: int,
+    use_subwarp_shuffle: bool,
+) -> str:
+    """
+    Generate code for kernel dispatching for both kernels that use/do not use
+    vector blocking
+    """
+    blob = dispatch_non_vec_blocking_kernel(
+        items_per_warp,
+        fixed_max_vecs_per_thread,
+        use_subwarp_shuffle,
+    )
+    blob += dispatch_vec_blocking_kernel(
+        items_per_warp,
+        fixed_max_vecs_per_thread,
+    )
+    return blob
+
+
 # Make helper functions visible to code gen
 env.globals["generate_optimized_grad_sum_loop_access"] = (
     generate_optimized_grad_sum_loop_access
 )
 env.globals["get_max_vecs_template_configs"] = get_max_vecs_template_configs
+env.globals["dispatch_optimal_kernel"] = dispatch_optimal_kernel
+env.globals["dispatch_non_vec_blocking_kernel"] = dispatch_non_vec_blocking_kernel
+env.globals["dispatch_vec_blocking_kernel"] = dispatch_vec_blocking_kernel
 
 
 ######################################################################

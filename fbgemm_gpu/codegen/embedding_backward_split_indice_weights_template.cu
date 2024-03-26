@@ -20,19 +20,51 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+#define DISPATCH_NON_VEC_BLOCKING_KERNEL(MAX_D, ...) \
+  [&] {                                              \
+    {{
+       dispatch_non_vec_blocking_kernel(
+           items_per_warp,
+           fixed_max_vecs_per_thread["backward_indice_weights"],
+           use_subwarp_shuffle=False,
+       )
+    -}}
+  }()
+
+#define DISPATCH_VEC_BLOCKING_KERNEL(MAX_D, ...)     \
+  [&] {                                              \
+    {{
+       dispatch_vec_blocking_kernel(
+           items_per_warp,
+           fixed_max_vecs_per_thread["backward_indice_weights"],
+       )
+    -}}
+  }()
+
 {%- for vbe in [True, False] %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 {%- if not dense or not vbe %}
+
+{#-
+  /* Generate different kernels for different kUseVecBlocking using Jinja
+     instead of using C++ template because the kernel is sensitive to the
+     number of registers. Introducing new variables into the kernel can
+     increase the number of registers and reduce the kernel occupancy which can
+     result in kernel slowdown
+   */
+#}
+{%- for use_vec_blocking in [True, False] %}
+{%- set vbdesc = "vec_blocking_" if use_vec_blocking else "" %}
 
 // TODO: optimization to use multiple warps per row.
 template <
   typename emb_t,
   typename grad_t,
   typename cache_t,
-  size_t kMaxVecsPerThread
+  int32_t kFixedMaxVecsPerThread
 >
 __global__ __launch_bounds__(kForwardMaxThreads) void
-{{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel(
+{{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_{{ vbdesc }}kernel(
     // [\sum_t E_t x D_t]
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
@@ -59,6 +91,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     FixedDivisor fd_B
     {%- endif %}
     ) {
+    constexpr int32_t kVecWidth = 4;
 
     int32_t T = D_offsets.size(0) - 1;
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -113,41 +146,76 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     const grad_t* grad_output_ = &grad_output[b][D_start];
     {%- endif %}
 
-    Vec4TAcc<cache_t> grad_out[kMaxVecsPerThread];
-    #pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
-        ++i) {
-        int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
-        Vec4TAcc<grad_t> go(grad_output_ + d);
-        grad_out[i] = go;
-    }
+    Vec4TAcc<cache_t> grad_out[kFixedMaxVecsPerThread];
 
-    for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-        int32_t l = l_start + threadIdx.x;
-        int64_t idx = l < L ? indices[indices_start + l] : 0;
-        {%- if not dense %}
-        int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
-        {%- endif %}
-        for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-            int64_t idx_j = shfl_sync(idx, j);
+    {%- if use_vec_blocking %}
+    const int32_t num_vecs = div_round_up(D, kWarpSize * kVecWidth);
+    for (int32_t vec_start = 0;
+         vec_start < num_vecs;
+         vec_start += kFixedMaxVecsPerThread) {
+        {%- set d = "(kWarpSize * (vec + vec_start) + threadIdx.x) * kVecWidth" %}
+    {%- else %}
+        {%- set d = "(kWarpSize * vec + threadIdx.x) * kVecWidth" %}
+    {%- endif %} {# /* if use_vec_blocking */ #}
+
+        // Load gradients
+        // TODO: Maybe using a combination of shared memory and registers is
+        // better for performance
+        #pragma unroll kFixedMaxVecsPerThread
+        for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
+            const int32_t d = {{ d }};
+            Vec4TAcc<grad_t> go(grad_output_ + d);
+            grad_out[vec] = go;
+        }
+    
+        for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
+            int32_t l = l_start + threadIdx.x;
+            int64_t idx = l < L ? indices[indices_start + l] : 0;
             {%- if not dense %}
-            int32_t cache_idx_j = shfl_sync(cache_idx, j);
+            int32_t cache_idx =
+                (placement == PlacementType::MANAGED_CACHING && l < L)
+                    ? lxu_cache_locations[indices_start + l] : 0;
             {%- endif %}
-            at::acc_type<cache_t, true> grad_indice_weight = 0.0;
-
-        #pragma unroll kMaxVecsPerThread
-            for (int32_t i = 0;
-                i < kMaxVecsPerThread && 4 * kWarpSize * i + threadIdx.x * 4 < D;
-                ++i) {
-                int32_t d = 4 * kWarpSize * i + threadIdx.x * 4;
+            for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
+                int64_t idx_j = shfl_sync(idx, j);
                 {%- if not dense %}
-                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                    Vec4T<cache_t> weight(&lxu_cache_weights[cache_idx_j][d]);
-                    grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
-                        weight.acc.y * grad_out[i].acc.y +
-                        weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
-                } else {
+                int32_t cache_idx_j = shfl_sync(cache_idx, j);
+                {%- endif %}
+                at::acc_type<cache_t, true> grad_indice_weight = 0.0;
+
+                #pragma unroll kFixedMaxVecsPerThread
+                for (int32_t vec = 0;
+                    vec < kFixedMaxVecsPerThread && {{ d }} < D;
+                    ++vec) {
+                    const int32_t d = {{ d }};
+                    {%- if not dense %}
+                    if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                        Vec4T<cache_t> weight(&lxu_cache_weights[cache_idx_j][d]);
+                        grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
+                            weight.acc.y * grad_out[vec].acc.y +
+                            weight.acc.z * grad_out[vec].acc.z +
+                            weight.acc.w * grad_out[vec].acc.w;
+                    } else {
+                        int32_t D_emb = D;
+                        if (std::is_same<emb_t, uint8_t>::value) {
+                            D_emb += kINT8QparamsBytes;
+                        }
+                        auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
+                            const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                            nullptr,
+                            D);
+                        float2 qparams;
+                        if (std::is_same<emb_t, uint8_t>::value) {
+                            qparams = weight_row.load_qparams();
+                        }
+                        Vec4TAcc<cache_t> weight =
+                        weight_row.load(d, qparams);
+                        grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
+                            weight.acc.y * grad_out[vec].acc.y +
+                            weight.acc.z * grad_out[vec].acc.z +
+                            weight.acc.w * grad_out[vec].acc.w;
+                    }
+                    {%- else %}
                     int32_t D_emb = D;
                     if (std::is_same<emb_t, uint8_t>::value) {
                         D_emb += kINT8QparamsBytes;
@@ -162,38 +230,36 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     }
                     Vec4TAcc<cache_t> weight =
                     weight_row.load(d, qparams);
-                    grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
-                        weight.acc.y * grad_out[i].acc.y +
-                        weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
+                    grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
+                        weight.acc.y * grad_out[vec].acc.y +
+                        weight.acc.z * grad_out[vec].acc.z +
+                        weight.acc.w * grad_out[vec].acc.w;
+                    {%- endif %}
                 }
-                {%- else %}
-                int32_t D_emb = D;
-                if (std::is_same<emb_t, uint8_t>::value) {
-                    D_emb += kINT8QparamsBytes;
+                grad_indice_weight =
+                    warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight);
+                if (threadIdx.x == 0) {
+                    {%- if use_vec_blocking %}
+                    if (vec_start == 0) {
+                        grad_indice_weights[indices_start + l_start + j] =
+                            grad_indice_weight;
+                    }
+                    else {
+                        grad_indice_weights[indices_start + l_start + j] +=
+                            grad_indice_weight;
+                    }
+                    {%- else %}
+                    grad_indice_weights[indices_start + l_start + j] =
+                        grad_indice_weight;
+                    {%- endif %}
                 }
-                auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-                    const_cast<emb_t*>(&weights[idx_j * D_emb]),
-                    nullptr,
-                    D);
-                float2 qparams;
-                if (std::is_same<emb_t, uint8_t>::value) {
-                    qparams = weight_row.load_qparams();
-                }
-                Vec4TAcc<cache_t> weight =
-                weight_row.load(d, qparams);
-                grad_indice_weight += weight.acc.x * grad_out[i].acc.x +
-                    weight.acc.y * grad_out[i].acc.y +
-                    weight.acc.z * grad_out[i].acc.z + weight.acc.w * grad_out[i].acc.w;
-                {%- endif %}
-            }
-            grad_indice_weight =
-                warpReduceAllSum<at::acc_type<cache_t, true>>(grad_indice_weight);
-            if (threadIdx.x == 0) {
-                grad_indice_weights[indices_start + l_start + j] = grad_indice_weight;
             }
         }
-    }
+    {%- if use_vec_blocking %}
+    } // for vec_start
+    {%- endif %}
 }
+{%- endfor %} {# /* for use_vec_blocking */ #}
 
 Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const Tensor& grad_output,
@@ -256,11 +322,16 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const auto total_B = offsets.size(0) - 1;
     TORCH_CHECK_GE(total_B, 0);
     TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
-    auto grad_indice_weights = empty_like(indices, indices.options().dtype(at::toAccumulateType(aligned_grad_output.scalar_type(), true)));
+    auto grad_indice_weights = empty_like(indices, indices.options().dtype(
+          at::toAccumulateType(aligned_grad_output.scalar_type(), true)));
+
     if (total_B == 0) {
       return grad_indice_weights;
     }
-    const auto feature_requires_grad_ = feature_requires_grad.defined() ? feature_requires_grad : at::empty({0}, indices.options().dtype(at::kInt));
+
+    const auto feature_requires_grad_ = feature_requires_grad.defined()
+        ? feature_requires_grad
+        : at::empty({0}, indices.options().dtype(at::kInt));
 
     {%- if vbe %}
     // Cast info_B_mask from int64_t to uint32_t
@@ -283,51 +354,56 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
             const auto& grad_output_reshaped = aligned_grad_output;
             {%- endif %}
 
-            {%- for kMaxVecsPerThread in range(1, max_embedding_dim // items_per_warp + 1) %}
-            if (max_D <= {{ items_per_warp * kMaxVecsPerThread }}) {
-
+            {%- for use_vec_blocking in [False, True] %}
+            {%- set vbdesc = "vec_blocking_" if use_vec_blocking else "" %}
+            {%- set dpdesc = "NON_" if not use_vec_blocking else "" %}
+            DISPATCH_{{ dpdesc }}VEC_BLOCKING_KERNEL(max_D, [&] {
+                {%- set kernel_name =
+                    "{}_embedding_codegen_grad_indice_weights{}_{}kernel".format(
+                        ddesc, vdesc, vbdesc)
+                 %}
 #ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "{{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel";
+                const auto func_name =
+                    "{{ kernel_name }}";
 #endif
-
-            {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel<
-                emb_t,
-                grad_t,
-                cache_t,
-                {{ kMaxVecsPerThread }}><<<
-                div_round_up(total_B, kForwardMaxThreads / kWarpSize),
-                dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-                0,
-                at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, grad_output_reshaped, grad_t, 2, 64),
-                MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
-                {%- if not dense %}
-                MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
-                MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
-                {%- endif %}
-                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
-                {%- if not dense %}
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
-                {%- endif %}
-                MAKE_PTA_WITH_NAME(func_name, feature_requires_grad_, int32_t, 1, 32),
-                MAKE_PTA_ACC_WITH_NAME(func_name, grad_indice_weights, grad_t, 1, 32),
-                {%- if vbe %}
-                MAKE_PTA_WITH_NAME(func_name, vbe_row_output_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, vbe_b_t_map, int32_t, 1, 32),
-                info_B_num_bits,
-                info_B_mask
-                {%- else %}
-                FixedDivisor(total_B / T)
-                {%- endif %}
-            );
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-            return;
-            }
-            {%- endfor %}
+                {{ kernel_name }}<
+                    emb_t,
+                    grad_t,
+                    cache_t,
+                    kFixedMaxVecsPerThread><<<
+                    div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+                    dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                    MAKE_PTA_WITH_NAME(func_name, grad_output_reshaped, grad_t, 2, 64),
+                    MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
+                    {%- if not dense %}
+                    MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+                    MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
+                    MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
+                    {%- endif %}
+                    MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+                    {%- if not dense %}
+                    MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+                    {%- endif %}
+                    MAKE_PTA_WITH_NAME(func_name, feature_requires_grad_, int32_t, 1, 32),
+                    MAKE_PTA_ACC_WITH_NAME(func_name, grad_indice_weights, grad_t, 1, 32),
+                    {%- if vbe %}
+                    MAKE_PTA_WITH_NAME(func_name, vbe_row_output_offsets, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, vbe_b_t_map, int32_t, 1, 32),
+                    info_B_num_bits,
+                    info_B_mask
+                    {%- else %}
+                    FixedDivisor(total_B / T)
+                    {%- endif %}
+                );
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                return;
+            });
+            {%- endfor %} {# /* for use_vec_blocking */ #}
         });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -369,7 +445,8 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
     TORCH_CHECK_GE(total_B, 0);
     TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
 
-    auto grad_indice_weights = empty_like(indices, indices.options().dtype(at::toAccumulateType(grad_output.scalar_type(), true)));
+    auto grad_indice_weights = empty_like(indices, indices.options().dtype(
+          at::toAccumulateType(grad_output.scalar_type(), true)));
 
     return grad_indice_weights;
 }
@@ -418,4 +495,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 {%- endif %} {#-/* if not dense or not vbe */#}
 {%- endfor %} {#-/* for vbe */#}
-    // clang-format on
+// clang-format on
