@@ -54,13 +54,13 @@ Tensor
     {%- if not nobag %}
     const Tensor& D_offsets,
     {%- else %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- endif %}
     {%- if not nobag %}
-    const int64_t total_D,
+    const c10::SymInt total_D,
     {%- endif %}
     {%- if not nobag %}
-    const int64_t max_D,
+    const c10::SymInt max_D,
     {% endif %}
     const Tensor& indices,
     const Tensor& offsets,
@@ -92,7 +92,7 @@ Tensor
     auto total_L = indices.sym_numel();
     auto T = weights_offsets.sym_numel();
     {%- endif %}
-    TORCH_CHECK_GT(T, 0);
+    TORCH_SYM_CHECK(T.sym_gt(0), "");
     // offsets = [B x T  + 1]
     {%- if is_index_select %}
     const auto total_B = num_warps_per_feature * T;
@@ -101,21 +101,21 @@ Tensor
     const auto total_B = offsets.sym_size(0) - 1;
     const auto B = total_B / T;
     {%- endif %}
-    TORCH_CHECK_GE(B, 0);
+    TORCH_SYM_CHECK(B.sym_ge(0), "");
     {%- if not nobag or is_index_select %}
     {%- if not nobag %}
-    TORCH_CHECK_GT(total_D, 0);
-    TORCH_CHECK_EQ(total_D % 4, 0);
+    TORCH_SYM_CHECK(total_D.sym_gt(0), "");
+    TORCH_SYM_CHECK((total_D % 4).sym_eq(0), "");
     {%- endif %}
-    TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
+    TORCH_SYM_CHECK(max_D.sym_le({{ max_embedding_dim }}), "");
     {%- elif not is_index_select %}
-    TORCH_CHECK_GT(D, 0);
-    TORCH_CHECK_EQ(D % 4, 0);
+    TORCH_SYM_CHECK(D.sym_gt(0), "");
+    TORCH_SYM_CHECK((D % 4).sym_eq(0), "");
     {%- endif %}
     {%- if vbe %}
-    TORCH_CHECK_EQ(vbe_row_output_offsets.sym_numel(), total_B);
+    TORCH_SYM_CHECK(vbe_row_output_offsets.sym_numel().sym_eq(total_B), "");
     TENSORS_HAVE_SAME_SYM_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
-    TORCH_CHECK_GE(vbe_output_size, 0);
+    TORCH_SYM_CHECK(vbe_output_size.sym_ge(0), "");
 
     // Cast info_B_mask from int64_t to uint32_t
     const uint32_t info_B_mask = info_B_mask_int64;

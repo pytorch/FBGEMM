@@ -21,8 +21,8 @@ Tensor dense_embedding_codegen_forward_unweighted_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
+    const c10::SymInt total_D,
+    const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
     const int64_t pooling_mode,
@@ -33,8 +33,8 @@ Tensor dense_embedding_codegen_forward_weighted_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
+    const c10::SymInt total_D,
+    const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
     const int64_t pooling_mode,
@@ -47,7 +47,7 @@ Tensor dense_embedding_codegen_grad_indice_weights_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
     const Tensor& feature_requires_grad);
@@ -57,7 +57,7 @@ Tensor split_embedding_backward_codegen_dense_unweighted_exact_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -72,7 +72,7 @@ Tensor split_embedding_backward_codegen_dense_weighted_exact_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -92,8 +92,8 @@ class SplitLookupFunction_Dense_Op
       Tensor dev_weights,
       Tensor weights_offsets,
       Tensor D_offsets,
-      int64_t total_D,
-      int64_t max_D,
+      c10::SymInt total_D,
+      c10::SymInt max_D,
       Tensor hash_size_cumsum,
       int64_t total_hash_size_bits,
       Tensor indices,
@@ -159,8 +159,8 @@ class SplitLookupFunction_Dense_Op
     auto indice_weights = *savedItr++;
     auto feature_requires_grad = *savedItr++;
 
-    auto total_D = ctx->saved_data["total_D"].toInt();
-    auto max_D = ctx->saved_data["max_D"].toInt();
+    auto total_D = ctx->saved_data["total_D"].toSymInt();
+    auto max_D = ctx->saved_data["max_D"].toSymInt();
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
 
@@ -267,7 +267,7 @@ class SplitLookupFunction_Dense_Op
 Tensor dense_embedding_nobag_codegen_forward_unweighted_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
-    const int64_t D,
+    const c10::SymInt D,
     const Tensor& indices,
     const Tensor& offsets,
     const int64_t output_dtype,
@@ -277,7 +277,7 @@ Tensor split_embedding_nobag_backward_codegen_dense_unweighted_exact_cuda(
     const Tensor& grad_output,
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
-    const int64_t D,
+    const c10::SymInt D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -294,7 +294,7 @@ class SplitNoBagLookupFunction_Dense_Op
       int64_t output_dtype,
       Tensor dev_weights,
       Tensor weights_offsets,
-      int64_t D,
+      c10::SymInt D,
       Tensor hash_size_cumsum,
       int64_t total_hash_size_bits,
       Tensor indices,
@@ -331,7 +331,7 @@ class SplitNoBagLookupFunction_Dense_Op
     auto indices = *savedItr++;
     auto offsets = *savedItr++;
 
-    auto D = ctx->saved_data["D"].toInt();
+    auto D = ctx->saved_data["D"].toSymInt();
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
 
     TORCH_CHECK_EQ(grad_outputs.size(), 1);
