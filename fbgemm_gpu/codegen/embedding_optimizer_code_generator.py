@@ -6,9 +6,9 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-
 # flake8: noqa F401
 
+import sys
 from typing import Optional
 
 try:
@@ -81,4 +81,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    print(f"[EMBEDDING OPTIMIZER CODE GENERATOR] {sys.argv}")
     main()
