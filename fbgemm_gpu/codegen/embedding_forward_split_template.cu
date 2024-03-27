@@ -80,7 +80,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     {%- endif %}
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
-{%- endif %}
+{%- endif %} {#-/* if not weighted */#}
 
 {% if not dense %}
 #ifndef USE_ROCM
@@ -113,13 +113,13 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     const int32_t* __restrict__ const lxu_cache_locations,
     output_t* __restrict__ const output);
 #endif
-{% endif %} // if not dense
+{% endif %} {#-/* if not dense */#}
 
 
 {%- for nobag in [True, False] %}
 {%- set ndesc = "_nobag" if nobag else "" %}
-{%- if (not nobag or (not weighted and not vbe)) and (nobag or (not is_index_select)) %}
-{%- set has_experimental = (not dense and not nobag and not vbe and not is_index_select) %}
+{%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -182,8 +182,8 @@ batch_index_select_dim0_codegen_forward_kernel(
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
 
-{%- endif %}
-{%- endfor %}
+{%- endif %} {#-/* if is_valid_forward_config(...) */#}
+{%- endfor %} {#-/* for nobag in [True, False] */#}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -193,43 +193,71 @@ batch_index_select_dim0_codegen_forward_kernel(
 /*
   The macro definition for both cases are almost the same except for the
   definition of kThreadGroupSize.  In the FBGEMM_USE_SUBWARP_SHUFFLE case, if
-  MAX_D_ is small, then we use fewer number of threads than kWarpSize.
+  MAX_D is small, then we use fewer number of threads than kWarpSize.
 
   NOTE: kMaxVecsPerThread is computed using the ternary operator because HIPCC
   is unable to use std::max in constexpr context.
 */
+{%- macro dispatch_optimal_forward_kernel(
+    dispatch_macro_name,
+    max_forward_embedding_dim
+  )
+%}
+  {%- set fixed_max_vecs_per_thread = max_forward_embedding_dim // items_per_warp%}
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
-#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D_, ...)                           \
-  [&] {                                                                        \
-    {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-    {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    if (MAX_D_ <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {             \
-      constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
-      constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);                           \
-      return __VA_ARGS__();                                                    \
-    }                                                                          \
-    {%- endif %}
-    {%- endfor %}
-    return;                                                                    \
+#define {{ dispatch_macro_name }}(MAX_D, ...) \
+  [&] {                                        \
+    {{
+       dispatch_non_vec_blocking_kernel(
+           items_per_warp,
+           fixed_max_vecs_per_thread,
+           use_subwarp_shuffle=True)
+    -}}
+    return;                                    \
   }()
 
 #else
-#define DISPATCH_OPTIMAL_FORWARD_KERNEL(MAX_D_, ...)                           \
-  [&] {                                                                        \
-    constexpr int kThreadGroupSize = kWarpSize;                                \
-    {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-    {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    if (MAX_D_ <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {             \
-      constexpr int kMaxVecsPerThread = {{ kMaxElemPerThread }} / 4 >= 1 ? {{ kMaxElemPerThread }} / 4 : 1;            \
-      return __VA_ARGS__();                                                    \
-    }                                                                          \
-    {%- endif %}
-    {%- endfor %}
-    return;                                                                    \
+#define {{ dispatch_macro_name }}(MAX_D, ...) \
+  [&] {                                        \
+    {{
+       dispatch_non_vec_blocking_kernel(
+           items_per_warp,
+           fixed_max_vecs_per_thread,
+           use_subwarp_shuffle=False)
+    -}}
+    return;                                    \
   }()
 
 #endif
+{% endmacro %}
 
+{#-
+  /* Generate a dispatch macro for forward kernels that
+     has_experimental=False. We generate kernel templates up to
+     max_embedding_dim.
+   */
+#}
+{{
+  dispatch_optimal_forward_kernel(
+      "DISPATCH_OPTIMAL_FORWARD_KERNEL",
+      max_embedding_dim
+  )
+}}
+
+{#-
+  /* Generate a dispatch macro for forward kernels that
+     has_experimental=True. We generate kernel templates up to
+     legacy_max_embedding_dim which <= max_embedding_dim. If max_D is larger
+     than legacy_max_embedding_dim, TBE v2 (experimental TBE) will be used
+     instead of the legacy kernel.
+   */
+#}
+{{
+  dispatch_optimal_forward_kernel(
+      "DISPATCH_OPTIMAL_LEGACY_FORWARD_KERNEL",
+      legacy_max_embedding_dim
+  )
+}}
 
 #define DISPATCH_OPTIMAL_NOBAG_FORWARD_KERNEL(DD_, ...)                        \
   [&] {                                                                        \
@@ -265,8 +293,8 @@ batch_index_select_dim0_codegen_forward_kernel(
 
 {%- for nobag in [True, False] %}
 {%- set ndesc = "_nobag" if nobag else "" %}
-{%- if (not nobag or (not weighted and not vbe)) and (nobag or (not is_index_select)) %}
-{%- set has_experimental = (not dense and not nobag and not vbe and not is_index_select) %}
+{%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select) %}
 
 Tensor
 {%- if is_index_select %}
@@ -480,7 +508,8 @@ batch_index_select_dim0_codegen_forward_cuda(
         const bool is_experimental_ = (
             is_experimental && !(std::is_same<emb_t, uint8_t>() || std::is_same<output_t, uint8_t>())
         );
-        if (!is_experimental_) {
+        // if max_D > {{ legacy_max_embedding_dim }}, use TBE v2
+        if (!is_experimental_ && max_D <= {{ legacy_max_embedding_dim }}) {
         {%- endif %} {#-/* if has_experimental */#}
 
         {#-/* Sequence TBE Case (nobag=True) ****************************************************/#}
@@ -598,15 +627,31 @@ batch_index_select_dim0_codegen_forward_cuda(
         {%- else %}
 
         DISPATCH_KERNEL_FOR_CACHE_CASE(use_lxu_cache, [&] {
-          DISPATCH_OPTIMAL_FORWARD_KERNEL(max_D, [&] {
+          {%- set dispatcher =
+                "DISPATCH_OPTIMAL_LEGACY_FORWARD_KERNEL"
+                if has_experimental
+                else "DISPATCH_OPTIMAL_FORWARD_KERNEL"
+          %}
+          {{ dispatcher }}(max_D, [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
             const auto func_name = "{{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel";
 #endif
-            {%- if dense %}
-            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel<emb_t, cache_t, output_t, int64_t, kMaxVecsPerThread, kThreadGroupSize>
-            {%- else %}
-            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel<emb_t, cache_t, output_t, use_cache_t, int64_t, kMaxVecsPerThread, kThreadGroupSize>
-            {%- endif %}
+            // Other components in TBE (backward, backward_indice_weights) use
+            // kFixedMaxVecsPerThread. Thus, the codegen generates
+            // kFixedMaxVecsPerThread instead of kMaxVecsPerThread. But
+            // kMaxVecsPerThread and kFixedMaxVecsPerThread are the same
+            // forward
+            constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
+            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel
+                <emb_t,
+                cache_t,
+                output_t,
+                {%- if not dense%}
+                use_cache_t,
+                {%- endif %}
+                int64_t,
+                kMaxVecsPerThread,
+                kThreadGroupSize>
               <<<
                 div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
                 dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
@@ -765,6 +810,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     );
 }
 {%- endif %} {#-/* if not is_index_select */#}
-{%- endif %} {#/* if (not nobag or (not weighted and not vbe)) and (nobag or (not is_index_select)) */#}
+{%- endif %} {#-/* if is_valid_forward_config(...) */#}
 {%- endfor %} {#-/* for nobag */#}
     // clang-format on
