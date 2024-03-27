@@ -150,7 +150,7 @@ int run_benchmark(
   }
   for (bool has_weight : has_weight_options) {
     vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
-
+    
     bool success = false, success_ref = false;
 
     if (use_32_bit_indices) {
