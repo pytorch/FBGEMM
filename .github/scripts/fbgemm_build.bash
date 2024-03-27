@@ -66,16 +66,15 @@ __build_fbgemm_library_cmake () {
 
   echo "[BUILD] Running CMake ..."
   # shellcheck disable=SC2086
-  print_exec conda run --no-capture-output ${env_prefix} \
-    cmake "${build_args[@]}" ..
+  (print_exec conda run --no-capture-output ${env_prefix} \
+    cmake "${build_args[@]}" ..) || return 1
 
   echo "[BUILD] Running the build ..."
   # shellcheck disable=SC2086
-  print_exec conda run --no-capture-output ${env_prefix} \
-    make -j VERBOSE=1
+  (print_exec conda run --no-capture-output ${env_prefix} \
+    make -j VERBOSE=1) || return 1
 
   cd - || return 1
-
 }
 
 __build_fbgemm_library_bazel () {
