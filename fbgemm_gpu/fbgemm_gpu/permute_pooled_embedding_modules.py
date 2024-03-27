@@ -19,9 +19,16 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
     )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
-    )
+    try:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
+        )
+    except OSError:
+        # This is for forward compatibility (new torch.package + old backend)
+        # We should be able to remove it after this diff is picked up by all backend
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_cuda"
+        )
 except OSError:
     pass
 
