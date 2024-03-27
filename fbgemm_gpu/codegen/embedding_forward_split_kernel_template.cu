@@ -19,6 +19,7 @@
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select) %}
 
 #include "codegen/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
@@ -557,144 +558,61 @@ batch_index_select_dim0_codegen_forward_kernel
     {%- endfor %}
 {%- endmacro %}
 
+{%- macro instantiate_templates(use_subwarp_shuffle) %}
+{%- set has_experimental =
+      has_experimental_support(dense, nobag, vbe, is_index_select)
+%}
+{%- set max_forward_embedding_dim =
+      legacy_max_embedding_dim if has_experimental else max_embedding_dim
+%}
+{%- for use_cache in (["true", "false"] if not dense else ["NULL"]) %}
+{%- for (kMaxVecsPerThread, kThreadGroupSize, use_blocking)
+    in get_max_vecs_template_configs(
+        items_per_warp,
+        fixed_max_vecs_per_thread=max_forward_embedding_dim // items_per_warp,
+        use_subwarp_shuffle=use_subwarp_shuffle,
+        use_vec_blocking=False,
+    )
+%}
+    {#-/* nobag does not have kMaxVecsPerThread as a template arg */#}
+    {%- if not nobag or kMaxVecsPerThread <= 1 %}
+        {{
+           bulk_template_instantiations(
+               use_cache,
+               kMaxVecsPerThread,
+               kThreadGroupSize
+           )
+        }}
+    {%- endif %}
+{%- endfor %}
+{%- endfor %}
+{%- endmacro %}
 
 ////////////////////////////////////////////////////////////////////////////////
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
 ////////////////////////////////////////////////////////////////////////////////
 
 {#- /*
-    Compute the Cartesian product of (use_cache, kMaxVecsPerThread, kThreadGroupSize)
-    in the FBGEMM_USE_SUBWARP_SHUFFLE case
+    Explicitly instantiate kernels for the FBGEMM_USE_SUBWARP_SHUFFLE case
 
-    constexpr int kMaxVecsPerThread = std::max({{ kMaxElemPerThread }} / 4, 1);
-    constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
-
-    This is needed to compute the unique tuples to use for explicit instantiation,
-    so that we can avoid duplicate template instantiations.
+    Please see get_max_vecs_template_configs in
+    codegen/embedding_common_code_generator.py for more details
 */ #}
-{%- set tuples = [] %}
-{%- for use_cache in ['true', 'false'] %}
-{%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-{%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    {%- set t0 = use_cache if not dense else "NULL" %}
-    {%- set t1 = [ (kMaxElemPerThread // 4), 1 ] | max if not nobag else "NULL" %}
-    {%- set t2 = [ 4 // kMaxElemPerThread, 1] | max %}
-    {%- set temp = tuples.append((t0, t1, "(kWarpSize / " ~ t2 ~ ")")) %}
-{%- endif %}
-{%- endfor %}
-{%- endfor %}
 
-{#- /*
-    Enumerate over the unique tuples (NULL means the field is not materialized
-    for the template context, e.g. where nobag = true):
-
-    (true,·1,·(kWarpSize·/·4))
-    (true,·1,·(kWarpSize·/·2))
-    (true,·1,·(kWarpSize·/·1))
-    (true,·2,·(kWarpSize·/·1))
-    (true,·3,·(kWarpSize·/·1))
-    (true,·4,·(kWarpSize·/·1))
-    (true,·5,·(kWarpSize·/·1))
-    (true,·6,·(kWarpSize·/·1))
-    (true,·7,·(kWarpSize·/·1))
-    (true,·8,·(kWarpSize·/·1))
-    (false,·1,·(kWarpSize·/·4))
-    (false,·1,·(kWarpSize·/·2))
-    (false,·1,·(kWarpSize·/·1))
-    (false,·2,·(kWarpSize·/·1))
-    (false,·3,·(kWarpSize·/·1))
-    (false,·4,·(kWarpSize·/·1))
-    (false,·5,·(kWarpSize·/·1))
-    (false,·6,·(kWarpSize·/·1))
-    (false,·7,·(kWarpSize·/·1))
-    (false,·8,·(kWarpSize·/·1))
-
-    (NULL,·1,·(kWarpSize·/·4))
-    (NULL,·1,·(kWarpSize·/·2))
-    (NULL,·1,·(kWarpSize·/·1))
-    (NULL,·2,·(kWarpSize·/·1))
-    (NULL,·3,·(kWarpSize·/·1))
-    (NULL,·4,·(kWarpSize·/·1))
-    (NULL,·5,·(kWarpSize·/·1))
-    (NULL,·6,·(kWarpSize·/·1))
-    (NULL,·7,·(kWarpSize·/·1))
-    (NULL,·8,·(kWarpSize·/·1))
-
-    (true,·NULL,·(kWarpSize·/·4))
-    (true,·NULL,·(kWarpSize·/·2))
-    (true,·NULL,·(kWarpSize·/·1))
-    (false,·NULL,·(kWarpSize·/·4))
-    (false,·NULL,·(kWarpSize·/·2))
-    (false,·NULL,·(kWarpSize·/·1))
-
-    (NULL,·NULL,·(kWarpSize·/·4))
-    (NULL,·NULL,·(kWarpSize·/·2))
-    (NULL,·NULL,·(kWarpSize·/·1))
-*/ #}
-{%- for (use_cache, kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
-    {{ bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
-{%- endfor %}
+{{ instantiate_templates(use_subwarp_shuffle=True) }}
 
 ////////////////////////////////////////////////////////////////////////////////
 #else
 ////////////////////////////////////////////////////////////////////////////////
 
 {#- /*
-    Compute the Cartesian product of (use_cache, kMaxVecsPerThread, kThreadGroupSize)
-    in the non-FBGEMM_USE_SUBWARP_SHUFFLE case
+    Explicitly instantiate kernels for the non-FBGEMM_USE_SUBWARP_SHUFFLE case
 
-    constexpr int kMaxVecsPerThread = std::max({{ kMaxElemPerThread }} / 4, 1);
-    constexpr int kThreadGroupSize = kWarpSize;
+    Please see get_max_vecs_template_configs in
+    codegen/embedding_common_code_generator.py for more details
 */ #}
-{%- set tuples = [] %}
-{%- for use_cache in ['true', 'false'] %}
-{%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-{%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    {%- set t0 = use_cache if not dense else "NULL" %}
-    {%- set t1 = [ (kMaxElemPerThread // 4), 1 ] | max if not nobag else "NULL" %}
-    {%- set temp = tuples.append((t0, t1, "kWarpSize")) %}
-{%- endif %}
-{%- endfor %}
-{%- endfor %}
 
-{#- /*
-    Enumerate over the unique tuples (NULL means the field is not materialized
-    for the template context, e.g. where nobag = true):
-
-    (true,·1,·kWarpSize)
-    (true,·2,·kWarpSize)
-    (true,·3,·kWarpSize)
-    (true,·4,·kWarpSize)
-    (true,·5,·kWarpSize)
-    (true,·6,·kWarpSize)
-    (true,·7,·kWarpSize)
-    (true,·8,·kWarpSize)
-    (false,·1,·kWarpSize)
-    (false,·2,·kWarpSize)
-    (false,·3,·kWarpSize)
-    (false,·4,·kWarpSize)
-    (false,·5,·kWarpSize)
-    (false,·6,·kWarpSize)
-    (false,·7,·kWarpSize)
-    (false,·8,·kWarpSize)
-
-    (NULL,·1,·kWarpSize)
-    (NULL,·2,·kWarpSize)
-    (NULL,·3,·kWarpSize)
-    (NULL,·4,·kWarpSize)
-    (NULL,·5,·kWarpSize)
-    (NULL,·6,·kWarpSize)
-    (NULL,·7,·kWarpSize)
-    (NULL,·8,·kWarpSize)
-
-    (true,·NULL,·kWarpSize)
-    (false,·NULL,·kWarpSize)
-
-    (NULL,·NULL,·kWarpSize)
-*/ #}
-{%- for (use_cache, kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
-    {{ bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
-{%- endfor %}
+{{ instantiate_templates(use_subwarp_shuffle=False) }}
 
 ////////////////////////////////////////////////////////////////////////////////
 #endif

@@ -47,6 +47,9 @@ env = jinja2.Environment(
 # Since BT_block_size >= 1, max_D <= 16K (V100) or 24K (A100).
 # Note that if we increase max_D, it will increase the compilation time significantly.
 env.globals["max_embedding_dim"] = 1024
+# Max embedding dimension for legacy embedding kernels. TBE v2 can support
+# larger max embedding dimension.
+env.globals["legacy_max_embedding_dim"] = 1024
 # An optimization for ROCm
 env.globals["items_per_warp"] = 128 if args.is_rocm is False else 256
 env.globals["dense"] = False
@@ -122,20 +125,23 @@ def generate_optimized_grad_sum_loop_access(
 
 
 def get_max_vecs_template_configs(
-    items_per_warp: int, fixed_max_vecs_per_thread: int, use_subwarp_shuffle: bool
+    items_per_warp: int,
+    fixed_max_vecs_per_thread: int,
+    use_subwarp_shuffle: bool,
+    use_vec_blocking: bool,
 ) -> List[Tuple[int, int, str]]:
     """
     Generate the template configs for each kFixedMaxVecsPerThread,
     kThreadGroupSize, and kUseVecBlocking
     """
     warp_size = items_per_warp // 4
-    # Init configs with the common case
-    # kFixedMaxVecsPerThread = fixed_max_vecs_per_thread
-    # kThreadGroupSize = kWarpSize
-    # kUseVecBlocking = true
-    configs: List[Tuple[int, int, str]] = [
-        (fixed_max_vecs_per_thread, warp_size, "true")
-    ]
+    configs: List[Tuple[int, int, str]] = []
+
+    if use_vec_blocking:
+        # kFixedMaxVecsPerThread = fixed_max_vecs_per_thread
+        # kThreadGroupSize = kWarpSize
+        # kUseVecBlocking = true
+        configs.append((fixed_max_vecs_per_thread, warp_size, "true"))
 
     # Generate the cases where an entire embedding row can fit in the
     # thread-local buffer (i.e., shared memory is not need for grad_sum)
@@ -172,29 +178,31 @@ def dispatch_non_vec_blocking_kernel(
         kThreadGroupSize,
         kUseVecBlocking,
     ) in get_max_vecs_template_configs(
-        items_per_warp, fixed_max_vecs_per_thread, use_subwarp_shuffle
+        items_per_warp,
+        fixed_max_vecs_per_thread,
+        use_subwarp_shuffle,
+        use_vec_blocking=False,
     ):
-        if kUseVecBlocking == "false":
-            formats = {
-                "max_D_val": kFixedMaxVecsPerThread * kThreadGroupSize * 4,
-                "kFixedMaxVecsPerThread": kFixedMaxVecsPerThread,
-                "kThreadGroupSize": kThreadGroupSize,
-                "kUseVecBlocking": kUseVecBlocking,
-            }
-            max_D_val = kFixedMaxVecsPerThread * kThreadGroupSize * 4
-            d_blob = """if (MAX_D <= {max_D_val}) {                               \\
-                 [[ maybe_unused ]] const int max_vecs_per_thread =               \\
-                   {kFixedMaxVecsPerThread};                                      \\
-                 constexpr int kFixedMaxVecsPerThread = {kFixedMaxVecsPerThread}; \\
-                 [[ maybe_unused ]] constexpr int kThreadGroupSize =              \\
-                   {kThreadGroupSize};                                            \\
-                 [[ maybe_unused ]] constexpr bool kUseVecBlocking =              \\
-                   {kUseVecBlocking};                                             \\
-                 return __VA_ARGS__();                                            \\
-               }                                                                  \\
-            """
-            d_blob = prepare_string_for_formatting(d_blob, list(formats.keys()))
-            blob += d_blob.format(**formats)
+        formats = {
+            "max_D_val": kFixedMaxVecsPerThread * kThreadGroupSize * 4,
+            "kFixedMaxVecsPerThread": kFixedMaxVecsPerThread,
+            "kThreadGroupSize": kThreadGroupSize,
+            "kUseVecBlocking": kUseVecBlocking,
+        }
+        max_D_val = kFixedMaxVecsPerThread * kThreadGroupSize * 4
+        d_blob = """if (MAX_D <= {max_D_val}) {                               \\
+             [[ maybe_unused ]] const int max_vecs_per_thread =               \\
+               {kFixedMaxVecsPerThread};                                      \\
+             constexpr int kFixedMaxVecsPerThread = {kFixedMaxVecsPerThread}; \\
+             [[ maybe_unused ]] constexpr int kThreadGroupSize =              \\
+               {kThreadGroupSize};                                            \\
+             [[ maybe_unused ]] constexpr bool kUseVecBlocking =              \\
+               {kUseVecBlocking};                                             \\
+             return __VA_ARGS__();                                            \\
+           }                                                                  \\
+        """
+        d_blob = prepare_string_for_formatting(d_blob, list(formats.keys()))
+        blob += d_blob.format(**formats)
     return blob
 
 
@@ -245,6 +253,35 @@ def dispatch_optimal_kernel(
     return blob
 
 
+def is_valid_forward_config(
+    nobag: bool,
+    weighted: bool,
+    vbe: bool,
+    is_index_select: bool,
+) -> bool:
+    """
+    Check if the given combination of configs is valid for forward
+    - nobag does not have weighted or vbe supports
+    - is_index_select is nobag
+    """
+    return (not nobag or (not weighted and not vbe)) and (
+        nobag or (not is_index_select)
+    )
+
+
+def has_experimental_support(
+    dense: bool,
+    nobag: bool,
+    vbe: bool,
+    is_index_select: bool,
+) -> bool:
+    """
+    Check if the given combination of configs has TBE v2 support
+    - TBE v2 does not support dense, nobag, vbe, and is_index_select
+    """
+    return not dense and not nobag and not vbe and not is_index_select
+
+
 # Make helper functions visible to code gen
 env.globals["generate_optimized_grad_sum_loop_access"] = (
     generate_optimized_grad_sum_loop_access
@@ -253,6 +290,8 @@ env.globals["get_max_vecs_template_configs"] = get_max_vecs_template_configs
 env.globals["dispatch_optimal_kernel"] = dispatch_optimal_kernel
 env.globals["dispatch_non_vec_blocking_kernel"] = dispatch_non_vec_blocking_kernel
 env.globals["dispatch_vec_blocking_kernel"] = dispatch_vec_blocking_kernel
+env.globals["is_valid_forward_config"] = is_valid_forward_config
+env.globals["has_experimental_support"] = has_experimental_support
 
 
 ######################################################################

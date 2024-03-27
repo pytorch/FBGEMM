@@ -496,6 +496,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         items_per_warp,
         fixed_max_vecs_per_thread["backward"],
         use_subwarp_shuffle,
+        use_vec_blocking=True,
     )
 %}
     {{
