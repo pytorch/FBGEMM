@@ -135,6 +135,23 @@ static at::Tensor qlinear_qparams(
   return x;
 }
 
+static at::Tensor qlinear_dynamic(
+    at::Tensor x,
+    at::Tensor weight,
+    at::Tensor bias,
+    at::Tensor input_scale,
+    at::Tensor weight_scale,
+    at::Tensor weight_zero_point,
+    at::Tensor relu) {
+  assert(x.options().dtype() == at::kHalf);
+  assert(weight.options().dtype() == at::kQInt8);
+  assert(bias.options().dtype() == at::kFloat);
+  assert(input_scale.options().dtype() == at::kFloat);
+  assert(weight_scale.options().dtype() == at::kFloat);
+  assert(weight_zero_point.options().dtype() == at::kQUInt8);
+  return x;
+}
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "qlinear_channelwise(Tensor x, Tensor weight, Tensor "
@@ -161,4 +178,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl(
       "qlinear_qparams",
       torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(qlinear_qparams)));
+
+  m.def(
+      "qlinear_dynamic(Tensor x, Tensor weight, Tensor "
+      "bias, Tensor input_scale, Tensor weight_scale, Tensor "
+      "weight_zero_point, Tensor relu) -> Tensor");
+
+  m.impl(
+      "qlinear_dynamic",
+      torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(qlinear_dynamic)));
 }
