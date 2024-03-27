@@ -78,6 +78,8 @@ void split_embedding_{{ optimizer }}_update(
     TENSORS_ON_SAME_DEVICE(dev_weights, {{ tensor }}_offsets);
     {%- endfor %}
 
+    TORCH_CHECK_LE(max_D, {{ legacy_max_embedding_dim }});
+
     if (grad_dev_indices.numel() == 0) {
         return;
     }
@@ -104,7 +106,7 @@ void split_embedding_{{ optimizer }}_update(
                     at::check_generator<at::CUDAGeneratorImpl>(gen)
                         ->philox_cuda_state(4);
             }
-            {%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+            {%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_warp // 4) + 1) %}
             {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
             if (max_D <= {{ items_per_warp // 4 * kMaxElemPerThread }}) {
                 // hipcc can't use max in constexpr

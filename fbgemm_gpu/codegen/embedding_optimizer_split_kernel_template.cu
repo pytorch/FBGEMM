@@ -94,7 +94,7 @@ void split_{{ optimizer }}_update_kernel(
 {%- for cache_type in ['float', 'at::Half'] %}
 
 {%- set tuples = [] %}
-{%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+{%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_warp // 4) + 1) %}
 {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
     {%- set t0 = [ (kMaxElemPerThread // 4), 1 ] | max if not nobag else "NULL" %}
     {%- set t1 = [ 4 // kMaxElemPerThread, 1] | max %}
