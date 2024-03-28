@@ -22,7 +22,7 @@ Tensor batch_index_select_dim0_codegen_forward_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& indices,
     const int64_t output_dtype,
     const Tensor& output_offsets,
@@ -37,7 +37,7 @@ Tensor batch_index_select_dim0_codegen_backward_cuda(
     const Tensor& dev_weights,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -60,7 +60,7 @@ class BatchIndexSelectDim0GPUOp
       const int64_t total_hash_size_bits,
       const Tensor& indices,
       const Tensor& D_offsets,
-      const int64_t max_D,
+      const c10::SymInt max_D,
       const Tensor& output_offsets,
       const Tensor& total_L_offsets,
       const int64_t output_size,
@@ -115,7 +115,7 @@ class BatchIndexSelectDim0GPUOp
     auto grad_offsets = *savedItr++;
     auto total_L_offsets = *savedItr++;
 
-    const auto max_D = ctx->saved_data["max_D"].toInt();
+    const auto max_D = ctx->saved_data["max_D"].toSymInt();
     const auto total_hash_size_bits =
         ctx->saved_data["total_hash_size_bits"].toInt();
     const auto fixed_L_per_warp = ctx->saved_data["fixed_L_per_warp"].toInt();

@@ -27,7 +27,7 @@ void split_embedding_backward_codegen_{{ optimizer }}_cpu(
     Tensor weights_placements,
     Tensor weights_offsets,
     Tensor D_offsets,
-    int64_t max_D,
+    c10::SymInt max_D,
     Tensor hash_size_cumsum,
     int64_t total_hash_size_bits,
     Tensor indices,
@@ -50,8 +50,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     Tensor weights_placements,
     Tensor weights_offsets,
     Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_D,
+    c10::SymInt total_D,
+    c10::SymInt max_D,
     Tensor hash_size_cumsum,
     int64_t total_hash_size_bits,
     Tensor indices,
@@ -119,8 +119,8 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     auto {{ tensor }} = *savedItr++;
     {% endfor %}
 
-    auto total_D = ctx->saved_data["total_D"].toInt();
-    auto max_D = ctx->saved_data["max_D"].toInt();
+    auto total_D = ctx->saved_data["total_D"].toSymInt();
+    auto max_D = ctx->saved_data["max_D"].toSymInt();
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
     auto gradient_clipping = ctx->saved_data["gradient_clipping"].toBool();
@@ -201,8 +201,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     Tensor weights_placements,
     Tensor weights_offsets,
     Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_D,
+    c10::SymInt total_D,
+    c10::SymInt max_D,
     Tensor hash_size_cumsum,
     int64_t total_hash_size_bits,
     Tensor indices,
@@ -243,7 +243,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
     m.impl(
       "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu",
       torch::dispatch(
@@ -252,7 +252,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
     m.impl(
       "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu",
       torch::dispatch(

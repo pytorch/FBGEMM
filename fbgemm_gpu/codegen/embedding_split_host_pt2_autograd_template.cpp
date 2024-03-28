@@ -147,7 +147,7 @@ class {{ autograd_func }} :
     static auto generate_vbe_metadata_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::generate_vbe_metadata", "")
-            .typed<std::tuple<Tensor, Tensor>(const Tensor&, const Tensor&, const Tensor&, const Tensor&, const int64_t, const bool, const c10::SymInt, const int64_t, const c10::SymInt)>();
+            .typed<std::tuple<Tensor, Tensor>(const Tensor&, const Tensor&, const Tensor&, const Tensor&, const c10::SymInt, const bool, const c10::SymInt, const int64_t, const c10::SymInt)>();
 
     auto [
         vbe_row_output_offsets,

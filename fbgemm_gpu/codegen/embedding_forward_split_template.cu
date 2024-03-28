@@ -312,13 +312,13 @@ batch_index_select_dim0_codegen_forward_cuda(
     {%- if not nobag or is_index_select %}
     const Tensor& D_offsets,
     {%- else %}
-    const int64_t D,
+    const c10::SymInt D_,
     {%- endif %}
     {%- if not nobag %}
-    const int64_t total_D,
+    const c10::SymInt total_D_,
     {%- endif %}
     {%- if not nobag or is_index_select %}
-    const int64_t max_D,
+    const c10::SymInt max_D_,
     {% endif %}
     const Tensor& indices,
     {%- if not is_index_select %}
@@ -346,13 +346,30 @@ batch_index_select_dim0_codegen_forward_cuda(
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
-    const int64_t vbe_output_size,
+    const c10::SymInt vbe_output_size_,
     const int64_t info_B_num_bits, // int32_t
     const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
     const bool is_experimental
     {%- endif %}
 ) {
+    {%- if not nobag or is_index_select %}
+    {%- else %}
+    const int64_t D = D_.guard_int(__FILE__, __LINE__);
+    {%- endif %}
+
+    {%- if not nobag %}
+    const int64_t total_D = total_D_.guard_int(__FILE__, __LINE__);
+    {%- endif %}
+
+
+    {%- if not nobag or is_index_select %}
+    const int64_t max_D = max_D_.guard_int(__FILE__, __LINE__);
+    {%- endif %}
+    {%- if vbe %}
+    const int64_t vbe_output_size = vbe_output_size_.guard_int(__FILE__, __LINE__);
+    {%- endif %}
+
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
         {%- if not dense %}
         uvm_weights,
@@ -770,11 +787,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- endif %}
           "    Tensor weights_offsets, "
           {%- if nobag %}
-          "    int D, "
+          "    SymInt D, "
           {%- else %}
           "    Tensor D_offsets, "
-          "    int total_D, "
-          "    int max_D, "
+          "    SymInt total_D, "
+          "    SymInt max_D, "
           {%- endif %}
           "    Tensor indices, "
           "    Tensor offsets, "

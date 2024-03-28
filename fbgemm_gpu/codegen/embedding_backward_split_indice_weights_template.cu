@@ -271,7 +271,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     {%- endif %}
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D_,
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not dense %}
@@ -287,6 +287,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const Tensor& feature_requires_grad
     {%- endif %}
 ) {
+   const int64_t max_D = max_D_.guard_int(__FILE__, __LINE__);
    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
         dev_weights,
         {%- if not dense %}
@@ -421,7 +422,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
     {%- endif %}
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not dense %}
@@ -470,7 +471,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- endif %}
           "    Tensor weights_offsets, "
           "    Tensor D_offsets, "
-          "    int max_D, "
+          "    SymInt max_D, "
           "    Tensor indices, "
           "    Tensor offsets, "
           {%- if not dense %}

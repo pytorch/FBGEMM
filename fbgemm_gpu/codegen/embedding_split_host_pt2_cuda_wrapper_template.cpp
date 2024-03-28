@@ -51,11 +51,11 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cud
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     {%- if nobag %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- else %}
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
+    const c10::SymInt total_D,
+    const c10::SymInt max_D,
     {%- endif %}
     const Tensor& /*hash_size_cumsum*/,
     const Tensor& indices,
@@ -92,11 +92,11 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cud
                 {%- if not nobag %}
                 const Tensor&,
                 {%- else %}
-                const int64_t,
+                const c10::SymInt,
                 {%- endif %}
                 {%- if not nobag %}
-                const int64_t,
-                const int64_t,
+                const c10::SymInt,
+                const c10::SymInt,
                 {%- endif %}
                 const Tensor&,
                 const Tensor&,
@@ -163,11 +163,11 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_met
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     {%- if nobag %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- else %}
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
+    const c10::SymInt total_D,
+    const c10::SymInt max_D,
     {%- endif %}
     const Tensor& /*hash_size_cumsum*/,
     const Tensor& indices,
@@ -204,13 +204,13 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_met
                 {%- if not nobag %}
                 const Tensor&,
                 {%- else %}
-                const int64_t,
+                const c10::SymInt,
                 {%- endif %}
                 {%- if not nobag %}
-                const int64_t,
+                const c10::SymInt,
                 {%- endif %}
                 {%- if not nobag %}
-                const int64_t,
+                const c10::SymInt,
                 {%- endif %}
                 const Tensor&,
                 const Tensor&,
@@ -283,10 +283,10 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     {%- if nobag %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- else %}
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -330,10 +330,10 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                         const Tensor&,
                         const Tensor&,
                         {%- if nobag %}
-                        const int64_t,
+                        const c10::SymInt,
                         {%- else %}
                         const Tensor&,
-                        const int64_t,
+                        const c10::SymInt,
                         {%- endif %}
                         const Tensor&,
                         const int64_t,
@@ -421,7 +421,7 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
     const Tensor& lxu_cache_locations,
@@ -450,7 +450,7 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
                 const Tensor&,
                 const Tensor&,
                 const Tensor&,
-                const int64_t,
+                const c10::SymInt,
                 const Tensor&,
                 const Tensor&,
                 const Tensor&,
@@ -512,11 +512,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor weights_placements, "
         "    Tensor weights_offsets, "
         {%- if nobag %}
-        "    int D, "
+        "    SymInt D, "
         {%- else %}
         "    Tensor D_offsets, "
-        "    int total_D, "
-        "    int max_D, "
+        "    SymInt total_D, "
+        "    SymInt max_D, "
         {%- endif %}
         "    Tensor hash_size_cumsum, "
         "    Tensor indices, "
@@ -563,10 +563,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor weights_placements, "
         "    Tensor weights_offsets, "
         {%- if nobag %}
-        "    int D, "
+        "    SymInt D, "
         {%- else %}
         "    Tensor D_offsets, "
-        "    int max_D, "
+        "    SymInt max_D, "
         {%- endif %}
         "    Tensor hash_size_cumsum, "
         "    int total_hash_size_bits, "
@@ -618,7 +618,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor weights_placements, "
         "    Tensor weights_offsets, "
         "    Tensor D_offsets, "
-        "    int max_D, "
+        "    SymInt max_D, "
         "    Tensor indices, "
         "    Tensor offsets, "
         "    Tensor lxu_cache_locations, "

@@ -42,7 +42,7 @@ Tensor split_embedding_codegen_grad_indice_weights_pt2_cpu_wrapper(
     const Tensor& /*weights_placements*/,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t /*max_D*/,
+    const c10::SymInt /*max_D*/,
     const Tensor& indices,
     const Tensor& offsets,
     const Tensor& /*lxu_cache_locations*/,
@@ -76,8 +76,8 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}_pt2_cpu_wrapper(
     const Tensor& /*weights_placements*/,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t /*max_D*/,
+    const c10::SymInt total_D,
+    const c10::SymInt /*max_D*/,
     const Tensor& hash_size_cumsum,
     const Tensor& indices,
     const Tensor& offsets,
@@ -91,7 +91,7 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}_pt2_cpu_wrapper(
       torch::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::split_embedding_codegen_forward_cpu", "")
           .typed<Tensor(
-                Tensor, Tensor, Tensor, int64_t, Tensor, Tensor, Tensor, int64_t, Tensor, int64_t
+                Tensor, Tensor, Tensor, c10::SymInt, Tensor, Tensor, Tensor, int64_t, Tensor, int64_t
           )>();
 
   return op.call(

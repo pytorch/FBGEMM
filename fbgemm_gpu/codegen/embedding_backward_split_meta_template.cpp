@@ -51,9 +51,9 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& weights_offsets,
     {%- if not nobag or is_index_select %}
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     {%- else %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -78,7 +78,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     {%- if optimizer != "none" %}
     const bool stochastic_rounding,
     {%- endif %}
-    const int64_t info_B_num_bits, // int32_t
+    const int64_t info_B_num_bits_int64, // int32_t
     const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
     {%- if vbe %}
@@ -114,7 +114,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     auto max_D = D;
     {%- endif %}
     {%- if not is_index_select %}
-    TORCH_CHECK_LE(max_D, {{ max_embedding_dim }});
+    TORCH_SYM_CHECK(max_D.sym_le({{ max_embedding_dim }}), "");
     {%- endif %}
 
     {%- if optimizer == "none" %}
@@ -135,7 +135,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         {%- elif optimizer == "none" %}
         return at::_sparse_coo_tensor_unsafe_symint(
             at::empty_symint({1, 0}, indices.options()),
-            grad_dev_weights.reshape({0, max_D}),
+            grad_dev_weights.reshape_symint({0, max_D}),
             {total_hash_size, max_D},
             dev_weights.options().layout(at::kSparse)
         );
@@ -150,25 +150,29 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     auto T = weights_offsets.sym_numel();
     {%- endif %}
 
-    TORCH_CHECK_GT(T, 0);
+    TORCH_SYM_CHECK(T.sym_gt(0), "");
     // offsets = [B x T  + 1]
     {%- if is_index_select %}
     const auto total_B = num_warps_per_feature * T;
     {%- else %}
     const auto total_B = offsets.sym_size(0) - 1;
     {%- endif %}
-    TORCH_CHECK_GT(total_B, 0);
+    TORCH_SYM_CHECK(total_B.sym_gt(0), "");
 
     {%- if vbe %}
-    TORCH_CHECK_EQ(B_offsets.sym_numel(), T + 1);
-    TORCH_CHECK_EQ(vbe_row_output_offsets.sym_numel(), total_B);
+    TORCH_SYM_CHECK(B_offsets.sym_numel().sym_eq(T + 1), "");
+    TORCH_SYM_CHECK(vbe_row_output_offsets.sym_numel().sym_eq(total_B), "");
     TENSORS_HAVE_SAME_SYM_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
     {%- endif %}
 
     {%- if dense %}
 
     auto max_B = total_B / T;
-    auto [info_B_num_bits, info_B_mask] = adjust_info_B_num_bits(max_B.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
+    int32_t info_B_num_bits = 22;
+    uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
+    if (!max_B.is_symbolic()) {
+        std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(max_B.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
+    }
 
     {%- else %}
     // Cast info_B_mask from int64_t to uint32_t
@@ -191,7 +195,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     // originally this was sparse_coo_tensor
     return at::_sparse_coo_tensor_unsafe_symint(
         sorted_linear_indices_run.unsqueeze(0),
-        grad_dev_weights.reshape({total_unique_indices, max_D}),
+        grad_dev_weights.reshape_symint({total_unique_indices, max_D}),
         {total_hash_size, max_D},
         dev_weights.options().layout(at::kSparse));
 
