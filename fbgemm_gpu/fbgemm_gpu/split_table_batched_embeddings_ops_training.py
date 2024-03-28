@@ -205,6 +205,7 @@ def apply_split_helper(
     enforce_hbm: bool = False,
     make_dev_param: bool = False,
     dev_reshape: Optional[Tuple[int, ...]] = None,
+    uvm_tensors_log: Optional[List[str]] = None,
 ) -> None:
     set_attr_fn(f"{prefix}_physical_placements", split.placements)
     set_attr_fn(f"{prefix}_physical_offsets", split.offsets)
@@ -261,6 +262,8 @@ def apply_split_helper(
                     )
                 ),
             )
+        if uvm_tensors_log is not None:
+            uvm_tensors_log.append(f"{prefix}_host")
     else:
         persistent_state_fn(
             f"{prefix}_host",
@@ -294,6 +297,8 @@ def apply_split_helper(
                     ),
                 ),
             )
+            if uvm_tensors_log is not None:
+                uvm_tensors_log.append(f"{prefix}_uvm")
     else:
         persistent_state_fn(
             f"{prefix}_uvm",
@@ -483,6 +488,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.stats_reporter: Optional[TBEStatsReporter] = (
             stats_reporter_config.create_reporter() if stats_reporter_config else None
         )
+        self._uvm_tensors_log: List[str] = []
 
         self.bwd_wait_prefetch_timer: Optional[AsyncSeriesTimer] = None
         if self.stats_reporter:
@@ -951,6 +957,44 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.stats_reporter.report_duration(it_step, event_name, dur_ms)
 
     @torch.jit.ignore
+    def _report_tbe_mem_usage(
+        self,
+    ) -> None:
+        if self.stats_reporter is None:
+            return
+
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if not stats_reporter.should_report(self.step):
+            return
+
+        total_mem_usage = sum(
+            param.numel() * param.element_size() for param in self.parameters()
+        ) + sum(buffer.numel() * buffer.element_size() for buffer in self.buffers())
+        if self.use_cpu:
+            total_hbm_usage = 0
+            total_uvm_usage = total_mem_usage
+        else:
+            # hbm usage is total usage minus uvm usage
+            total_uvm_usage = sum(
+                getattr(self, tensor_name).numel()
+                * getattr(self, tensor_name).element_size()
+                for tensor_name in self._uvm_tensors_log
+                if hasattr(self, tensor_name)
+            )
+            total_hbm_usage = total_mem_usage - total_uvm_usage
+
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.total_hbm_usage",
+            data_bytes=total_hbm_usage,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="tbe.total_uvm_usage",
+            data_bytes=total_uvm_usage,
+        )
+
+    @torch.jit.ignore
     def _report_io_size_count(self, event: str, data: Tensor) -> Tensor:
         if self.stats_reporter is None:
             return data
@@ -1124,6 +1168,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.step += 1
         self._report_io_size_count("fwd_input", indices)
+        self._report_tbe_mem_usage()
 
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets, vbe_metadata)
@@ -1869,6 +1914,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             enforce_hbm,
             make_dev_param,
             dev_reshape,
+            self._uvm_tensors_log,
         )
 
     def _apply_cache_state(
