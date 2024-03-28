@@ -10,14 +10,16 @@
 
 using Tensor = at::Tensor;
 
-#define DISPATCH_FP32_BF16_INT32_16_CASE(...)             \
+#define DISPATCH_SINGLE_HALF_FP_INT32_64_CASE(...)        \
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)    \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)     \
   AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Int, __VA_ARGS__)      \
   AT_DISPATCH_CASE(at::ScalarType::Long, __VA_ARGS__)
 
-#define DISPATCH_FP32_BF16_INT32_16_TYPES(TYPE, NAME, ...) \
-  AT_DISPATCH_SWITCH(TYPE, NAME, DISPATCH_FP32_BF16_INT32_16_CASE(__VA_ARGS__))
+#define DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(                                           \
+      TYPE, NAME, DISPATCH_SINGLE_HALF_FP_INT32_64_CASE(__VA_ARGS__))
 
 namespace fbgemm_gpu {
 
@@ -270,7 +272,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
       const dim3 blocks(cuda_calc_xblock_count(
           reordered_cat_ad_offsets.numel() - 1,
           NUM_WARPS)); // one warp per sample
-      DISPATCH_FP32_BF16_INT32_16_TYPES(
+      DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(
           cat_ad_indices.scalar_type(),
           "narrow_broadcast_indices_kernel_1",
           [&] {
@@ -308,7 +310,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
       const dim3 blocks(cuda_calc_xblock_count(
           T * num_ads_in_batch,
           NUM_WARPS)); // num_ads_in_batch warps for all Bs
-      DISPATCH_FP32_BF16_INT32_16_TYPES(
+      DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(
           cat_ad_indices.scalar_type(),
           "narrow_batched_broadcast_indices_kernel_1",
           [&] {
@@ -352,7 +354,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
   const dim3 threads(NUM_WARPS, kWarpSize); // 32 x 32
   const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
 
-  DISPATCH_FP32_BF16_INT32_16_TYPES(
+  DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(
       cat_ad_indices.scalar_type(),
       "reorder_batched_ad_indices_gpu_kernel_1",
       [&] {
