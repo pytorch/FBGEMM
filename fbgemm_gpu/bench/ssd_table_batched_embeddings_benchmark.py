@@ -8,23 +8,36 @@
 # pyre-strict
 
 import logging
+import tempfile
 import time
-from typing import Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import click
 import numpy as np
 import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_requests
-from fbgemm_gpu.split_embedding_utils import generate_requests, round_up, TBERequest
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
+from fbgemm_gpu.split_embedding_utils import (
+    generate_requests,
+    get_device,
+    round_up,
+    TBERequest,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    ComputeDevice,
+    SplitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.ssd_split_table_batched_embeddings_ops import (
     CacheAlgorithm,
     EmbeddingLocation,
     PoolingMode,
-    SparseType,
+    # Inference
     SSDIntNBitTableBatchedEmbeddingBags,
+    # Training
+    SSDTableBatchedEmbeddingBags,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -99,8 +112,6 @@ def benchmark_read_write(
     num_shards: int,
     num_threads: int,
 ) -> None:
-    import tempfile
-
     idx_dtype = torch.int64
     data_dtype = torch.float32
     np.random.seed(42)
@@ -194,6 +205,265 @@ def ssd_read_write(
 
 
 @cli.command()
+# recommended value: alpha=1.15 for training and alpha=1.09 for inference
+@click.option("--alpha", default=1.0)
+@click.option("--bag-size", default=20)
+@click.option("--batch-size", default=512)
+@click.option("--embedding-dim", default=128)
+@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--stoc", is_flag=True, default=False)
+@click.option("--iters", default=100)
+@click.option("--warmup-runs", default=0)
+@click.option("--managed", default="device")
+@click.option("--mixed", is_flag=True, default=False)
+@click.option("--num-embeddings", default=int(1e5))
+@click.option("--num-tables", default=32)
+@click.option("--reuse", default=0.0)
+@click.option("--row-wise/--no-row-wise", default=True)
+@click.option("--weighted", is_flag=True, default=False)
+@click.option("--pooling", type=str, default="sum")
+@click.option("--weighted-num-requires-grad", type=int, default=None)
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
+@click.option("--requests_data_file", type=str, default=None)
+@click.option("--tables", type=str, default=None)
+def ssd_training(  # noqa C901
+    alpha: float,
+    bag_size: int,
+    batch_size: int,
+    embedding_dim: int,
+    weights_precision: SparseType,
+    stoc: bool,
+    iters: int,
+    warmup_runs: int,
+    managed: str,
+    mixed: bool,
+    num_embeddings: int,
+    num_tables: int,
+    reuse: float,
+    row_wise: bool,
+    weighted: bool,
+    pooling: str,
+    weighted_num_requires_grad: Optional[int],
+    flush_gpu_cache_size_mb: int,
+    output_dtype: SparseType,
+    requests_data_file: Optional[str],
+    tables: Optional[str],
+) -> None:
+    np.random.seed(42)
+    torch.manual_seed(42)
+    B: int = batch_size
+    D: int = embedding_dim
+    L: int = bag_size
+    E: int = num_embeddings
+    T: int = num_tables
+
+    # SSD only supports FP32 for weights and output
+    assert weights_precision == SparseType.FP32, (
+        "SSD only supports weights_precision = SparseType.FP32",
+    )
+    assert output_dtype == SparseType.FP32, (
+        "SSD only supports output_dtype = SparseType.FP32",
+    )
+
+    if weighted_num_requires_grad:
+        assert weighted_num_requires_grad <= T
+        weighted_requires_grad_tables = np.random.choice(
+            T, replace=False, size=(weighted_num_requires_grad,)
+        ).tolist()
+        feature_requires_grad = (
+            torch.tensor(
+                [1 if t in weighted_requires_grad_tables else 0 for t in range(T)]
+            )
+            .to(get_device())
+            .int()
+        )
+    else:
+        feature_requires_grad = None
+    if mixed:
+        Ds: List[int] = [
+            round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
+            for _ in range(T)
+        ]
+        D = np.average(Ds)
+    else:
+        Ds: List[int] = [D] * T
+
+    if pooling is None or pooling == "sum":
+        pooling = "sum"
+        pooling_mode = PoolingMode.SUM
+        do_pooling = True
+    elif pooling == "mean":
+        pooling_mode = PoolingMode.MEAN
+        do_pooling = True
+    else:  # "none"
+        pooling_mode = PoolingMode.NONE
+        do_pooling = False
+
+    feature_table_map = list(range(T))
+    common_args: Dict[str, Any] = {
+        "feature_table_map": feature_table_map,
+        "learning_rate": 0.1,
+        "eps": 0.1,
+        "pooling_mode": pooling_mode,
+    }
+    common_split_tbe_args: Dict[str, Any] = {
+        # SSD only supports rowwise-adagrad
+        "optimizer": OptimType.EXACT_ROWWISE_ADAGRAD,
+        "weights_precision": weights_precision,
+        "output_dtype": output_dtype,
+    }
+    common_split_tbe_args.update(common_args)
+    split_tbe_compute_device: ComputeDevice = (
+        ComputeDevice.CUDA if torch.cuda.is_available() else ComputeDevice.CPU
+    )
+
+    def gen_split_tbe_generator(
+        location: EmbeddingLocation,
+    ) -> Callable[[], SplitTableBatchedEmbeddingBagsCodegen]:
+        return lambda: SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    d,
+                    location if torch.cuda.is_available() else EmbeddingLocation.HOST,
+                    split_tbe_compute_device,
+                )
+                for d in Ds
+            ],
+            **common_split_tbe_args,
+        )
+
+    # TODO: Adjust cache sets
+    cache_set = max(T * B * L, 1)
+    tbe_generators = {
+        "HBM": gen_split_tbe_generator(EmbeddingLocation.DEVICE),
+        "UVM": gen_split_tbe_generator(EmbeddingLocation.MANAGED),
+        "UVM_CACHING": gen_split_tbe_generator(EmbeddingLocation.MANAGED_CACHING),
+        "SSD": lambda: SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, d) for d in Ds],
+            cache_sets=cache_set,
+            ssd_storage_directory=tempfile.mkdtemp(),
+            ssd_cache_location=EmbeddingLocation.MANAGED,
+            **common_args,
+        ),
+    }
+
+    # Generate input data
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weighted=weighted,
+        requests_data_file=requests_data_file,
+        tables=tables,
+        use_cpu=not torch.cuda.is_available(),
+    )
+
+    # Generate gradients for backward
+    if do_pooling:
+        grad_output = torch.randn(B, sum(Ds)).to(get_device())
+    else:
+        grad_output = torch.randn(B * T * L, D).to(get_device())
+
+    # Compute read/write bytes
+    param_size_multiplier = weights_precision.bit_rate() / 8.0
+    output_size_multiplier = output_dtype.bit_rate() / 8.0
+    if do_pooling:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds)
+            + param_size_multiplier * B * sum(Ds) * L
+        )
+    else:
+        read_write_bytes = (
+            output_size_multiplier * B * sum(Ds) * L
+            + param_size_multiplier * B * sum(Ds) * L
+        )
+
+    # Compute width of test name and bandwidth widths to improve report
+    # readability
+    name_width = 0
+    for k in tbe_generators.keys():
+        name_width = max(name_width, len(k))
+    name_width += len("Backward") + 2
+    bw_width = 8
+
+    def gen_forward_func(
+        emb: Union[SplitTableBatchedEmbeddingBagsCodegen, SSDTableBatchedEmbeddingBags],
+        feature_requires_grad: Optional[torch.Tensor],
+    ) -> Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor]:
+        return lambda indices, offsets, per_sample_weights: emb.forward(
+            indices.long(),
+            offsets.long(),
+            per_sample_weights,
+            feature_requires_grad=feature_requires_grad,
+        )
+
+    # Execute tests
+    report = []
+    nparams = 0
+    for prefix, generator in tbe_generators.items():
+        # Instantiate TBE
+        emb = generator().to(get_device())
+
+        # Forward
+        time_per_iter = benchmark_requests(
+            requests,
+            gen_forward_func(emb, feature_requires_grad),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            num_warmups=warmup_runs,
+        )
+        test_name = f"{prefix} Forward,"
+        bw = f"{read_write_bytes / time_per_iter / 1.0e9: .2f}"
+        report.append(
+            f"{test_name: <{name_width}} B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {bw: <{bw_width}} GB/s, "  # noqa: B950
+            f"T: {time_per_iter * 1.0e6:.0f}us"
+        )
+
+        # Backward
+        time_per_iter = benchmark_requests(
+            requests,
+            gen_forward_func(emb, feature_requires_grad),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            bwd_only=True,
+            grad=grad_output,
+            num_warmups=warmup_runs,
+        )
+
+        test_name = f"{prefix} Backward,"
+        bw = f"{2 * read_write_bytes / time_per_iter / 1.0e9: .2f}"
+        report.append(
+            f"{test_name: <{name_width}} B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {bw: <{bw_width}} GB/s, "
+            f"T: {time_per_iter * 1.0e6:.0f}us"
+        )
+
+        # Compute nparams once
+        if prefix == "HBM":
+            nparams = sum(w.numel() for w in emb.split_embedding_weights())
+
+        # Delete module to make room for other modules
+        del emb
+
+    # Print report
+    logging.info(
+        f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
+        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+    logging.info(
+        f"Accessed weights per batch: {B * sum(Ds) * L * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+    for r in report:
+        logging.info(r)
+
+
+@cli.command()
 @click.option("--alpha", default=1.0)
 @click.option("--bag-size", default=20)
 @click.option("--batch-size", default=512)
@@ -232,7 +502,6 @@ def nbit_ssd(
     enforce_hbm: bool,
     ssd_cache_loc: str,
 ) -> None:
-    import tempfile
 
     np.random.seed(42)
     torch.manual_seed(42)
