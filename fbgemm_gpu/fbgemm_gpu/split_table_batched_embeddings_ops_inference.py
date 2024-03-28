@@ -267,7 +267,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         def max_ty_D(ty: SparseType) -> int:
             return max(
-                [dim for dim, weight_ty in zip(dims, weights_tys) if weight_ty == ty],
+                [
+                    dim
+                    for dim, weight_ty in zip(dims, weights_tys)
+                    if weight_ty == ty or weight_ty.value == ty.value
+                ],
                 default=0,
             )
 
