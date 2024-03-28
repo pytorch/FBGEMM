@@ -19,7 +19,6 @@
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
-{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select) %}
 
 #include "codegen/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
@@ -560,7 +559,7 @@ batch_index_select_dim0_codegen_forward_kernel
 
 {%- macro instantiate_templates(use_subwarp_shuffle) %}
 {%- set has_experimental =
-      has_experimental_support(dense, nobag, vbe, is_index_select)
+      has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm)
 %}
 {%- set max_forward_embedding_dim =
       legacy_max_embedding_dim if has_experimental else max_embedding_dim
