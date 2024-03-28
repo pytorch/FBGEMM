@@ -126,13 +126,37 @@ static at::Tensor qlinear_qparams(
     at::Tensor weight_scale,
     at::Tensor weight_zero_point,
     at::Tensor relu) {
-  assert(x.options().dtype() == at::kHalf);
-  assert(weight.options().dtype() == at::kQInt8);
-  assert(bias.options().dtype() == at::kFloat);
-  assert(input_scale.options().dtype() == at::kFloat);
-  assert(weight_scale.options().dtype() == at::kFloat);
-  assert(weight_zero_point.options().dtype() == at::kQUInt8);
-  return x;
+  at::Tensor X = x.contiguous();
+  at::Tensor W = weight.contiguous();
+  at::Tensor b = bias.contiguous();
+  at::Tensor Input_scale = input_scale.contiguous();
+  at::Tensor Weight_scale = weight_scale.contiguous();
+  at::Tensor Weight_zero_point = weight_zero_point.contiguous();
+
+  const auto x_dimensions = X.sizes();
+  const int x_num_dim = x_dimensions.size();
+  const float* X_data = (const float*)X.contiguous().storage().data();
+
+  // X.sizes = M * K
+  const int M = x_dimensions[0];
+  const int K = x_dimensions[x_num_dim - 1];
+
+  std::vector<float> Y_range_vec = std::vector<float>(M);
+  for (int m = 0; m < M; m++) {
+    float tmp_max = 0.0f;
+    for (int k = 0; k < K; k++) {
+      float x = X_data[m * K + k];
+      float abs_x = std::abs(x);
+      if (abs_x > tmp_max) {
+        tmp_max = abs_x;
+      }
+    }
+    Y_range_vec[m] = tmp_max / 127.0f;
+  }
+
+  auto Y = at::from_blob(
+      Y_range_vec.data(), {M}, at::TensorOptions().dtype(torch::kFloat32));
+  return Y;
 }
 
 static at::Tensor qlinear_dynamic(
