@@ -119,7 +119,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 {%- for nobag in [True, False] %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
-{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -294,7 +294,7 @@ batch_index_select_dim0_codegen_forward_kernel(
 {%- for nobag in [True, False] %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
-{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm) %}
 
 Tensor
 {%- if is_index_select %}
