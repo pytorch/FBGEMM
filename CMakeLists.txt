@@ -268,6 +268,8 @@ if(NOT TARGET asmjit)
   endif()
 
   target_compile_options_if_supported(asmjit -Wno-deprecated-anon-enum-enum-conversion)
+  target_compile_options_if_supported(asmjit -Wno-error=deprecated-enum-enum-conversion)
+  target_compile_options_if_supported(asmjit -Wno-deprecated-enum-enum-conversion)
 
   if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
     # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
