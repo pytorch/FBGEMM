@@ -300,7 +300,8 @@ endmacro()
 
 foreach(script
     "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
-    "${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py")
+    "${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_forward_quantized.py")
     RUN_GEN_SCRIPT(${script})
 endforeach()
 
@@ -554,7 +555,7 @@ set_source_files_properties(${fbgemm_sources}
 
 set(fbgemm_gpu_sources_static_cpu
     codegen/embedding_forward_split_cpu.cpp
-    codegen/embedding_forward_quantized_host_cpu.cpp
+    codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
@@ -580,7 +581,7 @@ set(fbgemm_gpu_sources_static_cpu
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
-    codegen/embedding_forward_quantized_host.cpp
+    codegen/inference/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host.cpp
     src/memory_utils/memory_utils.cpp
@@ -621,7 +622,7 @@ endif()
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu
       codegen/embedding_bounds_check.cu
-      codegen/embedding_forward_quantized_split_lookup.cu
+      codegen/inference/embedding_forward_quantized_split_lookup.cu
       src/memory_utils/memory_utils.cu
       src/memory_utils/memory_utils_ops.cu
       src/embedding_inplace_ops/embedding_inplace_update.cu
