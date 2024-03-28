@@ -319,12 +319,14 @@ class CacheTest(unittest.TestCase):
             )
 
             def assert_event_exist(
-                event_name: str, steps: List[int], expected_value: List[int]
+                event_name: str,
+                steps: List[int],
+                expected_value: Optional[List[int]] = None,
             ) -> None:
                 self.assertEqual(
                     len(stats_reporter.reported_data[event_name]), len(steps)
                 )
-                if len(expected_value) > 0:
+                if expected_value:
                     self.assertEqual(len(expected_value), len(steps))
                 for i, step in enumerate(steps):
                     (
@@ -336,7 +338,7 @@ class CacheTest(unittest.TestCase):
                     ) = stats_reporter.reported_data[event_name].pop(0)
                     self.assertEqual(rep_step, step)
                     self.assertEqual(rep_event, event_name)
-                    if len(expected_value) > 0:
+                    if expected_value:
                         self.assertEqual(rep_val, expected_value[i])
                     else:
                         self.assertGreaterEqual(float(rep_val), 0)
@@ -351,6 +353,16 @@ class CacheTest(unittest.TestCase):
             #
             # On the other side, if a reporting event happens after forward(), it'll
             # have step timestamp 0 ~ 4, so only 1, 3 steps will be in.
+
+            assert_event_exist(
+                "tbe.total_hbm_usage",
+                [1, 3, 5],
+            )
+            assert_event_exist(
+                "tbe.total_uvm_usage",
+                [1, 3, 5],
+            )
+
             assert_event_exist("bwd_wait_for_prefetch", [1, 3, 5], [])
             assert_event_exist(
                 "tbe.fwd_input_size",
