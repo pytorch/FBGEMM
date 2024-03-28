@@ -361,9 +361,9 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& weights_offsets,
     {%- if not nobag or is_index_select %}
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D_,
     {%- else %}
-    const int64_t D,
+    const c10::SymInt D_,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -415,6 +415,11 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     int64_t total_unique_indices
     {%- endif %}
 ) {
+    {%- if not nobag or is_index_select %}
+    const int64_t max_D = max_D_.guard_int(__FILE__, __LINE__);
+    {%- else %}
+    const int64_t D = D_.guard_int(__FILE__, __LINE__);
+    {%- endif %}
 
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
         {%- if optimizer != "none" %}
@@ -1080,9 +1085,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    Tensor weights_offsets, "
           {%- if not nobag or is_index_select %}
           "    Tensor D_offsets, "
-          "    int max_D, "
+          "    SymInt max_D, "
           {%- else %}
-          "    int D, "
+          "    SymInt D, "
           {%- endif %}
           "    Tensor hash_size_cumsum, "
           "    int total_hash_size_bits, "
