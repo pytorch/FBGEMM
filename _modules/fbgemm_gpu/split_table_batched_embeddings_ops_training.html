@@ -579,6 +579,7 @@
     <span class="n">enforce_hbm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">make_dev_param</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">dev_reshape</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">uvm_tensors_log</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">set_attr_fn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_physical_placements&quot;</span><span class="p">,</span> <span class="n">split</span><span class="o">.</span><span class="n">placements</span><span class="p">)</span>
     <span class="n">set_attr_fn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_physical_offsets&quot;</span><span class="p">,</span> <span class="n">split</span><span class="o">.</span><span class="n">offsets</span><span class="p">)</span>
@@ -635,6 +636,8 @@
                     <span class="p">)</span>
                 <span class="p">),</span>
             <span class="p">)</span>
+        <span class="k">if</span> <span class="n">uvm_tensors_log</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">uvm_tensors_log</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_host&quot;</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">persistent_state_fn</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_host&quot;</span><span class="p">,</span>
@@ -668,6 +671,8 @@
                     <span class="p">),</span>
                 <span class="p">),</span>
             <span class="p">)</span>
+            <span class="k">if</span> <span class="n">uvm_tensors_log</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">uvm_tensors_log</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_uvm&quot;</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">persistent_state_fn</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_uvm&quot;</span><span class="p">,</span>
@@ -857,6 +862,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEStatsReporter</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">stats_reporter_config</span><span class="o">.</span><span class="n">create_reporter</span><span class="p">()</span> <span class="k">if</span> <span class="n">stats_reporter_config</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_uvm_tensors_log</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">bwd_wait_prefetch_timer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AsyncSeriesTimer</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="p">:</span>
@@ -1325,6 +1331,44 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_duration</span><span class="p">(</span><span class="n">it_step</span><span class="p">,</span> <span class="n">event_name</span><span class="p">,</span> <span class="n">dur_ms</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="k">def</span> <span class="nf">_report_tbe_mem_usage</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">stats_reporter</span><span class="p">:</span> <span class="n">TBEStatsReporter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">stats_reporter</span><span class="o">.</span><span class="n">should_report</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">):</span>
+            <span class="k">return</span>
+
+        <span class="n">total_mem_usage</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+            <span class="n">param</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="n">param</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">()</span>
+        <span class="p">)</span> <span class="o">+</span> <span class="nb">sum</span><span class="p">(</span><span class="n">buffer</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="n">buffer</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="k">for</span> <span class="n">buffer</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">buffers</span><span class="p">())</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_cpu</span><span class="p">:</span>
+            <span class="n">total_hbm_usage</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">total_uvm_usage</span> <span class="o">=</span> <span class="n">total_mem_usage</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># hbm usage is total usage minus uvm usage</span>
+            <span class="n">total_uvm_usage</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+                <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+                <span class="o">*</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">tensor_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_uvm_tensors_log</span>
+                <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tensor_name</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">total_hbm_usage</span> <span class="o">=</span> <span class="n">total_mem_usage</span> <span class="o">-</span> <span class="n">total_uvm_usage</span>
+
+        <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
+            <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
+            <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.total_hbm_usage&quot;</span><span class="p">,</span>
+            <span class="n">data_bytes</span><span class="o">=</span><span class="n">total_hbm_usage</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
+            <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
+            <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.total_uvm_usage&quot;</span><span class="p">,</span>
+            <span class="n">data_bytes</span><span class="o">=</span><span class="n">total_uvm_usage</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">_report_io_size_count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">data</span>
@@ -1498,6 +1542,7 @@
 
         <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+=</span> <span class="mi">1</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;fwd_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_report_tbe_mem_usage</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">)</span>
@@ -2243,6 +2288,7 @@
             <span class="n">enforce_hbm</span><span class="p">,</span>
             <span class="n">make_dev_param</span><span class="p">,</span>
             <span class="n">dev_reshape</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_uvm_tensors_log</span><span class="p">,</span>
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_apply_cache_state</span><span class="p">(</span>
