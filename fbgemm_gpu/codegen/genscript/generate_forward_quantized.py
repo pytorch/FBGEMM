@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 try:
-    from .common import args, env, write
+    from .common import CodeTemplate
 except:
     # pyre-ignore[21]
-    from common import args, env, write
+    from common import CodeTemplate
 
 
 @dataclass
@@ -117,54 +117,50 @@ class ForwardQuantizedGenerator:
     @staticmethod
     def generate_nbit_kernel() -> None:
         # Generate the CUDA nbit (kernel) templates
-        template = env.get_template(
+        template = CodeTemplate.load(
             f"inference/embedding_forward_quantized_split_nbit_kernel_template.cu"
         )
         for weighted in [True, False]:
             for nobag in [True, False]:
                 if not nobag or not weighted:
                     for emb_weight_type in ELEM_TYPES:
-                        wdesc = f"{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }"
-                        filename = f"gen_embedding_forward_quantized_split_nbit_kernel_{ wdesc }_{ emb_weight_type.enum_name.lower() }_codegen_cuda.cu"
-                        write(
-                            filename,
-                            template.render(
-                                weighted=weighted,
-                                nobag=nobag,
-                                emb_weight_type=emb_weight_type,
-                            ),
+                        wdesc = f"{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }_{ emb_weight_type.enum_name.lower() }"
+                        template.write(
+                            f"gen_embedding_forward_quantized_split_nbit_kernel_{ wdesc }_codegen_cuda.cu",
+                            weighted=weighted,
+                            nobag=nobag,
+                            emb_weight_type=emb_weight_type,
                         )
-                        print(f"[Forward Quantized]: {filename}")
 
     @staticmethod
     def generate_nbit_host() -> None:
         # Generate the CUDA nbit (host) templates
-        template = env.get_template(
+        template = CodeTemplate.load(
             f"inference/embedding_forward_quantized_split_nbit_host_template.cu"
         )
         for weighted in [True, False]:
             for nobag in [True, False]:
                 if not nobag or not weighted:
                     wdesc = f"{ 'weighted' if weighted else 'unweighted' }{ '_nobag' if nobag else '' }"
-                    filename = f"gen_embedding_forward_quantized_split_nbit_host_{ wdesc }_codegen_cuda.cu"
-                    write(
-                        filename,
-                        template.render(
-                            weighted=weighted, nobag=nobag, type_map=ELEM_TYPES_MAP
-                        ),
+                    template.write(
+                        f"gen_embedding_forward_quantized_split_nbit_host_{ wdesc }_codegen_cuda.cu",
+                        weighted=weighted,
+                        nobag=nobag,
+                        type_map=ELEM_TYPES_MAP,
                     )
-                    print(f"[Forward Quantized]: {filename}")
 
     @staticmethod
     def generate_nbit_cpu() -> None:
         # Generate the CPU templates
-        template = env.get_template(
+        template = CodeTemplate.load(
             f"inference/embedding_forward_quantized_cpu_template.cpp"
         )
         for weighted in [True, False]:
-            filename = f"gen_embedding_forward_quantized_{ 'weighted' if weighted else 'unweighted' }_codegen_cpu.cpp"
-            write(filename, template.render(weighted=weighted, type_map=ELEM_TYPES_MAP))
-            print(f"[Forward Quantized]: {filename}")
+            template.write(
+                f"gen_embedding_forward_quantized_{ 'weighted' if weighted else 'unweighted' }_codegen_cpu.cpp",
+                weighted=weighted,
+                type_map=ELEM_TYPES_MAP,
+            )
 
     @staticmethod
     def generate() -> None:
