@@ -27,7 +27,6 @@ static at::Tensor qlinear_channelwise(
   at::Tensor X = x.contiguous();
   at::Tensor W = weight.contiguous();
   at::Tensor b = bias.contiguous();
-  at::Tensor Input_scale = input_scale.contiguous();
   at::Tensor Weight_scale = weight_scale.contiguous();
   at::Tensor Weight_zero_point = weight_zero_point.contiguous();
 
@@ -66,16 +65,11 @@ static at::Tensor qlinear_channelwise(
   }
 
   // re-scale to fp & add bias
-  // Input_scale.sizes = M, Weight_scale.sizes = 1, b.sizes = N
-  std::vector<float> O_scale = std::vector<float>(M);
-  for (int i = 0; i < M; i++) {
-    O_scale[i] =
-        Input_scale[i].item().toFloat() * Weight_scale[0].item().toFloat();
-  }
-
   for (int i = 0; i < M; i++) {
     for (int j = 0; j < N; j++) {
-      float Y_tmp = (Y_fp_vec[i * N + j] * O_scale[i]) + b_data[j];
+      float tmp_scale =
+          input_scale[i].item().toFloat() * Weight_scale[0].item().toFloat();
+      float Y_tmp = (Y_fp_vec[i * N + j] * tmp_scale) + b_data[j];
       if (Y_tmp > 65504.0f) {
         Y_tmp = 65504.0f;
       }
@@ -167,13 +161,12 @@ static at::Tensor qlinear_dynamic(
     at::Tensor weight_scale,
     at::Tensor weight_zero_point,
     at::Tensor relu) {
-  assert(x.options().dtype() == at::kHalf);
-  assert(weight.options().dtype() == at::kQInt8);
-  assert(bias.options().dtype() == at::kFloat);
-  assert(input_scale.options().dtype() == at::kFloat);
-  assert(weight_scale.options().dtype() == at::kFloat);
-  assert(weight_zero_point.options().dtype() == at::kQUInt8);
-  return x;
+  input_scale = qlinear_qparams(
+      x, weight, bias, input_scale, weight_scale, weight_zero_point, relu);
+  x = qlinear_quant(
+      x, weight, bias, input_scale, weight_scale, weight_zero_point, relu);
+  return qlinear_channelwise(
+      x, weight, bias, input_scale, weight_scale, weight_zero_point, relu);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
