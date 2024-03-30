@@ -10,6 +10,7 @@
 
 import argparse
 import os
+import re
 from typing import Dict, List, Optional, Tuple
 
 import jinja2
@@ -70,8 +71,9 @@ env.globals["fixed_max_vecs_per_thread"] = {"backward": 2, "backward_indice_weig
 env.globals["dense"] = False
 env.globals["is_rocm"] = args.is_rocm
 
+
 ################################################################################
-## Helper functions in  Jinja Environment
+# Helper functions in Jinja Environment
 ################################################################################
 
 
@@ -293,7 +295,7 @@ def has_experimental_support(
 
 
 ################################################################################
-# Register Functions in Jinja Environment
+# Register Helper Functions in Jinja Environment
 ################################################################################
 
 env.globals["generate_optimized_grad_sum_loop_access"] = (
@@ -305,3 +307,50 @@ env.globals["dispatch_non_vec_blocking_kernel"] = dispatch_non_vec_blocking_kern
 env.globals["dispatch_vec_blocking_kernel"] = dispatch_vec_blocking_kernel
 env.globals["is_valid_forward_config"] = is_valid_forward_config
 env.globals["has_experimental_support"] = has_experimental_support
+
+
+################################################################################
+# Filter functions in Jinja Environment
+################################################################################
+
+
+# Format the macro call to generate pta::PackedTensorAccessors
+def make_pta_acc_format(pta_str_list: List[str], func_name: str) -> List[str]:
+    new_str_list = []
+    for pta_str in pta_str_list:
+        if "packed_accessor" in pta_str:
+            match = re.search(
+                r"([a-zA-z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
+            )
+            assert match is not None and len(match.groups()) == 3
+            tensor, acc_nbits, args = match.groups()
+            if "acc_type" in args:
+                match = re.search("at::acc_type<([a-zA-Z_]*), true>", args)
+                assert match is not None and len(match.groups()) == 1
+                new_type = match.group(1)
+                args = re.sub("at::acc_type<[a-zA-Z_]*, true>", new_type, args)
+                macro_name = "MAKE_PTA_ACC_WITH_NAME"
+            else:
+                macro_name = "MAKE_PTA_WITH_NAME"
+            args = args.replace(", at::RestrictPtrTraits", "")
+            new_str_list.append(
+                f"{macro_name}({func_name}, {tensor}, {args}, {acc_nbits})"
+            )
+        else:
+            new_str_list.append(pta_str)
+    return new_str_list
+
+
+def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
+    return [
+        pta_str.replace("at::PackedTensorAccessor", "pta::PackedTensorAccessor")
+        for pta_str in pta_str_list
+    ]
+
+
+################################################################################
+# Register Filter Functions in Jinja Environment
+################################################################################
+
+env.filters["make_pta_acc_format"] = make_pta_acc_format
+env.filters["replace_pta_namespace"] = replace_pta_namespace
