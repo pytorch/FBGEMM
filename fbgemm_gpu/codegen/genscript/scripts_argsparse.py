@@ -26,3 +26,5 @@ parser.add_argument("--is_rocm", action="store_true")
 args: argparse.Namespace
 _: List[str]
 args, _ = parser.parse_known_args()
+
+print(f"[ARGS PARSE] Parsed arguments: {args}")
