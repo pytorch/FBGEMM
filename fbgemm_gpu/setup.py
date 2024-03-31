@@ -8,12 +8,11 @@
 
 import argparse
 import os
-import random
 import re
 import subprocess
 import sys
 import textwrap
-
+from dataclasses import dataclass
 from datetime import date
 from typing import List, Optional
 
@@ -25,278 +24,324 @@ from skbuild import setup
 from tabulate import tabulate
 
 
-def parse_args(argv: List[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="fbgemm_gpu setup")
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Print verbose logs during the build.",
-    )
-    parser.add_argument(
-        "--package_variant",
-        type=str,
-        choices=["cpu", "cuda", "rocm"],
-        default="cuda",
-        help="The FBGEMM_GPU variant to build.",
-    )
-    parser.add_argument(
-        "--package_name",
-        type=str,
-        default="fbgemm_gpu",
-        help="The candidate name of the output wheel.",
-    )
-    parser.add_argument(
-        "--nvml_lib_path",
-        type=str,
-        default=None,
-        help="Certain operations require the nvml lib (libnvidia-ml.so). If you installed"
-        " this in a custom location (through cudatoolkit-dev), provide the path here.",
-    )
-    parser.add_argument(
-        "--cxxprefix",
-        type=str,
-        default=None,
-        # nargs=2,
-        # metavar=("name", "path"),
-        help="Explicit compiler path.",
-    )
+@dataclass(frozen=True)
+class FbgemmGpuBuild:
+    args: argparse.Namespace
+    other_args: List[str]
 
-    setup_py_args, other_args = parser.parse_known_args(argv)
-
-    print(f"[SETUP.PY] Parsed setup.py arguments: {setup_py_args}")
-    print(f"[SETUP.PY] Other arguments: {other_args}")
-    return setup_py_args, other_args
-
-
-def nvcc_ok(cuda_home: str, major: int, minor: int) -> bool:
-    if not cuda_home:
-        return False
-
-    nvcc_path = f"{cuda_home}/bin/nvcc"
-    if not os.path.exists(nvcc_path):
-        return False
-
-    try:
-        # Extract version from version string - inspired my NVIDIA/apex
-        output = subprocess.check_output([nvcc_path, "-V"], text=True)
-        fragments = output.split()
-        version = fragments[fragments.index("release") + 1]
-        version_fragments = version.split(".")
-        major_nvcc = int(version_fragments[0])
-        minor_nvcc = int(version_fragments[1].split(",")[0])
-        result = major == major_nvcc and minor == minor_nvcc
-    except BaseException:
-        result = False
-
-    return result
-
-
-def find_cuda(major: int, minor: int) -> Optional[str]:
-    cuda_home = os.environ.get("CUDA_BIN_PATH")
-    if nvcc_ok(cuda_home, major, minor):
-        return cuda_home
-
-    cuda_nvcc = os.environ.get("CUDACXX")
-
-    if cuda_nvcc and os.path.exists(cuda_nvcc):
-        cuda_home = os.path.dirname(os.path.dirname(cuda_nvcc))
-        if nvcc_ok(cuda_home, major, minor):
-            return cuda_home
-
-    # Search standard installation location with version first
-    cuda_home = f"/usr/local/cuda-{major}.{minor}"
-    if nvcc_ok(cuda_home, major, minor):
-        return cuda_home
-
-    cuda_home = "/usr/local/cuda"
-    if nvcc_ok(cuda_home, major, minor):
-        return cuda_home
-
-    try:
-        # Try to find nvcc with which
-        with open(os.devnull, "w") as devnull:
-            nvcc = (
-                subprocess.check_output(["which", "nvcc"], stderr=devnull)
-                .decode()
-                .rstrip("\r\n")
-            )
-            cuda_home = os.path.dirname(os.path.dirname(nvcc))
-
-    except Exception:
-        cuda_home = None
-
-    if nvcc_ok(cuda_home, major, minor):
-        return cuda_home
-
-    return None
-
-
-def set_cuda_environment_variables() -> None:
-    cub_include_path = os.getenv("CUB_DIR", None)
-    if cub_include_path is None:
-        print(
-            "CUDA CUB directory environment variable not set.  Using default CUB location."
-        )
-        if torch.version.cuda is not None:
-            cuda_version = torch.version.cuda.split(".")
-            cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
-        else:
-            cuda_home = False
-
-        if cuda_home:
-            print(f"Using CUDA = {cuda_home}")
-            os.environ["CUDA_BIN_PATH"] = cuda_home
-            os.environ["CUDACXX"] = f"{cuda_home}/bin/nvcc"
-
-
-def cmake_environment_variables(
-    setup_py_args: argparse.Namespace, other_args: List[str]
-) -> None:
-    def _get_cxx11_abi():
-        try:
-            value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
-        except ImportError:
-            value = 0
-        return "-DGLIBCXX_USE_CXX11_ABI=" + str(value)
-
-    torch_root = os.path.dirname(torch.__file__)
-    os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
-
-    cmake_args = [
-        f"-DCMAKE_PREFIX_PATH={torch_root}",
-        _get_cxx11_abi(),
-    ]
-
-    if setup_py_args.verbose:
-        print("[SETUP.PY] Building in VERBOSE mode ...")
-        cmake_args.append("-DCMAKE_VERBOSE_MAKEFILE=1")
-
-    if setup_py_args.package_variant == "cpu":
-        print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
-        cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
-
-    if setup_py_args.nvml_lib_path:
-        cmake_args.append(f"-DNVML_LIB_PATH={setup_py_args.nvml_lib_path}")
-
-    if setup_py_args.cxxprefix:
-        print("[SETUP.PY] Setting CMake flags ...")
-        path = setup_py_args.cxxprefix
-        cmake_args.extend(
-            [
-                f"-DCMAKE_C_COMPILER={path}/bin/cc",
-                f"-DCMAKE_CXX_COMPILER={path}/bin/c++",
-                f"-DCMAKE_C_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
-                f"-DCMAKE_CXX_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
-            ]
-        )
-
-    # Pass CMake args attached to the setup.py call over to the CMake invocation
-    for arg in other_args:
-        if arg.startswith("-D"):
-            cmake_args.append(arg)
-
-    print(f"[SETUP.PY] Passing CMake arguments: {cmake_args}")
-    return cmake_args
-
-
-class FbgemmGpuInstaller(PipInstall):
-    """FBGEMM_GPU PIP Installer"""
+    """FBGEMM_GPU Package Build Configuration"""
 
     @classmethod
-    def extract_package_name(cls, args_package_name: str) -> str:
-        package_name: str = ""
+    def from_args(cls, argv: List[str]):
+        parser = argparse.ArgumentParser(description="fbgemm_gpu setup")
+        parser.add_argument(
+            "--verbose",
+            action="store_true",
+            help="Print verbose logs during the build.",
+        )
+        parser.add_argument(
+            "--dryrun",
+            action="store_true",
+            help="Print build information only.",
+        )
+        parser.add_argument(
+            "--package_variant",
+            type=str,
+            choices=["cpu", "cuda", "rocm"],
+            default="cuda",
+            help="The FBGEMM_GPU variant to build.",
+        )
+        parser.add_argument(
+            "--package_channel",
+            type=str,
+            default="nightly",
+            choices=["nightly", "test", "release"],
+            help="The target package release channel that the output wheel is intended for.",
+        )
+        parser.add_argument(
+            "--nvml_lib_path",
+            type=str,
+            default=None,
+            help="Certain operations require the nvml lib (libnvidia-ml.so). If you installed"
+            " this in a custom location (through cudatoolkit-dev), provide the path here.",
+        )
+        parser.add_argument(
+            "--cxxprefix",
+            type=str,
+            default=None,
+            help="Explicit compiler path.",
+        )
 
+        setup_py_args, other_args = parser.parse_known_args(argv)
+        print(f"[SETUP.PY] Parsed setup.py arguments: {setup_py_args}")
+        print(f"[SETUP.PY] Other arguments: {other_args}")
+        return FbgemmGpuBuild(setup_py_args, other_args)
+
+    def nova_flag(self) -> Optional[bool]:
         if "BUILD_FROM_NOVA" in os.environ:
-            nova_flag = os.getenv("BUILD_FROM_NOVA")
-            print(f"[SETUP.PY] BUILD_FROM_NOVA={nova_flag}")
+            if str(os.getenv("BUILD_FROM_NOVA")) == "0":
+                return 0
+            else:
+                return 1
+        else:
+            return None
 
+    def package_name(self) -> str:
+        pkg_name: str = "fbgemm_gpu"
+
+        if self.nova_flag() == 1:
+            # When running in Nova workflow context, the actual package build is
+            # run in the Nova CI's "pre-script" step, as denoted by the
+            # `BUILD_FROM_NOVA` flag.  As such, we skip building in the clean
+            # and build wheel steps.
+            print(
+                "[SETUP.PY] Running under Nova workflow context (clean or build wheel step) ... exiting"
+            )
+            sys.exit(0)
+
+        elif self.nova_flag() == 0:
             # The package name is the same for all build variants in Nova
-            package_name = "fbgemm_gpu"
-
-            if str(nova_flag) != "0":
-                # Skip build clean and build wheel steps in Nova workflow since
-                # they are done in pre-script
-                print("[SETUP.PY] Build from Nova detected... exiting.")
-                sys.exit(0)
+            pass
 
         else:
-            package_name = args_package_name
+            # If running outside of Nova workflow context, append the channel
+            # and variant to the package name as needed
+            if self.args.package_channel != "release":
+                pkg_name += f"_{self.args.package_channel}"
 
-        print(f"[SETUP.PY] Extracted the package name: '{package_name}'")
-        return package_name
+            if self.args.package_variant != "cuda":
+                pkg_name += f"-{self.args.package_variant}"
 
-    @classmethod
-    def extract_variant_version(cls, variant: str) -> str:
-        variant_version: str = ""
+        print(f"[SETUP.PY] Determined the Python package name: '{pkg_name}'")
+        return pkg_name
 
-        if variant == "cpu":
-            variant_version = "+cpu"
+    def variant_version(self) -> str:
+        pkg_vver: str = ""
 
-        elif variant == "cuda":
-            set_cuda_environment_variables()
+        if self.nova_flag() is None:
+            # If not running in a Nova workflow, then use the
+            # `fbgemm_gpu-<variant>` naming convention for the package, since
+            # PyPI does not accept version+xx in the naming convention.
+            print(
+                "[SETUP.PY] Not running under Nova workflow context; ignoring variant_version"
+            )
+            return pkg_vver
+
+        if self.args.package_variant == "cuda":
+            CudaUtils.set_cuda_environment_variables()
             if torch.version.cuda is not None:
                 cuda_version = torch.version.cuda.split(".")
-                variant_version = f"+cu{cuda_version[0]}{cuda_version[1]}"
+                pkg_vver = f"+cu{cuda_version[0]}{cuda_version[1]}"
             else:
                 sys.exit(
                     "[SETUP.PY] Installed PyTorch variant is not CUDA; cannot determine the CUDA version!"
                 )
 
-        elif variant == "rocm":
+        elif self.args.package_variant == "rocm":
             if torch.version.hip is not None:
                 rocm_version = torch.version.hip.split(".")
-                variant_version = f"+rocm{rocm_version[0]}.{rocm_version[1]}"
+                pkg_vver = f"+rocm{rocm_version[0]}.{rocm_version[1]}"
             else:
                 sys.exit(
                     "[SETUP.PY] Installed PyTorch variant is not ROCm; cannot determine the ROCm version!"
                 )
+
         else:
-            sys.exit(
-                f"[SETUP.PY] Unrecognized build variant variant '{variant}'; cannot proceed with FBGEMM_GPU build!"
-            )
+            pkg_vver = "+cpu"
 
-        if "BUILD_FROM_NOVA" not in os.environ:
-            # If not building from Nova, use the fbgemm_gpu-<variant>
-            # PyPI does not accept version+xx in the name convention.
-            print("[SETUP.PY] Not building FBGEMM_GPU from Nova.")
-            variant_version = ""
+        print(f"[SETUP.PY] Extracted the package variant+version: '{pkg_vver}'")
+        return pkg_vver
 
-        print(f"[SETUP.PY] Extracted the package variant+version: '{variant_version}'")
-        return variant_version
+    def package_version(self):
+        pkg_vver = self.variant_version()
 
-    @classmethod
-    def generate_package_version(cls, package_name: str, variant_version: str):
-        print("[SETUP.PY] Generating the package version ...")
+        print("[SETUP.PY] Extracting the package version ...")
+        print(
+            f"[SETUP.PY] TAG: {gitversion.get_tag()}, BRANCH: {gitversion.get_branch()}, SHA: {gitversion.get_sha()}"
+        )
 
-        if "nightly" in package_name:
+        if self.args.package_channel == "nightly":
             # Use date stamp for nightly versions
             print(
                 "[SETUP.PY] Package is for NIGHTLY; using timestamp for the versioning"
             )
             today = date.today()
-            version = f"{today.year}.{today.month}.{today.day}"
+            pkg_version = f"{today.year}.{today.month}.{today.day}"
 
-        elif "test" in package_name and "BUILD_FROM_NOVA" not in os.environ:
-            # Use random numbering for test versions
-            print(
-                "[SETUP.PY] Package is for TEST: using random number for the versioning"
+        elif self.nova_flag() is not None:
+            # For Nova workflow contexts, we want to strip out the `rcN` suffix
+            # from the git-tagged version strings, regardless of test or release
+            # channels.  This is done to comply with PyTorch PIP package naming
+            # convensions
+
+            # Remove -rcN, .rcN, or rcN (e.g. 0.4.0-rc0 => 0.4.0)
+            pkg_version = re.sub(
+                r"(\.|\-)*rc\d+$",
+                "",
+                # Remove postN (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
+                re.sub(
+                    r"\.post\d+$",
+                    "",
+                    # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
+                    gitversion.version_from_git().split("+")[0],
+                ),
             )
-            version = (f"0.0.{random.randint(0, 1000)}",)
 
         else:
-            # Use git tag / branch / commit info to generate a PEP-440-compliant version string
-            print(
-                "[SETUP.PY] Package is for RELEASE: using git info for the versioning"
+            # For non-Nova workflow contexts, i.e. PyPI, we want to maintain the
+            # `rcN` suffix in the version string
+
+            # Remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
+            pkg_version = re.sub(
+                r"\.post0$",
+                "",
+                # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
+                gitversion.version_from_git().split("+")[0],
             )
-            print(
-                f"[SETUP.PY] TAG: {gitversion.get_tag()}, BRANCH: {gitversion.get_branch()}, SHA: {gitversion.get_sha()}"
+
+        full_version_string = f"{pkg_version}{pkg_vver}"
+        print(
+            f"[SETUP.PY] Setting the full package version string: {full_version_string}"
+        )
+        return full_version_string
+
+    def cmake_args(self) -> None:
+        def _get_cxx11_abi():
+            try:
+                value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
+            except ImportError:
+                value = 0
+            return "-DGLIBCXX_USE_CXX11_ABI=" + str(value)
+
+        torch_root = os.path.dirname(torch.__file__)
+        os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
+
+        cmake_args = [
+            f"-DCMAKE_PREFIX_PATH={torch_root}",
+            _get_cxx11_abi(),
+        ]
+
+        if self.args.verbose:
+            print("[SETUP.PY] Building in VERBOSE mode ...")
+            cmake_args.extend(
+                ["-DCMAKE_VERBOSE_MAKEFILE=ON", "-DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE"]
             )
-            # Remove the local version identifier, if any (e.g. 0.4.0rc0.post0+git.6a63116c.dirty => 0.4.0rc0.post0)
-            # Then remove post0 (keep postN for N > 0) (e.g. 0.4.0rc0.post0 => 0.4.0rc0)
-            version = re.sub(".post0$", "", gitversion.version_from_git().split("+")[0])
-        version = str(version) + variant_version
-        print(f"[SETUP.PY] Setting the full package version string: {version}")
-        return version
+
+        if self.args.package_variant == "cpu":
+            print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
+            cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
+
+        if self.args.nvml_lib_path:
+            cmake_args.append(f"-DNVML_LIB_PATH={self.args.nvml_lib_path}")
+
+        if self.args.cxxprefix:
+            print("[SETUP.PY] Setting CMake flags ...")
+            path = self.args.cxxprefix
+            cmake_args.extend(
+                [
+                    f"-DCMAKE_C_COMPILER={path}/bin/cc",
+                    f"-DCMAKE_CXX_COMPILER={path}/bin/c++",
+                    f"-DCMAKE_C_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
+                    f"-DCMAKE_CXX_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
+                ]
+            )
+
+        # Pass CMake args attached to the setup.py call over to the CMake invocation
+        for arg in self.other_args:
+            if arg.startswith("-D"):
+                cmake_args.append(arg)
+
+        print(f"[SETUP.PY] Passing CMake arguments: {cmake_args}")
+        return cmake_args
+
+
+class CudaUtils:
+    """CUDA Utilities"""
+
+    @classmethod
+    def nvcc_ok(cls, cuda_home: str, major: int, minor: int) -> bool:
+        if not cuda_home:
+            return False
+
+        nvcc_path = f"{cuda_home}/bin/nvcc"
+        if not os.path.exists(nvcc_path):
+            return False
+
+        try:
+            # Extract version from version string - inspired my NVIDIA/apex
+            output = subprocess.check_output([nvcc_path, "-V"], text=True)
+            fragments = output.split()
+            version = fragments[fragments.index("release") + 1]
+            version_fragments = version.split(".")
+            major_nvcc = int(version_fragments[0])
+            minor_nvcc = int(version_fragments[1].split(",")[0])
+            result = major == major_nvcc and minor == minor_nvcc
+        except BaseException:
+            result = False
+
+        return result
+
+    @classmethod
+    def find_cuda(cls, major: int, minor: int) -> Optional[str]:
+        cuda_home = os.environ.get("CUDA_BIN_PATH")
+        if cls.nvcc_ok(cuda_home, major, minor):
+            return cuda_home
+
+        cuda_nvcc = os.environ.get("CUDACXX")
+
+        if cuda_nvcc and os.path.exists(cuda_nvcc):
+            cuda_home = os.path.dirname(os.path.dirname(cuda_nvcc))
+            if cls.nvcc_ok(cuda_home, major, minor):
+                return cuda_home
+
+        # Search standard installation location with version first
+        cuda_home = f"/usr/local/cuda-{major}.{minor}"
+        if cls.nvcc_ok(cuda_home, major, minor):
+            return cuda_home
+
+        cuda_home = "/usr/local/cuda"
+        if cls.nvcc_ok(cuda_home, major, minor):
+            return cuda_home
+
+        try:
+            # Try to find nvcc with which
+            with open(os.devnull, "w") as devnull:
+                nvcc = (
+                    subprocess.check_output(["which", "nvcc"], stderr=devnull)
+                    .decode()
+                    .rstrip("\r\n")
+                )
+                cuda_home = os.path.dirname(os.path.dirname(nvcc))
+
+        except Exception:
+            cuda_home = None
+
+        if cls.nvcc_ok(cuda_home, major, minor):
+            return cuda_home
+
+        return None
+
+    @classmethod
+    def set_cuda_environment_variables(cls) -> None:
+        cub_include_path = os.getenv("CUB_DIR", None)
+        if cub_include_path is None:
+            print(
+                "[SETUP.PY] CUDA CUB directory environment variable not set.  Using default CUB location."
+            )
+            if torch.version.cuda is not None:
+                cuda_version = torch.version.cuda.split(".")
+                cuda_home = cls.find_cuda(int(cuda_version[0]), int(cuda_version[1]))
+            else:
+                cuda_home = False
+
+            if cuda_home:
+                print(f"[SETUP.PY] Using CUDA = {cuda_home}")
+                os.environ["CUDA_BIN_PATH"] = cuda_home
+                os.environ["CUDACXX"] = f"{cuda_home}/bin/nvcc"
+
+
+class FbgemmGpuInstall(PipInstall):
+    """FBGEMM_GPU PIP Install Routines"""
 
     @classmethod
     def generate_version_file(cls, package_version: str) -> None:
@@ -351,7 +396,7 @@ class FbgemmGpuInstaller(PipInstall):
 
         if cuda_version_declared != "None":
             cuda_version = cuda_version_declared.split(".")
-            cuda_home = find_cuda(int(cuda_version[0]), int(cuda_version[1]))
+            cuda_home = CudaUtils.find_cuda(int(cuda_version[0]), int(cuda_version[1]))
 
             actual_cuda_version = (
                 subprocess.run(
@@ -378,33 +423,31 @@ class FbgemmGpuInstaller(PipInstall):
 
 def main(argv: List[str]) -> None:
     # Handle command line args before passing to main setup() method.
-    setup_py_args, other_args = parse_args(argv)
-
+    build = FbgemmGpuBuild.from_args(argv)
     # Repair command line args for setup.
-    sys.argv = [sys.argv[0]] + other_args
+    sys.argv = [sys.argv[0]] + build.other_args
 
     # Extract the package name
-    package_name = FbgemmGpuInstaller.extract_package_name(setup_py_args.package_name)
-
-    # Extract the variant version, e.g. cpu, cu121, rocm5.6
-    variant_version = FbgemmGpuInstaller.extract_variant_version(
-        setup_py_args.package_variant
-    )
-
+    package_name = build.package_name()
     # Generate the full package version string
-    package_version = FbgemmGpuInstaller.generate_package_version(
-        setup_py_args.package_name, variant_version
-    )
+    package_version = build.package_version()
+
+    if build.args.dryrun:
+        print(
+            f"[SETUP.PY] Extracted package name and version: ({package_name} : {package_version})"
+        )
+        print("")
+        sys.exit(0)
 
     # Generate the version file
-    FbgemmGpuInstaller.generate_version_file(package_version)
+    FbgemmGpuInstall.generate_version_file(package_version)
 
     setup(
         name=package_name,
         version=package_version,
         author="FBGEMM Team",
         author_email="packages@pytorch.org",
-        long_description=FbgemmGpuInstaller.description(),
+        long_description=FbgemmGpuInstall.description(),
         long_description_content_type="text/markdown",
         url="https://github.com/pytorch/fbgemm",
         license="BSD-3",
@@ -422,9 +465,9 @@ def main(argv: List[str]) -> None:
             # nightly and test packages
             "numpy",
         ],
-        cmake_args=cmake_environment_variables(setup_py_args, other_args),
+        cmake_args=build.cmake_args(),
         cmdclass={
-            "install": FbgemmGpuInstaller,
+            "install": FbgemmGpuInstall,
         },
         # PyPI package information
         classifiers=[
@@ -442,5 +485,5 @@ def main(argv: List[str]) -> None:
 
 
 if __name__ == "__main__":
-    print(sys.argv)
+    print(f"[SETUP.PY] {sys.argv}")
     main(sys.argv[1:])

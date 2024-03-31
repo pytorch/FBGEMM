@@ -56,7 +56,7 @@ void randFill(aligned_vector<int64_t>& vec, int64_t low, int64_t high) {
 void llc_flush(std::vector<char>& llc) {
   volatile char* data = llc.data();
   for (size_t i = 0; i < llc.size(); i++) {
-    data[i]++;
+    data[i] = data[i] + 1;
   }
 }
 

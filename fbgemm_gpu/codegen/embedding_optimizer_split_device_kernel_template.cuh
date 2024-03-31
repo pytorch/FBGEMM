@@ -16,9 +16,10 @@ using namespace fbgemm_gpu;
 template <
     typename emb_t,
     typename cache_t,
-    size_t kMaxVecsPerThread,
+    int32_t kFixedMaxVecsPerThread,
     int32_t kThreadGroupSize = kWarpSize,
-    int32_t VEC_WIDTH
+    int32_t VEC_WIDTH,
+    bool kUseVecBlocking
 >
 DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& dev_weights,
@@ -27,7 +28,9 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& weights_placements,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>& weights_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& sorted_lxu_cache_locations,
-    Vec4T<at::acc_type<cache_t, true>>* grad_sum,
+    Vec4TAcc<cache_t>* grad_sum,
+    Vec4TAcc<cache_t>* smem_grad_sum,
+    Vec4TAcc<cache_t>* shared_weight_update_row,
     const bool stochastic_rounding,
     const at::PhiloxCudaState& stochastic_rounding_philox_args,
     const uint32_t run_id,
@@ -36,15 +39,19 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     const int32_t t,
     const int64_t idx,
     const uint32_t shfl_sync_mask,
-    const int32_t shared_weight_offset,
+    const int32_t max_vecs_per_thread,
     {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {
-    constexpr auto is_int8 = std::is_same<emb_t, uint8_t>::value;
+    constexpr auto kIsInt8 = std::is_same<emb_t, uint8_t>::value;
+    // Copy value to max_vecs to make max_vecs_per_thread known at compile time
+    // when kUseVecBlocking == false
+    const int32_t max_vecs =
+        kUseVecBlocking ? max_vecs_per_thread : kFixedMaxVecsPerThread;
     const int64_t weights_offset = weights_offsets[t];
     emb_t* __restrict__ weights {nullptr};
     cache_t* __restrict__ cache_weights {nullptr};
     int32_t D_emb = D;
-    if (is_int8) {
+    if (kIsInt8) {
         D_emb += kINT8QparamsBytes;
     }
     const auto weights_placement = static_cast<PlacementType>(weights_placements[t]);
@@ -70,10 +77,6 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     }
     {%- endfor %}
 
-    struct SharedMemory<Vec4T<at::acc_type<cache_t, true>>> weight_update_buffer;
-    Vec4T<at::acc_type<cache_t, true>>* shared_weight_update_row =
-        is_int8 ? weight_update_buffer.getPointer() : nullptr;
-
     StochasticRoundingRNGState state;
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
@@ -85,45 +88,45 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
             threadIdx.x + run_id * blockDim.x);
 
     float2 qparams_template;
-    if (is_int8 && !cache_weights) {
+    if (kIsInt8 && !cache_weights) {
         qparams_template = weight_row_template.load_qparams();
     }
 
     {{ split_precomputation }}
 
     float2 qparams_new;
-#pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0;
-        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-        ++i) {
-        int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-        Vec4T<at::acc_type<cache_t, true>> weight_new = weight_row_template.load(d, qparams_template);
-        auto& grad = grad_sum[i];
-        {{ split_weight_update }}
-        if (is_int8 && !cache_weights) {
-            shared_weight_update_row[
-                threadIdx.x + (i * kThreadGroupSize) + shared_weight_offset] = weight_new;
-        } else {
-            // qparams_new not used if type is not int8
-            weight_row_template.store(weight_new, d, qparams_new);
-        }
-    }
+    {{
+       generate_optimized_grad_sum_loop_access(
+           """
+           Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
+           Vec4TAcc<cache_t>& grad = {grad_vec};
+           {split_weight_update}
+           if (kIsInt8 && !cache_weights) {
+               shared_weight_update_row[d_vec] = weight_new;
+           } else {
+               // qparams_new not used if type is not int8
+               weight_row_template.store(weight_new, d, qparams_new);
+           }
+           """,
+           other_formats={"split_weight_update": split_weight_update},
+       )
+    }}
 
-    if (is_int8 && !cache_weights) {
+    if (kIsInt8 && !cache_weights) {
         // Calculate new qparams after row update
         qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(
-            &shared_weight_update_row[shared_weight_offset], D);
+            shared_weight_update_row, D);
         weight_row_template.store_qparams(qparams_new);
 
         // Fetch cached updated row from shared mem and quantize on-the-fly
         // when saving to lowp embedding
-#pragma unroll kMaxVecsPerThread
-        for (int32_t i = 0;
-            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-            ++i) {
-            const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+        for (int32_t vec = 0;
+            (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+            ++vec) {
+            const int32_t d_vec = vec * kThreadGroupSize + threadIdx.x;
+            const int32_t d = d_vec * VEC_WIDTH;
             weight_row_template.store(
-                shared_weight_update_row[threadIdx.x + (i * kThreadGroupSize) + shared_weight_offset],
+                shared_weight_update_row[d_vec],
                 d,
                 qparams_new);
         }

@@ -189,6 +189,15 @@ void bounds_check_indices_cuda(
     const int64_t max_B) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       rows_per_table, indices, offsets, warning, weights, B_offsets);
+  TENSOR_NDIM_EQUALS(rows_per_table, 1);
+  TENSOR_NDIM_EQUALS(indices, 1);
+  TENSOR_NDIM_EQUALS(offsets, 1);
+  TENSOR_NDIM_EQUALS(warning, 1);
+
+  const auto vbe = B_offsets.has_value();
+  if (vbe) {
+    TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
+  }
 
   CUDA_DEVICE_GUARD(rows_per_table);
 
@@ -204,7 +213,6 @@ void bounds_check_indices_cuda(
     warning.zero_();
   }
   const int64_t num_indices = indices.size(0);
-  const auto vbe = B_offsets.has_value();
 
   if (vbe) {
     TORCH_CHECK(max_B >= 0);

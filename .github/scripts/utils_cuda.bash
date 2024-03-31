@@ -69,6 +69,26 @@ install_cuda () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
 
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
+    # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the
+    # standard library.
+    #
+    # NOTE: NVCC_PREPEND_FLAGS is set here to allow the nvcc install check to
+    # pass.  It will be overridden to include more compilation flags during the
+    # FBGEMM_GPU build stage.
+    #
+    # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
+    #   https://github.com/ROCm/HIP/issues/931
+    #
+    echo "[BUILD] Explicitly setting Clang as the host compiler for NVCC: ${cxx_path}"
+
+    # shellcheck disable=SC2155,SC2086
+    local cxx_path=$(conda run ${env_prefix} which c++)
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
+  fi
+
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."
   # shellcheck disable=SC2086
@@ -133,8 +153,8 @@ install_cudnn () {
   fi
 
   # Clear the install path
-  rm -rf "$install_path"
-  mkdir -p "$install_path"
+  print_exec rm -rf "$install_path"
+  print_exec mkdir -p "$install_path"
 
   # Create temporary directory
   # shellcheck disable=SC2155
@@ -147,18 +167,18 @@ install_cudnn () {
 
   # Unpack the tarball
   echo "[INSTALL] Unpacking cuDNN ..."
-  tar -xvf cudnn.tar.xz
+  print_exec tar -xvf cudnn.tar.xz
 
   # Copy the includes and libs over to the install path
   echo "[INSTALL] Moving cuDNN files to ${install_path} ..."
-  rm -rf "${install_path:?}/include"
-  rm -rf "${install_path:?}/lib"
-  mv cudnn-linux-*/include "$install_path"
-  mv cudnn-linux-*/lib "$install_path"
+  print_exec rm -rf "${install_path:?}/include"
+  print_exec rm -rf "${install_path:?}/lib"
+  print_exec mv cudnn-linux-*/include "$install_path"
+  print_exec mv cudnn-linux-*/lib "$install_path"
 
   # Delete the temporary directory
   cd - || return 1
-  rm -rf "$tmp_dir"
+  print_exec rm -rf "$tmp_dir"
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")

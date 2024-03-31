@@ -234,7 +234,8 @@ class NBitFowardTest(unittest.TestCase):
                 scale_shift.copy_(ref_scale_shift)
 
         requests = generate_requests(1, B, T, L, min(Es), reuse=0.1)
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             lowp_pooled_output = op(
                 indices=indices.int(),
                 offsets=offsets.int(),
@@ -841,7 +842,8 @@ class NBitFowardTest(unittest.TestCase):
 
         requests = generate_requests(iters, B, T, L, min(Es), reuse=0.1)
 
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             indices = indices.int()
             offsets = offsets.int()
             output = cc(indices, offsets)

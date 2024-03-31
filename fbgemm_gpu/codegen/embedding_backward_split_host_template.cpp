@@ -38,11 +38,11 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     {%- if nobag %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- else %}
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
+    const c10::SymInt total_D,
+    const c10::SymInt max_D,
     {%- endif %}
     const Tensor& indices,
     const Tensor& offsets,
@@ -72,10 +72,10 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     {%- if nobag %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- else %}
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -115,7 +115,7 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
     const Tensor& lxu_cache_locations,
@@ -152,10 +152,10 @@ class {{ autograd_func }} :
     const Tensor& weights_offsets,
     {%- if not nobag %}
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
+    const c10::SymInt total_D,
+    const c10::SymInt max_D,
     {%- else %}
-    const int64_t D,
+    const c10::SymInt D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -202,8 +202,22 @@ class {{ autograd_func }} :
     const auto uvm_cache_stats_ = uvm_cache_stats
       .value_or(at::empty({0}, uvm_weights.options().dtype(at::kInt)));
 
-    // TODO: don't guard here
-    auto [info_B_num_bits, info_B_mask] = adjust_info_B_num_bits(max_B_.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
+    // Default values for Dynamo tracing
+    // SymInt does not support bitshifts operator
+    // Constanting info_B_num_bits, info_B_mask for Dynamo for now.
+    int32_t info_B_num_bits = DEFAULT_INFO_B_NUM_BITS;
+    uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
+    if (max_B_.is_symbolic()) {
+      info_B_num_bits = 22;
+      info_B_mask = (1u << info_B_num_bits) - 1;
+
+      // TODO(ivankobzarev): Guarding Dynamo that T and B fits in constanted number of bits.
+      // TORCH_CHECK(max_B_ < 1u << info_B_num_bits)
+      // TORCH_CHECK(T < 1u << (DEFAULT_INFO_NUM_BITS - info_B_num_bits))
+    } else {
+      // TODO: don't guard here
+      std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(max_B_.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
+    }
 
     {%- if vbe %}
     static auto generate_vbe_metadata_op =
@@ -230,7 +244,7 @@ class {{ autograd_func }} :
         {%- endif %}
         max_B_feature_rank,
         info_B_num_bits,
-        /*total_B=*/offsets.size(0) - 1
+        /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %}
 
@@ -394,10 +408,10 @@ class {{ autograd_func }} :
     {%- endfor %}
 
     {%- if not nobag %}
-    auto max_D = ctx->saved_data["max_D"].toInt();
+    auto max_D = ctx->saved_data["max_D"].toSymInt();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
     {%- else %}
-    auto D = ctx->saved_data["D"].toInt();
+    auto D = ctx->saved_data["D"].toSymInt();
     {%- endif %}
     auto total_hash_size_bits = ctx->saved_data["total_hash_size_bits"].toInt();
 
@@ -653,8 +667,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t total_D,
-    const int64_t max_D,
+    const c10::SymInt total_D,
+    const c10::SymInt max_D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -770,8 +784,8 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    Tensor weights_placements, "
           "    Tensor weights_offsets, "
           "    Tensor D_offsets, "
-          "    int total_D, "
-          "    int max_D, "
+          "    SymInt total_D, "
+          "    SymInt max_D, "
           "    Tensor hash_size_cumsum, "
           "    int total_hash_size_bits, "
           "    Tensor indices, "

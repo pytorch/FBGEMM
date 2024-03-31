@@ -26,6 +26,9 @@ except Exception:
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip"
         )
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops_hip"
+        )
     else:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
         torch.ops.load_library(
@@ -40,6 +43,7 @@ except Exception:
     )
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
 
 import torch.utils._pytree as pytree
 from torch import Tensor
@@ -272,6 +276,17 @@ def check_all_same_device(*tensors: Optional[Tensor]) -> None:
         torch._check(tensor.device == first_tensor.device)
 
 
+@impl_abstract("fbgemm::pruned_array_lookup")
+def pruned_array_lookup_meta(
+    indices: Tensor,
+    offsets: Tensor,
+    index_remappings: Tensor,
+    index_remappings_offsets: Tensor,
+) -> Tensor:
+    check_all_same_device(indices, offsets, index_remappings, index_remappings_offsets)
+    return indices.new_empty(indices.shape)
+
+
 @impl_abstract("fbgemm::int_nbit_split_embedding_codegen_lookup_function")
 def int_nbit_split_embedding_codegen_lookup_function_meta(
     dev_weights: torch.Tensor,
@@ -463,3 +478,81 @@ def dense_to_jagged(
     if not total_L:
         total_L = torch.library.get_ctx().new_dynamic_size()
     return (dense_to_jagged_forward(dense, offsets, total_L), offsets)
+
+
+@impl_abstract("fbgemm::batch_index_select_dim0")
+def batch_index_select_dim0_abstract(
+    inputs: torch.Tensor,
+    indices: torch.Tensor,
+    input_num_indices: List[int],
+    input_rows: List[int],
+    input_columns: List[int],
+    permute_output_dim_0_1: bool,
+) -> torch.Tensor:
+    """
+    This meta function is used to calculate the shape of output tensor
+    from the original function `fbgemm::batch_index_select_dim0` without the actual data.
+    """
+    # input lists must have the same length
+    torch._check(len(input_num_indices) == len(input_rows))
+    torch._check(len(input_num_indices) == len(input_columns))
+
+    if permute_output_dim_0_1 and len(input_num_indices) > 0:
+        # All num_indices must be the same if permute_output_dim_0_1 is True
+        for x in input_num_indices:
+            torch._check(x == input_num_indices[0])
+
+    size = sum([row * col for row, col in zip(input_rows, input_columns)])
+    torch._check(inputs.size(0) == size)
+
+    output_numel = 0
+    for i, cols in enumerate(input_columns):
+        output_numel += input_num_indices[i] * cols
+    return inputs.new_empty([output_numel])
+
+
+@impl_abstract("fbgemm::keyed_jagged_index_select_dim1")
+def keyed_jagged_index_select_dim1_abstract(
+    values: torch.Tensor,
+    lengths: torch.Tensor,
+    offsets: torch.Tensor,
+    indices: torch.Tensor,
+    batch_size: torch.SymInt,
+    weights: Optional[torch.Tensor] = None,
+    selected_lengths_sum: Optional[torch.SymInt] = None,
+) -> List[torch.Tensor]:
+    """
+    This meta function is used to calculate the shape of output tensors
+    from the original function `fbgemm::keyed_jagged_index_select_dim1` without the actual data.
+    """
+    # pyre-ignore
+    num_batches = len(lengths) // batch_size
+    # offsets = [0] + lengths.cumsum(0)
+    torch._check(len(lengths) + 1 == len(offsets))
+    # len(lengths) == batch_size * num_batches
+    # pyre-ignore
+    torch._check(len(lengths) % batch_size == 0)
+    if weights is not None:
+        # weights must have the same shape as values
+        torch._check(values.shape == weights.shape)
+
+    if selected_lengths_sum is None:
+        length_indices = torch.cat(
+            # pyre-ignore
+            [indices + i * batch_size for i in range(num_batches)]
+        )
+        selected_lengths_sum = (
+            torch.index_select(lengths, 0, length_indices).sum().item()
+        )
+
+    ret: List[torch.Tensor] = [
+        # pyre-ignore
+        values.new_empty([selected_lengths_sum]),
+        lengths.new_empty([indices.shape[0] * num_batches]),
+    ]
+
+    if weights is not None:
+        # pyre-ignore
+        ret.append(weights.new_empty([selected_lengths_sum]))
+
+    return ret

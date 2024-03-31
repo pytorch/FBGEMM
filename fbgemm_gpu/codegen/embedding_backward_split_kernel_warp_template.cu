@@ -17,6 +17,8 @@
 {%- if optimizer != "none" and not dense %}
 #include "gen_embedding_optimizer_{{ optimizer }}_split_device_kernel.cuh"
 {%- endif %}
+#include "gen_embedding_backward_{{ kdesc }}_split_device_kernel.cuh"
+#include "gen_embedding_backward_common_split_device_kernel.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -29,8 +31,9 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
-    size_t kMaxVecsPerThread,
-    int32_t kThreadGroupSize >
+    int32_t kFixedMaxVecsPerThread,
+    int32_t kThreadGroupSize,
+    bool kUseVecBlocking>
 __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
@@ -75,9 +78,6 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {%- if optimizer == "none" %}
-    const int32_t max_D,
-    {%- endif %}
     {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
@@ -87,6 +87,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
+    const int32_t max_D,
+    const int32_t max_vecs_per_thread,
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -109,6 +111,13 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
     constexpr int VEC_WIDTH = 4;
+    constexpr auto kIsInt8 = std::is_same<emb_t, uint8_t>::value;
+
+    struct SharedMemory<Vec4TAcc<cache_t>> smem;
+    const int32_t grad_sum_stride = max_D / VEC_WIDTH;
+    auto* smem_grad_sum = (kUseVecBlocking || kIsInt8)
+      ? smem.getPointer() + threadIdx.y * grad_sum_stride
+      : nullptr;
 
     for (uint32_t run_id = start_run_id;
          run_id < sorted_linear_indices_run.size(0) && run_id < sorted_linear_indices_num_runs[0];
@@ -120,6 +129,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         const int32_t segment_end =
             sorted_linear_indices_cumulative_run_lengths[run_id + 1];
         const int32_t SL = segment_end - segment_start;
+
 
         if (SL >= max_segment_length_per_warp) {
             continue;
@@ -153,69 +163,61 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
         const int32_t sl_start = 0;
         const int32_t sl_end = SL;
-        Vec4T<at::acc_type<cache_t, true>> grad_sum[kMaxVecsPerThread];
-        for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
-            int32_t sl_j = sl + threadIdx.x;
-            {%- if not nobag %}
-            const auto b_t = sl_j < sl_end ? reinterpret_cast<const uint32_t*>(&sorted_infos[0])[segment_start + sl_j] : 0;
-            const auto b = b_t & info_B_mask;
-            const auto t = b_t >> info_B_num_bits;
-            {%- if vbe %}
-            const auto grad_offset = row_output_offsets[B_offsets[t] + b];
-            {% else %}
-            int32_t D_start = sl_j < sl_end ? D_offsets[t] : 0;
-            {%- endif %} // if vbe
-            {%- else %} // if not nobag
-            int64_t l_t = sl_j < sl_end ? sorted_infos[segment_start + sl_j] : 0;
-            int32_t l = l_t / T;
-            {%- endif %} // if not nobag
-            {%- if weighted %}
-            at::acc_type<cache_t, true> idx_weight = sl_j < sl_end ? sorted_indice_weights[segment_start + sl_j] : 0.0;
+        Vec4TAcc<cache_t> grad_sum[kFixedMaxVecsPerThread];
+        constexpr int32_t kGroupVecWidth = kThreadGroupSize * VEC_WIDTH;
+        const int32_t num_vecs = (D + kGroupVecWidth - 1) / kGroupVecWidth;
+
+        compute_grad_sum_{{ kdesc }}<
+          grad_t,
+          cache_t,
+          kFixedMaxVecsPerThread,
+          kThreadGroupSize,
+          VEC_WIDTH,
+          kUseVecBlocking>(
+            grad_sum,
+            smem_grad_sum,
+            grad_output,
+            {%- if not nobag or is_index_select %}
+            D_offsets,
             {%- endif %}
+            D,
+            T,
+            sorted_infos,
+            {%- if weighted %}
+            sorted_indice_weights,
+            {%- endif %}
+            {%- if not nobag and vbe %}
+            B_offsets,
+            row_output_offsets,
+            {%- endif %}
+            {%- if is_index_select %}
+            grad_offset,
+            grad_stride,
+            {%- endif %}
+            {%- if not nobag %}
+            info_B_num_bits,
+            info_B_mask,
+            {%- endif %}
+            segment_start,
+            sl_start,
+            sl_end,
+            shfl_sync_mask,
+            num_vecs
+        );
 
-            for (int32_t j = 0; j < kThreadGroupSize && sl + j < sl_end; ++j) {
-                {%- if nobag %}
-                int32_t l_j = SHFL_SYNC(l, j);
-                {%- elif vbe %}
-                const auto grad_offset_j = SHFL_SYNC(grad_offset, j);
-                {%- else %}
-                int32_t b_j = SHFL_SYNC(b, j);
-                int32_t D_start_j = SHFL_SYNC(D_start, j);
-                {%- endif %}
+        // Copy value to max_vecs to make max_vecs_per_thread known at compile time
+        // when kUseVecBlocking == false
+        const int32_t max_vecs =
+            kUseVecBlocking ? max_vecs_per_thread : kFixedMaxVecsPerThread;
 
-                {%- if weighted %}
-                at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
-                {%- endif %}
-
-                #pragma unroll kMaxVecsPerThread
-                for (int32_t i = 0;
-                        i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-                        ++i) {
-                    int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-                    Vec4T<at::acc_type<grad_t, true>> grad_out_vec(
-                        {%- if nobag and is_index_select %}
-                        // grad_output is 1d
-                        &grad_output[grad_offset + l_j * grad_stride + d]
-                        {%- elif nobag %}
-                        &grad_output[l_j][d]
-                        {%- elif vbe %}
-                        &grad_output[0][grad_offset_j + d]
-                        {%- else %}
-                        &grad_output[b_j][0] + D_start_j + d
-                        {%- endif %}
-                    );
-
-                    {%- if weighted %}
-                    grad_sum[i].fma_(grad_out_vec, idx_weight_j);
-                    {%- else %}
-                    grad_sum[i].add_(grad_out_vec);
-                    {%- endif %}
-                }
-            }
-        }
         {%- if not dense and optimizer != "none" %}
-        split_{{ optimizer }}_table_update_kernel
-          <emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH>(
+        split_{{ optimizer }}_table_update_kernel<
+          emb_t,
+          cache_t,
+          kFixedMaxVecsPerThread,
+          kThreadGroupSize,
+          VEC_WIDTH,
+          kUseVecBlocking>(
               dev_weights,
               uvm_weights,
               lxu_cache_weights,
@@ -223,16 +225,21 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
               weights_offsets,
               sorted_lxu_cache_locations,
               grad_sum,
+              smem_grad_sum,
+              smem_grad_sum, // shared_weight_update_row (reuse smem_grad_sum)
               stochastic_rounding,
               stochastic_rounding_philox_args,
               run_id,
-              use_uniq_cache_locations ? (run_id - table_unique_indices_offsets[t_0]) : segment_start,
+              use_uniq_cache_locations
+                  ? (run_id - table_unique_indices_offsets[t_0])
+                  : segment_start,
               D,
               t_0,
               idx,
               shfl_sync_mask,
-              threadIdx.y * kMaxVecsPerThread * kThreadGroupSize, // shared_weight_offset
-              {{ args.split_function_arg_names | join(", ") }});
+              max_vecs,
+              {{ args.split_function_arg_names | join(", ") }}
+        );
         {%- else %}
         // Write deduplicated gradient to grad_dev_weights gradient is sparse
         // for split_embedding and dense for dense_embedding
@@ -243,16 +250,22 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         const int64_t weights_offset = run_id * max_D;
         idx = 0;
         {%- endif %}
-    	#pragma unroll kMaxVecsPerThread
-        for (int32_t i = 0;
-            i < kMaxVecsPerThread && (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-            ++i) {
-            int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
-            auto& grad = grad_sum[i];
-            grad.store(&grad_dev_weights[weights_offset + idx * D + d]);
-        }
+        store_grad_sum<
+            emb_t,
+            cache_t,
+            kFixedMaxVecsPerThread,
+            kThreadGroupSize,
+            VEC_WIDTH,
+            kUseVecBlocking>(
+              grad_dev_weights,
+              grad_sum,
+              kUseVecBlocking ? smem_grad_sum : nullptr,
+              D,
+              weights_offset,
+              idx,
+              max_vecs
+        );
         {%- endif %} // if not dense and optimizer != "none"
-
     }
 }
 
@@ -267,7 +280,15 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     embedding_backward_split_template.cu
 */
 
-{%- macro template_instantiation(emb_type, grad_type, cache_type, kMaxVecsPerThread, kThreadGroupSize) %}
+{%- macro template_instantiation(
+      emb_type,
+      grad_type,
+      cache_type,
+      kFixedMaxVecsPerThread,
+      kThreadGroupSize,
+      kUseVecBlocking
+    )
+%}
 template __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row
@@ -277,8 +298,9 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
-  {{ kMaxVecsPerThread }},
-  {{ kThreadGroupSize }}
+  {{ kFixedMaxVecsPerThread }},
+  {{ kThreadGroupSize }},
+  {{ kUseVecBlocking }}
 > (
     const pta::PackedTensorAccessor64<{{ grad_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -318,9 +340,6 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {%- else %}
     pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
-    {%- if optimizer == "none" %}
-    const int32_t max_D,
-    {%- endif %}
     {%- endif %} // if not dense and optimizer != "none"
     {%- if not nobag and vbe %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
@@ -330,6 +349,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
     {%- endif %}
+    const int32_t max_D,
+    const int32_t max_vecs_per_thread,
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -339,11 +360,19 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 );
 {%- endmacro %}
 
-{%- macro bulk_template_instantiations(kMaxVecsPerThread, kThreadGroupSize) %}
+{%- macro bulk_template_instantiations(kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking) %}
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
-        {{ template_instantiation(emb_type, grad_type, cache_type, kMaxVecsPerThread, kThreadGroupSize) }}
+        {{ template_instantiation(
+            emb_type,
+            grad_type,
+            cache_type,
+            kFixedMaxVecsPerThread,
+            kThreadGroupSize,
+            kUseVecBlocking
+          )
+        }}
     {%- endfor %}
     {%- endfor %}
     {%- endfor %}
@@ -352,61 +381,61 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 
 {%- if is_experimental_optimizer %}
 
-{{ bulk_template_instantiations(max_embedding_dim // items_per_warp, 'kWarpSize') }}
+{{
+  bulk_template_instantiations(
+    fixed_max_vecs_per_thread["backward"],
+    'kWarpSize',
+    'true'
+  )
+}}
 
 {%- else %}
+
+{%- macro instantiate_templates(use_subwarp_shuffle) %}
+{%- for (kFixedMaxVecsPerThread, kThreadGroupSize, kUseVecBlocking)
+    in get_max_vecs_template_configs(
+        items_per_warp,
+        fixed_max_vecs_per_thread["backward"],
+        use_subwarp_shuffle,
+        use_vec_blocking=True,
+    )
+%}
+    {{
+      bulk_template_instantiations(
+        kFixedMaxVecsPerThread,
+        kThreadGroupSize,
+        kUseVecBlocking,
+      )
+    }}
+{%- endfor %}
+{%- endmacro %}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 #ifdef FBGEMM_USE_SUBWARP_SHUFFLE
 ////////////////////////////////////////////////////////////////////////////////
 
 {#- /*
-    Compute the Cartesian product of (kMaxVecsPerThread, kThreadGroupSize)
-    in the FBGEMM_USE_SUBWARP_SHUFFLE case
+    Explicitly instantiate kernels for the FBGEMM_USE_SUBWARP_SHUFFLE case
 
-    constexpr int kMaxVecsPerThread = std::max({{ kMaxElemPerThread }} / 4, 1);
-    constexpr int kThreadGroupSize = kWarpSize / std::max(4 / {{ kMaxElemPerThread }}, 1);
-
-    This is needed to compute the unique tuples to use for explicit instantiation,
-    so that we can avoid duplicate template instantiations.
+    Please see get_max_vecs_template_configs in
+    codegen/embedding_common_code_generator.py for more details
 */ #}
-{%- set tuples = [] %}
-{%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-{%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    {%- set t0 = [ (kMaxElemPerThread // 4), 1 ] | max %}
-    {%- set t1 = [ 4 // kMaxElemPerThread, 1] | max %}
-    {%- set temp = tuples.append((t0, "(kWarpSize / " ~ t1 ~ ")")) %}
-{%- endif %}
-{%- endfor %}
 
-{#- /* Enumerate over the unique tuples */ #}
-{%- for (kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
-    {{ bulk_template_instantiations(kMaxVecsPerThread, kThreadGroupSize) }}
-{%- endfor %}
+{{ instantiate_templates(use_subwarp_shuffle=True) }}
 
 ////////////////////////////////////////////////////////////////////////////////
 #else
 ////////////////////////////////////////////////////////////////////////////////
 
 {#- /*
-    Compute the Cartesian product of (kMaxVecsPerThread, kThreadGroupSize)
-    in the non-FBGEMM_USE_SUBWARP_SHUFFLE case
+    Explicitly instantiate kernels for the non-FBGEMM_USE_SUBWARP_SHUFFLE case
 
-    constexpr int kMaxVecsPerThread = std::max({{ kMaxElemPerThread }} / 4, 1);
-    constexpr int kThreadGroupSize = kWarpSize;
+    Please see get_max_vecs_template_configs in
+    codegen/embedding_common_code_generator.py for more details
 */ #}
-{%- set tuples = [] %}
-{%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
-{%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
-    {%- set t0 = [ (kMaxElemPerThread // 4), 1 ] | max %}
-    {%- set temp = tuples.append((t0, "kWarpSize")) %}
-{%- endif %}
-{%- endfor %}
 
-{#- /* Enumerate over the unique tuples */ #}
-{%- for (kMaxVecsPerThread, kThreadGroupSize) in tuples | unique %}
-    {{ bulk_template_instantiations(kMaxVecsPerThread, kThreadGroupSize) }}
-{%- endfor %}
+{{ instantiate_templates(use_subwarp_shuffle=False) }}
 
 ////////////////////////////////////////////////////////////////////////////////
 #endif

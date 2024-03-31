@@ -6,11 +6,11 @@
 
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -37,12 +37,20 @@ endif()
 
 # Benchmarks
 macro(add_benchmark BENCHNAME)
-  add_executable(${BENCHNAME} ${ARGN}
+  add_executable(
+    ${BENCHNAME}
+    ${ARGN}
     BenchUtils.cc
     ../test/QuantizationHelpers.cc
-    ../test/EmbeddingSpMDMTestUtils.cc)
-  target_compile_options(${BENCHNAME} PRIVATE
-    "-m64" "-mavx2" "-mfma" "-masm=intel")
+    ../test/EmbeddingSpMDMTestUtils.cc
+  )
+
+  target_compile_options(
+    ${BENCHNAME}
+    PRIVATE
+    "-m64" "-mavx2" "-mfma" "-masm=intel"
+  )
+
   target_link_libraries(${BENCHNAME} fbgemm)
   add_dependencies(${BENCHNAME} fbgemm)
 
@@ -71,7 +79,6 @@ macro(add_benchmark BENCHNAME)
 endmacro()
 
 if(FBGEMM_BUILD_BENCHMARKS)
-
   set(BENCHMARKS "")
 
   file(GLOB BENCH_LIST "*Benchmark.cc")
@@ -88,5 +95,9 @@ if(FBGEMM_BUILD_BENCHMARKS)
 
   add_dependencies(run_benchmarks
     ${BENCHMARKS})
+
+  set_source_files_properties(
+    bench/GEMMsBenchmark.cc
+    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable")
 
 endif()

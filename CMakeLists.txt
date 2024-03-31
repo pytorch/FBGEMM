@@ -8,7 +8,9 @@
 # CMake Prelude
 ################################################################################
 
-cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+# A minimum CMake version of 3.21+ is needed to support the required C and C++
+# standard versions
+cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
@@ -35,18 +37,18 @@ endfunction()
 # FBGEMM C++ Setup
 ################################################################################
 
-# Set the default C++ standard to C++17
+# Set the default C++ standard to C++20
 # Individual targets can have this value overridden; see
 # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 
-# Set the default C standard to C11
+# Set the default C standard to C17
 # Individual targets can have this value overridden; see
 # https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -58,12 +60,14 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 function(append_cxx_flag_if_supported flag outputvar)
     string(TOUPPER "HAS${flag}" _FLAG_NAME)
     string(REGEX REPLACE "[=-]" "_" _FLAG_NAME "${_FLAG_NAME}")
+
     # GCC silents unknown -Wno-XXX flags, so we detect the corresponding -WXXX.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
       string(REGEX REPLACE "Wno-" "W" new_flag "${flag}")
     else()
       set(new_flag ${flag})
     endif()
+
     check_cxx_compiler_flag("${new_flag}" ${_FLAG_NAME})
     if(${_FLAG_NAME})
         string(APPEND ${outputvar} " ${flag}")
@@ -242,14 +246,14 @@ message(WARNING "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
 message(WARNING "==========")
 
 if(NOT TARGET asmjit)
-  #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
+  # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
   if(NOT DEFINED ASMJIT_SRC_DIR)
     set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/third_party/asmjit"
       CACHE STRING "asmjit source directory from submodules")
   endif()
 
-  #build asmjit
-  #For MSVC shared build, asmjit needs to be shared also.
+  # Build asmjit
+  # For MSVC shared build, asmjit needs to be shared also.
   if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
     set(ASMJIT_STATIC OFF)
   else()
@@ -258,10 +262,14 @@ if(NOT TARGET asmjit)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
-  # add a flag required for mac build
+  # Add a flag required for mac build
   if(NOT MSVC)
     target_compile_options(asmjit PRIVATE "-Wno-sign-conversion")
   endif()
+
+  target_compile_options_if_supported(asmjit -Wno-deprecated-anon-enum-enum-conversion)
+  target_compile_options_if_supported(asmjit -Wno-error=deprecated-enum-enum-conversion)
+  target_compile_options_if_supported(asmjit -Wno-deprecated-enum-enum-conversion)
 
   if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
     # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
@@ -400,10 +408,6 @@ endif()
 
 if(FBGEMM_BUILD_BENCHMARKS)
   add_subdirectory(bench)
-  # add a flag to enable Clang 14
-  set_source_files_properties(
-    bench/GEMMsBenchmark.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable")
 endif()
 
 if(FBGEMM_BUILD_DOCS)

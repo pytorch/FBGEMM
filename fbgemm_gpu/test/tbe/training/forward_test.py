@@ -108,7 +108,6 @@ class ForwardTest(unittest.TestCase):
                 weights_precision != SparseType.INT8
                 and output_dtype != SparseType.INT8
                 and not use_cpu
-                and not use_cache
                 and pooling_mode != PoolingMode.NONE
             )
         )
@@ -676,9 +675,12 @@ class ForwardTest(unittest.TestCase):
         )
         if pooling_mode == PoolingMode.NONE:
             mixed = False
+            mixed_B = False
         else:
             mixed = random.choice([True, False])
-        mixed_B = False
+            mixed_B = (
+                random.choice([True, False]) if not use_experimental_tbe else False
+            )
         if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
@@ -743,9 +745,12 @@ class ForwardTest(unittest.TestCase):
         )
         if pooling_mode == PoolingMode.NONE:
             mixed = False
+            mixed_B = False
         else:
             mixed = random.choice([True, False])
-        mixed_B = False
+            mixed_B = (
+                random.choice([True, False]) if not use_experimental_tbe else False
+            )
         if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
@@ -833,7 +838,8 @@ class ForwardTest(unittest.TestCase):
 
         requests = generate_requests(2, B, T, L, min(Es), reuse=0.1)
 
-        for indices, offsets, _ in requests:
+        for req in requests:
+            indices, offsets = req.unpack_2()
             lowp_pooled_output = op(
                 indices=indices,
                 offsets=offsets,

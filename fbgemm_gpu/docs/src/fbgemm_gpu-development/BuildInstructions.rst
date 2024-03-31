@@ -222,7 +222,7 @@ The instructions in this section apply to builds for all variants of FBGEMM_GPU.
 C/C++ Compiler (GCC)
 ~~~~~~~~~~~~~~~~~~~~
 
-Install a version of the GCC toolchain **that supports C++17**.  The ``sysroot``
+Install a version of the GCC toolchain **that supports C++20**.  The ``sysroot``
 package will also need to be installed to avoid issues with missing versioned
 symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
 
@@ -256,7 +256,7 @@ C/C++ Compiler (Clang)
 
 It is possible to build FBGEMM and FBGEMM_GPU (just the CPU and CUDA variants)
 using Clang as the host compiler.  To do so, install a version of the Clang
-toolchain **that supports C++17**:
+toolchain **that supports C++20**:
 
 .. code:: sh
 
@@ -277,7 +277,7 @@ toolchain **that supports C++17**:
   conda env config vars set -n ${env_name} LD_LIBRARY_PATH="${ld_library_path}:${conda_prefix}/lib"
 
   # Set NVCC_PREPEND_FLAGS in the Conda environment for Clang to work correctly as the host compiler
-  conda env config vars set -n ${env_name} NVCC_PREPEND_FLAGS=\"-std=c++17 -Xcompiler -std=c++17 -Xcompiler -stdlib=libstdc++ -ccbin ${clangxx_path} -allow-unsupported-compiler\"
+  conda env config vars set -n ${env_name} NVCC_PREPEND_FLAGS=\"-std=c++20 -Xcompiler -std=c++20 -Xcompiler -stdlib=libstdc++ -ccbin ${clangxx_path} -allow-unsupported-compiler\"
 
 **Note** that for CUDA code compilation, even though ``nvcc`` supports Clang as
 the host compiler, only ``libstd++`` (GCC's implementation of the C++ standard

@@ -135,16 +135,6 @@ __conda_install_clang () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path:+${ld_library_path}:}${conda_prefix}/lib"
-
-  echo "[BUILD] Setting Clang (should already be symlinked as c++) as the host compiler for NVCC: ${cxx_path}"
-  # When NVCC is used, set Clang to be the host compiler, but set GNU libstdc++
-  # (not Clang libc++) as the standard library
-  #
-  # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
-  #   https://github.com/ROCm/HIP/issues/931
-  #
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-std=c++17 -Xcompiler -std=c++17 -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
 }
 
 __compiler_post_install_checks () {
@@ -255,6 +245,7 @@ install_build_tools () {
   #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+    bazel \
     click \
     cmake \
     hypothesis \

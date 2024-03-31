@@ -16,7 +16,7 @@ at::Tensor split_embedding_codegen_forward_cpu(
     at::Tensor weights,
     at::Tensor weights_offsets,
     at::Tensor D_offsets,
-    int64_t total_D,
+    c10::SymInt total_D,
     at::Tensor hash_size_cumsum,
     at::Tensor indices,
     at::Tensor offsets,
@@ -32,6 +32,61 @@ at::Tensor split_embedding_codegen_grad_indice_weights_cpu(
     at::Tensor indices,
     at::Tensor offsets,
     at::Tensor feature_requires_grad);
+
+at::Tensor split_embedding_codegen_forward_weighted_pt2_cpu(
+    const at::Tensor& /*host_weights*/,
+    const at::Tensor& /*dev_weights*/,
+    const at::Tensor& /*uvm_weights*/,
+    const at::Tensor& /*lxu_cache_weights*/,
+    const at::Tensor& /*weights_placements*/,
+    const at::Tensor& /*weights_offsets*/,
+    const at::Tensor& /*D_offsets*/,
+    const c10::SymInt /*total_D*/,
+    const c10::SymInt /*max_D*/,
+    const at::Tensor& /*hash_size_cumsum*/,
+    const at::Tensor& /*indices*/,
+    const at::Tensor& /*offsets*/,
+    const int64_t /*pooling_mode*/,
+    const at::Tensor& /*indice_weights*/,
+    const at::Tensor& /*lxu_cache_locations*/,
+    const at::Tensor& /*uvm_cache_stats*/,
+    const bool /*is_experimental = false*/,
+    const int64_t /*output_dtype*/);
+
+at::Tensor split_embedding_codegen_forward_unweighted_pt2_cpu(
+    const at::Tensor& /*host_weights*/,
+    const at::Tensor& /*dev_weights*/,
+    const at::Tensor& /*uvm_weights*/,
+    const at::Tensor& /*lxu_cache_weights*/,
+    const at::Tensor& /*weights_placements*/,
+    const at::Tensor& /*weights_offsets*/,
+    const at::Tensor& /*D_offsets*/,
+    const c10::SymInt /*total_D*/,
+    const c10::SymInt /*max_D*/,
+    const at::Tensor& /*hash_size_cumsum*/,
+    const at::Tensor& /*indices*/,
+    const at::Tensor& /*offsets*/,
+    const int64_t /*pooling_mode*/,
+    const at::Tensor& /*indice_weights*/,
+    const at::Tensor& /*lxu_cache_locations*/,
+    const at::Tensor& /*uvm_cache_stats*/,
+    const bool /*is_experimental = false*/,
+    const int64_t /*output_dtype*/);
+
+at::Tensor split_embedding_codegen_grad_indice_weights_pt2_cpu(
+    const at::Tensor& /*grad_output*/,
+    const at::Tensor& /*host_weights*/,
+    const at::Tensor& /*dev_weights*/,
+    const at::Tensor& /*uvm_weights*/,
+    const at::Tensor& /*lxu_cache_weights*/,
+    const at::Tensor& /*weights_placements*/,
+    const at::Tensor& /*weights_offsets*/,
+    const at::Tensor& /*D_offsets*/,
+    const c10::SymInt /*max_D*/,
+    const at::Tensor& /*indices*/,
+    const at::Tensor& /*offsets*/,
+    const at::Tensor& /*lxu_cache_locations*/,
+    const at::Tensor& /*feature_requires_grad*/);
 
 namespace internal {
 // A compressed sparse column but each sparse matrix is hyper sparse

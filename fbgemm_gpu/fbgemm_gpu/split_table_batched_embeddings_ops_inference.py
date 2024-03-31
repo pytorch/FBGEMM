@@ -267,7 +267,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         def max_ty_D(ty: SparseType) -> int:
             return max(
-                [dim for dim, weight_ty in zip(dims, weights_tys) if weight_ty == ty],
+                [
+                    dim
+                    for dim, weight_ty in zip(dims, weights_tys)
+                    if weight_ty == ty or weight_ty.value == ty.value
+                ],
                 default=0,
             )
 
@@ -1453,15 +1457,16 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             device=self.current_device,
             dtype=torch.int64,
         )
-        if self.index_remappings_array_offsets[-1] == 0:
+
+        index_remappings_filter_nones = []
+        for mapping in index_remapping:
+            if mapping is not None:
+                index_remappings_filter_nones.append(mapping)
+        if len(index_remappings_filter_nones) == 0:
             self.index_remappings_array = torch.empty(
                 0, dtype=torch.int32, device=self.current_device
             )
         else:
-            index_remappings_filter_nones = []
-            for mapping in index_remapping:
-                if mapping is not None:
-                    index_remappings_filter_nones.append(mapping)
             self.index_remappings_array = torch.cat(index_remappings_filter_nones).to(
                 self.current_device
             )

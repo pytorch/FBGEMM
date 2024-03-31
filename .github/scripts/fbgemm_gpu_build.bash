@@ -55,21 +55,61 @@ prepare_fbgemm_gpu_build () {
   echo "[BUILD] Successfully ran git submodules update"
 }
 
-__configure_compiler_flags () {
+__configure_fbgemm_gpu_build_clang () {
+  echo "[BUILD] Clang is available; configuring for Clang-based build ..."
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
-    echo "[BUILD] Clang is available; configuring for Clang-based build ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2206
+  build_args+=(
+    --cxxprefix ${conda_prefix}
+  )
+}
 
-    # shellcheck disable=SC2155,SC2086
-    local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+__configure_fbgemm_gpu_build_nvcc () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
 
-    # shellcheck disable=SC2206
-    build_args+=(
-      --cxxprefix ${conda_prefix}
-    )
+  # shellcheck disable=SC2155,SC2086
+  local cxx_path=$(conda run ${env_prefix} which c++)
+  # shellcheck disable=SC2155,SC2086
+  local cuda_version=$(conda run ${env_prefix} nvcc --version | sed -n 's/^.*release \([0-9]\+\.[0-9]\+\).*$/\1/p')
+  # shellcheck disable=SC2206
+  local cuda_version_arr=(${cuda_version//./ })
+
+  # Only NVCC 12+ supports C++20
+  if [[ ${cuda_version_arr[0]} -lt 12 ]]; then
+    local cppstd_ver=17
+  else
+    local cppstd_ver=20
   fi
+
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
+  else
+    # `-stdlib=libstdc++` doesn't exist for GCC
+    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
+  fi
+
+  # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
+  # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the standard
+  # library
+  #
+  # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
+  #   https://github.com/ROCm/HIP/issues/931
+  #
+  echo "[BUILD] Setting NVCC flags ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags}\"
+
+  # shellcheck disable=SC2206
+  build_args+=(
+    # Override CMake configuration
+    -DCMAKE_CXX_STANDARD="${cppstd_ver}"
+    -DHIP_STANDARD="${cppstd_ver}"
+  )
 }
 
 __configure_fbgemm_gpu_build_cpu () {
@@ -171,6 +211,9 @@ __configure_fbgemm_gpu_build_cuda () {
     # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
+
+  # Set NVCC flags
+  __configure_fbgemm_gpu_build_nvcc
 }
 
 __configure_fbgemm_gpu_build () {
@@ -194,6 +237,9 @@ __configure_fbgemm_gpu_build () {
     echo ""
   fi
 
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   if [ "$fbgemm_variant" == "cpu" ]; then
     echo "[BUILD] Configuring build as CPU variant ..."
     __configure_fbgemm_gpu_build_cpu
@@ -208,29 +254,12 @@ __configure_fbgemm_gpu_build () {
   fi
 
   # Set other compiler flags as needed
-  __configure_compiler_flags
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    __configure_fbgemm_gpu_build_clang
+  fi
 
   # shellcheck disable=SC2145
   echo "[BUILD] FBGEMM_GPU build arguments have been set:  ${build_args[@]}"
-}
-
-__build_fbgemm_gpu_set_package_name () {
-  # Determine the package name based on release type and variant
-  export package_name="fbgemm_gpu"
-
-  # Append qualifiers for the non-release version
-  if [ "$fbgemm_release_type" != "release" ]; then
-    export package_name="${package_name}_${fbgemm_release_type}"
-  fi
-
-  # Append cpu or rocm for the non-CUDA case
-  if [ "$fbgemm_variant" == "cpu" ]; then
-    export package_name="${package_name}-cpu"
-  elif [ "$fbgemm_variant" == "rocm" ]; then
-    export package_name="${package_name}-rocm"
-  fi
-
-  echo "[BUILD] Determined and set Python package name to use: ${package_name}"
 }
 
 __build_fbgemm_gpu_set_python_tag () {
@@ -297,9 +326,6 @@ __build_fbgemm_gpu_common_pre_steps () {
   if [ "$fbgemm_variant" != "cpu" ] && [ "$fbgemm_variant" != "rocm" ]; then
     export fbgemm_variant="cuda"
   fi
-
-  # Extract and set the package name given the FBGEMM_GPU variant
-  __build_fbgemm_gpu_set_package_name
 
   # Extract and set the Python tag
   __build_fbgemm_gpu_set_python_tag
@@ -389,17 +415,17 @@ run_fbgemm_gpu_postbuild_checks () {
 
 build_fbgemm_gpu_package () {
   env_name="$1"
-  fbgemm_release_type="$2"
+  fbgemm_release_channel="$2"
   fbgemm_variant="$3"
   fbgemm_variant_targets="$4"
   if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_TYPE VARIANT [VARIANT_TARGETS]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_CHANNEL VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env release cpu                      # CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env nightly cuda                     # CUDA variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'              # CUDA variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env test rocm                        # ROCm variant for default target(s)"
+    echo "    ${FUNCNAME[0]} build_env test rocm 'gfx906;gfx908;gfx90a' # ROCm variant for custom target(s)"
     return 1
   fi
 
@@ -422,7 +448,7 @@ build_fbgemm_gpu_package () {
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py "${run_multicore}" bdist_wheel \
-      --package_name="${package_name}" \
+      --package_channel="${fbgemm_release_channel}" \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --verbose \

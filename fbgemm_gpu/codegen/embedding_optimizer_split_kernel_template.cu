@@ -47,7 +47,7 @@ void split_{{ optimizer }}_update_kernel(
     const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
 
-    Vec4T<at::acc_type<cache_t, true>> grad_sum[kMaxVecsPerThread];
+    Vec4TAcc<cache_t> grad_sum[kMaxVecsPerThread];
     const auto D = max_D;
 
     // Load grad_dev_weights into grad_sum
@@ -59,8 +59,11 @@ void split_{{ optimizer }}_update_kernel(
         grad_sum[i].load(&grad_dev_weights[run_id * D + d]);
     }
 
+    // TODO: Enable smem grad sum
+    constexpr bool kUseVecBlocking = false;
+
     split_{{ optimizer }}_table_update_kernel
-      <emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH>(
+      <emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH, kUseVecBlocking>(
           dev_weights,
           uvm_weights,
           lxu_cache_weights,
@@ -68,6 +71,8 @@ void split_{{ optimizer }}_update_kernel(
           weights_offsets,
           sorted_lxu_cache_locations,
           grad_sum,
+          nullptr, // smem_grad_sum (not yet supported)
+          nullptr, // shared_weight_update_row (not yet supported INT8)
           stochastic_rounding,
           stochastic_rounding_philox_args,
           run_id,
@@ -77,8 +82,7 @@ void split_{{ optimizer }}_update_kernel(
           0, // t
           grad_dev_indices[run_id], // idx
           shfl_sync_mask,
-          0, // shared_weight_offset (not used because shared memory is not
-             // needed as uint8_t is not supported)
+          kMaxVecsPerThread,
           {{ args.split_function_arg_names | join(", ") }});
 }
 
@@ -90,7 +94,7 @@ void split_{{ optimizer }}_update_kernel(
 {%- for cache_type in ['float', 'at::Half'] %}
 
 {%- set tuples = [] %}
-{%- for kMaxElemPerThread in range(1, max_embedding_dim // (items_per_warp // 4) + 1) %}
+{%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_warp // 4) + 1) %}
 {%- if kMaxElemPerThread in [1, 2] or kMaxElemPerThread % 4 == 0 %}
     {%- set t0 = [ (kMaxElemPerThread // 4), 1 ] | max if not nobag else "NULL" %}
     {%- set t1 = [ 4 // kMaxElemPerThread, 1] | max %}

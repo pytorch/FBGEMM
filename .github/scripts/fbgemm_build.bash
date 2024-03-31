@@ -13,7 +13,7 @@
 # FBGEMM Build Auxiliary Functions
 ################################################################################
 
-__configure_fbgemm_build () {
+__configure_fbgemm_build_cmake () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
@@ -54,20 +54,60 @@ __configure_fbgemm_build () {
 # FBGEMM_GPU Build Functions
 ################################################################################
 
-build_fbgemm_library () {
-  env_name="$1"
-  local build_dir="$2"
-  fbgemm_library_type="$3"
-  if [ "$fbgemm_library_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME BUILD_DIR LIBRARY_TYPE COMPILER"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env shared   # Build shared library"
-    echo "    ${FUNCNAME[0]} build_env static   # Build static library"
-    return 1
-  fi
+__build_fbgemm_library_cmake () {
+  # Set up and configure the build
+  __configure_fbgemm_build_cmake || return 1
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  mkdir "$build_dir" || return 1
+  cd "$build_dir" || return 1
+
+  echo "[BUILD] Running CMake ..."
+  # shellcheck disable=SC2086
+  (print_exec conda run --no-capture-output ${env_prefix} \
+    cmake "${build_args[@]}" ..) || return 1
+
+  echo "[BUILD] Running the build ..."
+  # shellcheck disable=SC2086
+  (print_exec conda run --no-capture-output ${env_prefix} \
+    make -j VERBOSE=1) || return 1
+
+  cd - || return 1
+}
+
+__build_fbgemm_library_bazel () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2155,SC2086
+  local cc_path=$(conda run ${env_prefix} which cc)
+  # shellcheck disable=SC2155,SC2086
+  local cxx_path=$(conda run ${env_prefix} which c++)
+
+  echo "[BUILD] Running Bazel ..."
+  # Prefix CC and CXX directly before the invocation to force bazel to build
+  # using the specified compiler
+  #
+  # shellcheck disable=SC2086
+  print_exec conda run --no-capture-output ${env_prefix} \
+    CC="${cc_path}" CXX="${cxx_path}" bazel build -s :*
+}
+
+build_fbgemm_library () {
+  env_name="$1"
+  build_system="$2"
+  build_dir="$3"
+  fbgemm_library_type="$4"
+  if [ "$build_system" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME BUILD_SYSTEM [BUILD_DIR] [LIBRARY_TYPE]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env bazel                    # Build library using Bazel (static)"
+    echo "    ${FUNCNAME[0]} build_env cmake build_dir shared   # Build library using CMake (shared)"
+    echo "    ${FUNCNAME[0]} build_env cmake build_dir static   # Build library using CMake (static)"
+    return 1
+  fi
 
   echo "################################################################################"
   echo "# Build FBGEMM Library"
@@ -76,23 +116,14 @@ build_fbgemm_library () {
   echo "################################################################################"
   echo ""
 
-  # Set up and configure the build
-  __configure_fbgemm_build || return 1
-
-  mkdir "$build_dir" || return 1
-  cd "$build_dir" || return 1
-
-  echo "[BUILD] Running CMake ..."
-  # shellcheck disable=SC2086
-  print_exec conda run --no-capture-output ${env_prefix} \
-    cmake "${build_args[@]}" ..
-
-  echo "[BUILD] Running the build ..."
-  # shellcheck disable=SC2086
-  print_exec conda run --no-capture-output ${env_prefix} \
-    make -j VERBOSE=1
-
-  cd - || return 1
+  if [ "$build_system" == "cmake" ]; then
+    __build_fbgemm_library_cmake
+  elif [ "$build_system" == "bazel" ]; then
+    __build_fbgemm_library_bazel
+  else
+    echo "[BUILD] Unknown build system; select either cmake or bazel!"
+    return 1
+  fi
 }
 
 ################################################################################

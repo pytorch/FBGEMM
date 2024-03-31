@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 
 import unittest
 from typing import cast, List, Tuple
@@ -168,3 +170,4 @@ class RuntimeMonitorTest(unittest.TestCase):
         self.assertTrue(r.should_report(500))
         self.assertFalse(r.should_report(101))
         r.report_duration(iteration_step=500, event_name="test_event", duration_ms=404)
+        r.report_data_amount(iteration_step=500, event_name="event2", data_bytes=4096)

@@ -8,7 +8,7 @@
 # CMake Prelude
 ################################################################################
 
-cmake_minimum_required(VERSION 3.21.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.25.0 FATAL_ERROR)
 
 function(BLOCK_PRINT)
   message("================================================================================")
@@ -55,16 +55,27 @@ endif()
 # FBGEMM_GPU C++ Setup
 ################################################################################
 
-# Set the default C++ standard to C++17
+# Set the default C++ standard to C++20 if CMAKE_CXX_STANDARD is not supplied
+# by CMake command invocation.
 # Individual targets can have this value overridden; see
+# https://cmake.org/cmake/help/latest/variable/CMAKE_CXX_STANDARD.html
 # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
-set(CMAKE_CXX_STANDARD 17)
+# https://cmake.org/cmake/help/latest/prop_tgt/HIP_STANDARD.html
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_HIP_STANDARD 20)
+  set(CXX_STANDARD 20)
+  set(HIP_STANDARD 20)
+endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(HIP_STANDARD_REQUIRED ON)
 
 # Set the default C standard to C17
 # Individual targets can have this value overridden; see
+# https://cmake.org/cmake/help/latest/variable/CMAKE_C_STANDARD.html
 # https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
+set(C_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -78,6 +89,13 @@ if(DEFINED GLIBCXX_USE_CXX11_ABI)
 endif()
 
 BLOCK_PRINT(
+  "Default C compiler flags"
+  "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
+  ""
+  "${CMAKE_C_FLAGS}"
+)
+
+BLOCK_PRINT(
   "Default C++ compiler flags"
   "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
   ""
@@ -86,6 +104,22 @@ BLOCK_PRINT(
 
 # Strip all symbols from the .SO file after building
 add_link_options($<$<CONFIG:RELEASE>:-s>)
+
+# Set flags for AVX2
+set(AVX2_FLAGS "-mavx2;-mf16c;-mfma;-fopenmp")
+if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+  # NVCC in WSL complains about unknown -mavx options
+  # https://github.com/pytorch/FBGEMM/issues/2135
+  set(AVX2_FLAGS "-Xcompiler;-mavx;-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-fopenmp")
+endif()
+
+# Set flags for AVX512
+set(AVX512_FLAGS "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl;-fopenmp")
+if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+  set(AVX512_FLAGS "-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-Xcompiler;-mavx512f;-Xcompiler;-mavx512bw;-Xcompiler;-mavx512dq;-Xcompiler;-mavx512vl;-fopenmp")
+endif()
+
+set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
 
 ################################################################################
@@ -131,16 +165,39 @@ set(TORCH_CUDA_OPTIONS
 
 
 ################################################################################
+# CUDA Setup
+################################################################################
+
+# Set NVML_LIB_PATH if provided, or detect the default lib path
+if(NOT NVML_LIB_PATH)
+  set(DEFAULT_NVML_LIB_PATH
+      "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
+
+  if(EXISTS ${DEFAULT_NVML_LIB_PATH})
+    message(STATUS "Setting NVML_LIB_PATH: \
+      ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
+    set(NVML_LIB_PATH "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
+  endif()
+endif()
+
+if(NVML_LIB_PATH)
+  message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")
+endif()
+
+
+################################################################################
 # ROCm and HIPify Setup
 ################################################################################
 
 if(USE_ROCM)
+  # Load CMake modules
   list(APPEND CMAKE_MODULE_PATH
     "${PROJECT_SOURCE_DIR}/cmake"
     "${THIRDPARTY}/hipify_torch/cmake")
   include(Hip)
   include(Hipify)
 
+  # Configure compiler for HIP
   list(APPEND HIP_HCC_FLAGS
     " \"-Wno-#pragma-messages\" "
     " \"-Wno-#warnings\" "
@@ -168,39 +225,39 @@ file(GLOB_RECURSE asmjit_sources
 
 
 ################################################################################
-# FBGEMM_GPU Generated Sources
+# Optimizer Group Definitions
 ################################################################################
 
 set(COMMON_OPTIMIZERS
     adagrad
     rowwise_adagrad
-    rowwise_adagrad_with_counter
-    rowwise_weighted_adagrad
     sgd)
 
 # To be populated in the subsequent diffs
 set(CPU_ONLY_OPTIMIZERS "")
 
 set(GPU_ONLY_OPTIMIZERS
-  adam
-  lamb
-  partial_rowwise_adam
-  partial_rowwise_lamb
-  lars_sgd
-  none)
+    adam
+    lamb
+    partial_rowwise_adam
+    partial_rowwise_lamb
+    lars_sgd
+    none
+    rowwise_adagrad_with_counter)
 
 set(DEPRECATED_OPTIMIZERS
-  approx_sgd
-  approx_rowwise_adagrad
-  approx_rowwise_adagrad_with_counter
-  approx_rowwise_adagrad_with_weight_decay
-  rowwise_adagrad_with_weight_decay)
+    approx_sgd
+    approx_rowwise_adagrad
+    approx_rowwise_adagrad_with_counter
+    approx_rowwise_adagrad_with_weight_decay
+    rowwise_adagrad_with_weight_decay
+    rowwise_weighted_adagrad)
 
 set(ALL_OPTIMIZERS
-  ${COMMON_OPTIMIZERS}
-  ${CPU_ONLY_OPTIMIZERS}
-  ${GPU_ONLY_OPTIMIZERS}
-  ${DEPRECATED_OPTIMIZERS})
+    ${COMMON_OPTIMIZERS}
+    ${CPU_ONLY_OPTIMIZERS}
+    ${GPU_ONLY_OPTIMIZERS}
+    ${DEPRECATED_OPTIMIZERS})
 
 set(CPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS})
 
@@ -213,10 +270,45 @@ set(VBE_OPTIMIZERS
     sgd)
 
 # Individual optimizers (not fused with SplitTBE backward)
-set(DEFUSED_OPTIMIZERS rowwise_adagrad)
+set(DEFUSED_OPTIMIZERS
+    rowwise_adagrad)
 
-# Individual optimizers (not fused with SplitTBE backward)
-set(DEFUSED_OPTIMIZERS rowwise_adagrad)
+set(WEIGHT_OPTIONS
+    weighted
+    unweighted_nobag
+    unweighted)
+
+
+################################################################################
+# TBE Code Generation
+################################################################################
+
+macro(RUN_GEN_SCRIPT SCRIPT)
+  set(rocm_flag "")
+  if(USE_ROCM)
+    set(rocm_flag --is_rocm)
+  endif()
+
+  BLOCK_PRINT(
+    "Running code generation script ..."
+    "${PYTHON_EXECUTABLE} ${SCRIPT} --opensource ${rocm_flag}"
+  )
+
+  execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" ${SCRIPT} "--opensource" ${rocm_flag})
+endmacro()
+
+foreach(script
+    "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_embedding_optimizer.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_forward_quantized.py")
+    RUN_GEN_SCRIPT(${script})
+endforeach()
+
+
+################################################################################
+# Optimizer Groups
+################################################################################
 
 set(gen_gpu_kernel_source_files
     "gen_embedding_forward_dense_weighted_codegen_cuda.cu"
@@ -235,6 +327,8 @@ set(gen_gpu_kernel_source_files
     "gen_batch_index_select_dim0_backward_kernel_warp.cu"
     "gen_embedding_backward_split_grad_embedding_ops.cu"
     "gen_embedding_backward_split_grad_index_select.cu"
+    "gen_embedding_backward_common_split_device_kernel.cuh"
+    "gen_embedding_backward_batch_index_select_split_device_kernel.cuh"
 )
 
 if(NOT USE_ROCM)
@@ -248,16 +342,15 @@ foreach(wdesc dense split)
     "gen_embedding_forward_${wdesc}_unweighted_nobag_kernel_small.cu")
 endforeach()
 
-foreach(wdesc weighted unweighted_nobag unweighted)
+foreach(wdesc ${WEIGHT_OPTIONS})
   list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu"
       "gen_embedding_forward_dense_${wdesc}_kernel.cu"
       "gen_embedding_backward_dense_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_dense_split_${wdesc}_kernel_cta.cu"
-      "gen_embedding_backward_dense_split_${wdesc}_kernel_warp.cu")
-
-  list(APPEND gen_gpu_kernel_source_files
-      "gen_embedding_forward_split_${wdesc}_kernel.cu")
+      "gen_embedding_backward_dense_split_${wdesc}_kernel_warp.cu"
+      "gen_embedding_forward_split_${wdesc}_kernel.cu"
+      "gen_embedding_backward_${wdesc}_split_device_kernel.cuh")
 
   foreach(etype fp32 fp16 fp8 int8 int4 int2)
     list(APPEND gen_gpu_kernel_source_files
@@ -265,9 +358,12 @@ foreach(wdesc weighted unweighted_nobag unweighted)
   endforeach()
 endforeach()
 
-list(APPEND gen_gpu_kernel_source_files
-     "gen_embedding_forward_split_weighted_vbe_kernel.cu"
-     "gen_embedding_forward_split_unweighted_vbe_kernel.cu")
+# Generate VBE files
+foreach(wdesc weighted unweighted)
+  list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_forward_split_${wdesc}_vbe_kernel.cu"
+      "gen_embedding_backward_${wdesc}_vbe_split_device_kernel.cuh")
+endforeach()
 
 set(gen_cpu_source_files
     "gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp"
@@ -286,15 +382,25 @@ foreach(optimizer
     ${GPU_ONLY_OPTIMIZERS})
   list(APPEND gen_python_source_files
     "${CMAKE_BINARY_DIR}/lookup_${optimizer}.py")
+  list(APPEND gen_python_source_files
+    "${CMAKE_BINARY_DIR}/lookup_${optimizer}_pt2.py")
 endforeach()
 
 # Generate the backend API for all optimizers to preserve the backward
 # compatibility
+list(APPEND gen_cpu_source_files
+    "gen_embedding_forward_split_pt2_cpu_wrapper.cpp")
+list(APPEND gen_gpu_host_source_files
+     "gen_embedding_forward_split_pt2_cuda_wrapper.cpp")
+
 foreach(optimizer ${ALL_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
-    "gen_embedding_backward_split_${optimizer}_cpu.cpp")
+    "gen_embedding_backward_split_${optimizer}_cpu.cpp"
+    "gen_embedding_backward_split_${optimizer}_pt2_cpu_wrapper.cpp")
   list(APPEND gen_gpu_host_source_files
-    "gen_embedding_backward_split_${optimizer}.cpp")
+    "gen_embedding_backward_split_${optimizer}.cpp"
+    "gen_embedding_split_${optimizer}_pt2_autograd.cpp"
+    "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp")
 endforeach()
 
 foreach(optimizer ${CPU_OPTIMIZERS})
@@ -305,7 +411,7 @@ endforeach()
 foreach(optimizer ${GPU_OPTIMIZERS})
   list(APPEND gen_gpu_kernel_source_files
     "gen_embedding_optimizer_${optimizer}_split_device_kernel.cuh")
-  foreach(wdesc weighted unweighted_nobag unweighted)
+  foreach(wdesc ${WEIGHT_OPTIONS})
     list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_backward_${optimizer}_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_kernel_cta.cu"
@@ -332,133 +438,17 @@ foreach(optimizer ${DEFUSED_OPTIMIZERS})
     "${CMAKE_BINARY_DIR}/split_embedding_optimizer_${optimizer}.py")
 endforeach()
 
-set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
-set(embedding_codegen_dependencies
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py
-    ${CMAKE_CODEGEN_DIR}/embedding_common_code_generator.py
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_dense_host_cpu.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_approx_template.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_cpu_template.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_cpu_template.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_host_template.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_indice_weights_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_grad_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_kernel_cta_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_kernel_warp_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_backward_split_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_cpu_template.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_host_cpu.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_split_nbit_host_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_quantized_split_nbit_kernel_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_cpu.h
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_v2_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_kernel_nobag_small_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_split_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_forward_template_helpers.cuh
-    ${CMAKE_CODEGEN_DIR}/__init__.template
-    ${CMAKE_CODEGEN_DIR}/lookup_args.py
-    ${CMAKE_CODEGEN_DIR}/split_embedding_codegen_lookup_invoker.template
-    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_device_kernel_template.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cpu_utils.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cub_namespace_prefix.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/cub_namespace_postfix.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/dispatch_macros.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_inplace_update.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_op_registration.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/quantize_ops_utils.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_tensor_accessor.h)
-
-set(optimizer_codegen_dependencies
-    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py
-    ${CMAKE_CODEGEN_DIR}/embedding_common_code_generator.py
-    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_host_template.cpp
-    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_template.cu
-    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_device_kernel_template.cuh
-    ${CMAKE_CODEGEN_DIR}/embedding_optimizer_split_kernel_template.cu
-    ${CMAKE_CODEGEN_DIR}/optimizer_args.py
-    ${CMAKE_CODEGEN_DIR}/split_embedding_optimizer_codegen.template
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_common.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/sparse_ops_utils.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/split_embeddings_utils.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/embedding_backward_template_helpers.cuh
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/dispatch_macros.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/fbgemm_gpu/fbgemm_cuda_utils.cuh)
-
-if(USE_ROCM)
-  message(STATUS "${PYTHON_EXECUTABLE}" "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" "--opensource --is_rocm")
-
-  execute_process(
-    COMMAND
-      "${PYTHON_EXECUTABLE}"
-      "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
-      "--opensource" "--is_rocm" DEPENDS "${embedding_codegen_dependencies}")
-
-  execute_process(
-    COMMAND
-      "${PYTHON_EXECUTABLE}"
-      "${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py"
-      "--opensource" "--is_rocm" DEPENDS "${optimizer_codegen_dependencies}")
-
-  set(header_include_dir
-      ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src
-      ${CMAKE_CURRENT_SOURCE_DIR})
-
-  hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR} HEADER_INCLUDE_DIR
-         ${header_include_dir})
-else()
-  add_custom_command(
-    OUTPUT
-      ${gen_cpu_source_files}
-      ${gen_gpu_kernel_source_files}
-      ${gen_gpu_host_source_files}
-      ${gen_python_source_files}
-    COMMAND
-      "${PYTHON_EXECUTABLE}"
-      "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py" "--opensource"
-    DEPENDS "${embedding_codegen_dependencies}")
-
-  add_custom_command(
-    OUTPUT
-      ${gen_defused_optim_source_files}
-      ${gen_defused_optim_py_files}
-    COMMAND
-      "${PYTHON_EXECUTABLE}"
-      "${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py"
-      "--opensource"
-    DEPENDS "${optimizer_codegen_dependencies}")
-endif()
-
-set(AVX2_FLAGS "-mavx2;-mf16c;-mfma;-fopenmp")
-if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
-  # NVCC in WSL complains about unknown -mavx options
-  # https://github.com/pytorch/FBGEMM/issues/2135
-  set(AVX2_FLAGS "-Xcompiler;-mavx;-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-fopenmp")
-endif()
-
-set(AVX512_FLAGS "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl;-fopenmp")
-if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
-  set(AVX512_FLAGS "-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-Xcompiler;-mavx512f;-Xcompiler;-mavx512bw;-Xcompiler;-mavx512dq;-Xcompiler;-mavx512vl;-fopenmp")
-endif()
+################################################################################
+# FBGEMM_GPU Generated Sources
+################################################################################
 
 if(CXX_AVX2_FOUND)
   set_source_files_properties(${gen_cpu_source_files}
-    PROPERTIES COMPILE_OPTIONS
-    "${AVX2_FLAGS}")
+    PROPERTIES COMPILE_OPTIONS "${AVX2_FLAGS}")
 else()
   set_source_files_properties(${gen_cpu_source_files}
-    PROPERTIES COMPILE_OPTIONS
-    "-fopenmp")
+    PROPERTIES COMPILE_OPTIONS "-fopenmp")
 endif()
 
 set_source_files_properties(${gen_cpu_source_files}
@@ -493,8 +483,7 @@ if(NOT FBGEMM_CPU_ONLY)
 else()
   set(fbgemm_gpu_sources_gen
     ${gen_cpu_source_files}
-    # To force embedding_optimizer_code_generator to generate Python
-    # files
+    # To force generate_embedding_optimizer to generate Python files
     ${gen_defused_optim_py_files}
   )
 endif()
@@ -564,21 +553,9 @@ set_source_files_properties(${fbgemm_sources}
 # FBGEMM_GPU Static Sources
 ################################################################################
 
-# Set NVML_LIB_PATH if provided, or detect the default lib path
-if(NOT NVML_LIB_PATH)
-  set(DEFAULT_NVML_LIB_PATH
-      "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
-
-  if(EXISTS ${DEFAULT_NVML_LIB_PATH})
-    message(STATUS "Setting NVML_LIB_PATH: \
-      ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
-    set(NVML_LIB_PATH "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
-  endif()
-endif()
-
 set(fbgemm_gpu_sources_static_cpu
     codegen/embedding_forward_split_cpu.cpp
-    codegen/embedding_forward_quantized_host_cpu.cpp
+    codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
@@ -604,7 +581,7 @@ set(fbgemm_gpu_sources_static_cpu
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
-    codegen/embedding_forward_quantized_host.cpp
+    codegen/inference/embedding_forward_quantized_host.cpp
     codegen/embedding_backward_dense_host.cpp
     codegen/embedding_bounds_check_host.cpp
     src/memory_utils/memory_utils.cpp
@@ -621,10 +598,6 @@ if(NOT FBGEMM_CPU_ONLY)
     src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/input_combine_ops/input_combine_gpu.cpp
     codegen/batch_index_select_dim0_host.cpp)
-
-  if(NVML_LIB_PATH)
-    message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")
-  endif()
 
   if(NVML_LIB_PATH OR USE_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
@@ -649,7 +622,7 @@ endif()
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu
       codegen/embedding_bounds_check.cu
-      codegen/embedding_forward_quantized_split_lookup.cu
+      codegen/inference/embedding_forward_quantized_split_lookup.cu
       src/memory_utils/memory_utils.cu
       src/memory_utils/memory_utils_ops.cu
       src/embedding_inplace_ops/embedding_inplace_update.cu
@@ -745,6 +718,15 @@ endif()
 ################################################################################
 
 if(USE_ROCM)
+  # HIPify CUDA code
+  set(header_include_dir
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${CMAKE_CURRENT_SOURCE_DIR})
+
+  hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR}
+        HEADER_INCLUDE_DIR ${header_include_dir})
+
   # Get the absolute paths of all generated sources
   set(fbgemm_gpu_sources_gen_abs)
   foreach(source_gen_filename ${fbgemm_gpu_sources_gen})
@@ -801,22 +783,17 @@ else()
 endif()
 
 # Add PyTorch include/
-target_include_directories(fbgemm_gpu_py PRIVATE
-  ${TORCH_INCLUDE_DIRS})
+target_include_directories(fbgemm_gpu_py PRIVATE ${TORCH_INCLUDE_DIRS})
 
 # Remove `lib` from the output artifact name `libfbgemm_gpu_py.so`
-set_target_properties(fbgemm_gpu_py
-  PROPERTIES PREFIX
-  "")
+set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 
 # Link to PyTorch
-target_link_libraries(fbgemm_gpu_py
-  ${TORCH_LIBRARIES})
+target_link_libraries(fbgemm_gpu_py ${TORCH_LIBRARIES})
 
 # Link to NVML
 if(NVML_LIB_PATH)
-  target_link_libraries(fbgemm_gpu_py
-    ${NVML_LIB_PATH})
+  target_link_libraries(fbgemm_gpu_py ${NVML_LIB_PATH})
 endif()
 
 

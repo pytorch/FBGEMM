@@ -7,7 +7,6 @@
 
 # pyre-strict
 
-import logging
 from itertools import accumulate
 from typing import List, Optional
 
@@ -21,18 +20,14 @@ except Exception:
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
     )
     try:
-        if torch.version.hip:
-            torch.ops.load_library(
-                "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_hip"
-            )
-        else:
-            torch.ops.load_library(
-                "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_cuda"
-            )
-    except OSError:
-        # For backward compatibility
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
+        )
+    except OSError:
+        # This is for forward compatibility (new torch.package + old backend)
+        # We should be able to remove it after this diff is picked up by all backend
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_cuda"
         )
 except OSError:
     pass
@@ -45,7 +40,6 @@ class PermutePooledEmbeddings:
         permute: List[int],
         device: Optional[torch.device] = None,
     ) -> None:
-        logging.info("Using Permute Pooled Embeddings")
         self._offset_dim_list: torch.Tensor = torch.tensor(
             [0] + list(accumulate(embs_dims)), device=device, dtype=torch.int64
         )
