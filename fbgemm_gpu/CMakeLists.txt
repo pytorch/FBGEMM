@@ -300,7 +300,7 @@ endmacro()
 
 foreach(script
     "${CMAKE_CODEGEN_DIR}/embedding_backward_code_generator.py"
-    "${CMAKE_CODEGEN_DIR}/embedding_optimizer_code_generator.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_embedding_optimizer.py"
     "${CMAKE_CODEGEN_DIR}/genscript/generate_forward_quantized.py")
     RUN_GEN_SCRIPT(${script})
 endforeach()
@@ -483,7 +483,7 @@ if(NOT FBGEMM_CPU_ONLY)
 else()
   set(fbgemm_gpu_sources_gen
     ${gen_cpu_source_files}
-    # To force embedding_optimizer_code_generator to generate Python files
+    # To force generate_embedding_optimizer to generate Python files
     ${gen_defused_optim_py_files}
   )
 endif()
