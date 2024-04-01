@@ -57,12 +57,18 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_lower=-0.1,
             ssd_uniform_init_upper=0.1,
         )
+        # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no attribute
+        #  `get_cuda`.
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
         assert (output_weights <= 0.1).all().item()
         assert (output_weights >= -0.1).all().item()
 
+        # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no attribute
+        #  `set_cuda`.
         emb.ssd_db.set_cuda(indices, weights, count, 1)
+        # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no attribute
+        #  `get_cuda`.
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
         torch.testing.assert_close(weights, output_weights)
@@ -114,6 +120,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         f = torch.cat([f.view(B, -1) for f in fs], dim=1)
 
         for t in range(T):
+            # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no
+            #  attribute `set_cuda`.
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
                 bs[t].weight.cpu(),
@@ -191,6 +199,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         [f.backward(go) for (f, go) in zip(fs, gos)]
 
         for t in range(T):
+            # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no
+            #  attribute `set_cuda`.
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
                 bs[t].weight.cpu(),
@@ -291,6 +301,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.manual_seed(42)
 
         for t in range(T):
+            # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no
+            #  attribute `set_cuda`.
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
                 bs[t].weight.cpu(),
@@ -397,10 +409,16 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 cache_sets=1,
             )
         )
+        # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no attribute
+        #  `get_cuda`.
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
 
+        # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no attribute
+        #  `set_cuda`.
         emb.ssd_db.set_cuda(indices, weights, count, 1)
+        # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no attribute
+        #  `get_cuda`.
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
         torch.testing.assert_close(weights, output_weights)
@@ -535,6 +553,8 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 # fmt: on
 
+            # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no
+            #  attribute `set_cuda`.
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
                 copy_byte_tensor,
@@ -691,6 +711,8 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 )
                 # fmt: on
 
+            # pyre-fixme[16]: Item `Tensor` of `Union[Tensor, Module]` has no
+            #  attribute `set_cuda`.
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
                 copy_byte_tensor,
