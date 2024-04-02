@@ -334,6 +334,8 @@ def generate_indices_zipf(
     assert E >= L, "num-embeddings must be greater than equal to bag-size"
     # oversample and then remove duplicates to obtain sampling without
     # replacement
+    if L == 0:
+        return torch.empty(iters, 0, dtype=torch.int).to(get_device())
     total_B = sum(Bs)
     zipf_shape = (iters, total_B, zipf_oversample_ratio * L)
     if torch.cuda.is_available():
