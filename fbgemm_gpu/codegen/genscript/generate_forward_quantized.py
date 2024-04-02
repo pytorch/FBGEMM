@@ -174,5 +174,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print(f"[GENERATE FORWARD QUANTIZED] {sys.argv}")
+    print(f"[GENERATE FORWARD QUANTIZED]: {sys.argv}")
     main()
