@@ -203,69 +203,6 @@ def backward_device_kernel() -> None:
     )
 
 
-# TODO: Separate this function into another codegen script
-def index_select() -> None:
-    kwargs = make_args([(FLOAT, "unused")])
-    kwargs["args"] = kwargs["cuda"]
-    for templ_file, gen_file in [
-        (
-            "embedding_forward_split_template.cu",
-            "gen_batch_index_select_dim0_forward_codegen_cuda.cu",
-        ),
-        (
-            "embedding_forward_split_kernel_template.cu",
-            "gen_batch_index_select_dim0_forward_kernel.cu",
-        ),
-        (
-            "embedding_forward_split_kernel_nobag_small_template.cu",
-            "gen_batch_index_select_dim0_forward_kernel_small.cu",
-        ),
-        (
-            "embedding_backward_split_template.cu",
-            "gen_batch_index_select_dim0_backward_codegen_cuda.cu",
-        ),
-        (
-            "embedding_backward_split_kernel_cta_template.cu",
-            "gen_batch_index_select_dim0_backward_kernel_cta.cu",
-        ),
-        (
-            "embedding_backward_split_kernel_warp_template.cu",
-            "gen_batch_index_select_dim0_backward_kernel_warp.cu",
-        ),
-        (
-            "embedding_backward_split_device_kernel_template.cuh",
-            "gen_embedding_backward_batch_index_select_split_device_kernel.cuh",
-        ),
-    ]:
-        template = env.get_template(templ_file)
-        write(
-            gen_file,
-            template.render(
-                weighted=False,
-                dense=True,
-                vbe=False,
-                nobag=True,
-                is_index_select=True,
-                gen_once=False,
-                kdesc="batch_index_select",
-                **kwargs,
-            ),
-        )
-
-    template = env.get_template("embedding_backward_split_grad_template.cu")
-    write(
-        "gen_embedding_backward_split_grad_index_select.cu",
-        template.render(is_index_select=True),
-    )
-
-    # Generate common backward device kernels (generate only once)
-    template = env.get_template("embedding_backward_split_device_kernel_template.cuh")
-    write(
-        "gen_embedding_backward_common_split_device_kernel.cuh",
-        template.render(gen_once=True),
-    )
-
-
 def backward_grad() -> None:
     # Generate the common grad functions
     template = env.get_template("embedding_backward_split_grad_template.cu")
@@ -311,16 +248,16 @@ def emb_codegen(
         args.install_dir = install_dir
     if is_fbcode is not None:
         args.is_fbcode = is_fbcode
-    backward_grad()
 
     # Generate forwards and specialized backwards
+    backward_grad()
     backward_indices()
-    backward_dense()
 
     # Generate common device kernels for backwards
     backward_device_kernel()
 
     # Generate backwards and optimizers
+    backward_dense()
     generate(**(adagrad()))
     generate(**(adam()))
     generate(**(lamb()))
@@ -338,8 +275,6 @@ def emb_codegen(
     generate(**(approx_sgd()))
     generate(**(none_optimizer()))
 
-    # Generate index_select ops using TBE backend
-    index_select()
     gen__init__py()
 
 

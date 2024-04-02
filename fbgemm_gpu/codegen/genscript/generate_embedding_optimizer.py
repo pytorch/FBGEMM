@@ -76,5 +76,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print(f"[GENERATE OPTIMIZERS] {sys.argv}")
+    print(f"[GENERATE OPTIMIZERS]: {sys.argv}")
     main()
