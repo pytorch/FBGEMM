@@ -135,6 +135,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
         evicted_indices,
     at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> actions_count,
     TORCH_DSA_KERNEL_ARGS) {
+  // Number of cache sets
   const int32_t C = lxu_cache_state.size(0);
 
   const int32_t N = sorted_cache_sets.size(0);
@@ -144,16 +145,33 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
   }
 
   const int32_t cache_set = sorted_cache_sets[n];
+
+  // Set actions_count. It is basically the sum of all SLs. Since cache sets
+  // are sorted in sorted_cache_sets, we can count the number of elements that
+  // are not C by finding the position of the last cache set that is not C
+  if (threadIdx.x == 0) {
+    // Zero cache misses (the first sorted_cache_sets is C) or
+    // some cache misses (some sorted_cache_sets are C)
+    if (cache_set == C && (n == 0 || sorted_cache_sets[n - 1] != C)) {
+      actions_count[0] = n;
+    }
+    // All cache misses (none of sorted_cache_sets is C)
+    else if (n == N - 1 && cache_set != C) {
+      actions_count[0] = N;
+    }
+  }
+
   if (cache_set >= C) {
-    // ignore the already-existing elements
-    evicted_indices[n] = -1;
-    assigned_cache_slots[n] = -1;
+    if (threadIdx.x == 0) {
+      // ignore the already-existing elements
+      evicted_indices[n] = -1;
+      assigned_cache_slots[n] = -1;
+    }
     return;
   }
 
   // check if this warp is responsible for this whole segment.
-  const bool segment_start =
-      (n == 0 || sorted_cache_sets[n - 1] != sorted_cache_sets[n]);
+  const bool segment_start = (n == 0 || sorted_cache_sets[n - 1] != cache_set);
 
   if (!segment_start) {
     // don't have *warp* divergence since we launch full warps in blockDim.x,
@@ -207,10 +225,6 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
   assigned_cache_slots[n + l] = cache_set * kWarpSize + insert_slot;
   lxu_cache_state[cache_set][insert_slot] = insert_idx;
   lru_state[cache_set][insert_slot] = time_stamp;
-
-  if (threadIdx.x == 0) {
-    gpuAtomicAdd(&actions_count[0], SL);
-  }
 }
 
 std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
@@ -236,11 +250,11 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
   const int32_t N = unique_indices.numel();
 
   auto evicted_indices = empty_like(unique_indices);
-  auto assigned_cache_slots =
-      empty_like(unique_indices, unique_indices.options().dtype(at::kInt));
-  auto actions_count = at::zeros({1}, unique_indices.options().dtype(at::kInt));
+  const auto int_options = unique_indices.options().dtype(at::kInt);
+  auto assigned_cache_slots = empty_like(unique_indices, int_options);
 
   if (unique_indices.numel() == 0) {
+    auto actions_count = at::zeros({1}, int_options);
     // these are all of length zero
     return std::make_tuple(
         empty_like(unique_indices),
@@ -248,11 +262,11 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
         assigned_cache_slots,
         actions_count);
   }
+
+  auto actions_count = at::empty({1}, int_options);
   // Find uncached indices
-  Tensor uvm_cache_stats =
-      at::empty({0}, linear_indices.options().dtype(at::kInt));
-  Tensor lxu_cache_locking_counter =
-      at::empty({0, 0}, lxu_cache_state.options().dtype(at::kInt));
+  Tensor uvm_cache_stats = at::empty({0}, int_options);
+  Tensor lxu_cache_locking_counter = at::empty({0, 0}, int_options);
   auto cache_sets_and_unique_indices = lru_cache_find_uncached_cuda(
       unique_indices,
       unique_indices_length,
