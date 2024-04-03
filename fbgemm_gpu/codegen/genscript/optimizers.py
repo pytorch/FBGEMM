@@ -39,6 +39,21 @@ except:
 ######################################################################
 
 
+def dense() -> Dict[str, Any]:
+    return {
+        "optimizer": "dense",
+        "dense": True,
+        "args": OptimizerArgsSet.create(
+            [
+                (FLOAT, "unused"),
+            ]
+        ),
+        "has_cpu_support": True,
+        "has_gpu_support": True,
+        "has_vbe_support": False,
+    }
+
+
 def adagrad() -> Dict[str, Any]:
     split_weight_update = """
       Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
