@@ -326,9 +326,24 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
       const bool scale_bias_last,                                 \
       const bool is_bf16_out);
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE) \
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE) \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float) \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16)
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
+  template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_autovec(
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t uncompressed_data_size,
+    // const int64_t compressed_data_size,
+    const IN_TYPE* input,
+    const INDEX_TYPE* indices,
+    const std::int32_t* compressed_indices_table,
+    const OFFSET_TYPE* offsets_or_lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    float* out,
+    bool is_weight_positional = false,
+    bool use_offsets = true);
 
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
   INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int32_t) \
