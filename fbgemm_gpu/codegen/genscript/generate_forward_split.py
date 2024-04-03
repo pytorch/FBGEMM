@@ -138,5 +138,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print(f"[FORWARD SPLIT GENERATOR]: {sys.argv}")
+    print(f"[GENERATE FORWARD SPLIT]: {sys.argv}")
     main()
