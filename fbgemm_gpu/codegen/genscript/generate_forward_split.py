@@ -57,7 +57,7 @@ class ForwardSplitGenerator:
     def generate_pt2_wrappers() -> None:
         # Generate PT2 forward wrapper (CUDA)
         CodeTemplate.load(
-            "embedding_split_host_pt2_cuda_wrapper_template.cpp",
+            "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
         ).write(
             f"gen_embedding_forward_split_pt2_cuda_wrapper.cpp",
             has_gpu_support=True,
@@ -67,7 +67,7 @@ class ForwardSplitGenerator:
 
         # Generate PT2 forward wrapper (CPU)
         CodeTemplate.load(
-            "embedding_split_host_pt2_cpu_wrapper_template.cpp",
+            "training/pt2/embedding_split_host_pt2_cpu_wrapper_template.cpp",
         ).write(
             f"gen_embedding_forward_split_pt2_cpu_wrapper.cpp",
             has_cpu_support=True,
