@@ -29,15 +29,15 @@ class IndexSelectGenerator:
         optargs = OptimizerArgsSet.create([(FLOAT, "unused")])
         for template_file, generated_file in [
             (
-                "embedding_forward_split_template.cu",
+                "training/forward/embedding_forward_split_template.cu",
                 "gen_batch_index_select_dim0_forward_codegen_cuda.cu",
             ),
             (
-                "embedding_forward_split_kernel_template.cu",
+                "training/forward/embedding_forward_split_kernel_template.cu",
                 "gen_batch_index_select_dim0_forward_kernel.cu",
             ),
             (
-                "embedding_forward_split_kernel_nobag_small_template.cu",
+                "training/forward/embedding_forward_split_kernel_nobag_small_template.cu",
                 "gen_batch_index_select_dim0_forward_kernel_small.cu",
             ),
             (
