@@ -273,6 +273,8 @@ def check_all_same_device(*tensors: Optional[Tensor]) -> None:
             continue
         if first_tensor is None:
             first_tensor = tensor
+        if first_tensor.device.type == "cpu" and tensor.device.type == "cpu":
+            return
         torch._check(tensor.device == first_tensor.device)
 
 
