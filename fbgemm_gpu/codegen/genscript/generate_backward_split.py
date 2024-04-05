@@ -92,7 +92,9 @@ class BackwardSplitGenerator:
             )
 
         # Generate optimizer kernel
-        CodeTemplate.load("embedding_optimizer_split_device_kernel_template.cuh").write(
+        CodeTemplate.load(
+            "training/optimizer/embedding_optimizer_split_device_kernel_template.cuh"
+        ).write(
             f"gen_embedding_optimizer_{optimizer}_split_device_kernel.cuh", **kwargs
         )
 

@@ -40,32 +40,33 @@ class EmbeddingOptimizerGenerator:
         )
         kwargs["args"] = kwargs["args"].cuda
 
-        # Generate CUDA host code
-        CodeTemplate.load("embedding_optimizer_split_template.cu").write(
-            f"gen_embedding_optimizer_{optimizer}_split_cuda.cu", **kwargs
-        )
+        PREFIX = "training/optimizer"
 
-        # Generate CUDA kernel code
-        CodeTemplate.load("embedding_optimizer_split_kernel_template.cu").write(
-            f"gen_embedding_optimizer_{optimizer}_split_kernel.cu", **kwargs
-        )
-
-        # Generate host code
-        CodeTemplate.load("embedding_optimizer_split_host_template.cpp").write(
-            f"gen_embedding_optimizer_{optimizer}_split.cpp", **kwargs
-        )
-
-        # Generates Python invoker for CUDA
-        CodeTemplate.load("split_embedding_optimizer_codegen.template").write(
-            f"split_embedding_optimizer_{optimizer}.py",
-            is_fbcode=args.is_fbcode,
-            **kwargs,
-        )
-
-        # Generate optimizer kernel headers
-        CodeTemplate.load("embedding_optimizer_split_device_kernel_template.cuh").write(
-            f"gen_embedding_optimizer_{optimizer}_split_device_kernel.cuh", **kwargs
-        )
+        for template_filepath, filename in [
+            (  # CUDA host code
+                f"{PREFIX}/embedding_optimizer_split_template.cu",
+                f"gen_embedding_optimizer_{optimizer}_split_cuda.cu",
+            ),
+            (  # CUDA kernel code
+                f"{PREFIX}/embedding_optimizer_split_kernel_template.cu",
+                f"gen_embedding_optimizer_{optimizer}_split_kernel.cu",
+            ),
+            (  # CPU code
+                f"{PREFIX}/embedding_optimizer_split_host_template.cpp",
+                f"gen_embedding_optimizer_{optimizer}_split.cpp",
+            ),
+            (  # Optimizer kernel headers
+                f"{PREFIX}/embedding_optimizer_split_device_kernel_template.cuh",
+                f"gen_embedding_optimizer_{optimizer}_split_device_kernel.cuh",
+            ),
+            (  # Python kernel invokers
+                "training/python/split_embedding_optimizer_codegen.template",
+                f"split_embedding_optimizer_{optimizer}.py",
+            ),
+        ]:
+            CodeTemplate.load(template_filepath).write(
+                filename, is_fbcode=args.is_fbcode, **kwargs
+            )
 
 
 def main() -> None:
