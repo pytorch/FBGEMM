@@ -78,7 +78,7 @@ class ForwardSplitGenerator:
     def generate_small_kernels() -> None:
         # Generate the small kernels (for nobag only) for the forward splits
         template = CodeTemplate.load(
-            "embedding_forward_split_kernel_nobag_small_template.cu"
+            "training/forward/embedding_forward_split_kernel_nobag_small_template.cu"
         )
         for dense in [True, False]:
             wdesc = f"{ 'dense' if dense else 'split' }"
@@ -92,7 +92,7 @@ class ForwardSplitGenerator:
     def generate_kernels() -> None:
         # Generate the CUDA host code
         ForwardSplitGenerator.render_forward_templates(
-            "embedding_forward_split_template.cu",
+            "training/forward/embedding_forward_split_template.cu",
             "gen_embedding_forward_{}_codegen_cuda.cu",
             dense_options=[True, False],
             nobag_options=[False],  # nobag is not used
@@ -101,7 +101,7 @@ class ForwardSplitGenerator:
 
         # Generate the meta kernels
         ForwardSplitGenerator.render_forward_templates(
-            "embedding_forward_split_meta_template.cpp",
+            "training/forward/embedding_forward_split_meta_template.cpp",
             "gen_embedding_forward_{}_codegen_meta.cpp",
             dense_options=[True, False],
             nobag_options=[False],  # nobag is not used
@@ -110,7 +110,7 @@ class ForwardSplitGenerator:
 
         # Generate the CUDA kernels
         ForwardSplitGenerator.render_forward_templates(
-            "embedding_forward_split_kernel_template.cu",
+            "training/forward/embedding_forward_split_kernel_template.cu",
             "gen_embedding_forward_{}_kernel.cu",
             dense_options=[True, False],
             nobag_options=[True, False],
@@ -119,7 +119,7 @@ class ForwardSplitGenerator:
 
         # Generate the v2 CUDA kernels
         ForwardSplitGenerator.render_forward_templates(
-            "embedding_forward_split_kernel_v2_template.cu",
+            "training/forward/embedding_forward_split_kernel_v2_template.cu",
             "gen_embedding_forward_{}_v2_kernel.cu",
             dense_options=[False],  # dense is not supported
             nobag_options=[False],  # nobag is not supported
