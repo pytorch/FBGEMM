@@ -556,7 +556,7 @@ set_source_files_properties(${fbgemm_sources}
 ################################################################################
 
 set(fbgemm_gpu_sources_static_cpu
-    codegen/embedding_forward_split_cpu.cpp
+    codegen/training/forward/embedding_forward_split_cpu.cpp
     codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/embedding_backward_dense_host_cpu.cpp
     codegen/embedding_bounds_check_host_cpu.cpp
