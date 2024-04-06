@@ -68,19 +68,19 @@ class BackwardSplitGenerator:
         # Generate the backward split kernels
         for template_filepath, filename_format in [
             (
-                "embedding_backward_split_template.cu",
+                "training/backward/embedding_backward_split_template.cu",
                 "gen_embedding_backward_{}_split_{}_cuda.cu",
             ),
             (
-                "embedding_backward_split_meta_template.cpp",
+                "training/backward/embedding_backward_split_meta_template.cpp",
                 "gen_embedding_backward_{}_split_{}_meta.cpp",
             ),
             (
-                "embedding_backward_split_kernel_cta_template.cu",
+                "training/backward/embedding_backward_split_kernel_cta_template.cu",
                 "gen_embedding_backward_{}_split_{}_kernel_cta.cu",
             ),
             (
-                "embedding_backward_split_kernel_warp_template.cu",
+                "training/backward/embedding_backward_split_kernel_warp_template.cu",
                 "gen_embedding_backward_{}_split_{}_kernel_warp.cu",
             ),
         ]:
@@ -105,7 +105,7 @@ class BackwardSplitGenerator:
             # Generate CUDA autograd, PT2 unified autograd, and PT2 backward wrapper
             for template_filepath, filename in [
                 (
-                    "embedding_backward_split_host_template.cpp",
+                    "training/backward/embedding_backward_split_host_template.cpp",
                     f"gen_embedding_backward_split_{optimizer}.cpp",
                 ),
                 (
@@ -143,16 +143,16 @@ class BackwardSplitGenerator:
         # Generate the backward splits
         if kwargs.get("has_cpu_support"):
             CodeTemplate.load(
-                "embedding_backward_split_cpu_approx_template.cpp"
+                "training/backward/embedding_backward_split_cpu_approx_template.cpp"
                 if "approx" in optimizer
-                else "embedding_backward_split_cpu_template.cpp"
+                else "training/backward/embedding_backward_split_cpu_template.cpp"
             ).write(f"gen_embedding_backward_{optimizer}_split_cpu.cpp", **kwargs)
 
         # Generate the backward splits (non-dense)
         if not kwargs.get("dense"):
             for template_filepath, filename in [
                 (
-                    "embedding_backward_split_host_cpu_template.cpp",
+                    "training/backward/embedding_backward_split_host_cpu_template.cpp",
                     f"gen_embedding_backward_split_{optimizer}_cpu.cpp",
                 ),
                 (
@@ -179,7 +179,9 @@ class BackwardSplitGenerator:
     def generate_backward_device() -> None:
         # Generate backward device kernels based on weighted (True/False), VBE
         # (True/False), no bag (True/False)
-        template_filepath = "embedding_backward_split_device_kernel_template.cuh"
+        template_filepath = (
+            "training/backward/embedding_backward_split_device_kernel_template.cuh"
+        )
 
         BackwardSplitGenerator.render_backward_templates(
             template_filepath,
@@ -202,14 +204,16 @@ class BackwardSplitGenerator:
     @staticmethod
     def generate_backward_grad() -> None:
         # Generate the common grad functions
-        CodeTemplate.load("embedding_backward_split_grad_template.cu").write(
+        CodeTemplate.load(
+            "training/backward/embedding_backward_split_grad_template.cu"
+        ).write(
             "gen_embedding_backward_split_grad_embedding_ops.cu", is_index_select=False
         )
 
     @staticmethod
     def generate_backward_indices() -> None:
         template = CodeTemplate.load(
-            "embedding_backward_split_indice_weights_template.cu"
+            "training/backward/embedding_backward_split_indice_weights_template.cu"
         )
         for dense in [True, False]:
             template.write(
