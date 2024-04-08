@@ -42,3 +42,9 @@ class CodeTemplate:
         with open(os.path.join(args.install_dir, filename), "w") as f:
             f.write(output)
             print(f"Written: {filename}")
+
+    @staticmethod
+    def copy_to_root(relative_path: str) -> None:
+        # Copy template from its relative path to root of the output directory
+        # e.g. sub/directory/foo.py -> foo.py
+        CodeTemplate.load(relative_path).write(relative_path.split("/")[-1])

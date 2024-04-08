@@ -372,7 +372,9 @@ set(gen_cpu_source_files
     "gen_embedding_forward_quantized_weighted_codegen_cpu.cpp"
     "gen_embedding_backward_dense_split_cpu.cpp")
 
-set(gen_python_source_files ${CMAKE_BINARY_DIR}/__init__.py)
+set(gen_python_source_files
+  ${CMAKE_BINARY_DIR}/__init__.py
+  ${CMAKE_BINARY_DIR}/lookup_args.py)
 
 # For each of the optimizers, generate the backward split variant by adding
 # the Python, CPU-only, GPU host, and GPU kernel source files
@@ -439,6 +441,9 @@ foreach(optimizer ${DEFUSED_OPTIMIZERS})
   list(APPEND gen_defused_optim_py_files
     "${CMAKE_BINARY_DIR}/split_embedding_optimizer_${optimizer}.py")
 endforeach()
+
+list(APPEND gen_defused_optim_py_files
+    ${CMAKE_BINARY_DIR}/optimizer_args.py)
 
 
 ################################################################################
@@ -579,7 +584,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/split_embeddings_cache/lru_cache_populate_byte.cpp
     src/split_embeddings_cache/lxu_cache.cpp
     src/split_embeddings_cache/split_embeddings_cache_ops.cpp
-    codegen/batch_index_select_dim0_cpu_host.cpp)
+    codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
@@ -599,7 +604,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/metric_ops/metric_ops_host.cpp
     src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/input_combine_ops/input_combine_gpu.cpp
-    codegen/batch_index_select_dim0_host.cpp)
+    codegen/training/index_select/batch_index_select_dim0_host.cpp)
 
   if(NVML_LIB_PATH OR USE_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
@@ -809,11 +814,5 @@ install(TARGETS fbgemm_gpu_py
 install(FILES ${gen_python_source_files}
         DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
 
-install(FILES ${CMAKE_CODEGEN_DIR}/lookup_args.py
-        DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
-
 install(FILES ${gen_defused_optim_py_files}
-        DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
-
-install(FILES ${CMAKE_CODEGEN_DIR}/optimizer_args.py
         DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
