@@ -222,8 +222,9 @@ class BackwardSplitGenerator:
             )
 
     @staticmethod
-    def generate_init_py() -> None:
+    def generate_python_sources() -> None:
         CodeTemplate.load("training/python/__init__.template").write("__init__.py")
+        CodeTemplate.copy_to_root("training/python/lookup_args.py")
 
     @staticmethod
     def generate() -> None:
@@ -258,7 +259,7 @@ class BackwardSplitGenerator:
         BackwardSplitGenerator.generate_backward_grad()
         BackwardSplitGenerator.generate_backward_indices()
 
-        BackwardSplitGenerator.generate_init_py()
+        BackwardSplitGenerator.generate_python_sources()
 
 
 def main() -> None:
