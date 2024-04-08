@@ -28,7 +28,7 @@ except ImportError:
 
 class EmbeddingOptimizerGenerator:
     @staticmethod
-    def generate(**kwargs: Any) -> None:
+    def generate_embedding_optimizer(**kwargs: Any) -> None:
         """
         Generate embedding optimizer code blocks (host, CUDA host, CUDA kernel,
         and header files) given the optimizer's parameters.
@@ -68,12 +68,18 @@ class EmbeddingOptimizerGenerator:
                 filename, is_fbcode=args.is_fbcode, **kwargs
             )
 
+    @staticmethod
+    def generate() -> None:
+        optimizers = [rowwise_adagrad()]
+
+        for optimizer in optimizers:
+            EmbeddingOptimizerGenerator.generate_embedding_optimizer(**optimizer)
+
+        CodeTemplate.copy_to_root("training/python/optimizer_args.py")
+
 
 def main() -> None:
-    optimizers = [rowwise_adagrad()]
-
-    for optimizer in optimizers:
-        EmbeddingOptimizerGenerator.generate(**optimizer)
+    EmbeddingOptimizerGenerator.generate()
 
 
 if __name__ == "__main__":
