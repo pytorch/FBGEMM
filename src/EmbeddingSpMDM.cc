@@ -1066,7 +1066,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                const offsetType* offsets_or_lengths,
                const float* weights,
                outType* out) {
-      return EmbeddingSpMDMRowWiseSparse_autovec(
+      return EmbeddingSpMDMRowWiseSparse_ref(
         block_size,
         output_size,
         index_size,
@@ -1228,7 +1228,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                const offsetType* offsets_or_lengths,
                const float* weights,
                outType* out) {
-      return EmbeddingSpMDMRowWiseSparse_autovec(
+      return EmbeddingSpMDMRowWiseSparse_ref(
         block_size,
         output_size,
         index_size,
