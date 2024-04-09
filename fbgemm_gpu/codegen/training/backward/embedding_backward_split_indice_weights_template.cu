@@ -14,7 +14,7 @@
 // Required for op registrations
 #include "fbgemm_gpu/embedding_op_registration.h"
 ////////////////////////////////////////////////////////////////////////////////
-#include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
@@ -167,7 +167,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
             Vec4TAcc<grad_t> go(grad_output_ + d);
             grad_out[vec] = go;
         }
-    
+
         for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
             int32_t l = l_start + threadIdx.x;
             int64_t idx = l < L ? indices[indices_start + l] : 0;

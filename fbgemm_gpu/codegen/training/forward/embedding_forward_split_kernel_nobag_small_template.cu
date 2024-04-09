@@ -15,7 +15,7 @@
 // See https://fburl.com/dw9ljh4h
 #}
 
-#include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;

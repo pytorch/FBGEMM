@@ -29,7 +29,7 @@
 #include "fbgemm_gpu/embedding_op_registration.h"
 ////////////////////////////////////////////////////////////////////////////////
 {%- endif %}
-#include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
