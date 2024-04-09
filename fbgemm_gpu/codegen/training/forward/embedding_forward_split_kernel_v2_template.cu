@@ -16,7 +16,7 @@
 #}
 
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
-#include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 
 using namespace fbgemm_gpu;
 

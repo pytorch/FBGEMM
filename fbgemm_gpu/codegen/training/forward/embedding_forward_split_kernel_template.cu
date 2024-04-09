@@ -20,7 +20,7 @@
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
-#include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
