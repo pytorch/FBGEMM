@@ -217,9 +217,9 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       "batch_index_select_dim0("
       "    Tensor inputs,"
       "    Tensor indices,"
-      "    int[] input_num_indices,"
-      "    int[] input_rows,"
-      "    int[] input_columns,"
+      "    SymInt[] input_num_indices,"
+      "    SymInt[] input_rows,"
+      "    SymInt[] input_columns,"
       "    bool permute_output_dim_0_1=False) -> Tensor");
   DISPATCH_TO_CPU("batch_index_select_dim0", batch_index_select_dim0_cpu);
 }
@@ -232,9 +232,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "batch_index_select_dim0("
       "    Tensor inputs,"
       "    Tensor indices,"
-      "    int[] input_num_indices,"
-      "    int[] input_rows,"
-      "    int[] input_columns,"
+      "    SymInt[] input_num_indices,"
+      "    SymInt[] input_rows,"
+      "    SymInt[] input_columns,"
       "    bool permute_output_dim_0_1=False) -> Tensor");
   DISPATCH_TO_CPU("batch_index_select_dim0", batch_index_select_dim0_cpu);
 }
