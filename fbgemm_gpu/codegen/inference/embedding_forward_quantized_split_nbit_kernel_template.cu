@@ -8,7 +8,7 @@
 
 // clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
-#include "codegen/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 
 using namespace fbgemm_gpu;
