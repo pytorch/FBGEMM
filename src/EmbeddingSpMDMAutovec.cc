@@ -342,30 +342,6 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 #undef INSTANTIATE_SPMDM_BASE
 
 #define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template FBGEMM_API bool EmbeddingSpMDM_ref(                             \
-      const int64_t block_size,                                            \
-      const int64_t output_size,                                           \
-      const int64_t index_size,                                            \
-      const int64_t data_size,                                             \
-      const IN_TYPE* input,                                                \
-      const INDEX_TYPE* indices,                                           \
-      const OFFSET_TYPE* offsets_or_lengths,                               \
-      const float* weights,                                                \
-      bool normalize_by_lengths,                                           \
-      OUT_TYPE* out,                                                       \
-      bool is_weight_positional,                                           \
-      bool use_offsets,                                                    \
-      int64_t input_stride,                                                \
-      int64_t output_stride,                                               \
-      bool scale_bias_last,                                                \
-      bool no_bag,                                                         \
-      bool is_bf16_out,                                                    \
-      bool is_bf16_in);
-
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
   template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_autovec(              \
       const int64_t block_size,                                          \
       const int64_t output_size,                                         \
@@ -381,6 +357,11 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
       bool is_weight_positional,                                         \
       bool use_offsets);
 
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
+  
 #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
   INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, std::int32_t) \
   INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, std::int64_t)
