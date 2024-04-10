@@ -11,7 +11,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
-#include "codegen/embedding_forward_split_cpu.h"
+#include "fbgemm_gpu/embedding_forward_split_cpu.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
