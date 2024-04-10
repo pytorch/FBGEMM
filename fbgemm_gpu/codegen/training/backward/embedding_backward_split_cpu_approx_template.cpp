@@ -13,7 +13,7 @@
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 
-#include "codegen/embedding_forward_split_cpu.h"
+#include "fbgemm_gpu/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm_gpu/cpu_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
