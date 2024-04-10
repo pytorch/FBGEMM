@@ -169,7 +169,7 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
     float* out,
     bool is_weight_positional,
     bool use_offsets) {
-  bool is8bit = is_same<InType, uint8_t>::value;
+  bool is8bit = std::is_same<InType, uint8_t>::value;
   printf("test");
 
 
@@ -230,17 +230,19 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
   } else {
     // Reference implementation of FP32 SLS
 
-    // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
-    // prefetching helps reduce backend stall and therefore enable vectorization
-    // reach better of its potential. 16 is tuned for Neoverse-V2.
-    constexpr int64_t max_initial_prefetch_rows = 32;
-    const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
-    for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-      do_prefetch(
-          reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-          0,
-          0);
-    }
+    //TODO: FIX THIS. Currently commenting out prefetching code because input stride is NOT defined.
+    //==============================================================================================
+    // // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
+    // // prefetching helps reduce backend stall and therefore enable vectorization
+    // // reach better of its potential. 16 is tuned for Neoverse-V2.
+    // constexpr int64_t max_initial_prefetch_rows = 32;
+    // const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
+    // for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    //   do_prefetch(
+    //       reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
+    //       0,
+    //       0);
+    // }
 
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
@@ -270,12 +272,14 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
         //   return false;
         // }
 
-        int64_t prefetch_idx =
-          indices[std::min(current + prefetch_stride, index_size - 1)];
-      do_prefetch(
-          reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
-          0,
-          0);
+      //TODO: FIX THIS. Currently commenting out prefetching code because input stride is NOT defined.
+      //==============================================================================================
+      //   int64_t prefetch_idx =
+      //     indices[std::min(current + prefetch_stride, index_size - 1)];
+      // do_prefetch(
+      //     reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
+      //     0,
+      //     0);
 
 
         float w = 1.f;
@@ -287,7 +291,7 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
           const InType* inptr = input + block_size * idx + j;
           out[j] = std::fma(
               w,
-              is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
+              std::is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
               out[j]);
         }
 
