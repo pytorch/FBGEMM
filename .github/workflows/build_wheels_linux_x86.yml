@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   generate-matrix:
-    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@release/2.3
     with:
       package-type: wheel
       os: linux
@@ -36,7 +36,7 @@ jobs:
   build:
     needs: generate-matrix
     name: pytorch/FBGEMM
-    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@release/2.3
     with:
       repository: pytorch/FBGEMM
       ref: ""
