@@ -11,6 +11,8 @@
 cmake_minimum_required(VERSION 3.25.0 FATAL_ERROR)
 
 function(BLOCK_PRINT)
+  message("")
+  message("")
   message("================================================================================")
   foreach(ARG IN LISTS ARGN)
      message("${ARG}")
@@ -222,7 +224,6 @@ endif()
 
 file(GLOB_RECURSE asmjit_sources
   "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/asmjit/src/asmjit/*/*.cpp")
-
 
 ################################################################################
 # Optimizer Group Definitions
@@ -802,6 +803,12 @@ target_link_libraries(fbgemm_gpu_py ${TORCH_LIBRARIES})
 if(NVML_LIB_PATH)
   target_link_libraries(fbgemm_gpu_py ${NVML_LIB_PATH})
 endif()
+
+# Silence warnings in asmjit
+target_compile_options(fbgemm_gpu_py PRIVATE
+  -Wno-deprecated-anon-enum-enum-conversion)
+target_compile_options(fbgemm_gpu_py PRIVATE
+  -Wno-deprecated-declarations)
 
 
 ################################################################################
