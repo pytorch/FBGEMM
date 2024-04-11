@@ -558,3 +558,19 @@ def keyed_jagged_index_select_dim1_abstract(
         ret.append(weights.new_empty([selected_lengths_sum]))
 
     return ret
+
+
+@impl_abstract("fbgemm::bounds_check_indices")
+def bounds_check_indices_abstract(
+    rows_per_table: torch.Tensor,
+    indices: torch.Tensor,
+    offsets: torch.Tensor,
+    bounds_check_mode_int: int,
+    bounds_check_warning: torch.Tensor,
+    per_sample_weights: Optional[torch.Tensor] = None,
+) -> None:
+    """
+    This meta function is used to fake the bounds checking
+    from the original function `fbgemm::bounds_check_indices`
+    """
+    return
