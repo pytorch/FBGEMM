@@ -12,7 +12,7 @@
 #include <ATen/ATen.h>
 #include <torch/torch.h>
 
-#include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using namespace testing;
 
