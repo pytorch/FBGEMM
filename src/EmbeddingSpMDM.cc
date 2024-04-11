@@ -26,6 +26,7 @@
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
 #include "fbgemm/FbgemmConvert.h"
+#include "EmbeddingSpMDMAutovec.h"
 #include "fbgemm/SimdUtils.h"
 
 namespace fbgemm {
@@ -1232,41 +1233,25 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                const offsetType* offsets_or_lengths,
                const float* weights,
                outType* out) {
-      return EmbeddingSpMDMRowWiseSparse_ref(
-        block_size,
-        output_size,
-        index_size,
-        uncompressed_data_size,
-        input,
-        indices,
-        compressed_indices_table,
-        offsets_or_lengths,
-        weights, // optional, can be null for non-weighted sum
-        normalize_by_lengths,
-        out,
-        is_weight_positional,
-        use_offsets
-      );
-        //TODO
-      // return EmbeddingSpMDM_ref(
-      //     block_size,
-      //     output_size,
-      //     index_size,
-      //     data_size,
-      //     input,
-      //     indices,
-      //     offsets_or_lengths,
-      //     weights,
-      //     normalize_by_lengths,
-      //     out,
-      //     is_weight_positional,
-      //     use_offsets,
-      //     output_stride,
-      //     input_stride,
-      //     scale_bias_last,
-      //     no_bag,
-      //     is_bf16_out,
-      //     is_bf16_in);
+      return EmbeddingSpMDM_ref(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          is_bf16_out,
+          is_bf16_in);
     };
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   }
