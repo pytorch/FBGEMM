@@ -564,7 +564,7 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/training/forward/embedding_forward_split_cpu.cpp
     codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
-    codegen/embedding_bounds_check_host_cpu.cpp
+    codegen/utils/embedding_bounds_check_host_cpu.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_function.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_cpu.cpp
@@ -590,7 +590,7 @@ if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
     codegen/inference/embedding_forward_quantized_host.cpp
     codegen/training/backward/embedding_backward_dense_host.cpp
-    codegen/embedding_bounds_check_host.cpp
+    codegen/utils/embedding_bounds_check_host.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
     src/memory_utils/memory_utils_ops_cpu.cpp
@@ -628,7 +628,7 @@ endif()
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu
-      codegen/embedding_bounds_check.cu
+      codegen/utils/embedding_bounds_check.cu
       codegen/inference/embedding_forward_quantized_split_lookup.cu
       src/memory_utils/memory_utils.cu
       src/memory_utils/memory_utils_ops.cu
