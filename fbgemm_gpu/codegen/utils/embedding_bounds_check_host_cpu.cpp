@@ -178,6 +178,9 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // The (a!) tells PyTorch this is an impure operation and so cannot be CSE'd
   // or DCE'd, etc.
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
   m.def(
       "bounds_check_indices(Tensor rows_per_table, Tensor(a!) indices, Tensor(b!) offsets, int bounds_check_mode, Tensor(c!) warning, Tensor(d!)? weights=None, Tensor? B_offsets=None, SymInt max_B=-1) -> ()",
       {PT2_COMPLIANT_TAG});
