@@ -118,7 +118,17 @@ class FbgemmGpuBuild:
     def variant_version(self) -> str:
         pkg_vver: str = ""
 
-        if self.nova_flag() is None:
+        if "egg_info" in self.other_args:
+            # If build is invoked through `python -m build` instead of
+            # `python setup.py`, this script is invoked twice, once as
+            # `setup.py egg_info`, and once as `setup.py bdist_wheel`.
+            # Ignore determining the variant_version for the first case.
+            print(
+                "[SETUP.PY] Script was invoked as `setup.py egg_info`, ignoring variant_version"
+            )
+            return pkg_vver
+
+        elif self.nova_flag() is None:
             # If not running in a Nova workflow, then use the
             # `fbgemm_gpu-<variant>` naming convention for the package, since
             # PyPI does not accept version+xx in the naming convention.
@@ -134,7 +144,7 @@ class FbgemmGpuBuild:
                 pkg_vver = f"+cu{cuda_version[0]}{cuda_version[1]}"
             else:
                 sys.exit(
-                    "[SETUP.PY] Installed PyTorch variant is not CUDA; cannot determine the CUDA version!"
+                    "[SETUP.PY] The installed PyTorch variant is not CUDA; cannot determine the CUDA version!"
                 )
 
         elif self.args.package_variant == "rocm":
@@ -143,7 +153,7 @@ class FbgemmGpuBuild:
                 pkg_vver = f"+rocm{rocm_version[0]}.{rocm_version[1]}"
             else:
                 sys.exit(
-                    "[SETUP.PY] Installed PyTorch variant is not ROCm; cannot determine the ROCm version!"
+                    "[SETUP.PY] The installed PyTorch variant is not ROCm; cannot determine the ROCm version!"
                 )
 
         else:
@@ -485,5 +495,5 @@ def main(argv: List[str]) -> None:
 
 
 if __name__ == "__main__":
-    print(f"[SETUP.PY] {sys.argv}")
+    print(f"[SETUP.PY] ARGV: {sys.argv}")
     main(sys.argv[1:])
