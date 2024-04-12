@@ -10,6 +10,7 @@
 #   * https://github.com/nod-ai/SHARK/issues/2095
 #   * https://github.com/jianyicheng/mase-docker/pull/9
 
+build
 cmake
 hypothesis
 jinja2
@@ -17,5 +18,6 @@ mpmath==1.3.0
 ninja
 numpy
 scikit-build
+setuptools
 setuptools_git_versioning
 tabulate

@@ -64,7 +64,7 @@ __configure_fbgemm_gpu_build_clang () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2206
   build_args+=(
-    --cxxprefix ${conda_prefix}
+    --cxxprefix=${conda_prefix}
   )
 }
 
@@ -258,6 +258,11 @@ __configure_fbgemm_gpu_build () {
     __configure_fbgemm_gpu_build_clang
   fi
 
+  # Set verbosity
+  build_args+=(
+    --verbose
+  )
+
   # shellcheck disable=SC2145
   echo "[BUILD] FBGEMM_GPU build arguments have been set:  ${build_args[@]}"
 }
@@ -307,7 +312,7 @@ __build_fbgemm_gpu_set_run_multicore () {
   export run_multicore=""
   if [[ $core =~ $re && $sockets =~ $re ]] ; then
     local n_core=$((core * sockets))
-    export run_multicore=" -j ${n_core}"
+    export run_multicore="-j ${n_core}"
   fi
 
   echo "[BUILD] Set multicore run option for setup.py: ${run_multicore}"
@@ -443,15 +448,26 @@ build_fbgemm_gpu_package () {
   echo "################################################################################"
   echo ""
 
-  # Distribute Python extensions as wheels on Linux
+  # Set packaging options
+  build_args+=(
+    --package_channel="${fbgemm_release_channel}"
+    --python-tag="${python_tag}"
+    --plat-name="${python_plat_name}"
+  )
+
+  # Prepend build options correctly for `python -m build`
+  # https://build.pypa.io/en/stable/index.html
+  # https://gregoryszorc.com/blog/2023/10/30/my-user-experience-porting-off-setup.py/
+  for i in "${!build_args[@]}"; do
+    build_args[i]="--config-setting=--build-option=${build_args[i]}"
+  done
+
+  # Build the wheel.  Invoke using `python -m build`
+  #   https://blog.ganssle.io/articles/2021/10/setup-py-deprecated.html
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
-    python setup.py "${run_multicore}" bdist_wheel \
-      --package_channel="${fbgemm_release_channel}" \
-      --python-tag="${python_tag}" \
-      --plat-name="${python_plat_name}" \
-      --verbose \
+    python -m build --wheel --no-isolation \
       "${build_args[@]}"
 
   # Run checks on the built libraries
@@ -503,7 +519,6 @@ build_fbgemm_gpu_install () {
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py "${run_multicore}" install \
-      --verbose \
       "${build_args[@]}"
 
   # Run checks on the built libraries
@@ -518,48 +533,4 @@ build_fbgemm_gpu_install () {
   cd - || return 1
 
   echo "[BUILD] FBGEMM-GPU build + install completed"
-}
-
-build_fbgemm_gpu_develop () {
-  env_name="$1"
-  fbgemm_variant="$2"
-  fbgemm_variant_targets="$3"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME VARIANT [TARGETS]"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
-    return 1
-  fi
-
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  # Set up and configure the build
-  __build_fbgemm_gpu_common_pre_steps || return 1
-  __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
-
-  echo "################################################################################"
-  echo "# Build + Install FBGEMM-GPU Package (Develop)"
-  echo "#"
-  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
-  echo "################################################################################"
-  echo ""
-
-  # Parallelism may need to be limited to prevent the build from being
-  # canceled for going over ulimits
-  echo "[BUILD] Building (develop) FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
-  # shellcheck disable=SC2086
-  print_exec conda run --no-capture-output ${env_prefix} \
-    python setup.py "${run_multicore}" build develop \
-      --verbose \
-      "${build_args[@]}"
-
-  # Run checks on the built libraries
-  (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
-
-  echo "[BUILD] FBGEMM-GPU build + develop completed"
 }
