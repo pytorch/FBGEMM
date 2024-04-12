@@ -10,6 +10,7 @@
 
 #define FBGEMM_EXPORTS
 #include "./EmbeddingSpMDMAutovec.h"
+#include "./RefImplementations.h"
 
 #include "fbgemm/FbgemmBuild.h"
 
@@ -140,12 +141,13 @@ bool EmbeddingSpMDMNBit_autovec(
     } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
 #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_bf162float(buf[j]);
+        out[j] = convert_from_float_ref<uint16_t>(buf[j], true);
+          //cpu_bf162float(buf[j]);
       }
     } else {
 #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_half2float(buf[j]);
+        out[j] = convert_from_float_ref<uint16_t>(buf[j], false);
       }
     }
     out += output_stride;
