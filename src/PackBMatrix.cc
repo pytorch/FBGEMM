@@ -390,11 +390,9 @@ template <typename T, typename accT>
 void PackBMatrix<T, accT>::printPackedMatrix(
     std::string name,
     const BlockingFactors* params) {
-  std::cout << name << ":"
-            << "[" << BaseType::numPackedRows() << ", "
+  std::cout << name << ":" << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
-  std::cout << "block size:"
-            << "[" << BaseType::blockRowSize() << ", "
+  std::cout << "block size:" << "[" << BaseType::blockRowSize() << ", "
             << BaseType::blockColSize() << "]" << std::endl;
 
   for (int g = 0; g < BaseType::numGroups(); ++g) {

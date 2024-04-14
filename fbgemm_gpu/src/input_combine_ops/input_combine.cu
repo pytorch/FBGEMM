@@ -71,7 +71,11 @@ __launch_bounds__(kMaxThreads) void tbe_input_combine_with_length_kernel(
        : vec_copy_with_implicit_type_cast<
              int32_t,
              int32_t,
-             VEC_WIDTH>)(combined_indices, indices_addrs[list_id], src_idx, indices_start + src_idx, indices_end - indices_start);
+             VEC_WIDTH>)(combined_indices,
+                         indices_addrs[list_id],
+                         src_idx,
+                         indices_start + src_idx,
+                         indices_end - indices_start);
 
   // Invoke a function based on the lengths type
   ((lengths_is_long[is_long_idx] & is_long_mask)
@@ -79,7 +83,11 @@ __launch_bounds__(kMaxThreads) void tbe_input_combine_with_length_kernel(
        : vec_copy_with_implicit_type_cast<
              int32_t,
              int32_t,
-             VEC_WIDTH>)(combined_lengths, lengths_addrs[list_id], src_idx, lengths_start + src_idx, lengths_end - lengths_start);
+             VEC_WIDTH>)(combined_lengths,
+                         lengths_addrs[list_id],
+                         src_idx,
+                         lengths_start + src_idx,
+                         lengths_end - lengths_start);
 
   if (per_sample_weights_addrs) {
     vec_copy_with_implicit_type_cast<float, float, VEC_WIDTH>(

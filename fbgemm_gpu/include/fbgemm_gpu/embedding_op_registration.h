@@ -17,7 +17,8 @@ static __inline void __attribute__((
     __gnu_inline__,
     __always_inline__,
     __artificial__,
-    __target__("serialize"))) __builtin_ia32_serialize(void) {
+    __target__("serialize")))
+__builtin_ia32_serialize(void) {
   abort();
 }
 #endif

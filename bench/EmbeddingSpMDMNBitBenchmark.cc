@@ -352,17 +352,15 @@ int run_benchmark(
         cout << "prefetch off, ";
       }
 
-      cout << "b/w, " << bytes / 1e9 / t << ", GB/s, "
-           << "effective b/w, " << bytes_padded / 1e9 / t << ", GB/s, "
-           << "time, " << t << ", autovec b/w, " << bytes / 1e9 / t_autovec
-           << ", GB/s, "
+      cout << "b/w, " << bytes / 1e9 / t << ", GB/s, " << "effective b/w, "
+           << bytes_padded / 1e9 / t << ", GB/s, " << "time, " << t
+           << ", autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
            << "autovec eff. b/w, " << bytes_padded / 1e9 / t_autovec
-           << ", GB/s, "
-           << "autovec time, " << t_autovec << ", ref b/w, "
-           << bytes / 1e9 / t_ref << ", GB/s, "
-           << "ref eff. b/w, " << bytes_padded / 1e9 / t_ref << ", GB/s, "
-           << "ref time, " << t_ref << ", autovec speedup, "
-           << t_ref / t_autovec << ", asmjit speedup, " << t_ref / t << endl;
+           << ", GB/s, " << "autovec time, " << t_autovec << ", ref b/w, "
+           << bytes / 1e9 / t_ref << ", GB/s, " << "ref eff. b/w, "
+           << bytes_padded / 1e9 / t_ref << ", GB/s, " << "ref time, " << t_ref
+           << ", autovec speedup, " << t_ref / t_autovec << ", asmjit speedup, "
+           << t_ref / t << endl;
     } // flush_cache
   } // has_weight
   return 0;

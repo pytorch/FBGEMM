@@ -34,11 +34,9 @@ void performance_test() {
   } else {
     cout << "With scale and bias as float" << endl;
   }
-  cout << setw(8) << "bit_rate"
-       << ", " << setw(6) << "rows"
-       << "," << setw(6) << "cols"
-       << "," << setw(16) << "elems_per_usec"
-       << "," << setw(10) << "GB/Sec" << endl;
+  cout << setw(8) << "bit_rate" << ", " << setw(6) << "rows" << "," << setw(6)
+       << "cols" << "," << setw(16) << "elems_per_usec" << "," << setw(10)
+       << "GB/Sec" << endl;
   std::vector<int> bit_rates;
   if (is_same<T, float16>::value) {
     bit_rates = {2, 4, 8};

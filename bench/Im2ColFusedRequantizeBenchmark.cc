@@ -73,46 +73,16 @@ void performance_test() {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
        << endl;
-  cout << "MB, "
-       << "IC, "
-       << "OC, "
-       << "IH, "
-       << "IW, "
-       << "G, "
-       << "KH, "
-       << "KW, "
-       << "stride_h, "
-       << "stride_w, "
-       << "pad_h, "
-       << "pad_w, "
-       << "Type, "
-       << "M, "
-       << "N, "
-       << "K, "
-       << "Im2Col (ms), "
-       << "Packing (ms), "
-       << "Kernel (ms), "
-       << "Postprocessing (ms), "
-       << "fbgemmPacked (ms), "
-       << "Total (ms), "
-       << "GOPS" << endl;
+  cout << "MB, " << "IC, " << "OC, " << "IH, " << "IW, " << "G, " << "KH, "
+       << "KW, " << "stride_h, " << "stride_w, " << "pad_h, " << "pad_w, "
+       << "Type, " << "M, " << "N, " << "K, " << "Im2Col (ms), "
+       << "Packing (ms), " << "Kernel (ms), " << "Postprocessing (ms), "
+       << "fbgemmPacked (ms), " << "Total (ms), " << "GOPS" << endl;
 #else
-  cout << setw(8) << "MB, "
-       << "IC, "
-       << "OC, "
-       << "IH, "
-       << "IW, "
-       << "G, "
-       << "KH, "
-       << "KW, "
-       << "stride_h, "
-       << "stride_w, "
-       << "pad_h, "
-       << "pad_w, "
-       << "Type, "
-       << "M, "
-       << "N, "
-       << "K, " << setw(5) << "GOPS" << endl;
+  cout << setw(8) << "MB, " << "IC, " << "OC, " << "IH, " << "IW, " << "G, "
+       << "KH, " << "KW, " << "stride_h, " << "stride_w, " << "pad_h, "
+       << "pad_w, " << "Type, " << "M, " << "N, " << "K, " << setw(5) << "GOPS"
+       << endl;
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;

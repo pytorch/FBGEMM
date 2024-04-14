@@ -54,11 +54,11 @@ FBGEMM_API bool EmbeddingSpMDMNBit_autovec(
 
 #include "RefImplementations.h"
 
-#define ALIAS_TEMPLATE_FUNCTION(highLevelF, lowLevelF)     \
-  template <typename... Args>                              \
-  inline auto highLevelF(Args&&... args)                   \
-      ->decltype(lowLevelF(std::forward<Args>(args)...)) { \
-    return lowLevelF(std::forward<Args>(args)...);         \
+#define ALIAS_TEMPLATE_FUNCTION(highLevelF, lowLevelF)                      \
+  template <typename... Args>                                               \
+  inline auto highLevelF(                                                   \
+      Args&&... args) -> decltype(lowLevelF(std::forward<Args>(args)...)) { \
+    return lowLevelF(std::forward<Args>(args)...);                          \
   }
 
 namespace fbgemm {

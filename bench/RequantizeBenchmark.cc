@@ -33,8 +33,7 @@ void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
-  cout << setw(4) << "len"
-       << ", " << setw(10) << "Type"
+  cout << setw(4) << "len" << ", " << setw(10) << "Type"
        << ", B_elements_per_sec" << endl;
 
   for (int len : {1,  2,  3,  4,  5,  7,  8,   9,   15,  16,  17,
