@@ -102,8 +102,7 @@ void printMatrix(
   // R: number of rows in op(inp)
   // C: number of cols in op(inp)
   // ld: leading dimension in inp
-  std::cout << name << ":"
-            << "[" << R << ", " << C << "]" << std::endl;
+  std::cout << name << ":" << "[" << R << ", " << C << "]" << std::endl;
   bool tr = (op == matrix_op_t::Transpose);
   for (size_t r = 0; r < R; ++r) {
     for (size_t c = 0; c < C; ++c) {

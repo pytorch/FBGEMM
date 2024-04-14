@@ -17,7 +17,7 @@
 #include "./CodeCache.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/SimdUtils.h"
-//#define FBGEMM_LOG_CODE 1
+// #define FBGEMM_LOG_CODE 1
 
 namespace fbgemm {
 

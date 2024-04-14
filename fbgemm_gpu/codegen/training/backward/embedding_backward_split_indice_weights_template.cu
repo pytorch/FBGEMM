@@ -496,4 +496,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 {%- endif %} {#-/* if not dense or not vbe */#}
 {%- endfor %} {#-/* for vbe */#}
-// clang-format on
+  // clang-format on

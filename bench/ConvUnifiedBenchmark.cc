@@ -281,12 +281,8 @@ void performance_test(
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
        << endl;
-  cout << header << "Im2Col (ms), "
-       << "Packing (ms), "
-       << "Kernel (ms), "
-       << "Postprocessing (ms), "
-       << "fbgemmPacked (ms), "
-       << "Total (ms), "
+  cout << header << "Im2Col (ms), " << "Packing (ms), " << "Kernel (ms), "
+       << "Postprocessing (ms), " << "fbgemmPacked (ms), " << "Total (ms), "
        << "GOPS" << endl;
 #else
   cout << setw(6) << header << setw(5) << "GOPS" << endl;

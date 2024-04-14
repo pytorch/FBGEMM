@@ -84,15 +84,9 @@ void performance_test() {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
        << endl;
-  cout << "M, "
-       << "N, "
-       << "K, "
-       << "Output Processing, "
-       << "Packing (ms), "
-       << "Kernel (ms), "
-       << "Postprocessing (ms), "
-       << "Total (ms), "
-       << "GOPS" << endl;
+  cout << "M, " << "N, " << "K, " << "Output Processing, " << "Packing (ms), "
+       << "Kernel (ms), " << "Postprocessing (ms), " << "Total (ms), " << "GOPS"
+       << endl;
 #else
   cout << setw(7) << "M, " << setw(7) << "N, " << setw(7) << "K, " << setw(32)
        << "Output Processing, " << setw(18) << "Type, " << setw(5) << "GOPS"

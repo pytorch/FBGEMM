@@ -42,8 +42,8 @@ namespace fbgemm_gpu {
 #define FBGEMM_GPU_ENUM_REGISTER_END );
 
 #define FBGEMM_GPU_ENUM_OP(module_name, op_name) \
-#op_name "() -> ((str, (str, int)[])[])",      \
-      TORCH_FN(enum_query <FBGEMM_GPU_ENUM_TAG(module_name)>)
+  #op_name "() -> ((str, (str, int)[])[])",      \
+      TORCH_FN(enum_query<FBGEMM_GPU_ENUM_TAG(module_name)>)
 // To work around (escape from) hipify_torch, the names of the idendifiers
 // are decoposed to `x` and `y`. `z` is supposed to be hipified.
 #define FBGEMM_GPU_ENUM_ITEM(x, y, z) \

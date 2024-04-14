@@ -57,8 +57,8 @@ TEST_P(packUnpackTest, sparseUnpackTest) {
     for (int k = 0; k < K; ++k) {
       ASSERT_EQ(wData[j * K + k], wUnpackedData[j * K + k])
           << "Original and unpacked data elements are not the same at idx ["
-          << j << ", " << k << "]: "
-          << "original: " << static_cast<int>(wData[j * K + k])
+          << j << ", " << k
+          << "]: " << "original: " << static_cast<int>(wData[j * K + k])
           << " , unpacked: " << static_cast<int>(wUnpackedData[j * K + k]);
     }
   }
