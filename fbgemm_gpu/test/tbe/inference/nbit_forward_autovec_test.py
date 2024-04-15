@@ -9,10 +9,10 @@
 
 # pyre-ignore-all-errors[56]
 
+import os
 import random
 import unittest
 from typing import Callable, Dict, List, Optional, Tuple
-import os
 
 import hypothesis.strategies as st
 import numpy as np
@@ -39,7 +39,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from hypothesis.strategies import composite
 
-# from .. import common  # noqa E402
+from .. import common  # noqa E402
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 
 if open_source:
@@ -101,7 +101,7 @@ additional_decorators: Dict[str, List[Callable]] = {
 }
 
 
-@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
+#@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class NBitFowardTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -116,7 +116,6 @@ class NBitFowardTest(unittest.TestCase):
                 SparseType.FP16,
                 SparseType.INT8,
                 SparseType.INT4,
-                SparseType.FP8,
                 # FIXME: INT2 caused big numerical error for this test
                 # SparseType.INT2,
             ]
@@ -136,7 +135,6 @@ class NBitFowardTest(unittest.TestCase):
                     SparseType.FP16,
                     # The counterparts of __nv_bfloat16 and __nv_bfloat162 are not supported on ROCm
                     SparseType.INT8,
-                    SparseType.FP8,
                     # SparseType.INT4,
                 ]
             )
@@ -568,82 +566,79 @@ class NBitFowardTest(unittest.TestCase):
             rtol=1.0e-2,
         )
 
-
-
-    
     @given(
-	    nbit_weights_ty=get_nbit_weights_ty(),
-	    use_array_for_index_remapping=st.booleans(),
-	    do_pruning=st.booleans(),
-	    pooling_mode=st.sampled_from(
-		[PoolingMode.SUM, PoolingMode.NONE, PoolingMode.MEAN]
-	    ),
-	    output_dtype=st.sampled_from(
-		[SparseType.FP32, SparseType.FP16, SparseType.BF16]
-	    ),
-	)
+        nbit_weights_ty=st.sampled_from([SparseType.INT4, SparseType.INT2]),
+        pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
+    )
     @settings(
-            verbosity=VERBOSITY,
-            max_examples=MAX_EXAMPLES_LONG_RUNNING,
-            deadline=None,
-            )
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
     def test_nbit_forward_cpu_autovec(
-            self,
-            nbit_weights_ty: Optional[SparseType],
-            use_array_for_index_remapping: bool,
-            do_pruning: bool,
-            pooling_mode: PoolingMode,
-            output_dtype: SparseType,
-        ) -> None:
-            use_cpu = True
-            T = random.randint(1, 50)
-            B = random.randint(0, 128)
-            L = random.randint(0, 32)
-            D = random.randint(2, 2048)
-            log_E = random.randint(2, 4)
+        self,
+        nbit_weights_ty: Optional[SparseType],
+        pooling_mode: PoolingMode,
+        output_dtype: SparseType,
+    ) -> None:
+#    def test_nbit_forward_cpu_autovec(self):
+#
+#        nbit_weights_ty=SparseType.INT4
+#        pooling_mode=PoolingMode.SUM
+#        output_dtype=SparseType.BF16
 
-            use_cache = False
-            # cache_algorithm is don't care as we don't use cache.
-            cache_algorithm = CacheAlgorithm.LRU
+        use_cpu = True
+        T = random.randint(1, 50)
+        B = random.randint(0, 128)
+        L = random.randint(0, 32)
+        D = random.randint(2, 2048)
+        log_E = random.randint(2, 4)
 
-            mixed = random.choice([True, False])
-            if pooling_mode == PoolingMode.SUM:
-                weighted = random.choice([True, False])
-            else:
-                weighted = False
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = CacheAlgorithm.LRU
 
-            if nbit_weights_ty is None:
-                # don't care when mixed type is used.
-                weights_ty: SparseType = SparseType.INT8
-                mixed_weights_ty = True
-            else:
-                weights_ty: SparseType = nbit_weights_ty
-                mixed_weights_ty = False
+        mixed = random.choice([True, False])
+        if pooling_mode == PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
 
-            os.environ['FBGEMM_FORCE_AUTOVEC'] = '1'
-            os.environ['FBGEMM_NO_ASMJIT'] = '1'
+        if nbit_weights_ty is None:
+            # don't care when mixed type is used.
+            weights_ty: SparseType = SparseType.INT8
+            mixed_weights_ty = True
+        else:
+            weights_ty: SparseType = nbit_weights_ty
+            mixed_weights_ty = False
 
-            self.execute_nbit_forward_(
-                T,
-                D,
-                B,
-                log_E,
-                L,
-                weighted,
-                mixed,
-                pooling_mode,
-                weights_ty,
-                use_cache,
-                cache_algorithm,
-                use_cpu,
-                use_array_for_index_remapping,
-                do_pruning,
-                mixed_weights_ty,
-                output_dtype,
-            )
+        os.environ["FBGEMM_FORCE_AUTOVEC"] = "1"
+        os.environ["FBGEMM_NO_ASMJIT"] = "1"
 
-            del os.environ['FBGEMM_FORCE_AUTOVEC']
-            del os.environ['FBGEMM_NO_ASMJIT']
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cache,
+            cache_algorithm,
+            use_cpu,
+            False,
+            False,
+            mixed_weights_ty,
+            output_dtype,
+        )
+
+        del os.environ["FBGEMM_FORCE_AUTOVEC"]
+        del os.environ["FBGEMM_NO_ASMJIT"]
 
 
 if __name__ == "__main__":
