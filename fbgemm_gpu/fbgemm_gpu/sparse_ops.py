@@ -12,6 +12,7 @@ import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from torch import SymInt
 
 try:
     # pyre-ignore
@@ -568,6 +569,8 @@ def bounds_check_indices_abstract(
     bounds_check_mode_int: int,
     bounds_check_warning: torch.Tensor,
     per_sample_weights: Optional[torch.Tensor] = None,
+    B_offsets: Optional[torch.Tensor] = None,
+    max_B: Optional[SymInt] = None,
 ) -> None:
     """
     This meta function is used to fake the bounds checking
