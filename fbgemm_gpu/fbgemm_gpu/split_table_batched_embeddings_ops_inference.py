@@ -123,14 +123,28 @@ def nbit_construct_split_state(
     )
 
 
-def random_quant_scaled_tensor(shape: torch.Size, device: torch.device) -> torch.Tensor:
-    return torch.randint(
-        0,
-        255,
-        size=shape,
-        dtype=torch.uint8,
-        device=device,
-    )
+def random_quant_scaled_tensor(
+    shape: torch.Size,
+    device: torch.device,
+    output_tensor: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    if output_tensor is not None:
+        return torch.randint(
+            0,
+            255,
+            size=shape,
+            out=output_tensor,
+            dtype=torch.uint8,
+            device=device,
+        )
+    else:
+        return torch.randint(
+            0,
+            255,
+            size=shape,
+            dtype=torch.uint8,
+            device=device,
+        )
 
 
 # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
@@ -1399,15 +1413,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def fill_random_weights(self) -> None:
         """
         Fill the buffer with random weights, table by table
-        FIXME: make it in-place fill.
         """
         self.initialize_weights()
         weights = self.split_embedding_weights()
         for dest_weight in weights:
-            dest_weight[0].copy_(
-                random_quant_scaled_tensor(
-                    shape=dest_weight[0].shape, device=self.current_device
-                )
+            random_quant_scaled_tensor(
+                shape=dest_weight[0].shape,
+                device=self.current_device,
+                output_tensor=dest_weight[0],
             )
 
     def assign_embedding_weights(
