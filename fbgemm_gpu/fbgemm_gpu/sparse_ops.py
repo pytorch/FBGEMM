@@ -12,7 +12,6 @@ import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
-from torch import SymInt
 
 try:
     # pyre-ignore
@@ -47,7 +46,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
 
 import torch.utils._pytree as pytree
-from torch import Tensor
+from torch import SymInt, Tensor
 
 
 if hasattr(torch.library, "impl_abstract"):
