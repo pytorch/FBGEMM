@@ -604,7 +604,7 @@ class JaggedIndexSelect2dOp
       const Tensor& values,
       const Tensor& lengths,
       const Tensor& indices,
-      const c10::optional<int64_t> num_dense_output_rows) {
+      const c10::optional<int64_t> optional_num_dense_output_rows) {
     TORCH_CHECK(
         values.dim() == 2, "jagged_index_select supports only 2D inputs")
     TENSORS_ON_SAME_DEVICE(lengths, indices);
@@ -616,7 +616,6 @@ class JaggedIndexSelect2dOp
 
     ctx->save_for_backward({indices, output_offsets, input_offsets});
     ctx->saved_data["num_input_rows"] = values.sym_size(0);
-    ctx->saved_data["num_dense_output_rows"] = num_dense_output_rows;
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -628,14 +627,17 @@ class JaggedIndexSelect2dOp
                 const Tensor& output_offsets,
                 const c10::optional<int64_t>)>();
 
-    return {
-        op.call(
-            values,
-            indices,
-            input_offsets,
-            output_offsets,
-            num_dense_output_rows),
-        output_lengths};
+    auto out = op.call(
+        values,
+        indices,
+        input_offsets,
+        output_offsets,
+        optional_num_dense_output_rows);
+
+    // Always save output size to avoid triggering D2H sync in backward
+    ctx->saved_data["num_dense_output_rows"] = out.sym_size(0);
+
+    return {out, output_lengths};
   }
 
   static torch::autograd::variable_list backward(
@@ -654,7 +656,7 @@ class JaggedIndexSelect2dOp
 
     auto num_output_rows = ctx->saved_data["num_input_rows"].toSymInt();
     auto num_dense_input_rows =
-        ctx->saved_data["num_dense_output_rows"].toOptional<int64_t>();
+        ctx->saved_data["num_dense_output_rows"].toSymInt();
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -665,7 +667,7 @@ class JaggedIndexSelect2dOp
                 const Tensor& input_offsets,
                 const Tensor& output_offsets,
                 c10::SymInt num_output_rows,
-                const c10::optional<int64_t> optional_num_dense_input_rows)>();
+                c10::SymInt num_dense_input_rows)>();
 
     return {
         op.call(
