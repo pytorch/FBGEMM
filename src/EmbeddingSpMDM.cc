@@ -12,7 +12,7 @@
 #define FBGEMM_EXPORTS
 
 #include "fbgemm/FbgemmEmbedding.h"
-
+#include "fbgemm/Utils.h"
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
 #include <cassert>
@@ -1067,7 +1067,28 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                const offsetType* offsets_or_lengths,
                const float* weights,
                outType* out) {
-      return EmbeddingSpMDM_ref(
+      if(is_autovec_forced()){
+        return EmbeddingSpMDM_autovec(
+            block_size,
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            normalize_by_lengths,
+            out,
+            is_weight_positional,
+            use_offsets,
+            output_stride,
+            input_stride,
+            scale_bias_last,
+            no_bag,
+            is_bf16_out,
+            is_bf16_in);
+      } else {
+        return EmbeddingSpMDM_ref(
           block_size,
           output_size,
           index_size,
@@ -1086,7 +1107,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           no_bag,
           is_bf16_out,
           is_bf16_in);
-
+      }
         //TODO
       // return EmbeddingSpMDM_ref(
       //     block_size,
@@ -1463,36 +1484,39 @@ GenerateEmbeddingSpMDMRowWiseSparse(
             const float* weights, // optional, can be null for non-weighted sum
             float* out,
             const int32_t* compressed_indices_table) {
-          // return EmbeddingSpMDMRowWiseSparse_ref(
-          //     block_size,
-          //     output_size,
-          //     index_size,
-          //     uncompressed_data_size,
-          //     // compressed_data_size,
-          //     input,
-          //     indices,
-          //     compressed_indices_table,
-          //     offsets_or_lengths,
-          //     weights,
-          //     normalize_by_lengths,
-          //     out,
-          //     is_weight_positional,
-          //     use_offsets);
-          return EmbeddingSpMDMRowWiseSparse_autovec(
-              block_size,
-              output_size,
-              index_size,
-              uncompressed_data_size,
-              // compressed_data_size,
-              input,
-              indices,
-              compressed_indices_table,
-              offsets_or_lengths,
-              weights,
-              normalize_by_lengths,
-              out,
-              is_weight_positional,
-              use_offsets);
+            if(is_autovec_forced()){
+              return EmbeddingSpMDMRowWiseSparse_autovec(
+                  block_size,
+                  output_size,
+                  index_size,
+                  uncompressed_data_size,
+                  // compressed_data_size,
+                  input,
+                  indices,
+                  compressed_indices_table,
+                  offsets_or_lengths,
+                  weights,
+                  normalize_by_lengths,
+                  out,
+                  is_weight_positional,
+                  use_offsets);
+            } else {
+              return EmbeddingSpMDMRowWiseSparse_ref(
+                block_size,
+                output_size,
+                index_size,
+                uncompressed_data_size,
+                // compressed_data_size,
+                input,
+                indices,
+                compressed_indices_table,
+                offsets_or_lengths,
+                weights,
+                normalize_by_lengths,
+                out,
+                is_weight_positional,
+                use_offsets);
+            }
         };
   }
 }
