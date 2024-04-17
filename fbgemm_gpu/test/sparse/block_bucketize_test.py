@@ -604,16 +604,17 @@ class BlockBucketizeTest(unittest.TestCase):
         has_weight=st.booleans(),
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
+        my_size=st.sampled_from([3, 194, 256]),
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    @settings(verbosity=Verbosity.verbose, max_examples=32, deadline=None)
     def test_block_bucketize_sparse_features_large(
         self,
         index_type: Type[torch.dtype],
         has_weight: bool,
         bucketize_pos: bool,
         sequence: bool,
+        my_size: int,
     ) -> None:
-        my_size = 3
         bucket_size = 5
         warp_size = 32
         max_num_thread_in_a_block = 1024

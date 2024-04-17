@@ -34,6 +34,33 @@ __launch_bounds__(kMaxThreads) void _populate_length_to_feature_id_inplace_kerne
   length_to_feature_idx[batch_size_offsets[t] + b] = t;
 }
 
+template <typename func_t>
+void increase_gpu_max_dynamic_shared_memory(func_t kernel, const int device) {
+  // V100: 96 KB; A100: 160 KB; H100: 228 KB.
+  int max_shared_bytes = 0;
+  C10_CUDA_CHECK(cudaDeviceGetAttribute(
+      &max_shared_bytes,
+#ifndef __HIP_PLATFORM_AMD__
+      cudaDevAttrMaxSharedMemoryPerBlockOptin,
+#else
+      hipDeviceAttributeMaxSharedMemoryPerBlock,
+#endif
+      device));
+
+  int shared_kb = max_shared_bytes >> 10;
+  // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
+  // V100: 64 KB; A100: 96 KB; H100: 144 KB
+  int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
+  TORCH_CHECK(used_shared_kb > 0);
+
+  int used_shared_bytes = used_shared_kb << 10;
+  C10_CUDA_CHECK(cudaFuncSetAttribute(
+      (void*)kernel,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      used_shared_bytes));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
 // Kernel for bucketize lengths, with the Block distribution (vs. cyclic,
 // block-cyclic distribution). Used for bucketize sparse feature, especially for
 // checkpointing with row-wise partition (sparse_feature is partitioned
@@ -365,6 +392,8 @@ block_bucketize_sparse_features_cuda(
   static_assert(kMaxThreads % kWarpSize == 0);
   const dim3 block_dims(kWarpSize, kMaxThreads / kWarpSize);
   const dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
+  const auto smem_adjust_threshold =
+      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
   AT_DISPATCH_INDEX_TYPES(
       offsets_contig.scalar_type(),
       "_block_bucketize_sparse_features_cuda_kernel1",
@@ -621,6 +650,7 @@ block_bucketize_sparse_features_cuda(
           });
     }
   } else {
+    auto smem_size = my_size * block_dims.y * sizeof(uint64_t);
     if (weights.has_value() & bucketize_pos) {
       Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
@@ -639,41 +669,47 @@ block_bucketize_sparse_features_cuda(
                       weights_value.scalar_type(),
                       "_block_bucketize_pooled_sparse_features_cuda_kernel2_3",
                       [&] {
-                        _block_bucketize_pooled_sparse_features_cuda_kernel2<
-                            true,
-                            true,
-                            offset_t,
-                            index_t,
-                            scalar_t>
-                            <<<grid_dims,
-                               block_dims,
-                               my_size * block_dims.y * sizeof(uint64_t),
-                               at::cuda::getCurrentCUDAStream()>>>(
-                                lengths_size,
-                                B,
-                                block_sizes.data_ptr<index_t>(),
-                                my_size,
-                                offsets_contig.data_ptr<offset_t>(),
-                                indices_contig.data_ptr<index_t>(),
-                                weights_value_contig.data_ptr<scalar_t>(),
-                                new_offsets.data_ptr<offset_t>(),
-                                new_indices.data_ptr<index_t>(),
-                                new_weights.data_ptr<scalar_t>(),
-                                new_pos.data_ptr<index_t>(),
-                                batch_size_per_feature.has_value()
-                                    ? length_to_feature_idx.data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr),
-                                block_bucketize_pos.has_value()
-                                    ? block_bucketize_pos_concat
-                                          .data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr),
-                                block_bucketize_pos.has_value()
-                                    ? block_bucketize_pos_offsets
-                                          .data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr),
-                                block_bucketize_pos.has_value()
-                                    ? indices_to_lb.data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr));
+                        const auto block_bucketize_kernel =
+                            _block_bucketize_pooled_sparse_features_cuda_kernel2<
+                                true,
+                                true,
+                                offset_t,
+                                index_t,
+                                scalar_t>;
+                        if (smem_size > smem_adjust_threshold) {
+                          increase_gpu_max_dynamic_shared_memory(
+                              block_bucketize_kernel, lengths.get_device());
+                        }
+                        block_bucketize_kernel<<<
+                            grid_dims,
+                            block_dims,
+                            smem_size,
+                            at::cuda::getCurrentCUDAStream()>>>(
+                            lengths_size,
+                            B,
+                            block_sizes.data_ptr<index_t>(),
+                            my_size,
+                            offsets_contig.data_ptr<offset_t>(),
+                            indices_contig.data_ptr<index_t>(),
+                            weights_value_contig.data_ptr<scalar_t>(),
+                            new_offsets.data_ptr<offset_t>(),
+                            new_indices.data_ptr<index_t>(),
+                            new_weights.data_ptr<scalar_t>(),
+                            new_pos.data_ptr<index_t>(),
+                            batch_size_per_feature.has_value()
+                                ? length_to_feature_idx.data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr),
+                            block_bucketize_pos.has_value()
+                                ? block_bucketize_pos_concat
+                                      .data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr),
+                            block_bucketize_pos.has_value()
+                                ? block_bucketize_pos_offsets
+                                      .data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr),
+                            block_bucketize_pos.has_value()
+                                ? indices_to_lb.data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
                 });
@@ -695,41 +731,47 @@ block_bucketize_sparse_features_cuda(
                       weights_value.scalar_type(),
                       "_block_bucketize_pooled_sparse_features_cuda_kernel2_3",
                       [&] {
-                        _block_bucketize_pooled_sparse_features_cuda_kernel2<
-                            true,
-                            false,
-                            offset_t,
-                            index_t,
-                            scalar_t>
-                            <<<grid_dims,
-                               block_dims,
-                               my_size * block_dims.y * sizeof(uint64_t),
-                               at::cuda::getCurrentCUDAStream()>>>(
-                                lengths_size,
-                                B,
-                                block_sizes.data_ptr<index_t>(),
-                                my_size,
-                                offsets_contig.data_ptr<offset_t>(),
-                                indices_contig.data_ptr<index_t>(),
-                                weights_value_contig.data_ptr<scalar_t>(),
-                                new_offsets.data_ptr<offset_t>(),
-                                new_indices.data_ptr<index_t>(),
-                                new_weights.data_ptr<scalar_t>(),
-                                nullptr,
-                                batch_size_per_feature.has_value()
-                                    ? length_to_feature_idx.data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr),
-                                block_bucketize_pos.has_value()
-                                    ? block_bucketize_pos_concat
-                                          .data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr),
-                                block_bucketize_pos.has_value()
-                                    ? block_bucketize_pos_offsets
-                                          .data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr),
-                                block_bucketize_pos.has_value()
-                                    ? indices_to_lb.data_ptr<offset_t>()
-                                    : static_cast<offset_t*>(nullptr));
+                        const auto block_bucketize_kernel =
+                            _block_bucketize_pooled_sparse_features_cuda_kernel2<
+                                true,
+                                false,
+                                offset_t,
+                                index_t,
+                                scalar_t>;
+                        if (smem_size > smem_adjust_threshold) {
+                          increase_gpu_max_dynamic_shared_memory(
+                              block_bucketize_kernel, lengths.get_device());
+                        }
+                        block_bucketize_kernel<<<
+                            grid_dims,
+                            block_dims,
+                            smem_size,
+                            at::cuda::getCurrentCUDAStream()>>>(
+                            lengths_size,
+                            B,
+                            block_sizes.data_ptr<index_t>(),
+                            my_size,
+                            offsets_contig.data_ptr<offset_t>(),
+                            indices_contig.data_ptr<index_t>(),
+                            weights_value_contig.data_ptr<scalar_t>(),
+                            new_offsets.data_ptr<offset_t>(),
+                            new_indices.data_ptr<index_t>(),
+                            new_weights.data_ptr<scalar_t>(),
+                            nullptr,
+                            batch_size_per_feature.has_value()
+                                ? length_to_feature_idx.data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr),
+                            block_bucketize_pos.has_value()
+                                ? block_bucketize_pos_concat
+                                      .data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr),
+                            block_bucketize_pos.has_value()
+                                ? block_bucketize_pos_offsets
+                                      .data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr),
+                            block_bucketize_pos.has_value()
+                                ? indices_to_lb.data_ptr<offset_t>()
+                                : static_cast<offset_t*>(nullptr));
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
                 });
@@ -745,39 +787,45 @@ block_bucketize_sparse_features_cuda(
                 indices_contig.scalar_type(),
                 "_block_bucketize_pooled_sparse_features_cuda_kernel2_2",
                 [&] {
-                  _block_bucketize_pooled_sparse_features_cuda_kernel2<
-                      false,
-                      true,
-                      offset_t,
-                      index_t,
-                      std::nullptr_t>
-                      <<<grid_dims,
-                         block_dims,
-                         my_size * block_dims.y * sizeof(uint64_t),
-                         at::cuda::getCurrentCUDAStream()>>>(
-                          lengths_size,
-                          B,
-                          block_sizes.data_ptr<index_t>(),
-                          my_size,
-                          offsets_contig.data_ptr<offset_t>(),
-                          indices_contig.data_ptr<index_t>(),
-                          nullptr,
-                          new_offsets.data_ptr<offset_t>(),
-                          new_indices.data_ptr<index_t>(),
-                          nullptr,
-                          new_pos.data_ptr<index_t>(),
-                          batch_size_per_feature.has_value()
-                              ? length_to_feature_idx.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr),
-                          block_bucketize_pos.has_value()
-                              ? block_bucketize_pos_concat.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr),
-                          block_bucketize_pos.has_value()
-                              ? block_bucketize_pos_offsets.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr),
-                          block_bucketize_pos.has_value()
-                              ? indices_to_lb.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr));
+                  const auto block_bucketize_kernel =
+                      _block_bucketize_pooled_sparse_features_cuda_kernel2<
+                          false,
+                          true,
+                          offset_t,
+                          index_t,
+                          std::nullptr_t>;
+                  if (smem_size > smem_adjust_threshold) {
+                    increase_gpu_max_dynamic_shared_memory(
+                        block_bucketize_kernel, lengths.get_device());
+                  }
+                  block_bucketize_kernel<<<
+                      grid_dims,
+                      block_dims,
+                      smem_size,
+                      at::cuda::getCurrentCUDAStream()>>>(
+                      lengths_size,
+                      B,
+                      block_sizes.data_ptr<index_t>(),
+                      my_size,
+                      offsets_contig.data_ptr<offset_t>(),
+                      indices_contig.data_ptr<index_t>(),
+                      nullptr,
+                      new_offsets.data_ptr<offset_t>(),
+                      new_indices.data_ptr<index_t>(),
+                      nullptr,
+                      new_pos.data_ptr<index_t>(),
+                      batch_size_per_feature.has_value()
+                          ? length_to_feature_idx.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr),
+                      block_bucketize_pos.has_value()
+                          ? block_bucketize_pos_concat.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr),
+                      block_bucketize_pos.has_value()
+                          ? block_bucketize_pos_offsets.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr),
+                      block_bucketize_pos.has_value()
+                          ? indices_to_lb.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
           });
@@ -791,39 +839,45 @@ block_bucketize_sparse_features_cuda(
                 indices_contig.scalar_type(),
                 "_block_bucketize_pooled_sparse_features_cuda_kernel2_2",
                 [&] {
-                  _block_bucketize_pooled_sparse_features_cuda_kernel2<
-                      false,
-                      false,
-                      offset_t,
-                      index_t,
-                      std::nullptr_t>
-                      <<<grid_dims,
-                         block_dims,
-                         my_size * block_dims.y * sizeof(uint64_t),
-                         at::cuda::getCurrentCUDAStream()>>>(
-                          lengths_size,
-                          B,
-                          block_sizes.data_ptr<index_t>(),
-                          my_size,
-                          offsets_contig.data_ptr<offset_t>(),
-                          indices_contig.data_ptr<index_t>(),
-                          nullptr,
-                          new_offsets.data_ptr<offset_t>(),
-                          new_indices.data_ptr<index_t>(),
-                          nullptr,
-                          nullptr,
-                          batch_size_per_feature.has_value()
-                              ? length_to_feature_idx.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr),
-                          block_bucketize_pos.has_value()
-                              ? block_bucketize_pos_concat.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr),
-                          block_bucketize_pos.has_value()
-                              ? block_bucketize_pos_offsets.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr),
-                          block_bucketize_pos.has_value()
-                              ? indices_to_lb.data_ptr<offset_t>()
-                              : static_cast<offset_t*>(nullptr));
+                  const auto block_bucketize_kernel =
+                      _block_bucketize_pooled_sparse_features_cuda_kernel2<
+                          false,
+                          false,
+                          offset_t,
+                          index_t,
+                          std::nullptr_t>;
+                  if (smem_size > smem_adjust_threshold) {
+                    increase_gpu_max_dynamic_shared_memory(
+                        block_bucketize_kernel, lengths.get_device());
+                  }
+                  block_bucketize_kernel<<<
+                      grid_dims,
+                      block_dims,
+                      smem_size,
+                      at::cuda::getCurrentCUDAStream()>>>(
+                      lengths_size,
+                      B,
+                      block_sizes.data_ptr<index_t>(),
+                      my_size,
+                      offsets_contig.data_ptr<offset_t>(),
+                      indices_contig.data_ptr<index_t>(),
+                      nullptr,
+                      new_offsets.data_ptr<offset_t>(),
+                      new_indices.data_ptr<index_t>(),
+                      nullptr,
+                      nullptr,
+                      batch_size_per_feature.has_value()
+                          ? length_to_feature_idx.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr),
+                      block_bucketize_pos.has_value()
+                          ? block_bucketize_pos_concat.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr),
+                      block_bucketize_pos.has_value()
+                          ? block_bucketize_pos_offsets.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr),
+                      block_bucketize_pos.has_value()
+                          ? indices_to_lb.data_ptr<offset_t>()
+                          : static_cast<offset_t*>(nullptr));
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
           });
