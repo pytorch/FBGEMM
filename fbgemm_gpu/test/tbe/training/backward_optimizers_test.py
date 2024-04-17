@@ -760,9 +760,6 @@ class BackwardOptimizersTest(unittest.TestCase):
         suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
     )
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skip(
-        "is flaky, see https://www.internalfb.com/intern/test/281475047227145?ref_report_id=0"
-    )
     def test_backward_optimizers_adam(  # noqa C901
         self,
         T: int,
