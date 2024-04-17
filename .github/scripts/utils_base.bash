@@ -88,7 +88,7 @@ env_name_or_prefix () {
 }
 
 test_network_connection () {
-  wget -q --timeout 1 pypi.org -O /dev/null
+  exec_with_retries 3 wget -q --timeout 1 pypi.org -O /dev/null
   local exit_status=$?
 
   # https://man7.org/linux/man-pages/man1/wget.1.html
@@ -96,7 +96,8 @@ test_network_connection () {
     echo "[CHECK] Network does not appear to be blocked."
   else
     echo "[CHECK] Network check exit status: ${exit_status}"
-    echo "[CHECK] Network appears to be blocked; please proxy the network connetions, i.e. re-run the command prefixed with 'with-proxy'."
+    echo "[CHECK] Network appears to be blocked or suffering from poor connection."
+    echo "[CHECK] Please remember to proxy the network connetions if needed, i.e. re-run the command prefixed with 'with-proxy'."
     return 1
   fi
 }

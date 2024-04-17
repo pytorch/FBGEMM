@@ -205,6 +205,22 @@ run_fbgemm_gpu_tests () {
   done
 }
 
+test_all_fbgemm_gpu_modules () {
+  local env_name="$1"
+  local fbgemm_variant="$2"
+
+  local target_directories=(
+    fbgemm_gpu/test
+    fbgemm_gpu/experimental/example/test
+  )
+
+  for test_dir in "${target_directories[@]}"; do
+    cd "${test_dir}"                                        || return 1
+    run_fbgemm_gpu_tests "${env_name}" "${fbgemm_variant}"  || return 1
+    cd -                                                    || return 1
+  done
+}
+
 
 ################################################################################
 # FBGEMM_GPU Test Bulk-Combination Functions
@@ -292,9 +308,8 @@ test_fbgemm_gpu_build_and_install () {
   cd ~/FBGEMM/                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
 
-  cd ~/FBGEMM/fbgemm_gpu/test                                                 || return 1
-  run_fbgemm_gpu_tests        "${env_name}" "${pytorch_variant_type}"         || return 1
-  cd -                                                                        || return 1
+  cd ~/FBGEMM/                                                                || return 1
+  test_all_fbgemm_gpu_modules "${env_name}" "${pytorch_variant_type}"         || return 1
 }
 
 test_fbgemm_gpu_setup_and_pip_install () {
@@ -323,11 +338,11 @@ test_fbgemm_gpu_setup_and_pip_install () {
 
     local env_name="test_py${py_version}_pytorch_${pytorch_channel_version}_fbgemm_${fbgemm_gpu_channel_version}_${variant_type}/${variant_version}"
     local env_name="${env_name//\//_}"
-    test_setup_conda_environment  "${env_name}" 'no-compiler' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"  || return 1
-    install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                        || return 1
-    cd ~/FBGEMM/fbgemm_gpu/test                                                                                                             || return 1
+    test_setup_conda_environment  "${env_name}" 'no-compiler' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"   || return 1
+    install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                                    || return 1
+    cd ~/FBGEMM                                                                                                                                         || return 1
 
-    run_fbgemm_gpu_tests "${env_name}" "${variant_type}";
+    test_all_fbgemm_gpu_modules "${env_name}" "${variant_type}";
     local retcode=$?
 
     echo "################################################################################"

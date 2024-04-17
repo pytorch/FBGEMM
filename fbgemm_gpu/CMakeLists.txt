@@ -10,20 +10,12 @@
 
 cmake_minimum_required(VERSION 3.25.0 FATAL_ERROR)
 
-function(BLOCK_PRINT)
-  message("")
-  message("")
-  message("================================================================================")
-  foreach(ARG IN LISTS ARGN)
-     message("${ARG}")
-  endforeach()
-  message("================================================================================")
-  message("")
-endfunction()
-
 set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules)
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/third_party)
+set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
+
+include(${CMAKEMODULES}/Utilities.cmake)
 
 
 ################################################################################
@@ -54,79 +46,11 @@ endif()
 
 
 ################################################################################
-# FBGEMM_GPU C++ Setup
-################################################################################
-
-# Set the default C++ standard to C++20 if CMAKE_CXX_STANDARD is not supplied
-# by CMake command invocation.
-# Individual targets can have this value overridden; see
-# https://cmake.org/cmake/help/latest/variable/CMAKE_CXX_STANDARD.html
-# https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
-# https://cmake.org/cmake/help/latest/prop_tgt/HIP_STANDARD.html
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 20)
-  set(CMAKE_HIP_STANDARD 20)
-  set(CXX_STANDARD 20)
-  set(HIP_STANDARD 20)
-endif()
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(HIP_STANDARD_REQUIRED ON)
-
-# Set the default C standard to C17
-# Individual targets can have this value overridden; see
-# https://cmake.org/cmake/help/latest/variable/CMAKE_C_STANDARD.html
-# https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
-set(C_STANDARD 20)
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-
-if(DEFINED GLIBCXX_USE_CXX11_ABI)
-  if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
-  endif()
-endif()
-
-BLOCK_PRINT(
-  "Default C compiler flags"
-  "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
-  ""
-  "${CMAKE_C_FLAGS}"
-)
-
-BLOCK_PRINT(
-  "Default C++ compiler flags"
-  "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
-  ""
-  "${CMAKE_CXX_FLAGS}"
-)
-
-# Strip all symbols from the .SO file after building
-add_link_options($<$<CONFIG:RELEASE>:-s>)
-
-# Set flags for AVX2
-set(AVX2_FLAGS "-mavx2;-mf16c;-mfma;-fopenmp")
-if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
-  # NVCC in WSL complains about unknown -mavx options
-  # https://github.com/pytorch/FBGEMM/issues/2135
-  set(AVX2_FLAGS "-Xcompiler;-mavx;-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-fopenmp")
-endif()
-
-# Set flags for AVX512
-set(AVX512_FLAGS "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl;-fopenmp")
-if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
-  set(AVX512_FLAGS "-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-Xcompiler;-mavx512f;-Xcompiler;-mavx512bw;-Xcompiler;-mavx512dq;-Xcompiler;-mavx512vl;-fopenmp")
-endif()
-
-set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
-
-
-################################################################################
 # FBGEMM_GPU Build Kickstart
 ################################################################################
+
+# FBGEMM_GPU C++ Setup - must be set BEFORE project declaration
+include(${CMAKEMODULES}/CxxCompilerSetup.cmake)
 
 if(SKBUILD)
   BLOCK_PRINT("The project is built using scikit-build")
@@ -135,87 +59,26 @@ endif()
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
   project(
     fbgemm_gpu
-    VERSION 0.3.1
+    VERSION 0.7.0
     LANGUAGES CXX C)
 else()
   project(
     fbgemm_gpu
-    VERSION 0.3.1
+    VERSION 0.7.0
     LANGUAGES CXX C CUDA)
 endif()
 
+# AVX Flags Setup - must be set AFTER project declaration
 include(${CMAKEMODULES}/FindAVX.cmake)
 
-
-################################################################################
 # PyTorch Dependencies Setup
-################################################################################
+include(${CMAKEMODULES}/PyTorchSetup.cmake)
 
-find_package(Torch REQUIRED)
-
-#
-# Toch Cuda Extensions are normally compiled with the flags below. However we
-# disabled -D__CUDA_NO_HALF_CONVERSIONS__ here as it caused "error: no suitable
-# constructor exists to convert from "int" to "__half" errors in
-# gen_embedding_forward_quantized_split_[un]weighted_codegen_cuda.cu
-#
-
-set(TORCH_CUDA_OPTIONS
-    --expt-relaxed-constexpr -D__CUDA_NO_HALF_OPERATORS__
-    # -D__CUDA_NO_HALF_CONVERSIONS__
-    -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__)
-
-
-################################################################################
 # CUDA Setup
-################################################################################
+include(${CMAKEMODULES}/CudaSetup.cmake)
 
-# Set NVML_LIB_PATH if provided, or detect the default lib path
-if(NOT NVML_LIB_PATH)
-  set(DEFAULT_NVML_LIB_PATH
-      "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
-
-  if(EXISTS ${DEFAULT_NVML_LIB_PATH})
-    message(STATUS "Setting NVML_LIB_PATH: \
-      ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
-    set(NVML_LIB_PATH "${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs/libnvidia-ml.so")
-  endif()
-endif()
-
-if(NVML_LIB_PATH)
-  message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")
-endif()
-
-
-################################################################################
 # ROCm and HIPify Setup
-################################################################################
-
-if(USE_ROCM)
-  # Load CMake modules
-  list(APPEND CMAKE_MODULE_PATH
-    "${PROJECT_SOURCE_DIR}/cmake"
-    "${THIRDPARTY}/hipify_torch/cmake")
-  include(Hip)
-  include(Hipify)
-
-  # Configure compiler for HIP
-  list(APPEND HIP_HCC_FLAGS
-    " \"-Wno-#pragma-messages\" "
-    " \"-Wno-#warnings\" "
-    -Wno-cuda-compat
-    -Wno-deprecated-declarations
-    -Wno-format
-    -Wno-ignored-attributes
-    -Wno-unused-result)
-
-  BLOCK_PRINT(
-    "HIP found: ${HIP_FOUND}"
-    "HIPCC compiler flags:"
-    ""
-    "${HIP_HCC_FLAGS}"
-  )
-endif()
+include(${CMAKEMODULES}/RocmSetup.cmake)
 
 
 ################################################################################
@@ -823,3 +686,11 @@ install(FILES ${gen_python_source_files}
 
 install(FILES ${gen_defused_optim_py_files}
         DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
+
+
+
+################################################################################
+# Build Experimental Modules
+################################################################################
+
+add_subdirectory(experimental/example)
