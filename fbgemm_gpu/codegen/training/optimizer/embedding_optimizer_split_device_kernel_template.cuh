@@ -11,6 +11,9 @@
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
+#define GROUP_REDUCE_ALL_SUM(val, ...) \
+  warpReduceAllSum<__VA_ARGS__, kThreadGroupSize>(val, shfl_sync_mask)
+
 using namespace fbgemm_gpu;
 
 template <

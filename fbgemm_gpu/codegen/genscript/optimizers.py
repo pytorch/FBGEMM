@@ -140,7 +140,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
                 + weight_new.acc.w * weight_new.acc.w;
         }
         const at::acc_type<cache_t, true> weight_norm =
-            sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_square, shfl_sync_mask));
+            sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_square, at::acc_type<cache_t, true>));
 
         // scale by max_norm if weight_norm exceeds max_norm
         if (threadIdx.x == 0) {
@@ -186,7 +186,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -322,7 +322,7 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -493,10 +493,10 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_sum_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask);
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>);
     const at::acc_type<cache_t, true> g_avg_square = g_sum_square / D;
     const at::acc_type<cache_t, true> w_sum_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(w_local_sum_square, shfl_sync_mask);
+        GROUP_REDUCE_ALL_SUM(w_local_sum_square, at::acc_type<cache_t, true>);
 
     at::acc_type<cache_t, true> adjusted_multiplier;
     at::acc_type<cache_t, true> exp_reg_correction;
@@ -673,7 +673,7 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -814,9 +814,9 @@ def lamb() -> Dict[str, Any]:
     )
     split_precomputation += """
     const auto weight_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, shfl_sync_mask));
+        sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_sq, at::acc_type<cache_t, true>));
     const auto rtw_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq, shfl_sync_mask));
+        sqrtf(GROUP_REDUCE_ALL_SUM(rtw_sum_sq, at::acc_type<cache_t, true>));
      const auto true_ratio = weight_norm / rtw_norm;
   """
     split_weight_update = """
@@ -864,7 +864,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> m2;
     if (threadIdx.x == 0) {
@@ -905,9 +905,9 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
     )
     split_precomputation += """
     const auto weight_norm =
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq));
+      sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_sq, at::acc_type<cache_t, true>));
     const auto rtw_norm =
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq));
+      sqrtf(GROUP_REDUCE_ALL_SUM(rtw_sum_sq, at::acc_type<cache_t, true>));
     const auto true_ratio = weight_norm / rtw_norm;
     """
 
@@ -1010,7 +1010,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> v_hat_t;
     if (threadIdx.x == 0) {
@@ -1082,9 +1082,9 @@ def lars_sgd() -> Dict[str, Any]:
     )
     split_precomputation += """
     const auto weight_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq));
+        sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_sq, at::acc_type<cache_t, true>));
     const auto grad_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(grad_sum_sq));
+        sqrtf(GROUP_REDUCE_ALL_SUM(grad_sum_sq, at::acc_type<cache_t, true>));
      const at::acc_type<cache_t, true> adjusted_lr = learning_rate * eta * weight_norm / (grad_norm + weight_decay * weight_norm);
     """
 
