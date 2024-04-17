@@ -24,6 +24,31 @@
 #endif
 
 namespace fbgemm {
+template <
+    typename InType = std::uint8_t,
+    typename IndexType = std::int64_t,
+    typename OffsetType = std::int32_t,
+    typename OutType = float>
+FBGEMM_API bool EmbeddingSpMDM_autovec(
+    const std::int64_t block_size,
+    const std::int64_t output_size,
+    const std::int64_t index_size,
+    const std::int64_t data_size,
+    const InType* input,
+    const IndexType* indices,
+    const OffsetType* offsets_or_lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    bool normalize_by_lengths,
+    OutType* out,
+    bool is_weight_positional = false,
+    bool use_offsets = true,
+    std::int64_t output_stride = -1,
+    std::int64_t input_stride = -1,
+    bool scale_bias_last = true,
+    bool no_bag = false,
+    bool is_bf16_out = false,
+    bool is_bf16_in = false);
+
 
 template <
     typename IndexType = std::int64_t,
@@ -69,7 +94,9 @@ FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_autovec(
     bool is_weight_positional = false,
     bool use_offsets = true);
 
-} // namespace fbgemm
+}
+
+ // namespace fbgemm
 
 #else // #ifdef __linux__
 
@@ -85,6 +112,7 @@ FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_autovec(
 namespace fbgemm {
 
 ALIAS_TEMPLATE_FUNCTION(EmbeddingSpMDMNBit_autovec, EmbeddingSpMDMNBit_ref)
+ALIAS_TEMPLATE_FUNCTION(EmbeddingSpMDM_autovec, EmbeddingSpMDM_ref)
 ALIAS_TEMPLATE_FUNCTION(EmbeddingSpMDMRowWiseSparse_autovec, EmbeddingSpMDMRowWiseSparse_ref)
 
 } // namespace fbgemm
