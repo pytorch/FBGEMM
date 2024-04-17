@@ -178,8 +178,8 @@ bool EmbeddingSpMDM_autovec(
     bool no_bag /*=false*/,
     bool is_bf16_out /*=false*/,
     bool is_bf16_in /*=false*/) {
-  const bool isWeight8bit = is_same<InType, uint8_t>::value;
-  const bool isOutput8bit = is_same<OutType, uint8_t>::value;
+  const bool isWeight8bit = std::is_same<InType, uint8_t>::value;
+  const bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
   if (output_stride == -1) {
     output_stride = block_size;
   }
