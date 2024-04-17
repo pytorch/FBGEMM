@@ -392,7 +392,7 @@ def update_indices_with_random_reuse(
             ]
             reused_indices += B_offset
             indices[it + 1, reused_indices] = indices[it, reused_indices]
-            B_offset += B
+            B_offset += B * L
     return indices
 
 

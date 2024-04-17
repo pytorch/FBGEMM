@@ -1583,6 +1583,7 @@ def nbit_device_with_spec(  # noqa C901
 @click.option("--enforce-hbm", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--uvm-host-mapped", is_flag=True, default=False)
 def nbit_uvm(
     alpha: bool,
     bag_size: int,
@@ -1607,6 +1608,7 @@ def nbit_uvm(
     enforce_hbm: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1655,6 +1657,7 @@ def nbit_uvm(
         enforce_hbm=enforce_hbm,
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
     emb_uvm.fill_random_weights()
 
@@ -1673,6 +1676,7 @@ def nbit_uvm(
             output_dtype=output_dtype,
             fp8_exponent_bits=fp8_exponent_bits,
             fp8_exponent_bias=fp8_exponent_bias,
+            uvm_host_mapped=uvm_host_mapped,
         ).cuda()
         emb_gpu.fill_random_weights()
 
@@ -1697,6 +1701,7 @@ def nbit_uvm(
             enforce_hbm=enforce_hbm,
             fp8_exponent_bits=fp8_exponent_bits,
             fp8_exponent_bias=fp8_exponent_bias,
+            uvm_host_mapped=uvm_host_mapped,
         ).cuda()
         emb_mixed.fill_random_weights()
 
@@ -2113,6 +2118,7 @@ def nbit_uvm_compare_direct_mapped(
 @click.option("--gather-uvm-cache-stats", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--uvm-host-mapped", is_flag=True, default=False)
 def nbit_cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -2137,6 +2143,7 @@ def nbit_cache(  # noqa C901
     gather_uvm_cache_stats: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -2171,6 +2178,7 @@ def nbit_cache(  # noqa C901
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
         cache_assoc=cache_assoc,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
     emb_nc.fill_random_weights()
     fill_random_scale_bias(emb_nc, T, weights_precision)
@@ -2197,6 +2205,7 @@ def nbit_cache(  # noqa C901
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
         cache_assoc=cache_assoc,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
     emb.fill_random_weights()
     fill_random_scale_bias(emb, T, weights_precision)
