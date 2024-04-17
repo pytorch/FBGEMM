@@ -177,6 +177,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cacheline_alignment: bool = True,
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
+        feature_names_per_table: Optional[List[List[str]]] = None,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -200,6 +201,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.embedding_specs = embedding_specs
         self.output_dtype: int = output_dtype.as_int()
         self.uvm_host_mapped = uvm_host_mapped
+        self.feature_names_per_table = feature_names_per_table
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
@@ -450,6 +452,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "record_tablewise_cache_miss should be true to access counter values"
         # table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:
         return self.table_wise_cache_miss
+
+    @torch.jit.export
+    def get_feature_num_per_table(self) -> List[int]:
+        if self.feature_names_per_table is None:
+            return []
+        return [len(feature_names) for feature_names in self.feature_names_per_table]
 
     def reset_cache_miss_counter(self) -> None:
         assert (
