@@ -1160,15 +1160,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 max_B=vbe_metadata.max_B,
             )
 
-        # Storing tensors for linear_cache_indices recomputation
-        self._indices = indices
-        self._offsets = offsets
-        self._vbe_B_offsets = vbe_metadata.B_offsets
-        self._vbe_max_B = vbe_metadata.max_B
+        if not is_torchdynamo_compiling():
+            # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
 
-        self.step += 1
-        self._report_io_size_count("fwd_input", indices)
-        self._report_tbe_mem_usage()
+            # Storing tensors for linear_cache_indices recomputation
+            self._indices = indices
+            self._offsets = offsets
+            self._vbe_B_offsets = vbe_metadata.B_offsets
+            self._vbe_max_B = vbe_metadata.max_B
+
+            self.step += 1
+            self._report_io_size_count("fwd_input", indices)
+            self._report_tbe_mem_usage()
 
         if len(self.timesteps_prefetched) == 0:
             self._prefetch(indices, offsets, vbe_metadata)
@@ -1496,8 +1499,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
     ) -> None:
-        self.timestep += 1
-        self.timesteps_prefetched.append(self.timestep)
+        if not is_torchdynamo_compiling():
+            # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
+            self.timestep += 1
+            self.timesteps_prefetched.append(self.timestep)
+
         if not self.lxu_cache_weights.numel():
             return
 
