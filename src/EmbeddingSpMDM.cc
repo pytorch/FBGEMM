@@ -1254,7 +1254,28 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
                const offsetType* offsets_or_lengths,
                const float* weights,
                outType* out) {
-      return EmbeddingSpMDM_ref(
+      if(is_autovec_forced()){
+        return EmbeddingSpMDM_autovec(
+            block_size,
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            normalize_by_lengths,
+            out,
+            is_weight_positional,
+            use_offsets,
+            output_stride,
+            input_stride,
+            scale_bias_last,
+            no_bag,
+            is_bf16_out,
+            is_bf16_in);
+      } else {
+        return EmbeddingSpMDM_ref(
           block_size,
           output_size,
           index_size,
@@ -1273,6 +1294,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           no_bag,
           is_bf16_out,
           is_bf16_in);
+      }
+      
     };
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   }
