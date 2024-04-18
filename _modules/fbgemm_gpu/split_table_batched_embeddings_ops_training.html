@@ -1534,15 +1534,18 @@
                 <span class="n">max_B</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
             <span class="p">)</span>
 
-        <span class="c1"># Storing tensors for linear_cache_indices recomputation</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_indices</span> <span class="o">=</span> <span class="n">indices</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_offsets</span> <span class="o">=</span> <span class="n">offsets</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_B_offsets</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_max_B</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+            <span class="c1"># Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;fwd_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_report_tbe_mem_usage</span><span class="p">()</span>
+            <span class="c1"># Storing tensors for linear_cache_indices recomputation</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_indices</span> <span class="o">=</span> <span class="n">indices</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_offsets</span> <span class="o">=</span> <span class="n">offsets</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_B_offsets</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_vbe_max_B</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;fwd_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_report_tbe_mem_usage</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">)</span>
@@ -1870,8 +1873,11 @@
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">vbe_metadata</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">timestep</span> <span class="o">+=</span> <span class="mi">1</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+            <span class="c1"># Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">timestep</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>
+
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
             <span class="k">return</span>
 
