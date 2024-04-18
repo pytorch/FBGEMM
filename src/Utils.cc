@@ -864,15 +864,12 @@ bool is_autovec_disabled() {
 bool is_autovec_forced() {
   static bool res;
   static bool called_once = false;
-  
   if (called_once) {
-    printf("autovec_forced %d\n", res);
     return res;
   }
   called_once = true;
   char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
   res = (env_val != nullptr);
-  printf("autovec_forced %d\n", res);
   return res;
 }
 
