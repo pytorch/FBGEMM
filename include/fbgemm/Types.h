@@ -229,6 +229,17 @@ inline float cpu_half2float(const float16 h) {
 #endif
 }
 
+inline float16 cpu_float2half(const float f) {
+#ifdef HAS_NATIVE_FP16_TYPE
+  __fp16 h = f;
+  float16 res;
+  std::memcpy(&res, &h, sizeof(__fp16));
+  return res;
+#else
+  return cpu_float2half_rn(f);
+#endif
+}
+
 static inline float cpu_bf162float(bfloat16 src) {
   float ret;
   uint32_t val_fp32 =

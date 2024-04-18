@@ -56,6 +56,38 @@ bool EmbeddingSpMDMNBit_autovec(
   if (input_stride == -1) {
     input_stride = div_up(block_size, num_elem_per_byte) + scale_bias_offset;
   }
+
+  // more prefetch
+  // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
+  // size
+  constexpr int64_t max_prefetch_bytes = 4096;
+  // 16 is manually tuned for Neoverse-V2 for best performance
+  constexpr int64_t max_initial_prefetch_rows = 16;
+  constexpr int64_t CACHE_LINE_SIZE = 64;
+  const int64_t rows_to_prefetch =
+      std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
+  const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
+  // The following prefetch loop is written in this way for better performance.
+  // My understanding is that manually separating the case of input_stride being
+  // greater or not greater than cache line size will make the branch predictor
+  // work better. Same for line 113-126.
+  for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    do_prefetch(
+        reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
+        0,
+        0);
+    if (input_stride > CACHE_LINE_SIZE) {
+      for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
+           offset += CACHE_LINE_SIZE) {
+        do_prefetch(
+            reinterpret_cast<const char*>(
+                input + input_stride * indices[pf_idx] + offset),
+            0,
+            0);
+      }
+    }
+  }
+
   int64_t current = 0;
   const int64_t rounded_bs = round_up(block_size, num_elem_per_byte);
   vector<float> buf(rounded_bs);
@@ -72,13 +104,25 @@ bool EmbeddingSpMDMNBit_autovec(
 #endif
     for (int i = 0; i < len; ++i) {
       int64_t idx = indices[current];
-      int64_t prefetch_idx =
-          indices[std::min(current + tile_size, index_size - 1)];
-      do_prefetch(
-          reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
-          1);
       if (idx < 0 || idx >= data_size) {
         return false;
+      }
+      int64_t prefetch_idx =
+          indices[std::min(current + prefetch_stride, index_size - 1)];
+
+      do_prefetch(
+          reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
+          0,
+          0);
+      if (input_stride > CACHE_LINE_SIZE) {
+        for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
+             offset += CACHE_LINE_SIZE) {
+          do_prefetch(
+              reinterpret_cast<const char*>(
+                  input + input_stride * prefetch_idx + offset),
+              0,
+              0);
+        }
       }
 
       const float16* scale_bias = reinterpret_cast<const float16*>(
@@ -95,13 +139,12 @@ bool EmbeddingSpMDMNBit_autovec(
 
       const int64_t offset =
           input_stride * idx + (scale_bias_last ? 0 : scale_bias_offset);
+      const uint8_t* input_row = input + offset;
       if (bit_rate == 4) {
         const size_t halfbufsz = (block_size + 1) / 2;
-        assert(halfbufsz > 0);
         for (size_t j = 0; j < halfbufsz; ++j) {
-          uint8_t tmp = input[offset + j];
-          float quantized1 = float(tmp & 0xf);
-          float quantized2 = float(tmp >> 4);
+          float quantized1 = float(input_row[j] & 0xf);
+          float quantized2 = float(input_row[j] >> 4);
           buf[j * 2] = std::fma(scale, quantized1, buf[j * 2] + bias);
           buf[j * 2 + 1] = std::fma(scale, quantized2, buf[j * 2 + 1] + bias);
         }
@@ -140,12 +183,12 @@ bool EmbeddingSpMDMNBit_autovec(
     } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
 #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_bf162float(buf[j]);
+        out[j] = cpu_float2bfloat16(buf[j]);
       }
     } else {
 #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_half2float(buf[j]);
+        out[j] = cpu_float2half(buf[j]);
       }
     }
     out += output_stride;
