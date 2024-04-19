@@ -19,6 +19,10 @@ using namespace fbgemm_gpu;
 template <
     typename emb_t,
     typename cache_t,
+    {%- for ph_name in args.placeholder_tensor_names %}
+    {%- set ph_type = "{}_ph_t".format(ph_name) %}
+    typename {{ ph_type }},
+    {%- endfor %}
     int32_t kFixedMaxVecsPerThread,
     int32_t kThreadGroupSize = kWarpSize,
     int32_t VEC_WIDTH,
@@ -70,7 +74,7 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
         }
     }
     {%- for tensor in args.split_tensors %}
-    at::acc_type<cache_t, true>* __restrict__ {{ tensor }};
+    {{ args.split_tensor_types[tensor] }}* __restrict__ {{ tensor }};
     const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t]);
     const int64_t {{ tensor }}_offset = {{ tensor }}_offsets[t];
     if ({{ tensor }}_placement == PlacementType::DEVICE) {

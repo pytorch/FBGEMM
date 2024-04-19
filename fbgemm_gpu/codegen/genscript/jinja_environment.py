@@ -17,9 +17,13 @@ import jinja2
 
 try:
     from .scripts_argsparse import args
+    from .torch_type_utils import TensorType
 except:
     # pyre-ignore[21]
     from scripts_argsparse import args
+
+    # pyre-ignore[21]
+    from torch_type_utils import TensorType
 
 
 ################################################################################
@@ -325,7 +329,7 @@ def make_pta_acc_format(pta_str_list: List[str], func_name: str) -> List[str]:
             assert match is not None and len(match.groups()) == 3
             tensor, acc_nbits, args = match.groups()
             if "acc_type" in args:
-                match = re.search("at::acc_type<([a-zA-Z_]*), true>", args)
+                match = re.search("at::acc_type<([a-zA-Z_0-9]*), true>", args)
                 assert match is not None and len(match.groups()) == 1
                 new_type = match.group(1)
                 args = re.sub("at::acc_type<[a-zA-Z_]*, true>", new_type, args)
@@ -348,9 +352,39 @@ def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
     ]
 
 
+def replace_placeholder_types(
+    arg_str_list: List[str], type_combo: Optional[Dict[str, TensorType]]
+) -> List[str]:
+    """
+    Replace the placeholder types with the primitive types
+    """
+    new_str_list = []
+    for arg_str in arg_str_list:
+        if type_combo is not None:
+            for ph_name, ph_ty in type_combo.items():
+                str_ty = ph_name + "_ph_t"
+                if str_ty in arg_str:
+                    arg_str = arg_str.replace(str_ty, ph_ty.primitive_type)
+                    break
+        new_str_list.append(arg_str)
+    return new_str_list
+
+
+def to_upper_placeholder_types(arg_str_list: List[str]) -> List[str]:
+    """
+    Make the placeholder type names upper cases
+    """
+    new_str_list = []
+    for arg_str in arg_str_list:
+        new_str_list.append(arg_str.upper() + "_T")
+    return new_str_list
+
+
 ################################################################################
 # Register Filter Functions in Jinja Environment
 ################################################################################
 
 env.filters["make_pta_acc_format"] = make_pta_acc_format
 env.filters["replace_pta_namespace"] = replace_pta_namespace
+env.filters["replace_placeholder_types"] = replace_placeholder_types
+env.filters["to_upper_placeholder_types"] = to_upper_placeholder_types
