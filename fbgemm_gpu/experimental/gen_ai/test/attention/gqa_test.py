@@ -10,10 +10,10 @@
 import unittest
 from typing import List, Tuple
 
+import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import hypothesis.strategies as st
 import numpy as np
 import torch
-
 from hypothesis import given, settings, Verbosity
 
 VERBOSITY: Verbosity = Verbosity.verbose

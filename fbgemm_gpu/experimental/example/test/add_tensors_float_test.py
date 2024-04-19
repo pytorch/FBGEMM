@@ -9,7 +9,6 @@
 import unittest
 
 import torch
-
 from fbgemm_gpu.experimental.example import utils
 
 

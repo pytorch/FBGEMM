@@ -214,6 +214,12 @@ test_all_fbgemm_gpu_modules () {
     fbgemm_gpu/experimental/example/test
   )
 
+  if [ "$fbgemm_variant" == "cuda" ]; then
+    target_directories+=(
+      fbgemm_gpu/experimental/gen_ai/test
+    )
+  fi
+
   for test_dir in "${target_directories[@]}"; do
     cd "${test_dir}"                                        || return 1
     run_fbgemm_gpu_tests "${env_name}" "${fbgemm_variant}"  || return 1
