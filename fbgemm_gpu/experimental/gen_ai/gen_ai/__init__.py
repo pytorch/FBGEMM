@@ -23,9 +23,14 @@ except Exception:
 # pyre-ignore[16]
 if open_source:
     torch.ops.load_library(
-        os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_example_py.so")
+        os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_gen_ai_py.so")
     )
 else:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/experimental/example:example_ops_cpu"
-    )
+    if torch.version.hip:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:attention_ops_hip"
+        )
+    else:
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:attention_ops_cuda"
+        )
