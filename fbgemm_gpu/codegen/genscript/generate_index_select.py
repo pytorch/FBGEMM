@@ -14,27 +14,23 @@ from typing import Optional
 
 try:
     from .common import CodeTemplate
-    from .optimizer_args import (
-        FLOAT,
-        OptimizerArgsSet,
-        OptimizerArgsSetItem as OptimItem,
-    )
+    from .optimizer_args import OptimizerArgsSet, OptimizerArgsSetItem as OptimItem
+    from .torch_type_utils import ArgType
 except ImportError:
     # pyre-ignore[21]
     from common import CodeTemplate
 
     # pyre-ignore[21]
-    from optimizer_args import (
-        FLOAT,
-        OptimizerArgsSet,
-        OptimizerArgsSetItem as OptimItem,
-    )
+    from optimizer_args import OptimizerArgsSet, OptimizerArgsSetItem as OptimItem
+
+    # pyre-ignore[21]
+    from torch_type_utils import ArgType
 
 
 class IndexSelectGenerator:
     @staticmethod
     def generate() -> None:
-        optargs = OptimizerArgsSet.create([OptimItem(FLOAT, "unused")])
+        optargs = OptimizerArgsSet.create([OptimItem(ArgType.FLOAT, "unused")])
         for template_file, generated_file in [
             (
                 "training/forward/embedding_forward_split_template.cu",
