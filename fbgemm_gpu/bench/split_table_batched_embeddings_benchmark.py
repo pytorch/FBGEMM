@@ -2214,9 +2214,10 @@ def nbit_cache(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
     read_write_bytes = (
+        # read L rows per batch per table.
         param_size_multiplier * B * sum(Ds) * L
+        # write 1 row (assuming pooling) per batch per table.
         + output_size_multiplier * B * sum(Ds)
-        + param_size_multiplier * B * sum(Ds) * L
     )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
@@ -2347,6 +2348,7 @@ def nbit_cache(  # noqa C901
         f"Te2e: {e2e_time * 1.0e6:.0f}us, "
         f"e2e BW: {read_write_bytes / e2e_time / 1.0e9: .2f} GB/s, "
         f"Tprefetch: {prefetch_time * 1.0e6:.0f}us, "
+        # 2x for reading exchanged_cache_lines from CPU memory through UVM and writing them to GPU HBM.
         f"{2 * sum(exchanged_cache_lines) * param_size_multiplier * D / prefetch_time / len(requests) / 1.0e9: .2f} GB/s, "
         f"TfwdTime: {forward_time * 1.0e6:.0f}us, "
         f"{read_write_bytes / forward_time / 1.0e9: .2f} GB/s"
