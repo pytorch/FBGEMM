@@ -98,8 +98,8 @@ bool EmbeddingSpMDMNBit_autovec(
     if (current + len > index_size) {
       return false;
     }
-    constexpr int tile_size = 4;
 #if _OPENMP >= 202011
+    constexpr int tile_size = 4;
 #pragma omp tile sizes(tile_size)
 #endif
     for (int i = 0; i < len; ++i) {
