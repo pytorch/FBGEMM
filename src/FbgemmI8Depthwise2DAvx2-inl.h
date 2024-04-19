@@ -170,7 +170,7 @@ static ALWAYS_INLINE void depthwise_2d_(
   fbgemmPartition1D(
       th_info.n_thread_id, th_info.n_num_threads, W_OUT, w_begin, w_end);
 
-  GenI8Depthwise::jit_kernel_signature middle_kernel;
+  GenI8Depthwise::jit_kernel_signature middle_kernel = nullptr;
 
   for (int n = n_begin; n < n_end; ++n) {
     const std::uint8_t* A_base = A + n * H * W * IC;

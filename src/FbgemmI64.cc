@@ -439,7 +439,7 @@ void cblas_gemm_i64_i64acc(
   CodeGenType codeObj;
   CodeGenType::jit_micro_kernel_fp fn =
       codeObj.getOrCreate<inst_set_t::avx512>(true /* accum */, MCB, NCB, KCB);
-  CodeGenType::jit_micro_kernel_fp fn_noacc;
+  CodeGenType::jit_micro_kernel_fp fn_noacc = nullptr;
   if (!accumulate) {
     fn_noacc = codeObj.getOrCreate<inst_set_t::avx512>(
         false /* accum */, MCB, NCB, KCB);
