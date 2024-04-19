@@ -1016,7 +1016,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     """
 
     split_weight_update = """
-      Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
+      Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
       m_t.acc.x *= beta1;
       m_t.acc.y *= beta1;
       m_t.acc.z *= beta1;
@@ -1035,8 +1035,16 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         "optimizer": "partial_rowwise_adam",
         "args": OptimizerArgsSet.create(
             [
-                OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "momentum2"),
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum1",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum2",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
                 OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "eps"),
                 OptimItem(ArgType.FLOAT, "beta1"),
