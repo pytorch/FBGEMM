@@ -14,19 +14,27 @@ from typing import Optional
 
 try:
     from .common import CodeTemplate
-    from .optimizer_args import FLOAT, OptimizerArgsSet
+    from .optimizer_args import (
+        FLOAT,
+        OptimizerArgsSet,
+        OptimizerArgsSetItem as OptimItem,
+    )
 except ImportError:
     # pyre-ignore[21]
     from common import CodeTemplate
 
     # pyre-ignore[21]
-    from optimizer_args import FLOAT, OptimizerArgsSet
+    from optimizer_args import (
+        FLOAT,
+        OptimizerArgsSet,
+        OptimizerArgsSetItem as OptimItem,
+    )
 
 
 class IndexSelectGenerator:
     @staticmethod
     def generate() -> None:
-        optargs = OptimizerArgsSet.create([(FLOAT, "unused")])
+        optargs = OptimizerArgsSet.create([OptimItem(FLOAT, "unused")])
         for template_file, generated_file in [
             (
                 "training/forward/embedding_forward_split_template.cu",
