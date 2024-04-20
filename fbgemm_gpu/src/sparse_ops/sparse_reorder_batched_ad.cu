@@ -351,9 +351,10 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     }
   }
   constexpr auto NUM_WARPS = 32;
-  const dim3 threads(NUM_WARPS, kWarpSize); // 32 x 32
+  auto maxWarpSize = kMaxThreads / NUM_WARPS;
+  const dim3 threads(
+      NUM_WARPS, maxWarpSize < kWarpSize ? maxWarpSize : kWarpSize); // 32 x 32
   const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
-
   DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(
       cat_ad_indices.scalar_type(),
       "reorder_batched_ad_indices_gpu_kernel_1",
