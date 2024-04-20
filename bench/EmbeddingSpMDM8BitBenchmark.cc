@@ -131,8 +131,8 @@ int run_benchmark(
   vector<float> output_slws_ref(output_sls_ref.size()),
       output_sls(output_sls_ref.size()), output_slws(output_sls_ref.size());
 
-  constexpr int NUM_WARMUP = 4;
-  int NUM_ITER = stress_multi_threading ? 1 << 20 : 10;
+  constexpr int NUM_WARMUP = 10;
+  int NUM_ITER = stress_multi_threading ? 1 << 20 : 100;
   double bytes = lengths_sum *
           (embedding_dim * sizeof(uint8_t) + 2 * sizeof(float) +
            (use_32_bit_indices ? 4 : 8)) +
