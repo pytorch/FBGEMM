@@ -385,7 +385,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
 
     // Set up the accumulator buffer
-    Vec4T<cache_t> accumulators[kMaxVecsPerThread];
+    Vec4T accumulators[kMaxVecsPerThread];
     {%- endif %}
 
     {%- if dense %}

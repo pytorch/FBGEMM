@@ -141,7 +141,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
   // when kUseVecBlocking == false
   const int32_t max_vecs =
       kUseVecBlocking ? max_vecs_per_thread : kFixedMaxVecsPerThread;
-  struct SharedMemory<Vec4TAcc<cache_t>> smem;
+  struct SharedMemory<Vec4T> smem;
   auto* smem_grad_sum =
       smem.getPointer() + warp_id * max_vecs * kThreadGroupSize;
 
@@ -202,7 +202,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         const int32_t sl_end = min(SL_per_warp * (warp_id + 1), SL);
 
         // Accumulate gradients (compute grad_sum)
-        Vec4TAcc<cache_t> grad_sum[kFixedMaxVecsPerThread];
+        Vec4T grad_sum[kFixedMaxVecsPerThread];
         constexpr int32_t kGroupVecWidth = kThreadGroupSize * VEC_WIDTH;
         const int32_t num_vecs = (D + kGroupVecWidth - 1) / kGroupVecWidth;
 
@@ -272,8 +272,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 
         if (num_ctas_on_current_run > 1) {
             int really_long_run_id = long_run_id_to_really_long_run_ids[long_run_id];
-            Vec4TAcc<cache_t> *temp_grad_accum_ptr =
-                reinterpret_cast<Vec4TAcc<cache_t>*>(&temp_grad_accum[really_long_run_id][0]);
+            Vec4T *temp_grad_accum_ptr =
+                reinterpret_cast<Vec4T*>(&temp_grad_accum[really_long_run_id][0]);
             {{
                 generate_optimized_grad_sum_loop_access(
                     """
@@ -350,7 +350,6 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         {%- endif %}
         store_grad_sum<
           emb_t,
-          cache_t,
           kFixedMaxVecsPerThread,
           kThreadGroupSize,
           VEC_WIDTH,

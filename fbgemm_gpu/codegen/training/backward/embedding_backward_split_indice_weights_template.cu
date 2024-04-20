@@ -146,7 +146,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     const grad_t* grad_output_ = &grad_output[b][D_start];
     {%- endif %}
 
-    Vec4TAcc<cache_t> grad_out[kFixedMaxVecsPerThread];
+    Vec4T grad_out[kFixedMaxVecsPerThread];
 
     {%- if use_vec_blocking %}
     const int32_t num_vecs = div_round_up(D, kWarpSize * kVecWidth);
@@ -164,7 +164,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
         #pragma unroll kFixedMaxVecsPerThread
         for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
             const int32_t d = {{ d }};
-            Vec4TAcc<grad_t> go(grad_output_ + d);
+            Vec4T go(grad_output_ + d);
             grad_out[vec] = go;
         }
 
@@ -190,7 +190,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     const int32_t d = {{ d }};
                     {%- if not dense %}
                     if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                        Vec4T<cache_t> weight(&lxu_cache_weights[cache_idx_j][d]);
+                        Vec4T weight(&lxu_cache_weights[cache_idx_j][d]);
                         grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
                             weight.acc.y * grad_out[vec].acc.y +
                             weight.acc.z * grad_out[vec].acc.z +
@@ -208,7 +208,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                         if (std::is_same<emb_t, uint8_t>::value) {
                             qparams = weight_row.load_qparams();
                         }
-                        Vec4TAcc<cache_t> weight =
+                        Vec4T weight =
                         weight_row.load(d, qparams);
                         grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
                             weight.acc.y * grad_out[vec].acc.y +
@@ -228,7 +228,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     if (std::is_same<emb_t, uint8_t>::value) {
                         qparams = weight_row.load_qparams();
                     }
-                    Vec4TAcc<cache_t> weight =
+                    Vec4T weight =
                     weight_row.load(d, qparams);
                     grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
                         weight.acc.y * grad_out[vec].acc.y +

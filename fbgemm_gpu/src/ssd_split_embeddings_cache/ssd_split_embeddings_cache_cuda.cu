@@ -42,7 +42,7 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
   const auto idx = indices[n];
   const auto D = self.size(1);
   for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-    Vec4T<scalar_t>::copy((&values[n][0]) + d * 4, (&self[idx][0]) + d * 4);
+    copy4((&values[n][0]) + d * 4, (&self[idx][0]) + d * 4);
   }
 }
 

@@ -50,7 +50,7 @@ void split_{{ optimizer }}_update_kernel(
     const unsigned int shfl_sync_mask = 0xffffffffu;
 #endif
 
-    Vec4TAcc<cache_t> grad_sum[kMaxVecsPerThread];
+    Vec4T grad_sum[kMaxVecsPerThread];
     const auto D = max_D;
 
     // Load grad_dev_weights into grad_sum

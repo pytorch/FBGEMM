@@ -116,7 +116,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     constexpr int VEC_WIDTH = 4;
     constexpr auto kIsInt8 = std::is_same<emb_t, uint8_t>::value;
 
-    struct SharedMemory<Vec4TAcc<cache_t>> smem;
+    struct SharedMemory<Vec4T> smem;
     const int32_t grad_sum_stride = max_D / VEC_WIDTH;
     auto* smem_grad_sum = (kUseVecBlocking || kIsInt8)
       ? smem.getPointer() + threadIdx.y * grad_sum_stride
@@ -166,7 +166,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         const int32_t SL_per_warp = div_round_up(SL, blockDim.y);
         const int32_t sl_start = 0;
         const int32_t sl_end = SL;
-        Vec4TAcc<cache_t> grad_sum[kFixedMaxVecsPerThread];
+        Vec4T grad_sum[kFixedMaxVecsPerThread];
         constexpr int32_t kGroupVecWidth = kThreadGroupSize * VEC_WIDTH;
         const int32_t num_vecs = (D + kGroupVecWidth - 1) / kGroupVecWidth;
 
@@ -258,7 +258,6 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         {%- endif %}
         store_grad_sum<
             emb_t,
-            cache_t,
             kFixedMaxVecsPerThread,
             kThreadGroupSize,
             VEC_WIDTH,
