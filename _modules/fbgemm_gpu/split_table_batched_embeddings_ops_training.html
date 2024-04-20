@@ -763,6 +763,7 @@
         <span class="n">stats_reporter_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEStatsReporterConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="c1"># Embedding table names that are contained in this TBE.</span>
         <span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">optimizer_state_dtypes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SparseType</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
@@ -1072,10 +1073,22 @@
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">optimizer</span> <span class="o">!=</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span>
+                <span class="ow">or</span> <span class="n">optimizer_state_dtypes</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="p">),</span> <span class="s2">&quot;optimizer_state_dtypes option is only supported for OptimType.PARTIAL_ROWWISE_ADAM&quot;</span>
             <span class="k">if</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,):</span>
                 <span class="c1"># NOTE: make TorchScript work!</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;momentum1&quot;</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
+                <span class="n">momentum1_dtype</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+                    <span class="k">if</span> <span class="p">(</span>
+                        <span class="n">optimizer_state_dtypes</span> <span class="ow">is</span> <span class="kc">None</span>
+                        <span class="ow">or</span> <span class="s2">&quot;momentum1&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">optimizer_state_dtypes</span>
+                    <span class="p">)</span>
+                    <span class="k">else</span> <span class="n">optimizer_state_dtypes</span><span class="p">[</span><span class="s2">&quot;momentum1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">as_dtype</span><span class="p">()</span>
+                <span class="p">)</span>
                 <span class="n">rowwise</span> <span class="o">=</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">[</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="p">]</span>
@@ -1093,7 +1106,7 @@
                     <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;momentum1&quot;</span><span class="p">,</span>
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
                     <span class="c1">#  but got `Type[torch.float32]`.</span>
-                    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">momentum1_dtype</span><span class="p">,</span>
                     <span class="n">enforce_hbm</span><span class="o">=</span><span class="n">enforce_hbm</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="k">if</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
@@ -1105,6 +1118,14 @@
                 <span class="n">rowwise</span> <span class="o">=</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="n">momentum2_dtype</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+                    <span class="k">if</span> <span class="p">(</span>
+                        <span class="n">optimizer_state_dtypes</span> <span class="ow">is</span> <span class="kc">None</span>
+                        <span class="ow">or</span> <span class="s2">&quot;momentum2&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">optimizer_state_dtypes</span>
+                    <span class="p">)</span>
+                    <span class="k">else</span> <span class="n">optimizer_state_dtypes</span><span class="p">[</span><span class="s2">&quot;momentum2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">as_dtype</span><span class="p">()</span>
                 <span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
                     <span class="n">construct_split_state</span><span class="p">(</span>
@@ -1120,7 +1141,7 @@
                     <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;momentum2&quot;</span><span class="p">,</span>
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
                     <span class="c1">#  but got `Type[torch.float32]`.</span>
-                    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">momentum2_dtype</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="c1"># NOTE: make TorchScript work!</span>
