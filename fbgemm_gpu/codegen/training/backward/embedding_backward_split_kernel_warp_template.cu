@@ -31,6 +31,9 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    {%- for ph_name in args.placeholder_tensor_names %}
+    typename {{ ph_name + "_ph_t"}},
+    {%- endfor %}
     int32_t kFixedMaxVecsPerThread,
     int32_t kThreadGroupSize,
     bool kUseVecBlocking>
@@ -214,6 +217,9 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         split_{{ optimizer }}_table_update_kernel<
           emb_t,
           cache_t,
+          {%- for ph_name in args.placeholder_tensor_names %}
+          {{ ph_name + "_ph_t" }},
+          {%- endfor %}
           kFixedMaxVecsPerThread,
           kThreadGroupSize,
           VEC_WIDTH,
@@ -284,6 +290,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
       emb_type,
       grad_type,
       cache_type,
+      ph_type_combo,
       kFixedMaxVecsPerThread,
       kThreadGroupSize,
       kUseVecBlocking
@@ -298,6 +305,9 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
+  {%- for ph_name in args.placeholder_tensor_names %}
+  {{ ph_type_combo[ph_name].primitive_type }},
+  {%- endfor %}
   {{ kFixedMaxVecsPerThread }},
   {{ kThreadGroupSize }},
   {{ kUseVecBlocking }}
@@ -355,7 +365,12 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
     {%- else %}
-    {{ args.split_kernel_args_no_defaults | replace_pta_namespace() | join(",\n    ") | replace("cache_t", cache_type) }}
+    {{ args.split_kernel_args_no_defaults |
+         replace_pta_namespace() |
+         replace_placeholder_types(ph_type_combo) |
+         join(",\n    ") |
+         replace("cache_t", cache_type)
+    }}
     {%- endif %}
 );
 {%- endmacro %}
@@ -364,15 +379,18 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
+    {%- for ph_type_combo in args.placeholder_type_combos %}
         {{ template_instantiation(
             emb_type,
             grad_type,
             cache_type,
+            ph_type_combo,
             kFixedMaxVecsPerThread,
             kThreadGroupSize,
             kUseVecBlocking
           )
         }}
+    {%- endfor %}
     {%- endfor %}
     {%- endfor %}
     {%- endfor %}

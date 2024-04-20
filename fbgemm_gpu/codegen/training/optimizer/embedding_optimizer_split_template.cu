@@ -15,6 +15,9 @@ using namespace fbgemm_gpu;
 template <
     typename emb_t,
     typename cache_t,
+    {%- for ph_name in args.placeholder_tensor_names %}
+    typename {{ ph_name + "_ph_t" }},
+    {%- endfor %}
     size_t kMaxVecsPerThread,
     int32_t kThreadGroupSize = kWarpSize,
     int32_t VEC_WIDTH
@@ -36,6 +39,53 @@ split_{{ optimizer }}_update_kernel(
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {{ args.split_kernel_args | join(", ") }});
+
+////////////////////////////////////////////////////////////////////////////////
+// Auto generated placeholder tensor dispatch macros
+////////////////////////////////////////////////////////////////////////////////
+
+{%- if args.placeholder_tensor_names | length == 0 %}
+
+#define DISPATCH_PLACEHOLDER_TYPES(NAME, ...) \
+  return __VA_ARGS__();
+
+{%- else %}
+
+// TODO: create a macro for this
+#define DISPATCH_PLACEHOLDER_TYPES({{ args.placeholder_tensor_names | to_upper_placeholder_types() | join(", ") }}, NAME, ...) \
+  {%- for ph_name in args.placeholder_tensor_names %}
+  at::ScalarType _{{ph_name}}_t =                                       \
+    ::detail::scalar_type({{ ph_name.upper() + "_T" }});                \
+  {%- endfor %}
+  {%- for ph_combo in args.placeholder_type_combos %}
+  if (                                                                  \
+    {%- for ph_name, ph_ty in ph_combo.items() %}
+    {{ ph_name.upper() + "_T" }} == {{ ph_ty.scalar_type }} &&          \
+    {%- endfor %}
+    true                                                                \
+  ) {                                                                   \
+    {%- for ph_name, ph_ty in ph_combo.items() %}
+    using {{ ph_name + "_ph_t" }} = {{ ph_ty.primitive_type }};         \
+    {%- endfor  %}
+    return __VA_ARGS__();                                               \
+  }                                                                     \
+  {%- endfor %}
+  else {                                                                \
+    AT_ERROR(                                                           \
+        #NAME, \
+        " not implemented for ",                                        \
+        {%- for ph_name in args.placeholder_tensor_names %}
+        "{{ ph_name + "_ph_t" }} = '", toString(_{{ph_name}}_t) , "' ", \
+        {%- endfor %}
+        ""                                                              \
+    );                                                                  \
+  }
+
+{%- endif %}
+
+////////////////////////////////////////////////////////////////////////////////
+// Operator implementation
+////////////////////////////////////////////////////////////////////////////////
 
 // split_{{ optimizer }}_update assumes that all tables have the same embedding
 // dimension.
@@ -117,34 +167,49 @@ void split_embedding_{{ optimizer }}_update(
 #else
                 constexpr int kThreadGroupSize = kWarpSize;
 #endif
-                split_{{ optimizer }}_update_kernel<emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, 4>
-                    <<<div_round_up(grad_dev_indices.numel(), kMaxThreads / kThreadGroupSize),
-                       dim3(kThreadGroupSize, kMaxThreads / kThreadGroupSize, 1),
-                       0, // Shared memory is not needed because uint8_t is not supported
-                       at::cuda::getCurrentCUDAStream()
-                    >>>
-                    (
-                        dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                        uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
-                        lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
-                        flatten_grad_dev_weights.packed_accessor32<emb_t, 1, at::RestrictPtrTraits>(),
-                        flatten_grad_dev_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                        weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                        // Use weights_placements instead of
-                        // sorted_lxu_cache_locations because LXU cache is not
-                        // supported right now
-                        weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                        max_D,
-                        stochastic_rounding,
-                        rng_engine_inputs,
-                        {{ args.split_kernel_arg_constructors | join(", ") }}
-                    );
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                DISPATCH_PLACEHOLDER_TYPES(
+                  {%- for ph_name in args.placeholder_tensor_names %}
+                  {{ ph_name + "_dev" }}.scalar_type(),
+                  {%- endfor %}
+                  "split_embedding_{{ optimizer }}_update_placeholder_type_kernel",
+                  [&] {
+                    split_{{ optimizer }}_update_kernel<
+                        emb_t,
+                        cache_t,
+                        {%- for ph_name in args.placeholder_tensor_names %}
+                        {{ ph_name + "_ph_t" }},
+                        {%- endfor %}
+                        kMaxVecsPerThread,
+                        kThreadGroupSize,
+                        4>
+                        <<<div_round_up(grad_dev_indices.numel(), kMaxThreads / kThreadGroupSize),
+                           dim3(kThreadGroupSize, kMaxThreads / kThreadGroupSize, 1),
+                           0, // Shared memory is not needed because uint8_t is not supported
+                           at::cuda::getCurrentCUDAStream()
+                        >>>
+                        (
+                            dev_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                            uvm_weights.packed_accessor64<emb_t, 1, at::RestrictPtrTraits>(),
+                            lxu_cache_weights.packed_accessor64<cache_t, 2, at::RestrictPtrTraits>(),
+                            flatten_grad_dev_weights.packed_accessor32<emb_t, 1, at::RestrictPtrTraits>(),
+                            flatten_grad_dev_indices.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                            weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                            weights_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                            // Use weights_placements instead of
+                            // sorted_lxu_cache_locations because LXU cache is not
+                            // supported right now
+                            weights_placements.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+                            max_D,
+                            stochastic_rounding,
+                            rng_engine_inputs,
+                            {{ args.split_kernel_arg_constructors | join(", ") }}
+                        );
+                    C10_CUDA_KERNEL_LAUNCH_CHECK();
+                }); // DISPATCH_PLACEHOLDER_TYPES
                 return;
             }
             {%- endif %}
             {%- endfor %}
-        }
+        } // DISPATCH_EMB_CACHE_TYPES
     );
 }
