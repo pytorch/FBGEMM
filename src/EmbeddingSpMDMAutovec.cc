@@ -17,12 +17,248 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <new>
 #include <numeric>
 #include <thread>
 
 using std::vector;
 
 namespace fbgemm {
+
+template <typename OutType>
+static inline void fill_output(
+    OutType* out,
+    const float* src,
+    const int64_t block_size,
+    const bool is_bf16_out) {
+  if (std::is_same<OutType, float>::value) {
+#pragma omp simd
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = src[j];
+    }
+  } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+#pragma omp simd
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = cpu_bf162float(src[j]);
+    }
+  } else {
+#pragma omp simd
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = cpu_half2float(src[j]);
+    }
+  }
+}
+
+template <typename IndexType, typename OffsetType, typename OutType>
+bool EmbeddingSpMDM8Bit_autovec(
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t data_size,
+    const uint8_t* input,
+    const IndexType* indices,
+    const OffsetType* offsets_or_lengths,
+    const float* weights, // optional, can be null for non-weighted sum
+    const bool normalize_by_lengths,
+    OutType* out,
+    const bool is_weight_positional /*=false*/,
+    const bool use_offsets /*=true*/,
+    int64_t output_stride /*=-1*/,
+    int64_t input_stride /*=-1*/,
+    const bool scale_bias_last /*=true*/,
+    const bool no_bag /*=false*/,
+    const bool is_bf16_out /*=false*/) {
+  constexpr bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+  if constexpr (isOutput8bit) {
+    assert(input_stride == output_stride);
+  }
+  vector<float> buf(block_size);
+
+  // block_size is the number of elements and fused_block_size is the size of
+  // an entire row, including scale and bias.
+  if (input_stride == -1) {
+    // scale_bias_last == false is for table batched embedding that stores
+    // scale and bias in float16
+    const auto scale_bias_offset =
+        2 * (scale_bias_last ? sizeof(float) : sizeof(float16));
+    input_stride = block_size + scale_bias_offset;
+  }
+  constexpr int64_t CACHE_LINE_SIZE = 64;
+  constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
+  const int64_t prefetch_stride =
+      std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
+  for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    for (int col = 0; col < input_stride; col += CACHE_LINE_SIZE) {
+      do_prefetch(
+          reinterpret_cast<const char*>(
+              input + input_stride * indices[pf_idx] + col),
+          0,
+          0);
+    }
+  }
+  IndexType current = 0;
+
+  if (no_bag) {
+    for (int m = 0; m < output_size; ++m) {
+      const auto idx = indices[m];
+
+      if (idx < 0 || idx >= data_size) {
+        return false;
+      }
+      if constexpr (isOutput8bit) {
+        const uint8_t* input_row_ptr = input + input_stride * idx;
+        memcpy(out, input_row_ptr, sizeof(uint8_t) * input_stride);
+      } else {
+        memset(buf.data(), 0, sizeof(float) * block_size);
+        const float* scale_bias = reinterpret_cast<const float*>(
+            input + input_stride * idx + (scale_bias_last ? block_size : 0));
+
+        const auto weight = weights ? weights[m] : 1.0f;
+
+        float scale;
+        float bias;
+        if (scale_bias_last) {
+          scale = weight * scale_bias[0];
+          bias = weight * scale_bias[1];
+        } else {
+          scale = weight *
+              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[0]);
+          bias = weight *
+              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
+        }
+
+        const size_t input_offset =
+            input_stride * idx + (scale_bias_last ? 0 : (2 * sizeof(float16)));
+#pragma omp simd
+        for (int j = 0; j < block_size; ++j) {
+          buf[j] =
+              std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
+        }
+        fill_output(out, buf.data(), block_size, is_bf16_out);
+        out += output_stride;
+      }
+    } // m
+    return true;
+  } // no_bag
+
+  for (int m = 0; m < output_size; ++m) {
+    memset(buf.data(), 0, sizeof(float) * block_size);
+    const auto len = use_offsets
+        ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+        : offsets_or_lengths[m];
+    if (current + len > index_size) {
+      return false;
+    }
+
+    for (OffsetType i = 0; i < len; ++i) {
+      const auto idx = indices[current];
+      const auto prefetch_idx =
+          indices[std::min(current + prefetch_stride, index_size - 1)];
+      for (int64_t col = 0; col < input_stride; col += CACHE_LINE_SIZE) {
+        do_prefetch(
+            reinterpret_cast<const char*>(
+                input + input_stride * prefetch_idx + col),
+            1);
+      }
+      if (!scale_bias_last && idx == -1) {
+        // When scale_bias_last == false, assume this is for table batched
+        // embedding (TBE) that can get -1 for pruned rows.
+        continue;
+      }
+      if (idx < 0 || idx >= data_size) {
+        return false;
+      }
+
+      const float* scale_bias = reinterpret_cast<const float*>(
+          input + input_stride * idx + (scale_bias_last ? block_size : 0));
+
+      const auto weight =
+          weights ? weights[is_weight_positional ? i : current] : 1.0f;
+      float scale;
+      float bias;
+      if (scale_bias_last) {
+        scale = weight * scale_bias[0];
+        bias = weight * scale_bias[1];
+      } else {
+        scale = weight *
+            cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[0]);
+        bias = weight *
+            cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
+      }
+
+      size_t input_offset =
+          input_stride * idx + (scale_bias_last ? 0 : 2 * sizeof(float16));
+      if (block_size <= 64) {
+#pragma clang loop vectorize_width(4) interleave_count(8)
+        for (int j = 0; j < block_size; ++j) {
+          buf[j] =
+              std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
+        }
+      } else {
+#pragma clang loop vectorize_width(4) interleave_count(16)
+        for (int j = 0; j < block_size; ++j) {
+          buf[j] =
+              std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
+        }
+      }
+
+      ++current;
+    }
+    if (normalize_by_lengths && len) {
+      const float scale = 1.f / len;
+#pragma omp simd
+      for (int j = 0; j < block_size; ++j) {
+        buf[j] *= scale;
+      }
+    }
+    fill_output(out, buf.data(), block_size, is_bf16_out);
+    out += output_stride;
+  }
+  return current == index_size;
+}
+
+#define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  template FBGEMM_API bool EmbeddingSpMDM8Bit_autovec(            \
+      const int64_t block_size,                                   \
+      const int64_t output_size,                                  \
+      const int64_t index_size,                                   \
+      const int64_t data_size,                                    \
+      const uint8_t* input,                                       \
+      const INDEX_TYPE* indices,                                  \
+      const OFFSET_TYPE* offsets_or_lengths,                      \
+      const float* weights,                                       \
+      const bool normalize_by_lengths,                            \
+      OUT_TYPE* out,                                              \
+      const bool is_weight_positional,                            \
+      const bool use_offsets,                                     \
+      int64_t input_stride,                                       \
+      int64_t output_stride,                                      \
+      const bool scale_bias_last,                                 \
+      const bool no_bag,                                          \
+      const bool is_bf16_out);
+
+#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, std::uint8_t)
+
+#define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE)      \
+  INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int32_t) \
+  INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int64_t)
+
+#define INSTANTIATE_SPMDM_INDEX_T()        \
+  INSTANTIATE_SPMDM_OFFSET_T(std::int32_t) \
+  INSTANTIATE_SPMDM_OFFSET_T(std::int64_t)
+
+INSTANTIATE_SPMDM_INDEX_T()
+
+#undef INSTANTIATE_SPMDM_INDEX_T
+#undef INSTANTIATE_SPMDM_OFFSET_T
+#undef INSTANTIATE_SPMDM_OUT_T
+#undef INSTANTIATE_SPMDM_BASE
 
 template <typename IndexType, typename OffsetType, typename OutType>
 bool EmbeddingSpMDMNBit_autovec(
@@ -98,8 +334,8 @@ bool EmbeddingSpMDMNBit_autovec(
     if (current + len > index_size) {
       return false;
     }
-    constexpr int tile_size = 4;
 #if _OPENMP >= 202011
+    constexpr int tile_size = 4;
 #pragma omp tile sizes(tile_size)
 #endif
     for (int i = 0; i < len; ++i) {
