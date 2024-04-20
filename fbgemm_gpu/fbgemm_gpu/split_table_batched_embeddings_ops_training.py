@@ -389,6 +389,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
         # Embedding table names that are contained in this TBE.
         table_names: Optional[List[str]] = None,
+        optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
@@ -698,10 +699,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if optimizer != OptimType.NONE:
+            assert (
+                optimizer == OptimType.PARTIAL_ROWWISE_ADAM
+                or optimizer_state_dtypes is None
+            ), "optimizer_state_dtypes option is only supported for OptimType.PARTIAL_ROWWISE_ADAM"
             if optimizer in (OptimType.EXACT_SGD,):
                 # NOTE: make TorchScript work!
                 self._register_nonpersistent_buffers("momentum1")
             else:
+                momentum1_dtype = (
+                    torch.float32
+                    if (
+                        optimizer_state_dtypes is None
+                        or "momentum1" not in optimizer_state_dtypes
+                    )
+                    else optimizer_state_dtypes["momentum1"].as_dtype()
+                )
                 rowwise = optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD,
                 ]
@@ -719,7 +732,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     prefix="momentum1",
                     # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
                     #  but got `Type[torch.float32]`.
-                    dtype=torch.float32,
+                    dtype=momentum1_dtype,
                     enforce_hbm=enforce_hbm,
                 )
             if optimizer in (
@@ -731,6 +744,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 rowwise = optimizer in (
                     OptimType.PARTIAL_ROWWISE_ADAM,
                     OptimType.PARTIAL_ROWWISE_LAMB,
+                )
+                momentum2_dtype = (
+                    torch.float32
+                    if (
+                        optimizer_state_dtypes is None
+                        or "momentum2" not in optimizer_state_dtypes
+                    )
+                    else optimizer_state_dtypes["momentum2"].as_dtype()
                 )
                 self._apply_split(
                     construct_split_state(
@@ -746,7 +767,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     prefix="momentum2",
                     # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
                     #  but got `Type[torch.float32]`.
-                    dtype=torch.float32,
+                    dtype=momentum2_dtype,
                 )
             else:
                 # NOTE: make TorchScript work!

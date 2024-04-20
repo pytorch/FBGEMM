@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
     get_table_batched_offsets_from_dense,
@@ -65,6 +65,16 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 @optests.generate_opcheck_tests(fast=True)
 class BackwardOptimizersTest(unittest.TestCase):
+    def assert_close_optim_state(self, test: torch.Tensor, ref: torch.Tensor) -> None:
+        tolerance = 1.0e-4 if test.dtype == torch.float else 1.0e-2
+
+        torch.testing.assert_close(
+            test.float().cpu(),
+            ref.float().cpu(),
+            atol=tolerance,
+            rtol=tolerance,
+        )
+
     def execute_backward_optimizers_(  # noqa C901
         self,
         T: int,
@@ -81,6 +91,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         use_cpu: bool,
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         uvm_non_rowwise_momentum: bool = False,
+        optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
@@ -276,6 +287,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["beta1"] = beta1
             optimizer_kwargs["beta2"] = beta2
             optimizer_kwargs["weight_decay"] = weight_decay
+            optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
             optimizer_kwargs["eps"] = eps
@@ -478,15 +490,16 @@ class BackwardOptimizersTest(unittest.TestCase):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_ADAM
             for t in range(T):
                 (m1, m2) = split_optimizer_states[t]
+                # Some optimizers have non-float momentums
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 m2_ref = (
                     dense_cpu_grad.pow(2)
                     if not rowwise
                     else dense_cpu_grad.pow(2).mean(dim=1)
                 ) * (1.0 - beta2)
-                torch.testing.assert_close(m2.cpu(), m2_ref, atol=1.0e-4, rtol=1.0e-4)
+                self.assert_close_optim_state(m2, m2_ref)
                 m1_ref = dense_cpu_grad * (1.0 - beta1)
-                torch.testing.assert_close(m1.cpu(), m1_ref, atol=1.0e-4, rtol=1.0e-4)
+                self.assert_close_optim_state(m1, m1_ref)
                 iter_ = cc.iter.item()
                 v_hat_t = m2_ref / (1 - beta2**iter_)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
@@ -789,6 +802,77 @@ class BackwardOptimizersTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        optimizer=st.sampled_from(
+            [
+                OptimType.PARTIAL_ROWWISE_ADAM,
+            ]
+        ),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=use_cpu_strategy(),
+        uvm_non_rowwise_momentum=st.booleans(),
+        optimizer_state_dtypes=st.sampled_from(
+            [
+                {"momentum1": SparseType.BF16},
+                {"momentum2": SparseType.BF16},
+                {"momentum1": SparseType.BF16, "momentum2": SparseType.BF16},
+            ]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_optimizers_partial_rowwise_adam_bf16_momentum(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        use_cpu: bool,
+        uvm_non_rowwise_momentum: bool,
+        optimizer_state_dtypes: Dict[str, SparseType],
+    ) -> None:
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            False,  # mixed_B
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
+            optimizer_state_dtypes=optimizer_state_dtypes,
         )
 
     @given(
