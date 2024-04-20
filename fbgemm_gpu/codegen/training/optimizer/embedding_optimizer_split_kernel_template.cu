@@ -12,6 +12,9 @@
 template <
     typename emb_t,
     typename cache_t,
+    {%- for ph_name in args.placeholder_tensor_names %}
+    typename {{ ph_name + "_ph_t"}},
+    {%- endfor %}
     size_t kMaxVecsPerThread,
     int32_t kThreadGroupSize = kWarpSize,
     int32_t VEC_WIDTH
@@ -62,8 +65,16 @@ void split_{{ optimizer }}_update_kernel(
     // TODO: Enable smem grad sum
     constexpr bool kUseVecBlocking = false;
 
-    split_{{ optimizer }}_table_update_kernel
-      <emb_t, cache_t, kMaxVecsPerThread, kThreadGroupSize, VEC_WIDTH, kUseVecBlocking>(
+    split_{{ optimizer }}_table_update_kernel<
+      emb_t,
+      cache_t,
+      {%- for ph_name in args.placeholder_tensor_names %}
+      {{ ph_name + "_ph_t"}},
+      {%- endfor %}
+      kMaxVecsPerThread,
+      kThreadGroupSize,
+      VEC_WIDTH,
+      kUseVecBlocking>(
           dev_weights,
           uvm_weights,
           lxu_cache_weights,
@@ -92,6 +103,7 @@ void split_{{ optimizer }}_update_kernel(
 
 {%- for emb_type in ['uint8_t', 'float', 'at::Half'] %}
 {%- for cache_type in ['float', 'at::Half'] %}
+{%- for ph_type_combo in args.placeholder_type_combos %}
 
 {%- set tuples = [] %}
 {%- for kMaxElemPerThread in range(1, legacy_max_embedding_dim // (items_per_warp // 4) + 1) %}
@@ -107,6 +119,9 @@ template __global__ __launch_bounds__(kMaxThreads)
 void split_{{ optimizer }}_update_kernel
 < {{ emb_type }},
   {{ cache_type }},
+  {%- for ph_name in args.placeholder_tensor_names %}
+  {{ ph_type_combo[ph_name] }},
+  {%- endfor %}
   {{ kMaxVecsPerThread }},
   {{ kThreadGroupSize }},
   4 // VEC_WIDTH
@@ -125,9 +140,14 @@ void split_{{ optimizer }}_update_kernel
     const int32_t max_D,
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
-    {{ args.split_kernel_args_no_defaults | join(",\n    ") | replace("cache_t", cache_type) }});
+    {{ args.split_kernel_args_no_defaults |
+         replace_placeholder_types(ph_type_combo) |
+         join(",\n    ") |
+         replace("cache_t", cache_type)
+    }});
 
 {%- endfor %} // for (kMaxVecsPerThread, kThreadGroupSize)
+{%- endfor %} // for ph_type_combo
 {%- endfor %} // for cache_type
 {%- endfor %} // for emb_type
 {%- endfor %} // for use_subwarp
