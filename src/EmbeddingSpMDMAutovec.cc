@@ -180,6 +180,7 @@ bool EmbeddingSpMDM_autovec(
     bool is_bf16_in /*=false*/) {
   const bool isWeight8bit = std::is_same<InType, uint8_t>::value;
   const bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
+  printf("running autovec\n");
   if (output_stride == -1) {
     output_stride = block_size;
   }
