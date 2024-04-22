@@ -180,7 +180,6 @@ bool EmbeddingSpMDM_autovec(
     bool is_bf16_in /*=false*/) {
   const bool isWeight8bit = std::is_same<InType, uint8_t>::value;
   const bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
-  printf("running autovec\n");
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -340,6 +339,19 @@ bool EmbeddingSpMDM_autovec(
       return true;
     } // no_bag
 
+    // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
+    // prefetching helps reduce backend stall and therefore enable vectorization
+    // reach better of its potential. 16 is tuned for Neoverse-V2.
+
+
+    constexpr int64_t max_initial_prefetch_rows = 16;
+    const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
+    for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+      do_prefetch(
+          reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
+          0,
+          0);
+    }
     // Reference implementation of FP32 SLS
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
@@ -359,12 +371,18 @@ bool EmbeddingSpMDM_autovec(
         if (idx < 0 || idx >= data_size) {
           return false;
         }
-
+        int64_t prefetch_idx =
+            indices[std::min(current + prefetch_stride, index_size - 1)];
+        do_prefetch(
+            reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
+            0,
+            0);
         float w = 1.f;
         if (weights) {
           w = weights[is_weight_positional ? i : current];
         }
 
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
           buf[j] =
