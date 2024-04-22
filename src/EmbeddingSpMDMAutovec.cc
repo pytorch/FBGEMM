@@ -180,6 +180,7 @@ bool EmbeddingSpMDM_autovec(
     bool is_bf16_in /*=false*/) {
   const bool isWeight8bit = is_same<InType, uint8_t>::value;
   const bool isOutput8bit = is_same<OutType, uint8_t>::value;
+  printf("running autovec\n");
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -239,6 +240,7 @@ bool EmbeddingSpMDM_autovec(
                      (scale_bias_last ? 0 : 2 * sizeof(float16))],
                 buf[j] + bias);
           }
+          #pragma omp simd
           for (int j = 0; j < block_size; ++j) {
             out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
           }
@@ -295,10 +297,12 @@ bool EmbeddingSpMDM_autovec(
       }
       if (normalize_by_lengths && len) {
         float scale = 1.f / len;
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           buf[j] *= scale;
         }
       }
+      #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
       }
@@ -322,12 +326,12 @@ bool EmbeddingSpMDM_autovec(
         if (weights) {
           w = weights[m];
         }
-
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
           buf[j] =
               std::fma(w, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
         }
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
         }
@@ -345,6 +349,11 @@ bool EmbeddingSpMDM_autovec(
       if (current + len > index_size) {
         return false;
       }
+      
+      constexpr int tile_size = 4;
+      #if _OPENMP >= 202011
+      #pragma omp tile sizes(tile_size)
+      #endif
       for (int i = 0; i < len; ++i) {
         int64_t idx = indices[current];
         if (idx < 0 || idx >= data_size) {
@@ -366,10 +375,14 @@ bool EmbeddingSpMDM_autovec(
       }
       if (normalize_by_lengths && len) {
         float scale = 1.f / len;
+
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           buf[j] *= scale;
         }
       }
+
+      #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
       }
