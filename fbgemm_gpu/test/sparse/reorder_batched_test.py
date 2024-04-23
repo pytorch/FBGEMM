@@ -477,6 +477,9 @@ class ReorderBatchedTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         index_dtype=st.sampled_from([torch.int32, torch.int64]),
+        emb_dtype=st.sampled_from(
+            [torch.float32, torch.uint8, torch.bfloat16, torch.float16]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_reorder_batched_sequence_embeddings(
@@ -486,11 +489,12 @@ class ReorderBatchedTest(unittest.TestCase):
         T: int,
         L: int,
         index_dtype: torch.dtype,
+        emb_dtype: torch.dtype,
     ) -> None:
         MAX_H = 1000
         DIM = 32
         device = torch.device("cuda")
-        ref_embeddings = torch.rand(MAX_H, DIM, dtype=torch.float, device=device)
+        ref_embeddings = torch.rand(MAX_H, DIM, dtype=emb_dtype, device=device)
         feature_lengths = [
             torch.randint(
                 1, L, (T, random.randint(1, B + 1)), dtype=index_dtype, device=device
