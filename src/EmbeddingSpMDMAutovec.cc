@@ -342,7 +342,7 @@ bool EmbeddingSpMDM_autovec(
       return true;
     } // no_bag
 
-/*
+
     // more prefetch
     // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
     // size
@@ -374,7 +374,7 @@ bool EmbeddingSpMDM_autovec(
       }
     }
 
-    */
+    
     // Reference implementation of FP32 SLS
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
@@ -385,16 +385,16 @@ bool EmbeddingSpMDM_autovec(
         return false;
       }
       
-      constexpr int tile_size = 16;
-      #if _OPENMP >= 202011
-      #pragma omp tile sizes(tile_size)
-      #endif
+      // constexpr int tile_size = 4;
+      // #if _OPENMP >= 202011
+      // #pragma omp tile sizes(tile_size)
+      // #endif
       for (int i = 0; i < len; ++i) {
         int64_t idx = indices[current];
         if (idx < 0 || idx >= data_size) {
           return false;
         }
-        /*
+        
         int64_t prefetch_idx =
             indices[std::min(current + prefetch_stride, index_size - 1)];
 
@@ -412,7 +412,7 @@ bool EmbeddingSpMDM_autovec(
                 0);
           }
         }
-        */
+        
         float w = 1.f;
         if (weights) {
           w = weights[is_weight_positional ? i : current];
