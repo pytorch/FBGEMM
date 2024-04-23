@@ -385,7 +385,7 @@ bool EmbeddingSpMDM_autovec(
         return false;
       }
       
-      constexpr int tile_size = 4;
+      constexpr int tile_size = 8;
       #if _OPENMP >= 202011
       #pragma omp tile sizes(tile_size)
       #endif
