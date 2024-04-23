@@ -192,13 +192,17 @@ bool EmbeddingSpMDM8Bit_autovec(
       size_t input_offset =
           input_stride * idx + (scale_bias_last ? 0 : 2 * sizeof(float16));
       if (block_size <= 64) {
+#ifdef __clang__
 #pragma clang loop vectorize_width(4) interleave_count(8)
+#endif
         for (int j = 0; j < block_size; ++j) {
           buf[j] =
               std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
         }
       } else {
+#ifdef __clang__
 #pragma clang loop vectorize_width(4) interleave_count(16)
+#endif
         for (int j = 0; j < block_size; ++j) {
           buf[j] =
               std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
