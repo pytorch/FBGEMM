@@ -567,7 +567,7 @@ class NBitFowardTest(unittest.TestCase):
         )
 
     @given(
-        nbit_weights_ty=st.sampled_from([SparseType.INT4, SparseType.INT2]),
+        nbit_weights_ty=st.sampled_from([SparseType.INT4, SparseType.INT2, SparseType.FP32]),
         pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
