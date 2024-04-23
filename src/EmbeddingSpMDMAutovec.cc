@@ -231,6 +231,7 @@ bool EmbeddingSpMDM_autovec(
                 cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
           }
 
+          #pragma omp simd
           for (int j = 0; j < block_size; ++j) {
             buf[j] = std::fma(
                 scale,
@@ -285,6 +286,7 @@ bool EmbeddingSpMDM_autovec(
               cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
         }
 
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           buf[j] = std::fma(
               scale,
@@ -325,6 +327,7 @@ bool EmbeddingSpMDM_autovec(
         if (weights) {
           w = weights[m];
         }
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
           buf[j] =
@@ -339,21 +342,7 @@ bool EmbeddingSpMDM_autovec(
       return true;
     } // no_bag
 
-    // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
-    // prefetching helps reduce backend stall and therefore enable vectorization
-    // reach better of its potential. 16 is tuned for Neoverse-V2.
-
-
-    // constexpr int64_t max_initial_prefetch_rows = 16;
-    // const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
-    // for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    //   do_prefetch(
-    //       reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-    //       0,
-    //       0);
-    // }
-
-
+/*
     // more prefetch
     // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
     // size
@@ -384,6 +373,8 @@ bool EmbeddingSpMDM_autovec(
         }
       }
     }
+
+    */
     // Reference implementation of FP32 SLS
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
@@ -394,21 +385,16 @@ bool EmbeddingSpMDM_autovec(
         return false;
       }
       
-      constexpr int tile_size = 4;
-      #if _OPENMP >= 202011
-      #pragma omp tile sizes(tile_size)
-      #endif
+      // constexpr int tile_size = 4;
+      // #if _OPENMP >= 202011
+      // #pragma omp tile sizes(tile_size)
+      // #endif
       for (int i = 0; i < len; ++i) {
         int64_t idx = indices[current];
         if (idx < 0 || idx >= data_size) {
           return false;
         }
-        // int64_t prefetch_idx =
-        //     indices[std::min(current + prefetch_stride, index_size - 1)];
-        // do_prefetch(
-        //     reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
-        //     0,
-        //     0);
+        /*
         int64_t prefetch_idx =
             indices[std::min(current + prefetch_stride, index_size - 1)];
 
@@ -426,6 +412,7 @@ bool EmbeddingSpMDM_autovec(
                 0);
           }
         }
+        */
         float w = 1.f;
         if (weights) {
           w = weights[is_weight_positional ? i : current];
@@ -536,20 +523,6 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
   } else {
     // Reference implementation of FP32 SLS
 
-    //TODO: FIX THIS. Currently commenting out prefetching code because input stride is NOT defined.
-    //==============================================================================================
-    // // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
-    // // prefetching helps reduce backend stall and therefore enable vectorization
-    // // reach better of its potential. 16 is tuned for Neoverse-V2.
-    // constexpr int64_t max_initial_prefetch_rows = 32;
-    // const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
-    // for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    //   do_prefetch(
-    //       reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-    //       0,
-    //       0);
-    // }
-
     int64_t current = 0;
     for (int m = 0; m < output_size; ++m) {
       memset(out, 0, sizeof(float) * block_size);
@@ -574,19 +547,6 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
           ++current;
           continue;
         }
-        // if (idx < 0 || idx >= compressed_data_size) {
-        //   return false;
-        // }
-
-      //TODO: FIX THIS. Currently commenting out prefetching code because input stride is NOT defined.
-      //==============================================================================================
-      //   int64_t prefetch_idx =
-      //     indices[std::min(current + prefetch_stride, index_size - 1)];
-      // do_prefetch(
-      //     reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
-      //     0,
-      //     0);
-
 
         float w = 1.f;
         if (weights) {
@@ -706,38 +666,6 @@ INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T
 #undef INSTANTIATE_SPMDM_BASE
-
-// #define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE) \
-//   template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_autovec(              \
-//       const int64_t block_size,                                          \
-//       const int64_t output_size,                                         \
-//       const int64_t index_size,                                          \
-//       const int64_t uncompressed_data_size,                              \
-//       const IN_TYPE* input,                                              \
-//       const INDEX_TYPE* indices,                                         \
-//       const int32_t* compressed_indices_table,                           \
-//       const OFFSET_TYPE* offsets_or_lengths,                             \
-//       const float* weights,                                              \
-//       bool normalize_by_lengths,                                         \
-//       float* out,                                                        \
-//       bool is_weight_positional,                                         \
-//       bool use_offsets);
-
-// #define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
-//   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, std::int32_t) \
-//   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, std::int64_t)
-
-// #define INSTANTIATE_SPMDM_INDEX_T(IN_TYPE)          \
-//   INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int32_t) \
-//   INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int64_t)
-
-// INSTANTIATE_SPMDM_INDEX_T(float)
-// INSTANTIATE_SPMDM_INDEX_T(float16)
-// INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
-
-// #undef INSTANTIATE_SPMDM_INDEX_T
-// #undef INSTANTIATE_SPMDM_OFFSET_T
-// #undef INSTANTIATE_SPMDM_BASE
 
 } // namespace fbgemm
 
