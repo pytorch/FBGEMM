@@ -17,9 +17,18 @@ using Tensor = at::Tensor;
   AT_DISPATCH_CASE(at::ScalarType::Int, __VA_ARGS__)      \
   AT_DISPATCH_CASE(at::ScalarType::Long, __VA_ARGS__)
 
+#define DISPATCH_SINGLE_HALF_FP_CHAR_CASE(...)            \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)    \
+  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)     \
+  AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::Byte, __VA_ARGS__)
+
 #define DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(                                           \
       TYPE, NAME, DISPATCH_SINGLE_HALF_FP_INT32_64_CASE(__VA_ARGS__))
+
+#define DISPATCH_SINGLE_HALF_FP_CHAR_TYPES(TYPE, NAME, ...) \
+  AT_DISPATCH_SWITCH(TYPE, NAME, DISPATCH_SINGLE_HALF_FP_CHAR_CASE(__VA_ARGS__))
 
 namespace fbgemm_gpu {
 
@@ -466,7 +475,7 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  FBGEMM_DISPATCH_FLOATING_TYPES(
+  DISPATCH_SINGLE_HALF_FP_CHAR_TYPES(
       cat_sequence_embeddings.scalar_type(),
       "reorder_batched_sequence_embeddings_gpu_kernel_1",
       [&] {
