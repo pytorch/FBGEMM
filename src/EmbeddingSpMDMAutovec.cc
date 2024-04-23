@@ -344,13 +344,45 @@ bool EmbeddingSpMDM_autovec(
     // reach better of its potential. 16 is tuned for Neoverse-V2.
 
 
+    // constexpr int64_t max_initial_prefetch_rows = 16;
+    // const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
+    // for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    //   do_prefetch(
+    //       reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
+    //       0,
+    //       0);
+    // }
+
+
+    // more prefetch
+    // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
+    // size
+    constexpr int64_t max_prefetch_bytes = 4096;
+    // 16 is manually tuned for Neoverse-V2 for best performance
     constexpr int64_t max_initial_prefetch_rows = 16;
-    const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
+    constexpr int64_t CACHE_LINE_SIZE = 64;
+    const int64_t rows_to_prefetch =
+        std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
+    const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
+    // The following prefetch loop is written in this way for better performance.
+    // My understanding is that manually separating the case of input_stride being
+    // greater or not greater than cache line size will make the branch predictor
+    // work better. Same for line 113-126.
     for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
       do_prefetch(
           reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
           0,
           0);
+      if (input_stride > CACHE_LINE_SIZE) {
+        for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
+            offset += CACHE_LINE_SIZE) {
+          do_prefetch(
+              reinterpret_cast<const char*>(
+                  input + input_stride * indices[pf_idx] + offset),
+              0,
+              0);
+        }
+      }
     }
     // Reference implementation of FP32 SLS
     int64_t current = 0;
@@ -371,12 +403,29 @@ bool EmbeddingSpMDM_autovec(
         if (idx < 0 || idx >= data_size) {
           return false;
         }
+        // int64_t prefetch_idx =
+        //     indices[std::min(current + prefetch_stride, index_size - 1)];
+        // do_prefetch(
+        //     reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
+        //     0,
+        //     0);
         int64_t prefetch_idx =
             indices[std::min(current + prefetch_stride, index_size - 1)];
+
         do_prefetch(
             reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
             0,
             0);
+        if (input_stride > CACHE_LINE_SIZE) {
+          for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
+              offset += CACHE_LINE_SIZE) {
+            do_prefetch(
+                reinterpret_cast<const char*>(
+                    input + input_stride * prefetch_idx + offset),
+                0,
+                0);
+          }
+        }
         float w = 1.f;
         if (weights) {
           w = weights[is_weight_positional ? i : current];
