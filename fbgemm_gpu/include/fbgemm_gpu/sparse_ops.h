@@ -177,6 +177,49 @@ std::tuple<
     at::Tensor,
     at::Tensor,
     c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+///@ingroup sparse-data-cuda
+block_bucketize_sparse_features_inference_cuda(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size,
+    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool return_bucket_mapping);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
+
+///@ingroup sparse-data-cpu
+block_bucketize_sparse_features_inference_cpu(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const c10::optional<at::Tensor>& weights,
+    const c10::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size,
+    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool return_bucket_mapping);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
     c10::optional<at::Tensor>>
 
 ///@ingroup sparse-data-cuda
