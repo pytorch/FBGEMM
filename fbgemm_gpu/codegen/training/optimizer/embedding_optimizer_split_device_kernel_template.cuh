@@ -35,9 +35,9 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& weights_placements,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>& weights_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& sorted_lxu_cache_locations,
-    Vec4TAcc<cache_t>* grad_sum,
-    Vec4TAcc<cache_t>* smem_grad_sum,
-    Vec4TAcc<cache_t>* shared_weight_update_row,
+    Vec4T* grad_sum,
+    Vec4T* smem_grad_sum,
+    Vec4T* shared_weight_update_row,
     const bool stochastic_rounding,
     const at::PhiloxCudaState& stochastic_rounding_philox_args,
     const uint32_t run_id,
@@ -105,8 +105,8 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     {{
        generate_optimized_grad_sum_loop_access(
            """
-           Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
-           Vec4TAcc<cache_t>& grad = {grad_vec};
+           Vec4T weight_new = weight_row_template.load(d, qparams_template);
+           Vec4T& grad = {grad_vec};
            {split_weight_update}
            if (kIsInt8 && !cache_weights) {
                shared_weight_update_row[d_vec] = weight_new;
@@ -121,8 +121,7 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
 
     if (kIsInt8 && !cache_weights) {
         // Calculate new qparams after row update
-        qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(
-            shared_weight_update_row, D);
+        qparams_new = thrust_find_qparams(shared_weight_update_row, D);
         weight_row_template.store_qparams(qparams_new);
 
         // Fetch cached updated row from shared mem and quantize on-the-fly

@@ -46,7 +46,7 @@ def dense() -> Dict[str, Any]:
 
 def adagrad() -> Dict[str, Any]:
     split_weight_update = """
-      Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
+      Vec4T m_t(&momentum1[idx * D + d]);
       m_t.acc.x += grad.acc.x * grad.acc.x;
       m_t.acc.y += grad.acc.y * grad.acc.y;
       m_t.acc.z += grad.acc.z * grad.acc.z;
@@ -126,7 +126,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
              vec < max_vecs && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
              ++vec) {
             const int32_t d = (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH;
-            Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
+            Vec4T weight_new = weight_row_template.load(d, qparams_template);
             weight_sum_square
                 += weight_new.acc.x * weight_new.acc.x
                 + weight_new.acc.y * weight_new.acc.y
@@ -146,7 +146,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
                  vec < max_vecs && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
                  ++vec) {
                 const int32_t d = (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH;
-                Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
+                Vec4T weight_new = weight_row_template.load(d, qparams_template);
 
                 weight_new.acc.x *= multiplier;
                 weight_new.acc.y *= multiplier;
@@ -169,7 +169,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         auto gw = grad->w;
         if (weight_decay_mode == 1) {
             // L2 regularization
-            Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
+            Vec4T weight = weight_row_template.load(d, qparams_template);
             gx += weight_decay * weight.acc.x;
             gy += weight_decay * weight.acc.y;
             gz += weight_decay * weight.acc.z;
@@ -305,7 +305,7 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         auto gw = grad->w;
         if (weight_decay_mode == 1) {
             // L2 regularization
-            Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
+            Vec4T weight = weight_row_template.load(d, qparams_template);
             gx += weight_decay * weight.acc.x;
             gy += weight_decay * weight.acc.y;
             gz += weight_decay * weight.acc.z;
@@ -467,7 +467,7 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         auto gz = grad->z;
         auto gw = grad->w;
 
-        Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
+        Vec4T weight = weight_row_template.load(d, qparams_template);
 
         // for L2 regularization (weight_decay_mode=1)
         // add weight_decay to gradient before other computation
@@ -657,7 +657,7 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
     split_precomputation += generate_optimized_grad_sum_loop_access(
         """
         const float4* grad = &{grad_vec}.acc;
-        Vec4TAcc<cache_t> weight = weight_row_template.load(d, qparams_template);
+        Vec4T weight = weight_row_template.load(d, qparams_template);
         auto gx = grad->x + weight_decay * weight.acc.x;
         auto gy = grad->y + weight_decay * weight.acc.y;
         auto gz = grad->z + weight_decay * weight.acc.z;
@@ -780,8 +780,8 @@ def lamb() -> Dict[str, Any]:
         """
       float4* grad = &{grad_vec}.acc;
 
-      Vec4TAcc<cache_t> weight = weight_row.load(d, qparams);
-      Vec4TAcc<cache_t> m1(&momentum1[idx * D + d]);
+      Vec4T weight = weight_row.load(d, qparams);
+      Vec4T m1(&momentum1[idx * D + d]);
 
       m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad->x;
       m1.acc.y = beta1 * m1.acc.y + (1.0 - beta1) * grad->y;
@@ -789,7 +789,7 @@ def lamb() -> Dict[str, Any]:
       m1.acc.w = beta1 * m1.acc.w + (1.0 - beta1) * grad->w;
       m1.store(&momentum1[idx * D + d]);
 
-      Vec4TAcc<cache_t> m2(&momentum2[idx * D + d]);
+      Vec4T m2(&momentum2[idx * D + d]);
       m2.acc.x = beta2 * m2.acc.x + (1.0 - beta2) * grad->x * grad->x;
       m2.acc.y = beta2 * m2.acc.y + (1.0 - beta2) * grad->y * grad->y;
       m2.acc.z = beta2 * m2.acc.z + (1.0 - beta2) * grad->z * grad->z;
@@ -879,7 +879,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
     split_precomputation += generate_optimized_grad_sum_loop_access(
         """
         float4* grad = &{grad_vec}.acc;
-        Vec4TAcc<cache_t> m1(&momentum1[idx * D + d]);
+        Vec4T m1(&momentum1[idx * D + d]);
         m1.acc.x = beta1 * m1.acc.x + (1.0 - beta1) * grad->x;
         m1.acc.y = beta1 * m1.acc.y + (1.0 - beta1) * grad->y;
         m1.acc.z = beta1 * m1.acc.z + (1.0 - beta1) * grad->z;
@@ -887,7 +887,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         m1.store(&momentum1[idx * D + d]);
 
         // now, we are finished with grad_sum. We can *reuse* grad_sum to store r_t + weight_decay * weight;
-        Vec4TAcc<cache_t> weight = weight_row.load(d, qparams);
+        Vec4T weight = weight_row.load(d, qparams);
         grad->x = (m1.acc.x / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.x;
         grad->y = (m1.acc.y / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.y;
         grad->z = (m1.acc.z / (1.0 - powf(beta1, iter))) * m2_hat + weight_decay * weight.acc.z;
@@ -936,7 +936,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
 
 def adam() -> Dict[str, Any]:
     split_weight_update = """
-      Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
+      Vec4T m_t(&momentum1[idx * D + d]);
       m_t.acc.x *= beta1;
       m_t.acc.y *= beta1;
       m_t.acc.z *= beta1;
@@ -944,7 +944,7 @@ def adam() -> Dict[str, Any]:
       m_t.fma_(grad, 1.0 - beta1);
       m_t.store(&momentum1[idx * D + d]);
 
-      Vec4T<cache_t> v_t(&momentum2[idx * D + d]);
+      Vec4T v_t(&momentum2[idx * D + d]);
       v_t.acc.x *= beta2;
       v_t.acc.y *= beta2;
       v_t.acc.z *= beta2;
@@ -1016,7 +1016,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     """
 
     split_weight_update = """
-      Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
+      Vec4T m_t(&momentum1[idx * D + d]);
       m_t.acc.x *= beta1;
       m_t.acc.y *= beta1;
       m_t.acc.z *= beta1;
@@ -1077,7 +1077,7 @@ def lars_sgd() -> Dict[str, Any]:
     split_precomputation += generate_optimized_grad_sum_loop_access(
         """
       const float4* grad = &{grad_vec}.acc;
-      Vec4TAcc<cache_t> weight = weight_row.load(d, qparams);
+      Vec4T weight = weight_row.load(d, qparams);
       weight_sum_sq += weight.acc.x * weight.acc.x + weight.acc.y * weight.acc.y + weight.acc.z * weight.acc.z + weight.acc.w * weight.acc.w;
       grad_sum_sq += grad->x * grad->x + grad->y * grad->y + grad->z * grad->z + grad->w * grad->w;
     """
@@ -1091,7 +1091,7 @@ def lars_sgd() -> Dict[str, Any]:
     """
 
     split_weight_update = """
-      Vec4T<cache_t> m1(&momentum1[idx * D + d]);
+      Vec4T m1(&momentum1[idx * D + d]);
       m1.acc.x = momentum * m1.acc.x + adjusted_lr * (grad.acc.x + weight_decay * weight_new.acc.x);
       m1.acc.y = momentum * m1.acc.y + adjusted_lr * (grad.acc.y + weight_decay * weight_new.acc.y);
       m1.acc.z = momentum * m1.acc.z + adjusted_lr * (grad.acc.z + weight_decay * weight_new.acc.z);

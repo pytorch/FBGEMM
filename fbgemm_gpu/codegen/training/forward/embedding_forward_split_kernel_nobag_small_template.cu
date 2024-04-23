@@ -166,14 +166,14 @@ batch_index_select_dim0_codegen_forward_small_kernel(
                         const_cast<emb_t*>(&weights[idx_j * D_emb]),
                         const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
                         D);
-                    Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
+                    Vec4T weight = weight_row_cache.load(d, qparams_cache);
                     weight.store(&output[output_j][d]);
                 } else {
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
+                    Vec4T weight = weight_row_emb.load(d, qparams_emb);
                     weight.store(&output[output_j][d]);
                 }
                 {%- else %}
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
+                    Vec4T weight = weight_row_emb.load(d, qparams_emb);
                     {%- if is_index_select %}
                     // output is 1D (because the stride can be irregular)
                     weight.store(&output[output_offset + output_j * output_stride + d]);

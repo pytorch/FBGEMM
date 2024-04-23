@@ -24,7 +24,6 @@ using namespace fbgemm_gpu;
 
 template<
     typename emb_t,
-    typename cache_t,
     int32_t kFixedMaxVecsPerThread,
     int32_t kThreadGroupSize,
     int32_t VEC_WIDTH,
@@ -32,8 +31,8 @@ template<
 >
 DEVICE_INLINE void store_grad_sum(
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& grad_dev_weights,
-    const Vec4TAcc<cache_t>* grad_sum,
-    const Vec4TAcc<cache_t>* smem_grad_sum,
+    const Vec4T* grad_sum,
+    const Vec4T* smem_grad_sum,
     const int32_t D,
     const int64_t weights_offset,
     const int64_t idx,
@@ -72,8 +71,8 @@ template <
     bool kUseVecBlocking
 >
 DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
-    Vec4TAcc<cache_t>* grad_sum,
-    Vec4TAcc<cache_t>* smem_grad_sum,
+    Vec4T* grad_sum,
+    Vec4T* smem_grad_sum,
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits>& grad_output,
     {%- if not nobag or is_index_select %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& D_offsets,
@@ -160,7 +159,7 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
                 #pragma unroll kFixedMaxVecsPerThread
                 for (int32_t vec = 0; vec < kFixedMaxVecsPerThread && {{ d }} < D; ++vec) {
                     const int32_t d = {{ d }};
-                    Vec4TAcc<grad_t> grad_out_vec(
+                    Vec4T grad_out_vec(
                         {%- if nobag and is_index_select %}
                         // grad_output is 1d
                         &grad_output[grad_offset + l_j * grad_stride + d]

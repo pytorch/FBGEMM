@@ -195,13 +195,13 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
 
   if (L != 0) {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
+      Vec4T grad_out_vec(&shifted_grad_output[d * 4]);
       grad_out_vec.mul_(1.0 / L);
       grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
   } else {
     for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-      Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
+      Vec4T grad_out_vec(&shifted_grad_output[d * 4]);
       grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
   }

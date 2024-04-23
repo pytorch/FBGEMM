@@ -34,13 +34,13 @@ __global__ void recat_copy_async_kernel(
   const auto tgt_base_addr = B * cum_dim_sum_per_rank[t];
   const auto src_base_addr = cum_dim_sum_per_rank[t];
 
-  if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(
+  if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T>(
           &sgo[tgt_base_addr + b * dim_current]) &&
-      fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(
+      fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T>(
           &go[src_base_addr + b * dim_sum])) {
     int32_t d_base = dim_current / 4 * 4;
     for (int32_t d = threadIdx.x * 4; d < d_base; d += blockDim.x * 4) {
-      fbgemm_gpu::Vec4T<scalar_t>::copy(
+      fbgemm_gpu::copy4(
           &go[src_base_addr + b * dim_sum + d],
           &sgo[tgt_base_addr + b * dim_current + d]);
     }
@@ -95,14 +95,12 @@ __global__ void permute_pooled_embs_kernel(
   sgo += b * max(inv_offset_dim_list[T], offset_dim_list[T]);
   const int64_t sgo_offset = inv_offset_dim_list[t];
   // Need to check alignment before using vector code path.
-  if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(&sgo[sgo_offset]) &&
-      fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(
-          &go[input_dim_start])) {
+  if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T>(&sgo[sgo_offset]) &&
+      fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T>(&go[input_dim_start])) {
     const int32_t vec_size = 4;
     const int32_t loop_end = cur_dim / (vec_size) * (vec_size);
     for (int32_t i = idx * vec_size; i < loop_end; i += blk * vec_size) {
-      fbgemm_gpu::Vec4T<scalar_t>::copy(
-          &go[input_dim_start + i], &sgo[sgo_offset + i]);
+      fbgemm_gpu::copy4(&go[input_dim_start + i], &sgo[sgo_offset + i]);
     }
     // Use elementwise access for the last incomplete vector.
     for (int32_t i = loop_end + idx; i < cur_dim; i += blk) {
