@@ -357,7 +357,6 @@ class BlockBucketizeTest(unittest.TestCase):
         self,
         index_type: Type[torch.dtype],
     ) -> None:
-        B = 2
         # pyre-ignore [6]
         lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=index_type)
         indices = torch.tensor(
@@ -427,6 +426,110 @@ class BlockBucketizeTest(unittest.TestCase):
             torch.testing.assert_allclose(
                 bucket_mapping_gpu.cpu(),
                 bucket_mapping,
+            )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        index_type=st.sampled_from([torch.int, torch.long]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_populate_bucketized_permute(
+        self,
+        index_type: Type[torch.dtype],
+    ) -> None:
+        # pyre-ignore [6]
+        lengths = torch.tensor([0, 2, 1, 3, 2, 3, 3, 1], dtype=index_type)
+        indices = torch.tensor(
+            [3, 4, 15, 11, 28, 29, 1, 10, 11, 12, 13, 11, 22, 20, 20],
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        # pyre-ignore [6]
+        block_sizes = torch.tensor([5, 15, 10, 20], dtype=index_type)
+        my_size = 2
+
+        new_lengths_ref = torch.tensor(
+            [0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1],
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [3, 4, 11, 1, 11, 0, 13, 14, 0, 1, 2, 3, 2, 0, 0],
+            # pyre-ignore [6]
+            dtype=index_type,
+        )
+        (
+            new_lengths_cpu,
+            new_indices_cpu,
+            _,
+            _,
+            unbucketize_permute_cpu,
+            bucket_mapping_cpu,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
+            lengths,
+            indices,
+            False,
+            True,
+            block_sizes,
+            my_size,
+            None,
+            return_bucket_mapping=True,
+        )
+
+        unbucketize_permute_populated_cpu = (
+            torch.ops.fbgemm.populate_bucketized_permute(
+                lengths,
+                new_lengths_cpu,
+                bucket_mapping_cpu,
+            )
+        )
+        torch.testing.assert_close(
+            unbucketize_permute_populated_cpu, unbucketize_permute_cpu, rtol=0, atol=0
+        )
+        torch.testing.assert_close(new_lengths_cpu, new_lengths_ref, rtol=0, atol=0)
+        torch.testing.assert_close(new_indices_cpu, new_indices_ref, rtol=0, atol=0)
+
+        if gpu_available:
+            (
+                new_lengths_gpu,
+                new_indices_gpu,
+                _,
+                _,
+                unbucketize_permute_gpu,
+                bucket_mapping_gpu,
+            ) = torch.ops.fbgemm.block_bucketize_sparse_features_inference(
+                lengths.cuda(),
+                indices.cuda(),
+                False,
+                True,
+                block_sizes.cuda(),
+                my_size,
+                None,
+                return_bucket_mapping=True,
+            )
+
+            unbucketize_permute_populated_gpu = (
+                torch.ops.fbgemm.populate_bucketized_permute(
+                    lengths.cuda(),
+                    new_lengths_gpu,
+                    bucket_mapping_gpu,
+                )
+            )
+            torch.testing.assert_close(
+                unbucketize_permute_gpu.cpu(),
+                unbucketize_permute_populated_gpu.cpu(),
+                rtol=0,
+                atol=0,
+            )
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+            torch.testing.assert_close(
+                new_lengths_gpu.cpu(), new_lengths_ref, rtol=0, atol=0
+            )
+            torch.testing.assert_allclose(
+                bucket_mapping_gpu.cpu(),
+                bucket_mapping_cpu,
             )
 
     @skipIfRocm(ROCM_FAILURE_MESSAGE)
