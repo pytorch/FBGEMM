@@ -80,3 +80,24 @@
 #if !defined(NO_SANITIZE)
 #define NO_SANITIZE(what)
 #endif
+
+// Macro for silencing warnings
+#ifdef __clang__
+// clang-format off
+#define FBGEMM_PUSH_WARNING _Pragma("GCC diagnostic push")
+#define FBGEMM_DISABLE_WARNING_INTERNAL2(warningName) #warningName
+#define FBGEMM_DISABLE_WARNING(warningName) \
+  _Pragma(                                     \
+      FBGEMM_DISABLE_WARNING_INTERNAL2(GCC diagnostic ignored warningName))
+#define FBGEMM_PUSH_WARNING_AND_DISABLE(warningName) \
+  _Pragma("GCC diagnostic push") \
+  _Pragma(                                     \
+      FBGEMM_DISABLE_WARNING_INTERNAL2(GCC diagnostic ignored warningName))
+#define FBGEMM_POP_WARNING _Pragma("GCC diagnostic pop")
+// clang-format on
+#else
+#define FBGEMM_PUSH_WARNING
+#define FBGEMM_DISABLE_WARNING(NAME)
+#define FBGEMM_PUSH_WARNING_AND_DISABLE(NAME)
+#define FBGEMM_POP_WARNING
+#endif

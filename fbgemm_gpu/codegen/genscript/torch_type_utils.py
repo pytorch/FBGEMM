@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 ######################################################################
-# PyTorch type utils
+# PyTorch Type Utils
 ######################################################################
 
 from dataclasses import dataclass
