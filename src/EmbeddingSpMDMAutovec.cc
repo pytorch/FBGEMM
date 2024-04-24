@@ -231,7 +231,7 @@ bool EmbeddingSpMDM_autovec(
                 cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
           }
 
-          // #pragma omp simd
+          #pragma omp simd
           for (int j = 0; j < block_size; ++j) {
             buf[j] = std::fma(
                 scale,
@@ -240,7 +240,7 @@ bool EmbeddingSpMDM_autovec(
                      (scale_bias_last ? 0 : 2 * sizeof(float16))],
                 buf[j] + bias);
           }
-          // #pragma omp simd
+          #pragma omp simd
           for (int j = 0; j < block_size; ++j) {
             out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
           }
@@ -286,7 +286,7 @@ bool EmbeddingSpMDM_autovec(
               cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
         }
 
-        // #pragma omp simd
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           buf[j] = std::fma(
               scale,
@@ -298,12 +298,12 @@ bool EmbeddingSpMDM_autovec(
       }
       if (normalize_by_lengths && len) {
         float scale = 1.f / len;
-        // #pragma omp simd
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           buf[j] *= scale;
         }
       }
-      // #pragma omp simd
+      #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
       }
@@ -327,13 +327,13 @@ bool EmbeddingSpMDM_autovec(
         if (weights) {
           w = weights[m];
         }
-        // #pragma omp simd
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
           buf[j] =
               std::fma(w, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
         }
-        // #pragma omp simd
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
         }
@@ -348,7 +348,7 @@ bool EmbeddingSpMDM_autovec(
     // size
     constexpr int64_t max_prefetch_bytes = 4096;
     // 16 is manually tuned for Neoverse-V2 for best performance
-    constexpr int64_t max_initial_prefetch_rows = 64;
+    constexpr int64_t max_initial_prefetch_rows = 8;
     constexpr int64_t CACHE_LINE_SIZE = 64;
     const int64_t rows_to_prefetch =
         std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
@@ -385,10 +385,10 @@ bool EmbeddingSpMDM_autovec(
         return false;
       }
       
-      // constexpr int tile_size = 4;
-      // #if _OPENMP >= 202011
-      // #pragma omp tile sizes(tile_size)
-      // #endif
+      constexpr int tile_size = 4;
+      #if _OPENMP >= 202011
+      #pragma omp tile sizes(tile_size)
+      #endif
       for (int i = 0; i < len; ++i) {
         int64_t idx = indices[current];
         if (idx < 0 || idx >= data_size) {
@@ -418,7 +418,7 @@ bool EmbeddingSpMDM_autovec(
           w = weights[is_weight_positional ? i : current];
         }
 
-        // #pragma omp simd
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
           buf[j] =
@@ -430,13 +430,13 @@ bool EmbeddingSpMDM_autovec(
       if (normalize_by_lengths && len) {
         float scale = 1.f / len;
 
-        // #pragma omp simd
+        #pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           buf[j] *= scale;
         }
       }
 
-      // #pragma omp simd
+      #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
       }
