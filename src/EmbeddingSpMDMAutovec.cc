@@ -348,7 +348,7 @@ bool EmbeddingSpMDM_autovec(
     // size
     constexpr int64_t max_prefetch_bytes = 4096;
     // 16 is manually tuned for Neoverse-V2 for best performance
-    constexpr int64_t max_initial_prefetch_rows = 48;
+    constexpr int64_t max_initial_prefetch_rows = 64;
     constexpr int64_t CACHE_LINE_SIZE = 64;
     const int64_t rows_to_prefetch =
         std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
