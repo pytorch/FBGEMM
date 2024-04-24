@@ -466,7 +466,7 @@ struct StackArray {
 
 inline at::Tensor aligned_grad_output_tensor_for_cuda_backwards(
     const at::Tensor& grad_output) {
-  auto aligned_grad_output = grad_output.clone();
+  auto aligned_grad_output = grad_output;
   // FIXME: to support aligned memory access in Vec4T load/store function
   // 16 for FP32 and 8 for FP16
   if (grad_output.dim() > 1 &&
