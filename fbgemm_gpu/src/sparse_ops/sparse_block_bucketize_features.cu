@@ -297,6 +297,27 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
   }
 }
 
+template <typename offset_t, typename index_t>
+__global__
+__launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
+    const offset_t* const length_data,
+    const offset_t* const offset_data,
+    offset_t* const bucketized_offsets_data,
+    const index_t* const bucket_mapping_data,
+    index_t* const bucketized_permute_data_out,
+    int32_t lengths_size) {
+  CUDA_KERNEL_LOOP(b_t, lengths_size) {
+    const auto length = length_data[b_t];
+    const auto offset = offset_data[b_t];
+    for (size_t i = 0; i < length; i++) {
+      const auto index = offset + i;
+      const auto bucket = bucket_mapping_data[index];
+      bucketized_permute_data_out[index] =
+          bucketized_offsets_data[bucket * lengths_size + b_t]++;
+    }
+  }
+}
+
 // This function partitions sparse features
 // continuously along the sparse dimension into my_size blocks
 std::tuple<
@@ -932,6 +953,50 @@ block_bucketize_sparse_features_inference_cuda(
       return_bucket_mapping);
 }
 
+DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
+    const Tensor& lengths,
+    const Tensor& bucketized_lengths,
+    const Tensor& bucket_mapping) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      lengths, bucketized_lengths, bucket_mapping);
+  CUDA_DEVICE_GUARD(lengths);
+  const auto lengths_contig = lengths.expect_contiguous();
+  const auto bucketized_lengths_contig = bucketized_lengths.expect_contiguous();
+  const auto bucket_mapping_contig = bucket_mapping.expect_contiguous();
+  Tensor bucketized_permute = at::empty_like(*bucket_mapping_contig);
+  const auto offsets = asynchronous_complete_cumsum_gpu(*lengths_contig);
+  const auto bucketized_offsets =
+      asynchronous_complete_cumsum_gpu(*bucketized_lengths_contig);
+  constexpr auto threads_per_block = 256;
+  const auto lengths_size = lengths.numel();
+  const auto num_blocks =
+      cuda_calc_xblock_count(lengths_size, threads_per_block);
+  AT_DISPATCH_INDEX_TYPES(
+      lengths_contig->scalar_type(),
+      "_populate_bucketized_permute_cuda_kernel1",
+      [&] {
+        using offset_t = index_t;
+        AT_DISPATCH_INDEX_TYPES(
+            bucket_mapping_contig->scalar_type(),
+            "_populate_bucketized_permute_cuda_kernel2",
+            [&] {
+              _populate_bucketized_permute_cuda_kernel<<<
+                  num_blocks,
+                  threads_per_block,
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  lengths_contig->data_ptr<offset_t>(),
+                  offsets.data_ptr<offset_t>(),
+                  bucketized_offsets.data_ptr<offset_t>(),
+                  bucket_mapping_contig->data_ptr<index_t>(),
+                  bucketized_permute.data_ptr<index_t>(),
+                  lengths.numel());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      });
+  return bucketized_permute;
+}
+
 } // namespace fbgemm_gpu
 
 FBGEMM_OP_DISPATCH(
@@ -942,3 +1007,7 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "block_bucketize_sparse_features_inference",
     fbgemm_gpu::block_bucketize_sparse_features_inference_cuda);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "populate_bucketized_permute",
+    fbgemm_gpu::populate_bucketized_permute_cuda);
