@@ -66,7 +66,15 @@
         "comment": "",
         "status": "xfail"
       },
+      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_populate_bucketized_permute": {
+        "comment": "",
+        "status": "xfail"
+      },
       "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_inference": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_faketensor__test_populate_bucketized_permute": {
         "comment": "",
         "status": "xfail"
       }
@@ -178,6 +186,16 @@
         "status": "xfail"
       },
       "PermuteEmbeddingsTest.test_faketensor__test_permute_embeddings": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
+    "fbgemm::populate_bucketized_permute": {
+      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_populate_bucketized_permute": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_faketensor__test_populate_bucketized_permute": {
         "comment": "",
         "status": "xfail"
       }

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 
 #include <ATen/ATen.h>
@@ -934,6 +935,55 @@ Tensor invert_permute_cpu(const Tensor& permute) {
       }); // for each scalar_t
 
   return inversed_permute;
+}
+template <typename index_t, typename offset_t>
+void _populate_bucketized_permute_cpu(
+    const offset_t* const length_data,
+    const offset_t* const offset_data,
+    offset_t* const bucketized_offsets_data,
+    const index_t* const bucket_mapping_data,
+    index_t* const bucketized_permute_data_out,
+    int64_t length_size) {
+  for (const auto i : c10::irange(length_size)) {
+    const auto length = length_data[i];
+    const auto offset = offset_data[i];
+    for (const auto j : c10::irange(length)) {
+      const auto index = offset + j;
+      const auto bucket = bucket_mapping_data[index];
+      bucketized_permute_data_out[index] =
+          bucketized_offsets_data[bucket * length_size + i]++;
+    }
+  }
+}
+
+Tensor populate_bucketized_permute_cpu(
+    const Tensor& lengths,
+    const Tensor& bucketized_lengths,
+    const Tensor& bucket_mapping) {
+  const auto lengths_contig = lengths.expect_contiguous();
+  const auto bucketized_lengths_contig = bucketized_lengths.expect_contiguous();
+  const auto bucket_mapping_contig = bucket_mapping.expect_contiguous();
+  Tensor bucketized_permute = native_empty_like(*bucket_mapping_contig);
+  const auto offsets = asynchronous_complete_cumsum_cpu(*lengths_contig);
+  const auto bucketized_offsets =
+      asynchronous_complete_cumsum_cpu(*bucketized_lengths_contig);
+  AT_DISPATCH_INDEX_TYPES(
+      lengths.scalar_type(), "populate_bucketized_permute_cpu_1", ([&] {
+        using offset_t = index_t;
+        AT_DISPATCH_INDEX_TYPES(
+            bucket_mapping_contig->scalar_type(),
+            "populate_bucketized_permute_cpu_2",
+            ([&] {
+              _populate_bucketized_permute_cpu<index_t, offset_t>(
+                  lengths_contig->data_ptr<offset_t>(),
+                  offsets.data_ptr<offset_t>(),
+                  bucketized_offsets.data_ptr<offset_t>(),
+                  bucket_mapping_contig->data_ptr<index_t>(),
+                  bucketized_permute.data_ptr<index_t>(),
+                  lengths_contig->numel());
+            }));
+      }));
+  return bucketized_permute;
 }
 
 std::tuple<
@@ -2889,6 +2939,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, SymInt output_size) -> Tensor",
       {PT2_COMPLIANT_TAG});
   m.def(
+      "populate_bucketized_permute(Tensor lengths, Tensor bucketized_lengths, Tensor bucket_mapping) -> Tensor");
+  m.def(
       "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
       "block_bucketize_sparse_features_inference(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool return_bucket_mapping=False) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?)");
@@ -2988,6 +3040,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("invert_permute", fbgemm_gpu::invert_permute_cpu);
   DISPATCH_TO_CPU(
       "expand_into_jagged_permute", fbgemm_gpu::expand_into_jagged_permute_cpu);
+  DISPATCH_TO_CPU(
+      "populate_bucketized_permute",
+      fbgemm_gpu::populate_bucketized_permute_cpu);
   DISPATCH_TO_CPU(
       "block_bucketize_sparse_features",
       fbgemm_gpu::block_bucketize_sparse_features_cpu);
