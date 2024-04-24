@@ -951,6 +951,7 @@ WARN_LOGFILE           =
 
 INPUT                  = "../include/" \
                          "../codegen/" \
+                         "../experimental/" \
                          "../src/" \
                          "../../include/" \
                          "../../src/"

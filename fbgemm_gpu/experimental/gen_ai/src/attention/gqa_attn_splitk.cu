@@ -10,6 +10,9 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 
+/// @defgroup experimental-gen-ai-attention
+/// This is a description of Grouped Query Attention operators.
+
 #if !(                                                  \
     defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
@@ -919,7 +922,7 @@ __global__ void gqa_attn_splitk_reduce_wmma_kernel(
 }
 } // namespace
 
-/// @ingroup experimental-gen-ai
+/// @ingroup experimental-gen-ai-attention
 ///
 /// @brief Decoding Grouped Query Attention Split-K w/ BF16/INT4 KV
 ///
