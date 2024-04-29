@@ -18,12 +18,3 @@ inline void checkCublasStatus(cublasStatus_t status) {
     throw std::logic_error("cuBLAS API failed");
   }
 }
-inline void checkCudaStatus(cudaError_t status) {
-  if (status != cudaSuccess) {
-    printf(
-        "cuda API failed with status %d: %s\n",
-        status,
-        cudaGetErrorString(status));
-    throw std::logic_error("cuda API failed");
-  }
-}
