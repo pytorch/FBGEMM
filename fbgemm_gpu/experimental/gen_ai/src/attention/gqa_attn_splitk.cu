@@ -99,6 +99,48 @@ void set_gpu_max_dynamic_shared_memory(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+#ifdef __HIP_PLATFORM_AMD__
+using __nv_bfloat16 = hip_bfloat16;
+
+typedef struct __align__(4) {
+  uint16_t x;
+  uint16_t y;
+}
+__nv_bfloat162_raw;
+
+struct __align__(4) __nv_bfloat162 {
+  __nv_bfloat16 x;
+  __nv_bfloat16 y;
+};
+
+// the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
+// https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
+static __host__ __device__ __nv_bfloat16 __float2bfloat16(float f) {
+  __nv_bfloat16 output;
+  return output.round_to_bfloat16(f);
+}
+
+static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
+  __nv_bfloat16 output;
+  return output.round_to_bfloat16(f);
+}
+
+static __host__ __device__ float __bfloat162float(__nv_bfloat16 f) {
+  // float output;
+  // https://docs.amd.com/projects/HIP/en/docs-5.0.0/doxygen/html/hip__bfloat16_8h_source.html
+  return float(f);
+}
+
+static __host__ __device__ __nv_bfloat162
+__floats2bfloat162_rn(float x, float y) {
+  __nv_bfloat162 output;
+  output.x = __float2bfloat16_rn(x);
+  output.y = __float2bfloat16_rn(y);
+  return output;
+}
+
+#endif
+
 // TODO: Include the following code from fbgemm_gpu header
 struct __align__(16) bfx8 {
   __nv_bfloat162 vals[4];
