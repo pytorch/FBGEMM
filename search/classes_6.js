@@ -32,5 +32,6 @@ var searchData=
   ['packmatrix_3c_20packingbmatrix_2c_20typename_20packingbmatrix_3a_3ainptype_2c_20typename_20packingbmatrix_3a_3aacctype_20_3e_29',['PackMatrix&lt; packingBMatrix, typename packingBMatrix::inpType, typename packingBMatrix::accType &gt;',['../classfbgemm_1_1_pack_matrix.html',1,'fbgemm']]],
   ['packweightmatrixforgconv_30',['PackWeightMatrixForGConv',['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html',1,'fbgemm']]],
   ['packweightmatrixforgconv_3c_20std_3a_3aint8_5ft_2c_20std_3a_3aint32_5ft_2c_202_20_3e_31',['PackWeightMatrixForGConv&lt; std::int8_t, std::int32_t, 2 &gt;',['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html',1,'fbgemm']]],
-  ['packweightsforconv_32',['PackWeightsForConv',['../classfbgemm_1_1_pack_weights_for_conv.html',1,'fbgemm']]]
+  ['packweightsforconv_32',['PackWeightsForConv',['../classfbgemm_1_1_pack_weights_for_conv.html',1,'fbgemm']]],
+  ['params_33',['Params',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html',1,'cutlass::epilogue::thread::LinearCombinationOnDevice']]]
 ];

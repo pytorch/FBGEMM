@@ -1,6 +1,7 @@
 var searchData=
 [
-  ['utilities_20avx2_0',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
-  ['utilities_20avx512_1',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]],
-  ['utilities_20generic_2',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]]
+  ['tensor_20cuda_20operators_0',['Jagged Tensor CUDA Operators',['../group__jagged-tensor-ops-cuda.html',1,'']]],
+  ['tensor_20operators_1',['Jagged Tensor Operators',['../group__jagged-tensor-ops-cpu.html',1,'']]],
+  ['transformation_20cpu_20operators_2',['Layout Transformation CPU Operators',['../group__layout-transform-cpu.html',1,'']]],
+  ['transformation_20cuda_20operators_3',['Layout Transformation CUDA Operators',['../group__layout-transform-cuda.html',1,'']]]
 ];

@@ -1,8 +1,7 @@
 var searchData=
 [
-  ['quantization_20operators_20cuda_0',['Quantization Operators (CUDA)',['../group__quantize-ops-cuda.html',1,'']]],
-  ['quantization_20utilities_20avx2_1',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
-  ['quantization_20utilities_20avx512_2',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]],
-  ['quantization_20utilities_20generic_3',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]],
-  ['quantize_20data_20cpu_20operators_4',['Quantize Data CPU Operators',['../group__quantize-data-cpu.html',1,'']]]
+  ['permute_20pooled_20embeddings_20operators_20cpu_0',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
+  ['permute_20pooled_20embeddings_20operators_20cuda_1',['Permute Pooled Embeddings Operators (CUDA)',['../group__permute-pooled-embs-gpu.html',1,'']]],
+  ['pooled_20embeddings_20operators_20cpu_2',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
+  ['pooled_20embeddings_20operators_20cuda_3',['Permute Pooled Embeddings Operators (CUDA)',['../group__permute-pooled-embs-gpu.html',1,'']]]
 ];

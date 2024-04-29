@@ -1,6 +1,4 @@
 var searchData=
 [
-  ['gen_20ai_20attention_0',['Experimental-gen-ai-attention',['../group__experimental-gen-ai-attention.html',1,'']]],
-  ['generic_1',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]],
-  ['group_2',['Example Method Group',['../group__example-method-group.html',1,'']]]
+  ['fc_20operators_0',['/INT8 quantized FC Operators',['../group___f_p8.html',1,'']]]
 ];
