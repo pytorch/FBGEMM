@@ -32,7 +32,13 @@ else:
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:attention_ops_hip"
         )
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:quantize_ops_hip"
+        )
     else:
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:attention_ops_cuda"
+        )
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:quantize_ops_cuda"
         )
