@@ -12,7 +12,7 @@ import torch
 from fbgemm_gpu.experimental.example import utils
 
 
-class ExampleTest(unittest.TestCase):
+class AddTensorsFloatTest(unittest.TestCase):
     def test_add_tensors_float(self) -> None:
         a = torch.tensor([1, 2, 3])
         b = torch.tensor([4, 5, 6])

@@ -49,7 +49,10 @@ import torch.utils._pytree as pytree
 from torch import SymInt, Tensor
 
 
-if hasattr(torch.library, "impl_abstract"):
+if hasattr(torch.library, "register_fake"):
+    # pyre-ignore[9]
+    impl_abstract = torch.library.register_fake
+elif hasattr(torch.library, "impl_abstract"):
     impl_abstract = torch.library.impl_abstract
 else:
     # pyre-ignore
