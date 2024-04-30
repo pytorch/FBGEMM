@@ -11,7 +11,12 @@ include(${CMAKEMODULES}/Utilities.cmake)
 ################################################################################
 
 set(experimental_example_cpp_source_files
+    src/cutlass_sgemm_nn.cu
     src/example_ops.cpp)
+
+set_source_files_properties(${experimental_example_cpp_source_files}
+    PROPERTIES INCLUDE_DIRECTORIES
+    "${fbgemm_sources_include_directories}")
 
 set(experimental_example_python_source_files
     example/__init__.py

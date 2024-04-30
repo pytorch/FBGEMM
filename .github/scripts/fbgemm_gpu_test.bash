@@ -211,11 +211,11 @@ test_all_fbgemm_gpu_modules () {
 
   local target_directories=(
     fbgemm_gpu/test
-    fbgemm_gpu/experimental/example/test
   )
 
   if [ "$fbgemm_variant" == "cuda" ]; then
     target_directories+=(
+      fbgemm_gpu/experimental/example/test
       fbgemm_gpu/experimental/gen_ai/test
     )
   fi
