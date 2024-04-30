@@ -177,6 +177,26 @@ void FloatToFloat8_ref(
 
   *output = val_out.I; // get the 8 lsbs
 }
+// test, batch the code
+// void Float8ToFloat_ref_batch(
+//     const uint8_t* input,
+//     float* output,
+//     int count,
+//     int exponent_bits,
+//     int exponent_bias) {
+//   for (int i = 0; i < count; ++i) {
+//     uint32_t val_out, sign, multiplier;
+//     uint8_t inp = input[i];
+
+//     sign = (inp & 0x80) << 24;
+//     val_out = (inp & 0x7F) << (24 - (8 - exponent_bits));
+
+//     multiplier = (127 + (127 - exponent_bias)) << 23; // 2^(127-bias)
+//     float val_out_f = *(float*)&val_out * *(float*)&multiplier;
+//     val_out = *(uint32_t*)&val_out_f | sign;
+//     output[i] = *(float*)&val_out;
+//   }
+// }
 
 void Float8ToFloat_ref(
     const uint8_t input,

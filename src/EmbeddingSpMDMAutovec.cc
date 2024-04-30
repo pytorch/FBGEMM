@@ -438,6 +438,27 @@ bool EmbeddingSpMDMNBit_autovec(
   }
   return current == index_size;
 }
+namespace{
+ void Float8ToFloat_ref_batch(
+    const uint8_t* input,
+    float* output,
+    int count,
+    int exponent_bits,
+    int exponent_bias) {
+  for (int i = 0; i < count; ++i) {
+    uint32_t val_out, sign, multiplier;
+    uint8_t inp = input[i];
+
+    sign = (inp & 0x80) << 24;
+    val_out = (inp & 0x7F) << (24 - (8 - exponent_bits));
+
+    multiplier = (127 + (127 - exponent_bias)) << 23; // 2^(127-bias)
+    float val_out_f = *(float*)&val_out * *(float*)&multiplier; // val_out * multiplier
+    val_out = *(uint32_t*)&val_out_f | sign;
+    output[i] = *(float*)&val_out;
+  }
+}
+}
 
 template <typename IndexType, typename OffsetType, typename OutType>
 bool EmbeddingSpMDMFP8_autovec(
@@ -467,7 +488,8 @@ bool EmbeddingSpMDMFP8_autovec(
   if (input_stride == -1) {
     input_stride = block_size;
   }
-
+  // had some weird issue so i plot it here to make sure it get referenced
+ 
   // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
   // prefetching helps reduce backend stall and therefore enable vectorization
   // reach better of its potential. 16 is tuned for Neoverse-V2.
@@ -555,23 +577,42 @@ bool EmbeddingSpMDMFP8_autovec(
       // if not, approach it with parellel,
       // the code is iterating thru a dimisonals of a embedding vectory
 
+      
       // original
       
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        // input stride equals the stride between different embeddings
-        //idx is what vector is being process
-        //j is each element of the specfic vector
-        //input is start
-        const uint8_t* inptr = input + input_stride * idx + j;
-        float input_f;
-        // Dequantize FP8 to FP32 before compute
-        //vector time
-        //maybe need to check if we call this function differently
-        Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
+      // #pragma omp simd
+      // for (int j = 0; j < block_size; ++j) {
+      //   // input stride equals the stride between different embeddings
+      //   //idx is what vector is being process
+      //   //j is each element of the specfic vector
+      //   //input is start
+      //   const uint8_t* inptr = input + input_stride * idx + j;
+      //   float input_f;
+      //   // Dequantize FP8 to FP32 before compute
+      //   //vector time
+      //   //maybe need to check if we call this function differently
+      //   Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
         
-        buf[j] = std::fma(w, input_f, buf[j]);
-      }
+      //   buf[j] = std::fma(w, input_f, buf[j]);
+      // }
+
+      // test 1
+      // Adjust these as necessary to reflect actual batch size
+      const int batch_size = block_size; // Assuming the entire block is processed at once; adjust if needed
+
+        // Temporary buffer to hold the converted floats
+      std::vector<float> converted_inputs(batch_size);
+
+        // Perform the batch conversion
+      Float8ToFloat_ref_batch(input + input_stride * idx, converted_inputs.data(), batch_size, exponent_bits, exponent_bias);
+
+        // Now accumulate the results using vectorized operations if possible
+      #pragma omp simd
+        for (int j = 0; j < block_size; ++j) {
+            buf[j] = std::fma(w, converted_inputs[j], buf[j]);
+        } 
+
+
 
       ++current;
     }
