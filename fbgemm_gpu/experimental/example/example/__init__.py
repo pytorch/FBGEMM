@@ -29,5 +29,5 @@ if open_source:
     )
 else:
     torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/experimental/example:example_ops_cpu"
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/example:example_ops_cuda"
     )

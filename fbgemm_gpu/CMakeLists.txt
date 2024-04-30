@@ -90,9 +90,7 @@ include(FbgemmGpu.cmake)
 # Build Experimental Modules
 ################################################################################
 
-add_subdirectory(experimental/example)
-
-
 if(NOT FBGEMM_CPU_ONLY)
+  add_subdirectory(experimental/example)
   add_subdirectory(experimental/gen_ai)
 endif()

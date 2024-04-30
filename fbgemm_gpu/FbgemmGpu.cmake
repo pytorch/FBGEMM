@@ -14,11 +14,34 @@ set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
 
 ################################################################################
+# Source Includes
+################################################################################
+
+set(fbgemm_sources_include_directories
+  # FBGEMM
+  ${FBGEMM}/include
+  # FBGEMM_GPU
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  # Third-party
+  ${THIRDPARTY}/asmjit/src
+  ${THIRDPARTY}/cpuinfo/include
+  ${THIRDPARTY}/cutlass/include)
+
+
+################################################################################
 # Third Party Sources
 ################################################################################
 
 file(GLOB_RECURSE asmjit_sources
   "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/asmjit/src/asmjit/*/*.cpp")
+
+set(third_party_include_directories
+  ${THIRDPARTY}/asmjit/src
+  ${THIRDPARTY}/cpuinfo/include
+  ${THIRDPARTY}/cutlass/include)
+
 
 ################################################################################
 # Optimizer Group Definitions
@@ -256,17 +279,15 @@ endif()
 
 set_source_files_properties(${gen_cpu_source_files}
   PROPERTIES INCLUDE_DIRECTORIES
-  "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include;${THIRDPARTY}/asmjit/src"
-)
+  "${fbgemm_sources_include_directories}")
 
 set_source_files_properties(${gen_gpu_host_source_files}
   PROPERTIES INCLUDE_DIRECTORIES
-  "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include"
-)
+  "${fbgemm_sources_include_directories}")
 
 set_source_files_properties(${gen_gpu_kernel_source_files}
   PROPERTIES INCLUDE_DIRECTORIES
-  "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include")
+  "${fbgemm_sources_include_directories}")
 
 set_source_files_properties(${gen_gpu_kernel_source_files}
   PROPERTIES COMPILE_OPTIONS
@@ -274,8 +295,7 @@ set_source_files_properties(${gen_gpu_kernel_source_files}
 
 set_source_files_properties(${gen_defused_optim_source_files}
   PROPERTIES INCLUDE_DIRECTORIES
-  "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_SOURCE_DIR}/../include"
-)
+  "${fbgemm_sources_include_directories}")
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gen
@@ -339,13 +359,6 @@ if(NOT USE_ROCM AND CXX_AVX512_FOUND)
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNO_AVX512=1")
 endif()
-
-set(fbgemm_sources_include_directories
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${FBGEMM}/include
-  ${THIRDPARTY}/asmjit/src
-  ${THIRDPARTY}/cpuinfo/include)
 
 set_source_files_properties(${fbgemm_sources}
   PROPERTIES INCLUDE_DIRECTORIES
