@@ -12,15 +12,15 @@
 
 namespace fbgemm_gpu::gen_ai::attention {
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_cuda(
+std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
     const at::Tensor& XQ,
     const at::Tensor& cache_K,
     const at::Tensor& cache_V,
     const at::Tensor& seq_positions,
     const double qk_scale,
     const int64_t num_split_ks,
-    const int64_t num_groups);
-
+    const int64_t num_int4_kv_groups,
+    const bool use_tensor_cores);
 } // namespace fbgemm_gpu::gen_ai::attention
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -32,7 +32,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor seq_positions, "
       "    float qk_scale, "
       "    int num_split_ks, "
-      "    int num_int4_kv_groups=1"
+      "    int num_int4_kv_groups=1, "
+      "    bool use_tensor_cores=True"
       ") -> (Tensor, Tensor, Tensor)");
 }
 
@@ -41,5 +42,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "gqa_attn_splitk",
       torch::dispatch(
           c10::DispatchKey::CUDA,
-          TORCH_FN(fbgemm_gpu::gen_ai::attention::gqa_attn_splitk_cuda)));
+          TORCH_FN(fbgemm_gpu::gen_ai::attention::gqa_attn_splitk)));
 }
