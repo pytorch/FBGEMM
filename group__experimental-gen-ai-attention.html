@@ -79,20 +79,20 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:ga72225d1459d48465e83289c29df7447a" id="r_ga72225d1459d48465e83289c29df7447a"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga72225d1459d48465e83289c29df7447a">gqa_attn_splitk_cuda</a> (const at::Tensor &amp;XQ, const at::Tensor &amp;cache_K, const at::Tensor &amp;cache_V, const at::Tensor &amp;seq_positions, const double qk_scale, const int64_t num_split_ks, const int64_t num_int4_kv_groups)</td></tr>
-<tr class="separator:ga72225d1459d48465e83289c29df7447a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga8381d148477091ff5552a5719c440699" id="r_ga8381d148477091ff5552a5719c440699"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga8381d148477091ff5552a5719c440699">gqa_attn_splitk</a> (const at::Tensor &amp;XQ, const at::Tensor &amp;cache_K, const at::Tensor &amp;cache_V, const at::Tensor &amp;seq_positions, const double qk_scale, const int64_t num_split_ks, const int64_t num_int4_kv_groups, const bool use_tensor_cores)</td></tr>
+<tr class="separator:ga8381d148477091ff5552a5719c440699"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <p>This is a description of Grouped Query Attention operators. </p>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="ga72225d1459d48465e83289c29df7447a" name="ga72225d1459d48465e83289c29df7447a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga72225d1459d48465e83289c29df7447a">&#9670;&#160;</a></span>gqa_attn_splitk_cuda()</h2>
+<a id="ga8381d148477091ff5552a5719c440699" name="ga8381d148477091ff5552a5719c440699"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga8381d148477091ff5552a5719c440699">&#9670;&#160;</a></span>gqa_attn_splitk()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; gqa_attn_splitk_cuda </td>
+          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; gqa_attn_splitk </td>
           <td>(</td>
           <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>XQ</em>, </span></td>
         </tr>
@@ -124,7 +124,12 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>num_int4_kv_groups</em></span>&#160;)</td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>num_int4_kv_groups</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>use_tensor_cores</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -140,6 +145,7 @@ Functions</h2></td></tr>
     <tr><td class="paramname">qk_scale</td><td>The scale that is applied after QK^T </td></tr>
     <tr><td class="paramname">num_split_ks</td><td>The number of split Ks (controlling the amount of parallelism in the context length dimension (MAX_T)) </td></tr>
     <tr><td class="paramname">num_int4_kv_groups</td><td>The number of groups for group-wise INT4 quantization for each KV token (each group uses the same scale and bias for quantization)</td></tr>
+    <tr><td class="paramname">use_tensor_cores</td><td>Whether to use tensor core wmma instructions for fast implementations</td></tr>
   </table>
   </dd>
 </dl>
