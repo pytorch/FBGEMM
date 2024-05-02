@@ -185,10 +185,10 @@ MATMUL_CONFIGS: List[Config] = [
 @autotune(
     configs=MATMUL_CONFIGS,
     key=[
-        "M",
-        "N",
-        "K",
-    ],  # TODO caller side bin keys so similar shapes can use same autotune.
+        "m_key",
+        "n_key",
+        "k_key",
+    ],
     prune_configs_by={
         "early_config_prune": early_config_prune,
         "perf_model": estimate_matmul_time,
@@ -208,6 +208,9 @@ def _kernel_matmul_fp8_row(
     M,
     N,
     K,
+    m_key,
+    n_key,
+    k_key,
     A_scale,
     B_scale,
     stride_am,
@@ -347,7 +350,10 @@ def matmul_fp8_row(
     Returns:
         torch.Tensor: [M, N] Output tensor a @ b / (a_scale[:, None] * b_scale[None, :])
     """
-    M, N, K, c, dot_out_dtype_triton, device = prep_matmul(a, b, dot_out_dtype)
+    M, N, K, m_key, n_key, k_key, c, dot_out_dtype_triton, device = prep_matmul(
+        a, b, dot_out_dtype
+    )
+
     # launch kernel
     if a.device == torch.device("cpu"):
         logger.info(
@@ -368,6 +374,9 @@ def matmul_fp8_row(
         M,
         N,
         K,
+        m_key,
+        n_key,
+        k_key,
         a_scale,
         b_scale,
         a.stride(0),
@@ -388,10 +397,10 @@ def matmul_fp8_row(
 @autotune(
     configs=MATMUL_CONFIGS,
     key=[
-        "M",
-        "N",
-        "K",
-    ],  # TODO caller side bin keys so similar shapes can use same autotune.
+        "m_key",
+        "n_key",
+        "k_key",
+    ],
     prune_configs_by={
         "early_config_prune": early_config_prune,
         "perf_model": estimate_matmul_time,
@@ -411,6 +420,9 @@ def _kernel_matmul_fp8_block(
     M,
     N,
     K,
+    m_key,
+    n_key,
+    k_key,
     A_scale,
     B_scale,
     scale_block_m: tl.constexpr,
@@ -607,7 +619,9 @@ def matmul_fp8_block(
     Returns:
         Tensor: [M, N] output tensor, (a / a_scale) @ (b / b_scale)
     """
-    M, N, K, c, dot_out_dtype_triton, device = prep_matmul(a, b, dot_out_dtype)
+    M, N, K, m_key, n_key, k_key, c, dot_out_dtype_triton, device = prep_matmul(
+        a, b, dot_out_dtype
+    )
 
     # launch kernel
     assert device != torch.device(
@@ -628,6 +642,9 @@ def matmul_fp8_block(
         M,
         N,
         K,
+        m_key,
+        n_key,
+        k_key,
         a_scale,
         b_scale,
         scale_block_m,
@@ -652,9 +669,19 @@ def matmul_fp8_block(
     return c
 
 
+def get_matmul_tune(M: int, N: int, K: int) -> Tuple[int, int, int]:
+    """Generate a simplified matmul tune key to reduce excessive autotuning."""
+    # TODO refine this.
+    if M < 256:
+        m_key = M
+    else:
+        m_key = 256 + M // 1024
+    return m_key, N, K
+
+
 def prep_matmul(
     a: TensorWrapper, b: TensorWrapper, dot_out_dtype: Optional[torch.dtype]
-) -> Tuple[int, int, int, torch.Tensor, str, torch.device]:
+) -> Tuple[int, int, int, int, int, int, torch.Tensor, str, torch.device]:
     """Shared bookkeeping for matmuls."""
     device = a.device
 
@@ -664,6 +691,7 @@ def prep_matmul(
     ), f"incompatible dimensions, a: {a.shape}, b: {b.shape}"
     M, K = a.shape
     N, _ = b.shape
+    m_key, n_key, k_key = get_matmul_tune(M, N, K)
 
     # allocates output
     assert a.dtype in [tl.float8e4nv, tl.float8e4b15, tl.float8e5] and b.dtype in [
@@ -687,7 +715,7 @@ def prep_matmul(
         else:
             dot_out_dtype_triton = tl.int32
 
-    return M, N, K, c, dot_out_dtype_triton, device
+    return M, N, K, m_key, n_key, k_key, c, dot_out_dtype_triton, device
 
 
 @autotune(
