@@ -45,6 +45,9 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
     const int32_t D,
     const int32_t t,
     const int64_t idx,
+    {%- if has_global_weight_decay_support %}
+    const float global_weight_decay,
+    {%- endif %}
     const uint32_t shfl_sync_mask,
     const int32_t max_vecs_per_thread,
     {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
@@ -101,12 +104,20 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
 
     {{ split_precomputation }}
 
+    {# /* Note: technically, global weight decay (gwd) compensation should be done before
+    `split_precomputation`). But since decouple mode in `rowwise_adagrad` only computes correction,
+    the order of applying gwd does not matter. We perform gwd update before `split_weight_update`
+    below to minimize number of times to load weights.
+    So, note that the behavior may be different if you want to enable gwd for other optimizers
+    such as `lamb` or `partial_rowwise_adam`.
+    */#}
     float2 qparams_new;
     {{
        generate_optimized_grad_sum_loop_access(
            """
            Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
            Vec4TAcc<cache_t>& grad = {grad_vec};
+           {global_weight_decay_update}
            {split_weight_update}
            if (kIsInt8 && !cache_weights) {
                shared_weight_update_row[d_vec] = weight_new;
@@ -115,7 +126,10 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
                weight_row_template.store(weight_new, d, qparams_new);
            }
            """,
-           other_formats={"split_weight_update": split_weight_update},
+           other_formats={
+               "split_weight_update": split_weight_update,
+               "global_weight_decay_update": "weight_new.mul_(global_weight_decay);" if has_global_weight_decay_support else ""
+            },
        )
     }}
 
