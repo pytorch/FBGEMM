@@ -87,6 +87,7 @@ class WeightDecayMode(enum.IntEnum):
     DECOUPLE = 2
     COUNTER = 3
     COWCLIP = 4
+    DECOUPLE_GLOBAL = 5
 
 
 class CounterWeightDecayMode(enum.IntEnum):
@@ -641,6 +642,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weight_decay_mode in (WeightDecayMode.COUNTER, WeightDecayMode.COWCLIP)
             )
         )
+        self._used_rowwise_adagrad_with_global_weight_decay: bool = (
+            optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            and (weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL)
+        )
+        if (
+            weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL
+            and not optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+        ):
+            raise AssertionError(
+                "weight_decay_mode=WeightDecayMode.DECOUPLE_GLOBAL is only supported with optimizer=OptimType.EXACT_ROWWISE_ADAGRAD"
+            )
+        logging.info(
+            f"Using global weight decay = {self._used_rowwise_adagrad_with_global_weight_decay}"
+        )
 
         if counter_based_regularization is None:
             counter_based_regularization = CounterBasedRegularizationDefinition()
@@ -801,8 +816,35 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.register_buffer(
                     "max_counter", torch.tensor([1], dtype=torch.float32)
                 )
+            elif self._used_rowwise_adagrad_with_global_weight_decay:
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=True,
+                        cacheable=False,
+                    ),
+                    prefix="prev_iter",
+                    # TODO: ideally we should use int64 to track iter but it failed to compile.
+                    # It may be related to low precision training code. Currently using float32
+                    # as a workaround while investigating the issue.
+                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
+                    #  but got `Type[torch.float32]`.
+                    dtype=torch.float32,
+                )
+                self._register_nonpersistent_buffers("row_counter")
+                self.register_buffer(
+                    "max_counter",
+                    torch.ones(1, dtype=torch.float32, device=self.current_device),
+                    persistent=False,
+                )
             else:
                 self._register_nonpersistent_buffers("prev_iter")
+                # Override prev_iter_dev to be persistent
+                self.register_buffer(
+                    "prev_iter_dev",
+                    torch.ones(1, dtype=torch.float32, device=self.current_device),
+                    persistent=True,
+                )
                 self._register_nonpersistent_buffers("row_counter")
                 self.register_buffer(
                     "max_counter",
@@ -1382,16 +1424,29 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         momentum1,
                         prev_iter,
                         row_counter,
-                        # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                        self.iter.item(),
+                        int(
+                            self.iter.item()
+                        ),  # Cast to int to suppress pyre type error
                         self.max_counter.item(),
                     ),
+                )
+            elif self._used_rowwise_adagrad_with_global_weight_decay:
+                return invokers.lookup_rowwise_adagrad.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                    iter=self.step,
+                    apply_global_weight_decay=True,
+                    prev_iter_dev=self.prev_iter_dev,
                 )
             else:
                 return self._report_io_size_count(
                     "fwd_output",
                     invokers.lookup_rowwise_adagrad.invoke(
-                        common_args, self.optimizer_args, momentum1
+                        common_args,
+                        self.optimizer_args,
+                        momentum1,
+                        prev_iter_dev=self.prev_iter_dev,
                     ),
                 )
 

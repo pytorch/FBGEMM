@@ -79,7 +79,7 @@ using namespace fbgemm_gpu;
         {%- if is_gwd %}
         is_experimental,
         hash_size_cumsum,
-        prev_iter_dev_,
+        prev_iter_dev,
         learning_rate,
         weight_decay,
         iter
@@ -493,7 +493,7 @@ class {{ autograd_func }} :
     const bool use_homogeneous_placements,
     {%- if is_gwd %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    const c10::optional<Tensor>& prev_iter_dev,
+    const Tensor& prev_iter_dev,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
@@ -562,9 +562,7 @@ class {{ autograd_func }} :
         /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %}
-    {%- if is_gwd %}
-    const auto prev_iter_dev_ = prev_iter_dev.value_or(Tensor());
-    {%- endif %}
+
     ctx->save_for_backward({
         dev_weights,
         uvm_weights,
@@ -588,7 +586,7 @@ class {{ autograd_func }} :
         vbe_b_t_map,
         {%- endif %}
         {%- if is_gwd and "prev_iter_dev" not in args.split_function_arg_names %}
-        prev_iter_dev_,
+        prev_iter_dev,
         {%- endif %}
         {{ args.split_saved_tensors | join(", ") }}
     });
@@ -793,6 +791,9 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const c10::optional<Tensor>& indice_weights,
     const c10::optional<Tensor>& feature_requires_grad,
     const Tensor& lxu_cache_locations,
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    const Tensor& prev_iter_dev,
+    {%- endif %}
     {%- if optimizer != "none" %}
     const bool gradient_clipping,
     const double max_gradient,
@@ -810,9 +811,6 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
     const bool apply_global_weight_decay = false,
-    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    const c10::optional<Tensor>& prev_iter_dev = c10::nullopt,
-    {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter = 0,
     {%- endif %}
@@ -870,6 +868,9 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    Tensor? indice_weights, "
           "    Tensor? feature_requires_grad, "
           "    Tensor lxu_cache_locations, "
+          {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+          "    Tensor prev_iter_dev, "
+          {%- endif %}
           {%- if optimizer != "none" %}
           "    bool gradient_clipping, "
           "    float max_gradient, "
@@ -887,9 +888,6 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    bool use_uniq_cache_locations_bwd=False, "
           "    bool use_homogeneous_placements=False, "
           "    bool apply_global_weight_decay=False, "
-          {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-          "    Tensor? prev_iter_dev=None, "
-          {%- endif %}
           {%- if "iter" not in args.split_function_arg_names %}
           "    int iter=0, "
           {%- endif %}
