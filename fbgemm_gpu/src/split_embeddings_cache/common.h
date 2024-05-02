@@ -30,7 +30,8 @@ Tensor linearize_cache_indices_cpu(
     const Tensor& indices,
     const Tensor& offsets,
     const c10::optional<Tensor>& B_offsets,
-    const int64_t max_B);
+    const int64_t max_B,
+    const int64_t indices_base_offset);
 
 Tensor linearize_cache_indices_from_row_idx_cpu(
     Tensor cache_hash_size_cumsum,

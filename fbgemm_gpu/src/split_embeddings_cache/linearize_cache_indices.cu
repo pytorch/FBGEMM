@@ -22,7 +22,8 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
     const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         table_offsets,
     pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        linear_cache_indices) {
+        linear_cache_indices,
+    const int64_t indices_base_offset) {
   const index_t index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= indices.size(0)) {
     return;
@@ -31,10 +32,11 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_cache_indices_kernel(
   // Perform binary search.
   int left = 0;
   int right = table_offsets.size(0);
+  const index_t offseted_index = index + indices_base_offset;
   while (left != right) {
     const int middle =
         left + (right - left) / 2; // Avoid overflow in midpoint calculation
-    if (table_offsets[middle] <= index) {
+    if (table_offsets[middle] <= offseted_index) {
       left = middle + 1;
     } else {
       right = middle;
@@ -61,7 +63,8 @@ DLL_PUBLIC Tensor linearize_cache_indices_cuda(
     const Tensor& indices,
     const Tensor& offsets,
     const c10::optional<Tensor>& B_offsets,
-    const int64_t max_B) {
+    const int64_t max_B,
+    const int64_t indices_base_offset) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       cache_hash_size_cumsum, indices, offsets);
 
@@ -115,7 +118,8 @@ DLL_PUBLIC Tensor linearize_cache_indices_cuda(
                   MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
                   MAKE_PTA_WITH_NAME(func_name, table_offsets, offset_t, 1, 32),
                   MAKE_PTA_WITH_NAME(
-                      func_name, linear_cache_indices, int64_t, 1, 32));
+                      func_name, linear_cache_indices, int64_t, 1, 32),
+                  indices_base_offset);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
