@@ -92,6 +92,10 @@ void split_{{ optimizer }}_update_kernel(
           D,
           0, // t
           grad_dev_indices[run_id], // idx
+          // global weight decay is not supported in split optimizer
+          {%- if has_global_weight_decay_support %}
+          1.0, // global_weight_decay
+          {%- endif %}
           shfl_sync_mask,
           kMaxVecsPerThread,
           {{ args.split_function_arg_names | join(", ") }});
