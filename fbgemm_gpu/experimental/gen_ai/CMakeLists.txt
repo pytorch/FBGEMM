@@ -8,22 +8,82 @@
 # Target Sources
 ################################################################################
 
-set(experimental_gen_ai_cpp_source_files
+set(attention_ops_sources
     src/attention/attention.cpp
     src/attention/gqa_attn_splitk.cu)
+
+set(quantize_ops_sources
+    src/quantize/cutlass_extensions.cu
+    src/quantize/quantize.cu
+    src/quantize/quantize.cpp)
+
+set(experimental_gen_ai_cpp_source_files
+    ${attention_ops_sources}
+    ${quantize_ops_sources})
+
+set_source_files_properties(${experimental_gen_ai_cpp_source_files}
+    PROPERTIES INCLUDE_DIRECTORIES
+    "${fbgemm_sources_include_directories}")
 
 set(experimental_gen_ai_python_source_files
     gen_ai/__init__.py)
 
 
 ################################################################################
+# FBGEMM_GPU HIP Code Generation
+################################################################################
+
+if(USE_ROCM)
+  # HIPify CUDA code
+  set(header_include_dir
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../src
+      ${CMAKE_CURRENT_SOURCE_DIR}/../..
+      ${CMAKE_CURRENT_SOURCE_DIR})
+
+  hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR}
+         HEADER_INCLUDE_DIR ${header_include_dir})
+
+  # HIPify source files
+  get_hipified_list("${experimental_gen_ai_cpp_source_files}"
+    experimental_gen_ai_cpp_source_files_hip)
+
+  set_source_files_properties(${experimental_gen_ai_cpp_source_files_hip}
+                              PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+
+  # Add include directories
+  hip_include_directories("${fbgemm_sources_include_directories}")
+endif()
+
+
+################################################################################
 # Build Shared Library
 ################################################################################
 
-add_library(fbgemm_gpu_experimental_gen_ai_py MODULE
-    ${experimental_gen_ai_cpp_source_files})
+if(USE_ROCM)
+  # Create a HIP library if using ROCm
+  hip_add_library(fbgemm_gpu_experimental_gen_ai_py SHARED
+    ${experimental_gen_ai_cpp_source_files_hip}
+    ${FBGEMM_HIP_HCC_LIBRARIES}
+    HIPCC_OPTIONS
+    ${HIP_HCC_FLAGS})
 
-target_include_directories(fbgemm_gpu_experimental_gen_ai_py PRIVATE ${TORCH_INCLUDE_DIRS})
+  target_include_directories(fbgemm_gpu_experimental_gen_ai_py PUBLIC
+    ${FBGEMM_HIP_INCLUDE}
+    ${ROCRAND_INCLUDE}
+    ${ROCM_SMI_INCLUDE})
+
+  list(GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
+
+else()
+  # Else create a CUDA library
+  add_library(fbgemm_gpu_experimental_gen_ai_py MODULE
+      ${experimental_gen_ai_cpp_source_files})
+endif()
+
+# Link to PyTorch
+target_include_directories(fbgemm_gpu_experimental_gen_ai_py
+  PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(fbgemm_gpu_experimental_gen_ai_py ${TORCH_LIBRARIES})
 
 # Remove `lib` from the output artifact name

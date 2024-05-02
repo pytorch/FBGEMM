@@ -64,10 +64,12 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     c10::optional<at::Tensor> scale_ub, // scale upperbound
     c10::optional<c10::ScalarType> output_dtype); // output dtype
 
+#if CUDART_VERSION >= 12000
 std::vector<at::Tensor> quantize_fp8_per_col(
     at::Tensor input,
     c10::optional<at::Tensor> bs, // batch size
     c10::optional<at::Tensor> scale_ub); // scale upperbound
+#endif
 
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
@@ -121,9 +123,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None) -> Tensor[]");
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
+
+#if CUDART_VERSION >= 12000
   m.def(
       "quantize_fp8_per_col(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]");
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
+#endif
+
   m.def(
       "get_fp8_per_tensor_scale(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor");
   m.impl("get_fp8_per_tensor_scale", get_fp8_per_tensor_scale);

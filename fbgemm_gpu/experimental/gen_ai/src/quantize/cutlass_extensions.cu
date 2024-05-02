@@ -11,42 +11,44 @@
 #include <ATen/Dispatch.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
-
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 #include <cuda_bf16.h>
-
 #include <cuda/atomic>
-
+#elif (defined(USE_ROCM))
+#include <hip/hip_bfloat16.h>
+#endif
+#include <c10/core/ScalarType.h>
+#include <c10/cuda/CUDAGuard.h>
+#include <cublasLt.h>
 #include <cutlass/core_io.h>
 #include <cutlass/cutlass.h>
-#include <cutlass/half.h>
-
 #include <cutlass/gemm/device/gemm.h>
+#include <cutlass/half.h>
 #include <cutlass/numeric_types.h>
+#include <cutlass/trace.h>
 #include <cutlass/util/host_tensor.h>
-
-#include <cublasLt.h>
-#include "c10/core/ScalarType.h"
 #include "cublas_utils.h"
-#include "cutlass/trace.h"
+
 #if CUDART_VERSION >= 12000
 #include <cuda_fp8.h>
 #endif
 
-#include "cute/tensor.hpp"
+// clang-format off
+// The fixed ordering of the headers is required for CUTLASS 3.2+
+#include <cute/tensor.hpp>
+#include <cutlass/gemm/collective/collective_builder.hpp>     // @manual
+#include <cutlass/gemm/device/gemm_universal_adapter.h>       // @manual
+#include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
+// clang-format on
 
-#include "cutlass/gemm/collective/collective_builder.hpp" // @manual
-#include "cutlass/gemm/device/gemm_universal_adapter.h" // @manual
-
-#include "cutlass/epilogue/collective/collective_builder.hpp" // @manual
-// The manual comment above is needed to for CUTLASS 3.2+
-
-#include "cutlass/gemm/dispatch_policy.hpp"
-#include "cutlass/gemm/kernel/gemm_universal.hpp"
-#include "cutlass/util/packed_stride.hpp"
-
-#include "cute/atom/mma_atom.hpp"
+#include <cute/atom/mma_atom.hpp>
+#include <cutlass/gemm/dispatch_policy.hpp>
+#include <cutlass/gemm/kernel/gemm_universal.hpp>
+#include <cutlass/util/packed_stride.hpp>
 
 // Each block handles a single batch and head
 
@@ -62,13 +64,7 @@
 // each warp compute sum(t_subset) P[t] * V[t_subset, d]
 // outputs are of size float[D]
 
-namespace cutlass {
-namespace epilogue {
-namespace threadblock {
-
-////////////////////////////////////////////////////////////////////////////////
-
-namespace detail {
+namespace cutlass::epilogue::threadblock::detail {
 
 /// Partial specialization for bfloat16 <= int32_t x 4
 template <
@@ -96,16 +92,11 @@ struct DefaultIteratorsTensorOp<
   static int const kFragmentsPerIteration = 1;
 };
 
-} // namespace detail
-} // namespace threadblock
-} // namespace epilogue
-} // namespace cutlass
+} // namespace cutlass::epilogue::threadblock::detail
 
 // Wrapper to allow passing alpha/beta scaling params
 // as device pointers.
-namespace cutlass {
-namespace epilogue {
-namespace thread {
+namespace cutlass::epilogue::thread {
 
 template <
     typename ElementOutput_, ///< Data type used to load and store tensors
@@ -306,9 +297,7 @@ class LinearCombinationOnDevice {
   }
 };
 
-} // namespace thread
-} // namespace epilogue
-} // namespace cutlass
+} // namespace cutlass::epilogue::thread
 
 namespace fbgemm_gpu {
 
