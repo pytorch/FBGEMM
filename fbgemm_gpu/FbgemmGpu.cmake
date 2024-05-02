@@ -88,6 +88,10 @@ set(VBE_OPTIMIZERS
     rowwise_adagrad_with_counter
     sgd)
 
+# Optimizers with the GWD support
+set(GWD_OPTIMIZERS
+    rowwise_adagrad)
+
 # Individual optimizers (not fused with SplitTBE backward)
 set(DEFUSED_OPTIMIZERS
     rowwise_adagrad)
@@ -155,7 +159,10 @@ set(gen_gpu_kernel_source_files
 if(NOT USE_ROCM)
   list(APPEND gen_gpu_kernel_source_files
     "gen_embedding_forward_split_weighted_v2_kernel.cu"
-    "gen_embedding_forward_split_unweighted_v2_kernel.cu")
+    "gen_embedding_forward_split_unweighted_v2_kernel.cu"
+    "gen_embedding_forward_split_weighted_gwd_codegen_cuda.cu"
+    "gen_embedding_forward_split_unweighted_gwd_codegen_cuda.cu"
+    )
 endif()
 
 foreach(wdesc dense split)
@@ -185,6 +192,14 @@ foreach(wdesc weighted unweighted)
       "gen_embedding_forward_split_${wdesc}_vbe_kernel.cu"
       "gen_embedding_backward_${wdesc}_vbe_split_device_kernel.cuh")
 endforeach()
+
+# Generate GWD files
+if(NOT USE_ROCM)
+foreach(wdesc weighted unweighted)
+  list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_forward_split_${wdesc}_gwd_kernel.cu")
+endforeach()
+endif()
 
 set(gen_cpu_source_files
     "gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp"
@@ -251,6 +266,18 @@ foreach(optimizer ${VBE_OPTIMIZERS})
       "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_kernel_warp.cu")
   endforeach()
 endforeach()
+
+if(NOT USE_ROCM)
+foreach(optimizer ${GWD_OPTIMIZERS})
+  # GWD is not supported in nobag
+  foreach(wdesc weighted unweighted)
+    list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_cuda.cu"
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_kernel_cta.cu"
+      "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_kernel_warp.cu")
+  endforeach()
+endforeach()
+endif()
 
 foreach(optimizer ${DEFUSED_OPTIMIZERS})
   list(APPEND gen_defused_optim_source_files
