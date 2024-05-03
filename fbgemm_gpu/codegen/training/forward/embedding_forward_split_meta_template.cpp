@@ -42,8 +42,19 @@ static constexpr float kINT8QparamsBytes = 8;
 {%- if (not nobag or (not weighted and not vbe)) %}
 {%- set has_experimental = (not dense and not nobag and not vbe) %}
 
+{%- for is_gwd in ([True, False]
+    if is_valid_gwd_config(
+        dense,
+        nobag,
+        vbe,
+        is_index_select,
+        is_rocm,
+        True
+    ) else [False])
+%}
+{%- set gwddesc = "_gwd" if is_gwd else "" %}
 Tensor
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_meta(
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_meta(
     const Tensor& dev_weights,
     {%- if not dense %}
     const Tensor& uvm_weights,
@@ -82,7 +93,16 @@ Tensor
     const int64_t info_B_num_bits, // int32_t
     const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
+    {%- if is_gwd %}
+    const bool is_experimental,
+    const Tensor& hash_size_cumsum,
+    const Tensor& prev_iter_dev,
+    const double learning_rate,
+    const double weight_decay,
+    const int64_t iter
+    {%- else %}
     const bool is_experimental
+    {%- endif %}
 ) {
     // NB: omitted the device tests TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL
 
@@ -181,12 +201,13 @@ Tensor
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     // NB: yes cuda here
     {%- set embedding_codegen_forward_op =
-        "{}_embedding{}_codegen_forward_{}{}_cuda".format(
-            ddesc, ndesc, wdesc, vdesc
+        "{}_embedding{}_codegen_forward_{}{}{}_cuda".format(
+            ddesc, ndesc, wdesc, vdesc, gwddesc
         )
     %}
-    m.impl("{{ embedding_codegen_forward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_meta)));
+    m.impl("{{ embedding_codegen_forward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_meta)));
 }
+{%- endfor %} {#-/* for is_gwd */#}
 {%- endif %} {#/* if (not nobag or (not weighted and not vbe)) */#}
 {%- endfor %} {#-/* for nobag */#}
     // clang-format on

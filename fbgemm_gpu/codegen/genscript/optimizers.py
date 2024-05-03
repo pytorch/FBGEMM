@@ -41,6 +41,7 @@ def dense() -> Dict[str, Any]:
         "has_cpu_support": True,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -84,6 +85,7 @@ def adagrad() -> Dict[str, Any]:
         "has_cpu_support": True,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -191,7 +193,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 2) {
+        } else if (weight_decay_mode == 2 || weight_decay_mode == 5) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         } else {
@@ -221,7 +223,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 2) {
+        } else if (weight_decay_mode == 2 || weight_decay_mode == 5) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         } else {
@@ -252,6 +254,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         "has_cpu_support": True,
         "has_gpu_support": True,
         "has_vbe_support": True,
+        "has_global_weight_decay_support": True,
     }
 
 
@@ -282,6 +285,7 @@ def approx_rowwise_adagrad() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -387,6 +391,7 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -422,6 +427,7 @@ def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -592,6 +598,7 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": True,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -640,6 +647,7 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -717,6 +725,7 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -740,6 +749,7 @@ def sgd() -> Dict[str, Any]:
         "has_cpu_support": True,
         "has_gpu_support": True,
         "has_vbe_support": True,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -763,6 +773,7 @@ def approx_sgd() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -840,6 +851,7 @@ def lamb() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -931,6 +943,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -986,6 +999,7 @@ def adam() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -1060,6 +1074,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -1124,6 +1139,7 @@ def lars_sgd() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }
 
 
@@ -1141,4 +1157,5 @@ def none_optimizer() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
     }

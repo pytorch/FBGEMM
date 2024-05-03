@@ -19,7 +19,12 @@
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
-
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    is_rocm) %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
@@ -98,7 +103,14 @@ using namespace fbgemm_gpu;
         ++i) {
         // Load the slice of the weights
         const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
+
+        {%- if is_gwd_kernel %}
+        auto weights_slice = weights_row.load(d, qparams);
+        // Scale weights with global weight decay
+        weights_slice.mul_(global_weight_decay_j);
+        {%- else %}
         const auto weights_slice = weights_row.load(d, qparams);
+        {%- endif %}
 
         {%- if weighted %}
         // Accumulate the weights * positional weight
@@ -151,6 +163,14 @@ using namespace fbgemm_gpu;
         // Cooperatively load the cache's indices
         [[maybe_unused]] int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
         {%- endif %}
+        {%- if lxu_miss_rate == "cache_conflict_miss_rate::zero" and is_gwd_kernel %}
+        int64_t idx = l < L ? indices[indices_start + l] : 0; // only used for accessing prev_iter
+        {%- endif %}
+
+        {%- if is_gwd_kernel %}
+        // if l > L, prev_iter = prev_iter_dev[offset]
+        const auto global_weight_decay = std::pow(weight_decay_base, iter - prev_iter[idx] - 1);
+        {%- endif %}
 
         {%- if weighted %}
         // Cooperatively load the positional weight indices
@@ -178,6 +198,9 @@ using namespace fbgemm_gpu;
             {%- if weighted %}
             // Load positional weight index from thread j in the group
             at::acc_type<cache_t, true> idx_weight_j = SHFL_SYNC(idx_weight, j);
+            {%- endif %}
+            {%- if is_gwd_kernel %}
+            const auto global_weight_decay_j = SHFL_SYNC(global_weight_decay, j);
             {%- endif %}
 
 
@@ -216,6 +239,15 @@ using namespace fbgemm_gpu;
 {%- endmacro %}
 
 
+{#-
+  /* Generate different kernels for global_weight_decay support using Jinja
+     because adding new variables increase number of registers and
+     reduce the occupancy causing performance degradation.
+     If is_valid_gwd_config, generate regular kernel and kernel
+     with global_weight_decay, otherwise, only generate regular kernel.
+   */
+#}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
     typename emb_t,
     typename cache_t,
@@ -232,7 +264,7 @@ __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -276,6 +308,13 @@ batch_index_select_dim0_codegen_forward_kernel(
       passed back to the host, which is an expensive operation.
     */
     const int32_t* lxu_cache_conflict_misses,
+    {%- endif %}
+    {%- if is_gwd_kernel %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const float learning_rate,
+    const float weight_decay,
+    const int64_t iter,
     {%- endif %}
     {%- if is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
@@ -355,6 +394,13 @@ batch_index_select_dim0_codegen_forward_kernel(
     const auto output_stride = permute_output_dim_0_1 ? D_offsets[T] : D;
     {%- endif %}
 
+    {%- if is_gwd_kernel %}
+    CUDA_KERNEL_ASSERT(
+        prev_iter_dev.size(0) == hash_size_cumsum[hash_size_cumsum.size(0)-1]
+        && "The size of prev_iter does not match number of rows"
+    )
+    {%- endif %}
+
     // From the Table ID, fetch its weight tensor offset, locate that position
     // in the input weights tensor, and set the weights table pointer
     int64_t weights_offset = weights_offsets[t];
@@ -370,6 +416,10 @@ batch_index_select_dim0_codegen_forward_kernel(
     weights = &dev_weights[weights_offset];
     {%- endif %}
 
+    {%- if is_gwd_kernel %}
+    const float weight_decay_base = 1 - learning_rate * weight_decay;
+    const float* __restrict__ prev_iter = &prev_iter_dev[hash_size_cumsum[t]];
+    {%- endif %}
     // D is computed in the bag case or provided as function arg in the nobag case
     // (nobag only supports the case where the embedding dimensions are the same for all tables)
     int32_t D_emb = D;
@@ -485,11 +535,12 @@ batch_index_select_dim0_codegen_forward_kernel(
 */
 
 {%- macro template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel
 {%- endif %}
 <
     {{ emb_type }},
@@ -543,6 +594,13 @@ batch_index_select_dim0_codegen_forward_kernel
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
     const int32_t fixed_L_per_warp,
     const bool permute_output_dim_0_1,
+    {%- endif %}
+    {%- if is_gwd_kernel %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const float learning_rate,
+    const float weight_decay,
+    const int64_t iter,
     {%- endif %}
     pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
 {%- endmacro %}
