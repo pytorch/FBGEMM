@@ -40,6 +40,11 @@ at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in);
 at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
+at::Tensor asynchronous_complete_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const at::Tensor& t_in);
+
+///@ingroup sparse-data-cpu
 at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cuda
@@ -398,7 +403,8 @@ at::Tensor reorder_batched_ad_lengths_gpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const bool broadcast_lengths = false);
+    const bool broadcast_lengths = false,
+    const int64_t max_batch_size = 0);
 
 ///@ingroup sparse-data-cuda
 at::Tensor reorder_batched_ad_indices_gpu(
@@ -419,11 +425,21 @@ at::Tensor reorder_batched_sequence_embeddings_gpu(
     const int64_t num_items_in_batch);
 
 ///@ingroup sparse-data-cpu
+at::Tensor reorder_batched_ad_lengths_cpu_out(
+    at::Tensor& out,
+    const at::Tensor& cat_ad_lengths,
+    const at::Tensor& batch_offsets,
+    const int64_t num_ads_in_batch,
+    const bool broadcast_lengths = false,
+    const int64_t max_batch_size = 0);
+
+///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_lengths_cpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const bool broadcast_lengths = false);
+    const bool broadcast_lengths = false,
+    const int64_t max_batch_size = 0);
 ///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_indices_cpu(
     const at::Tensor& cat_ad_offsets,
@@ -441,6 +457,16 @@ at::Tensor reorder_batched_sequence_embeddings_cpu(
     const at::Tensor& batch_offsets,
     const int64_t num_items_in_batch);
 ///@ingroup sparse-data-cpu
+at::Tensor cat_reorder_batched_ad_indices_cpu_out(
+    at::Tensor& out,
+    const at::Tensor& cat_ad_offsets,
+    const std::vector<at::Tensor>& ad_indices,
+    const at::Tensor& reordered_cat_ad_offsets,
+    const at::Tensor& batch_offsets,
+    const int64_t num_ads_in_batch,
+    const bool broadcast_indices = false,
+    const int64_t max_batch_size = 0);
+///@ingroup sparse-data-cpu
 at::Tensor cat_reorder_batched_ad_indices_cpu(
     const at::Tensor& cat_ad_offsets,
     const std::vector<at::Tensor>& cat_ad_indices,
@@ -449,7 +475,8 @@ at::Tensor cat_reorder_batched_ad_indices_cpu(
     const int64_t num_ads_in_batch,
     const bool broadcast_indices,
     const int64_t num_indices_after_broadcast,
-    const bool pinned_memory = false);
+    const bool pinned_memory = false,
+    const int64_t max_batch_size = 0);
 at::Tensor recat_embedding_grad_output_cuda(
     at::Tensor grad_output, // [B_local][T_global][D]
     const std::vector<int64_t>& num_features_per_rank);

@@ -72,7 +72,9 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
     const Tensor& cat_ad_lengths,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const bool broadcast_lengths) {
+    const bool broadcast_lengths,
+    const int64_t max_batch_size) {
+  TORCH_CHECK_LE(max_batch_size, 0);
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(cat_ad_lengths, batch_offsets);
 
   CUDA_DEVICE_GUARD(cat_ad_lengths);
