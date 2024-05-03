@@ -11,6 +11,21 @@
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
+{# /*
+    `has_global_weight_decay_support` tells whether the optimizer has support for
+    global weight decay (gwd)
+    `is_gwd` is whether to generate gwd source code, determined in `generate_backward_split.py`
+    For example, rowwise_adagrad has gwd support, so this template will be used twice:
+    with `is_gwd` being True (for gwd kernel) and False (for regular kernel)
+ */ #}
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    is_rocm,
+    has_global_weight_decay_support) %}
+
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
@@ -44,6 +59,14 @@ using namespace fbgemm_gpu;
   }
 {%- endmacro %}
 
+{#- /*
+    Generate a separate kernel to enable global weight decay using Jinja
+    as the kernel is sensitive to the number of registers. Additional variables
+    required to computer global weight decay increase number of registers and
+    thus reduce the kernel occupancy, which can degrade the kernel performance.
+    This increases the binary size, but the increase is minimal.
+*/ #}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
     typename emb_t,
     typename grad_t,
@@ -58,7 +81,7 @@ __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_cta_per_row_1(
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_cta_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -116,6 +139,14 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
     const int32_t max_vecs_per_thread,
+    {%- if is_gwd_kernel %}
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    const int64_t iter,
+    {%- endif %}
+    {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -145,6 +176,9 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
   auto* smem_grad_sum =
       smem.getPointer() + warp_id * max_vecs * kThreadGroupSize;
 
+  {%- if is_gwd_kernel %}
+  const float weight_decay_base = 1 - learning_rate * weight_decay;
+  {%- endif %}
   for (int32_t long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
         // The first thread block in the really long run has run_id in long_run_ids
         // and the rest have the negative of its offset (see find_long_segments kernel).
@@ -305,6 +339,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
             }}
         }
 
+        {{ compute_global_weight_decay(is_gwd_kernel) }}
+
         {%- if not dense and optimizer != "none" %}
         split_{{ optimizer }}_table_update_kernel<
           emb_t,
@@ -334,6 +370,12 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
               D,
               t_0,
               idx,
+              {%- if is_gwd_kernel %}
+              global_weight_decay,
+              {%- elif has_global_weight_decay_support %}
+              {# /* cases where gwd is not enabled/supported */ #}
+              1, // global_weight_decay
+              {%- endif %}
               shfl_sync_mask,
               max_vecs,
               {{ args.split_function_arg_names | join(", ") }}
@@ -387,11 +429,12 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
       kUseVecBlocking
     )
 %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_cta_per_row
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_cta_per_row_1
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_cta_per_row_1
 {%- endif %}
 < {{ emb_type }},
   {{ grad_type }},
@@ -461,6 +504,14 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
     const int32_t max_vecs_per_thread,
+    {%- if is_gwd_kernel %}
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    const int64_t iter,
+    {%- endif %}
+    {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1

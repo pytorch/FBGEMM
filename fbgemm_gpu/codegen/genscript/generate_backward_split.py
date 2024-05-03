@@ -35,14 +35,17 @@ class BackwardSplitGenerator:
         optimizer: str,
         filename_format: str,
         kwargs: Dict[str, Any],
+        is_gwd: bool = False,
     ) -> None:
         if not kwargs.get("has_gpu_support"):
             return
-        vbe_options = [True, False] if kwargs.get("has_vbe_support") else [False]
+        vbe_options = (
+            [True, False] if (kwargs.get("has_vbe_support") and not is_gwd) else [False]
+        )
         template = CodeTemplate.load(template_filepath)
 
         for weighted in [True, False]:
-            for nobag in [True, False]:
+            for nobag in [True, False] if (not is_gwd) else [False]:
                 for vbe in vbe_options:
                     if (not nobag or (not weighted and not vbe)) and (
                         not kwargs.get("dense") or not vbe
@@ -56,6 +59,7 @@ class BackwardSplitGenerator:
                             is_index_select=False,
                             kdesc=wdesc,
                             **kwargs,
+                            is_gwd=is_gwd,
                         )
 
     @staticmethod
@@ -90,6 +94,29 @@ class BackwardSplitGenerator:
                 filename_format,
                 kwargs,
             )
+        # Generate the global weight decay CUDA kernels
+        if kwargs.get("has_global_weight_decay_support") and not args.is_rocm:
+            for template_filepath, filename_format in [
+                (
+                    "training/backward/embedding_backward_split_kernel_cta_template.cu",
+                    "gen_embedding_backward_{}_split_{}_gwd_kernel_cta.cu",
+                ),
+                (
+                    "training/backward/embedding_backward_split_kernel_warp_template.cu",
+                    "gen_embedding_backward_{}_split_{}_gwd_kernel_warp.cu",
+                ),
+                (
+                    "training/backward/embedding_backward_split_template.cu",
+                    "gen_embedding_backward_{}_split_{}_gwd_cuda.cu",
+                ),
+            ]:
+                BackwardSplitGenerator.render_backward_templates(
+                    template_filepath,
+                    optimizer,
+                    filename_format,
+                    kwargs,
+                    is_gwd=True,
+                )
 
         # Generate optimizer kernel
         CodeTemplate.load(

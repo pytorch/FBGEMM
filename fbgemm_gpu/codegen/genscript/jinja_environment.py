@@ -298,6 +298,48 @@ def has_experimental_support(
     return not dense and not nobag and not vbe and not is_index_select and not is_rocm
 
 
+def is_valid_gwd_config(
+    dense: bool,
+    nobag: bool,
+    vbe: bool,
+    is_index_select: bool,
+    is_rocm: bool,
+    has_global_weight_decay_support: bool = True,
+) -> bool:
+    """
+    Check if the given combination of configs is valid for global weight decay support
+    - `has_global_weight_decay_support` is whether global weight decay is available for
+    an optimizer, but not all configs of such optimizer offer global weight decay support
+    - any updates to the configs need to be reflected in embedding_backward_split_host_template.cpp
+    - global weight decay does not support dense, nobag, vbe, is_index_select, and is_rocm
+    """
+    return (
+        not dense
+        and not nobag
+        and not vbe
+        and not is_index_select
+        and not is_rocm
+        and has_global_weight_decay_support
+    )
+
+
+def compute_global_weight_decay(is_global_weight_decay_kernel: bool) -> str:
+    """
+    For global weight decay kernel, compute the global weight decay value
+    and update prev_iter to be current iteration
+    This is to used in both warp and cta kernels.
+    """
+    if is_global_weight_decay_kernel:
+        return """
+        const auto global_weight_decay = std::pow(weight_decay_base, iter - prev_iter_dev[linear_index] - 1);
+        if (threadIdx.x == 0) {
+            prev_iter_dev[linear_index] = iter;
+        }
+        """
+    else:
+        return ""
+
+
 ################################################################################
 # Register Helper Functions in Jinja Environment
 ################################################################################
@@ -311,7 +353,8 @@ env.globals["dispatch_non_vec_blocking_kernel"] = dispatch_non_vec_blocking_kern
 env.globals["dispatch_vec_blocking_kernel"] = dispatch_vec_blocking_kernel
 env.globals["is_valid_forward_config"] = is_valid_forward_config
 env.globals["has_experimental_support"] = has_experimental_support
-
+env.globals["is_valid_gwd_config"] = is_valid_gwd_config
+env.globals["compute_global_weight_decay"] = compute_global_weight_decay
 
 ################################################################################
 # Filter functions in Jinja Environment

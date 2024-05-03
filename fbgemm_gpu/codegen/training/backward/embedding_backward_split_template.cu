@@ -30,6 +30,14 @@ using namespace fbgemm_gpu;
 // External Function Declarations
 ////////////////////////////////////////////////////////////////////////////////
 
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    is_rocm,
+    has_global_weight_decay_support) %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
     typename emb_t,
     typename grad_t,
@@ -44,7 +52,7 @@ __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_cta_per_row_1(
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_cta_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -102,6 +110,14 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const int32_t max_segment_length_per_cta,
     const bool use_deterministic_algorithms,
     const int32_t max_vecs_per_thread,
+    {%- if is_gwd_kernel %}
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    const int64_t iter,
+    {%- endif %}
+    {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -124,7 +140,7 @@ __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1(
+split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_warp_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -175,6 +191,14 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     {%- endif %}
     const int32_t max_D,
     const int32_t max_vecs_per_thread,
+    {%- if is_gwd_kernel %}
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    const int64_t iter,
+    {%- endif %}
+    {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -182,7 +206,6 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
     {%- endif %}
 );
-
 {% if is_index_select %}
 namespace index_select {
 {% else %}
@@ -389,17 +412,28 @@ int32_t compute_num_groups_and_dynamic_smem_bytes(
 // Kernel Definition
 ////////////////////////////////////////////////////////////////////////////////
 
-{%- set func_name0 = "split_embedding{}_backward_codegen_{}_{}_exact{}_cuda".format(
+{#- /* Generate a separate cuda host to enable global weight decay using Jinja */ #}
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    is_rocm,
+    has_global_weight_decay_support) %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+
+{%- set func_name0 = "split_embedding{}_backward_codegen_{}_{}_exact{}{}_cuda".format(
     ndesc,
     optimizer,
     wdesc,
-    vdesc)
+    vdesc,
+    gwddesc)
 %}
 
 {%- if is_index_select %}
 Tensor batch_index_select_dim0_codegen_backward_cuda(
 {%- else %}
-Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}_cuda(
+Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_cuda(
 {%- endif %}
     const Tensor& grad_output,
     const Tensor& dev_weights,
@@ -457,6 +491,14 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const int32_t num_warps_per_feature,
     const bool permute_output_dim_0_1
     {%- elif optimizer != "none" %}
+    {%- if is_gwd_kernel %}
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    const Tensor& prev_iter_dev,
+    {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    const int64_t iter,
+    {%- endif %}
+    {%- endif %}
     {{ args.split_function_args_no_defaults | join(", ") }}
     {%- else %}
     // This is actually passed via args.split_function_args_no_defaults but explicitly list
@@ -499,6 +541,9 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         {%- endif %}
         {%- if not dense %}
         lxu_cache_locations,
+        {%- endif %}
+        {%- if is_gwd_kernel %}
+        prev_iter_dev,
         {%- endif %}
         grad_output);
 
@@ -887,11 +932,12 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                     {%- set cta_kernel =
                         "batch_index_select_dim0_codegen_backward_kernel_cta_per_row"
                         if is_index_select else
-                        "split_embedding{}_backward_codegen_{}_{}{}_kernel_cta_per_row_1".format(
+                        "split_embedding{}_backward_codegen_{}_{}{}{}_kernel_cta_per_row_1".format(
                             ndesc,
                             optimizer,
                             wdesc,
                             vdesc,
+                            gwddesc
                         )
                     %}
 
@@ -989,6 +1035,12 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                             max_segment_length_per_cta,
                             use_deterministic_algorithms,
                             max_vecs_per_thread,
+                            {%- if is_gwd_kernel %}
+                            MAKE_PTA_WITH_NAME(func_name3, prev_iter_dev, float, 1, 64),
+                            {%- if "iter" not in args.split_function_arg_names %}
+                            iter,
+                            {%- endif %}
+                            {%- endif %}
                             {%- if is_index_select %}
                             grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                             permute_output_dim_0_1
@@ -1001,11 +1053,12 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                     {%- set warp_kernel =
                         "batch_index_select_dim0_codegen_backward_kernel_warp_per_row"
                         if is_index_select else
-                        "split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
+                        "split_embedding{}_backward_codegen_{}_{}{}{}_kernel_warp_per_row_1".format(
                             ndesc,
                             optimizer,
                             wdesc,
                             vdesc,
+                            gwddesc
                         )
                     %}
                     const auto backward_warp_per_row_kernel =
@@ -1099,6 +1152,12 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                             {%- endif %}
                             max_D,
                             max_vecs_per_thread,
+                            {%- if is_gwd_kernel %}
+                            MAKE_PTA_WITH_NAME(func_name4, prev_iter_dev, float, 1, 64),
+                            {%- if "iter" not in args.split_function_arg_names %}
+                            iter,
+                            {%- endif %}
+                            {%- endif %}
                             {%- if is_index_select %}
                             grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                             permute_output_dim_0_1
@@ -1109,6 +1168,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                     C10_CUDA_KERNEL_LAUNCH_CHECK();
                 }); // DISPATCH_PLACEHOLDER_TYPES
                 return;
+
             }); // DISPATCH_OPTIMAL_KERNEL
         }); // DISPATCH_EMB_GRAD_CACHE_TYPES
 
@@ -1133,8 +1193,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
 {%- if not is_index_select %}
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     {%- set embedding_codegen_backward_op =
-        "split_embedding{}_backward_codegen_{}_{}_exact{}_cuda".format(
-            ndesc, optimizer, wdesc, vdesc
+        "split_embedding{}_backward_codegen_{}_{}_exact{}{}_cuda".format(
+            ndesc, optimizer, wdesc, vdesc, gwddesc
         )
     %}
     m.def("{{ embedding_codegen_backward_op }}("
@@ -1186,6 +1246,14 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- if not is_index_select and not dense %}
           "    bool use_uniq_cache_locations, "
           "    bool use_homogeneous_placements, "
+          {%- endif %}
+          {%- if is_gwd_kernel %}
+          {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+          "    Tensor prev_iter_dev, "
+          {%- endif %}
+          {%- if "iter" not in args.split_function_arg_names %}
+          "    int iter, "
+          {%- endif %}
           {%- endif %}
           "    {{ args.split_function_schemas | join(", ") }}"
           ") -> Tensor");

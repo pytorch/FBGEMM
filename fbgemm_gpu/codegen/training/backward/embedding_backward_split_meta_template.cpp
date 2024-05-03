@@ -36,10 +36,21 @@ using Tensor = at::Tensor;
 // Kernel Definitions
 ////////////////////////////////////////////////////////////////////////////////
 
+{%- for is_gwd in ([True, False]
+    if is_valid_gwd_config(
+        dense,
+        nobag,
+        vbe,
+        is_index_select,
+        is_rocm,
+        has_global_weight_decay_support
+    ) else [False])
+%}
+{%- set gwddesc = "_gwd" if is_gwd else "" %}
 {%- if is_index_select %}
 Tensor batch_index_select_dim0_codegen_backward_meta(
 {%- else %}
-Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}_meta(
+Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_meta(
 {%- endif %}
     const Tensor& grad_output,
     const Tensor& dev_weights,
@@ -97,6 +108,12 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const int32_t num_warps_per_feature,
     const bool permute_output_dim_0_1
     {%- elif optimizer != "none" %}
+    {%- if is_gwd %}
+    const Tensor& prev_iter_dev,
+    {%- if "iter" not in args.split_function_arg_names %}
+    const int64_t iter,
+    {%- endif %}
+    {%- endif -%}
     {{ args.split_function_args_no_defaults | join(", ") }}
     {%- else %}
     // This is actually passed via args.split_function_args_no_defaults but explicitly list
@@ -210,13 +227,14 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     // NB: yes cuda here
     {%- set embedding_codegen_backward_op =
-        "split_embedding{}_backward_codegen_{}_{}_exact{}_cuda".format(
-            ndesc, optimizer, wdesc, vdesc
+        "split_embedding{}_backward_codegen_{}_{}_exact{}{}_cuda".format(
+            ndesc, optimizer, wdesc, vdesc, gwddesc
         )
     %}
-    m.impl("{{ embedding_codegen_backward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN(split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}_meta)));
+    m.impl("{{ embedding_codegen_backward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN(split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_meta)));
     {%- if is_index_select %}
     m.impl("batch_index_select_dim0_codegen_backward_cuda", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN(batch_index_select_dim0_codegen_backward_meta)));
     {%- endif %}
 }
+{%- endfor %}
 // clang-format on

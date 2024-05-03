@@ -116,10 +116,18 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 {% endif %} {#-/* if not dense */#}
 
 
-{%- for nobag in [True, False] %}
+{%- for nobag in ([True, False] if (not is_gwd) else [False]) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
 {%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm) %}
+
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    is_rocm) %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
     typename emb_t,
     typename cache_t,
@@ -137,7 +145,7 @@ __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel(
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -179,9 +187,15 @@ batch_index_select_dim0_codegen_forward_kernel(
     const int32_t fixed_L_per_warp,
     const bool permute_output_dim_0_1,
     {%- endif %} // if dense
+    {%- if is_gwd_kernel %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor64<float, 1, at::RestrictPtrTraits> prev_iter_dev,
+    const float learning_rate,
+    const float weight_decay,
+    const int64_t iter,
+    {%- endif %}
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
-
 {%- endif %} {#-/* if is_valid_forward_config(...) */#}
 {%- endfor %} {#-/* for nobag in [True, False] */#}
 
@@ -291,16 +305,24 @@ batch_index_select_dim0_codegen_forward_kernel(
 // Kernel Definitions
 ////////////////////////////////////////////////////////////////////////////////
 
-{%- for nobag in [True, False] %}
+{%- for nobag in ([True, False] if (not is_gwd) else [False]) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
 {%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm) %}
 
+{#- /* Generate a separate cuda host to enable global weight decay using Jinja */ #}
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    is_rocm) %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 Tensor
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_cuda(
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_cuda(
+{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_cuda(
 {%- endif %}
     const Tensor& dev_weights,
     {%- if not dense %}
@@ -350,7 +372,16 @@ batch_index_select_dim0_codegen_forward_cuda(
     const int64_t info_B_num_bits, // int32_t
     const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
+    {%- if is_gwd_kernel %}
+    const bool is_experimental,
+    const Tensor& hash_size_cumsum,
+    const Tensor& prev_iter_dev,
+    const double learning_rate,
+    const double weight_decay,
+    const int64_t iter
+    {%- else %}
     const bool is_experimental
+    {%- endif %}
     {%- endif %}
 ) {
     {%- if not nobag or is_index_select %}
@@ -397,6 +428,9 @@ batch_index_select_dim0_codegen_forward_cuda(
         {%- if is_index_select %}
         total_L_offsets,
         {%- endif %}
+        {%- if is_gwd_kernel %}
+        prev_iter_dev,
+        {%- endif %}
         dev_weights
     );
 
@@ -442,8 +476,16 @@ batch_index_select_dim0_codegen_forward_cuda(
     TENSORS_HAVE_SAME_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
     TORCH_CHECK_GE(vbe_output_size, 0);
 
+    {%- if is_gwd_kernel %}
+    TORCH_CHECK(learning_rate >= 0, "Expect to apply weight decay but learning rate is < 0")
+    {%- endif %}
+
     // Cast info_B_mask from int64_t to uint32_t
     const uint32_t info_B_mask = info_B_mask_int64;
+    {%- endif %}
+
+    {%- if is_gwd_kernel %}
+    TORCH_CHECK(learning_rate > 0, "Expect to apply weight decay but learning rate is < 0")
     {%- endif %}
 
     Tensor output;
@@ -650,8 +692,9 @@ batch_index_select_dim0_codegen_forward_cuda(
                 else "DISPATCH_OPTIMAL_FORWARD_KERNEL"
           %}
           {{ dispatcher }}(max_D, [&] {
+
 #ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "{{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel";
+            const auto func_name = "{{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel";
 #endif
             // Other components in TBE (backward, backward_indice_weights) use
             // kFixedMaxVecsPerThread. Thus, the codegen generates
@@ -659,7 +702,7 @@ batch_index_select_dim0_codegen_forward_cuda(
             // kMaxVecsPerThread and kFixedMaxVecsPerThread are the same
             // forward
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
-            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_kernel
+            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel
                 <emb_t,
                 cache_t,
                 output_t,
@@ -702,6 +745,13 @@ batch_index_select_dim0_codegen_forward_cuda(
                 uvm_cache_stats.size(0) == 0
                     ? nullptr
                     : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
+                {%- endif %} // if not dense
+                {%- if is_gwd_kernel %}
+                MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, prev_iter_dev, float, 1, 64),
+                learning_rate,
+                weight_decay,
+                iter,
                 {%- endif %} // if not dense
                 MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
               );
@@ -768,14 +818,15 @@ batch_index_select_dim0_codegen_forward_cuda(
   return output;
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 // Op registrations
 ////////////////////////////////////////////////////////////////////////////////
 {%- if not is_index_select %}
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     {%- set embedding_codegen_forward_op =
-        "{}_embedding{}_codegen_forward_{}{}_cuda".format(
-            ddesc, ndesc, wdesc, vdesc
+        "{}_embedding{}_codegen_forward_{}{}{}_cuda".format(
+            ddesc, ndesc, wdesc, vdesc, gwddesc
         )
     %}
     m.def("{{ embedding_codegen_forward_op }}("
@@ -813,7 +864,16 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    int info_B_num_bits, "
           "    int info_B_mask_int64, "
           {%- endif %}
+          {%- if is_gwd_kernel %}
+          "    bool is_experimental,"
+          "    Tensor hash_size_cumsum, "
+          "    Tensor prev_iter_dev, "
+          "    float learning_rate, "
+          "    float weight_decay, "
+          "    int iter "
+          {%- else %}
           "    bool is_experimental"
+          {%- endif %}
           ") -> Tensor"
           {%- if not dense and not nobag and not vbe %}
           // only split_embedding_codegen_forward_[un]weighted_cuda
