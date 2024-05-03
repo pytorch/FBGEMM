@@ -49,6 +49,12 @@ at::Tensor f8f8bf16_cublas(
     at::Tensor Binvs,
     bool use_fast_accum,
     c10::optional<at::Tensor> output);
+at::Tensor f8i4bf16_rowwise(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor w_zp);
 
 at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale);
 std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(at::Tensor X);
@@ -96,6 +102,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
   m.def(
       "f8f8bf16_cublas(Tensor A, Tensor B, Tensor Ainvs, Tensor Binvs, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
+
+  m.def(
+      "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
+  m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
 
   m.def(
       "i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor");
@@ -208,12 +218,25 @@ at::Tensor f8f8bf16_meta(
   return Y;
 }
 
+at::Tensor f8i4bf16_rowwise_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor w_zp) {
+  int M = XQ.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("i8i8bf16", i8i8bf16_meta);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
   m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
+  m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
 }
 
 #endif
