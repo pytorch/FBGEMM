@@ -92,5 +92,13 @@ include(FbgemmGpu.cmake)
 
 if(NOT FBGEMM_CPU_ONLY)
   add_subdirectory(experimental/example)
-  add_subdirectory(experimental/gen_ai)
+
+  if(NOT USE_ROCM)
+    # CUTLASS currently doesn't build on ROCm:
+    #
+    # /__w/FBGEMM/FBGEMM/fbgemm_gpu/../third_party/cutlass/include/cutlass/half.h:73:10: fatal error: 'cuda_fp16.h' file not found
+    # #include <cuda_fp16.h>
+    #
+    add_subdirectory(experimental/gen_ai)
+  endif()
 endif()
