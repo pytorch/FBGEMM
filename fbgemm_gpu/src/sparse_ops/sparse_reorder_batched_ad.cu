@@ -409,7 +409,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
         reordered_cat_sequence_embeddings_offsets,
     at::PackedTensorAccessor32<Dtype, 2, at::RestrictPtrTraits>
         reordered_cat_sequence_embeddings,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         batch_offsets,
     const int32_t T,
     const int32_t D) {
@@ -497,7 +497,7 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
                   reordered_cat_sequence_embeddings
                       .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
                   batch_offsets
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+                      .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
                   T,
                   D);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
