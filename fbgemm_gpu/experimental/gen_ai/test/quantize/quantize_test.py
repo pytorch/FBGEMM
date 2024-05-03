@@ -152,13 +152,16 @@ class FP8Tests(unittest.TestCase):
             x = (xq.float() / x_scale.unsqueeze(1)).bfloat16()  # Fake quantization
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
             xq_ref, x_scale_ref = fp8_row_quantize_ref(x)
-        elif Mode == "colwise":
+        elif Mode == "colwise" and str(torch.version.cuda) >= "12.1":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_col(x)
             x = (xq.float() / x_scale.unsqueeze(0)).bfloat16()  # Fake quantization
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_col(x)
             xq_ref, x_scale_ref = fp8_col_quantize_ref(x)
+        elif Mode == "colwise":
+            # quantize_fp8_per_col is not defined for CUDA < 12.1
+            return
         else:
-            raise ValueError(f"Invalid mode {Mode}")
+            raise ValueError(f"Invalid mode {Mode} (on CUDA {torch.version.cuda})")
 
         torch.testing.assert_close(xq.float(), xq_ref.float(), atol=5.0e-2, rtol=5.0e-2)
 

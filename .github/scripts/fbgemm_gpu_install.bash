@@ -22,9 +22,12 @@ __fbgemm_gpu_post_install_checks () {
 
   # shellcheck disable=SC2086,SC2155
   local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
+  # shellcheck disable=SC2086,SC2155
+  local installed_cuda_version=$(conda run ${env_prefix} python -c "import torch; print(torch.version.cuda)")
   echo "################################################################################"
   echo "[CHECK] !!!!    INFO    !!!!"
   echo "[CHECK] The installed version of PyTorch is: ${installed_pytorch_version}"
+  echo "[CHECK] CUDA version reported by PyTorch is: ${installed_cuda_version}"
   echo "[CHECK]"
   echo "[CHECK] NOTE: If the PyTorch package channel is different from the FBGEMM_GPU"
   echo "[CHECK]       package channel; the package may be broken at runtime!!!"

@@ -27,7 +27,8 @@ set(fbgemm_sources_include_directories
   # Third-party
   ${THIRDPARTY}/asmjit/src
   ${THIRDPARTY}/cpuinfo/include
-  ${THIRDPARTY}/cutlass/include)
+  ${THIRDPARTY}/cutlass/include
+  ${THIRDPARTY}/cutlass/tools/util/include)
 
 
 ################################################################################
@@ -590,7 +591,7 @@ if(USE_ROCM)
   list(GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
 
 else()
-  # Else create a regular library
+  # Else create a CUDA library
   add_library(fbgemm_gpu_py MODULE
     ${asmjit_sources}
     ${fbgemm_sources}
