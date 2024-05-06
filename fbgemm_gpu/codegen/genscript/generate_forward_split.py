@@ -14,13 +14,9 @@ from typing import List
 
 try:
     from .common import CodeTemplate
-    from .scripts_argsparse import args
 except ImportError:
     # pyre-ignore[21]
     from common import CodeTemplate
-
-    # pyre-ignore[21]
-    from scripts_argsparse import args
 
 
 class ForwardSplitGenerator:
@@ -106,15 +102,14 @@ class ForwardSplitGenerator:
             vbe_options=[True, False],
         )
         # Generate the CUDA host code for global weight decay
-        if not args.is_rocm:
-            ForwardSplitGenerator.render_forward_templates(
-                "training/forward/embedding_forward_split_template.cu",
-                "gen_embedding_forward_{}_gwd_codegen_cuda.cu",
-                dense_options=[False],
-                nobag_options=[False],  # nobag is not used
-                vbe_options=[False],
-                is_gwd=True,
-            )
+        ForwardSplitGenerator.render_forward_templates(
+            "training/forward/embedding_forward_split_template.cu",
+            "gen_embedding_forward_{}_gwd_codegen_cuda.cu",
+            dense_options=[False],
+            nobag_options=[False],  # nobag is not used
+            vbe_options=[False],
+            is_gwd=True,
+        )
 
         # Generate the meta kernels
         ForwardSplitGenerator.render_forward_templates(
@@ -134,15 +129,14 @@ class ForwardSplitGenerator:
             vbe_options=[True, False],
         )
         # Generate the global weight decay CUDA kernels
-        if not args.is_rocm:
-            ForwardSplitGenerator.render_forward_templates(
-                "training/forward/embedding_forward_split_kernel_template.cu",
-                "gen_embedding_forward_{}_gwd_kernel.cu",
-                dense_options=[False],
-                nobag_options=[False],
-                vbe_options=[False],
-                is_gwd=True,
-            )
+        ForwardSplitGenerator.render_forward_templates(
+            "training/forward/embedding_forward_split_kernel_template.cu",
+            "gen_embedding_forward_{}_gwd_kernel.cu",
+            dense_options=[False],
+            nobag_options=[False],
+            vbe_options=[False],
+            is_gwd=True,
+        )
 
         # Generate the v2 CUDA kernels
         ForwardSplitGenerator.render_forward_templates(

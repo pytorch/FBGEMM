@@ -47,9 +47,7 @@ static constexpr float kINT8QparamsBytes = 8;
         dense,
         nobag,
         vbe,
-        is_index_select,
-        is_rocm,
-        True
+        is_index_select
     ) else [False])
 %}
 {%- set gwddesc = "_gwd" if is_gwd else "" %}
