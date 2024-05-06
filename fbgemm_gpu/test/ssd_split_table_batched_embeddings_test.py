@@ -10,8 +10,8 @@
 
 import random
 import unittest
+from typing import List, Tuple
 
-import fbgemm_gpu.ssd_split_table_batched_embeddings_ops as ssd_split_table_batched_embeddings_ops
 import hypothesis.strategies as st
 import numpy as np
 import torch
@@ -27,6 +27,11 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     rounded_row_size_in_bytes,
     unpadded_row_size_in_bytes,
+)
+
+from fbgemm_gpu.ssd_split_table_batched_embeddings_ops import (
+    SSDIntNBitTableBatchedEmbeddingBags,
+    SSDTableBatchedEmbeddingBags,
 )
 
 from hypothesis import given, settings, Verbosity
@@ -49,7 +54,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         count = torch.tensor([N])
 
         feature_table_map = list(range(1))
-        emb = ssd_split_table_batched_embeddings_ops.SSDTableBatchedEmbeddingBags(
+        emb = SSDTableBatchedEmbeddingBags(
             embedding_specs=[(E, D)],
             feature_table_map=feature_table_map,
             ssd_storage_directory=tempfile.mkdtemp(),
@@ -67,6 +72,140 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.cuda.synchronize()
         torch.testing.assert_close(weights, output_weights)
 
+    def generate_inputs_(
+        self, B: int, L: int, Es: List[int]
+    ) -> Tuple[
+        List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor
+    ]:
+        """
+        Generate indices and per sample weights
+        """
+        T = len(Es)
+
+        # Generate random indices and per sample weights
+        indices_list = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
+        per_sample_weights_list = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
+
+        # Concat inputs for SSD TBE
+        indices = torch.cat([indices.view(1, B, L) for indices in indices_list], dim=0)
+        per_sample_weights = torch.cat(
+            [
+                per_sample_weights.view(1, B, L)
+                for per_sample_weights in per_sample_weights_list
+            ],
+            dim=0,
+        )
+        (indices, offsets) = get_table_batched_offsets_from_dense(indices)
+
+        return (
+            indices_list,
+            per_sample_weights_list,
+            indices.cuda(),
+            offsets.cuda(),
+            per_sample_weights.contiguous().view(-1).cuda(),
+        )
+
+    def generate_ssd_tbes(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        lr: float = 0.01,  # from SSDTableBatchedEmbeddingBags
+        eps: float = 1.0e-8,  # from SSDTableBatchedEmbeddingBags
+        ssd_shards: int = 1,  # from SSDTableBatchedEmbeddingBags
+    ) -> Tuple[SSDTableBatchedEmbeddingBags, List[torch.nn.EmbeddingBag]]:
+        """
+        Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
+        torch.nn.EmbeddingBags)
+        """
+        import tempfile
+
+        torch.manual_seed(42)
+        E = int(10**log_E)
+        D = D * 4
+        Ds = [D] * T
+        Es = [E] * T
+        feature_table_map = list(range(T))
+
+        # Generate torch EmbeddingBag
+        emb_ref = [
+            torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
+            for (E, D) in zip(Es, Ds)
+        ]
+
+        # Generate TBE SSD
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
+            feature_table_map=feature_table_map,
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            learning_rate=lr,
+            eps=eps,
+            ssd_shards=ssd_shards,
+        ).cuda()
+
+        # Initialize TBE SSD weights
+        for t in range(T):
+            emb.ssd_db.set_cuda(
+                torch.arange(t * E, (t + 1) * E).to(torch.int64),
+                emb_ref[t].weight.cpu(),
+                torch.as_tensor([E]),
+                t,
+            )
+
+        return emb, emb_ref
+
+    def execute_ssd_forward_(
+        self,
+        emb: SSDTableBatchedEmbeddingBags,
+        emb_ref: List[torch.nn.EmbeddingBag],
+        indices_list: List[torch.Tensor],
+        per_sample_weights_list: List[torch.Tensor],
+        indices: torch.Tensor,
+        offsets: torch.Tensor,
+        per_sample_weights: torch.Tensor,
+        B: int,
+        L: int,
+        weighted: bool,
+    ) -> Tuple[List[torch.Tensor], torch.Tensor]:
+        """
+        Execute the forward functions of SSDTableBatchedEmbeddingBags and
+        torch.nn.EmbeddingBag and compare outputs
+        """
+        # Execute torch EmbeddingBag forward
+        output_ref_list = (
+            [b_indices(emb_, indices) for (emb_, indices) in zip(emb_ref, indices_list)]
+            if not weighted
+            else [
+                b_indices(emb_, indices, per_sample_weights=per_sample_weights.view(-1))
+                for (emb_, indices, per_sample_weights) in zip(
+                    emb_ref, indices_list, per_sample_weights_list
+                )
+            ]
+        )
+        output_ref = torch.cat([out.view(B, -1) for out in output_ref_list], dim=1)
+
+        # Execute TBE SSD forward
+        output = (
+            emb(indices, offsets)
+            if not weighted
+            else emb(indices, offsets, per_sample_weights)
+        )
+
+        # Compare outputs
+        torch.testing.assert_close(
+            output.float(),
+            output_ref.float(),
+            atol=1.0e-5,
+            rtol=1.0e-5,
+        )
+        return output_ref_list, output
+
     @given(
         T=st.integers(min_value=1, max_value=10),
         D=st.integers(min_value=2, max_value=128),
@@ -79,61 +218,41 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_ssd_forward(
         self, T: int, D: int, B: int, log_E: int, L: int, weighted: bool
     ) -> None:
-        import tempfile
-
-        E = int(10**log_E)
-        D = D * 4
-        Ds = [D] * T
-        Es = [E] * T
-        feature_table_map = list(range(T))
-        emb = ssd_split_table_batched_embeddings_ops.SSDTableBatchedEmbeddingBags(
-            embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
-            feature_table_map=feature_table_map,
-            ssd_storage_directory=tempfile.mkdtemp(),
-            cache_sets=max(T * B * L, 1),
-            ssd_uniform_init_lower=-0.1,
-            ssd_uniform_init_upper=0.1,
-        ).cuda()
-
-        bs = [
-            torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
-            for (E, D) in zip(Es, Ds)
-        ]
-        torch.manual_seed(42)
-        xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
-        xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-
-        fs = (
-            [b_indices(b, x) for (b, x) in zip(bs, xs)]
-            if not weighted
-            else [
-                b_indices(b, x, per_sample_weights=xw.view(-1))
-                for (b, x, xw) in zip(bs, xs, xws)
-            ]
+        # Generate embedding modules
+        (
+            emb,
+            emb_ref,
+        ) = self.generate_ssd_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
         )
-        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
 
-        for t in range(T):
-            emb.ssd_db.set_cuda(
-                torch.arange(t * E, (t + 1) * E).to(torch.int64),
-                bs[t].weight.cpu(),
-                torch.as_tensor([E]),
-                t,
-            )
+        # Generate inputs
+        Es = [emb.embedding_specs[t][0] for t in range(T)]
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+        ) = self.generate_inputs_(B, L, Es)
 
-        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
-        (indices, offsets) = get_table_batched_offsets_from_dense(x)
-        fc2 = (
-            emb(indices.cuda(), offsets.cuda())
-            if not weighted
-            else emb(indices.cuda(), offsets.cuda(), xw.contiguous().view(-1).cuda())
-        )
-        torch.testing.assert_close(
-            fc2.float(),
-            f.float(),
-            atol=1.0e-5,
-            rtol=1.0e-5,
+        # Execute forward
+        self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            weighted,
         )
 
     @given(
@@ -148,91 +267,81 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_ssd_backward_adagrad(
         self, T: int, D: int, B: int, log_E: int, L: int, weighted: bool
     ) -> None:
-        import tempfile
-
-        E = int(10**log_E)
-        D = D * 4
-        Ds = [D] * T
-        Es = [E] * T
+        # Constants
         lr = 0.5
         eps = 0.2
+        ssd_shards = 2
 
-        feature_table_map = list(range(T))
-        emb = ssd_split_table_batched_embeddings_ops.SSDTableBatchedEmbeddingBags(
-            embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
-            feature_table_map=feature_table_map,
-            ssd_storage_directory=tempfile.mkdtemp(),
-            cache_sets=max(T * B * L, 1),
-            ssd_uniform_init_lower=-0.1,
-            ssd_uniform_init_upper=0.1,
-            learning_rate=lr,
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+        ) = self.generate_ssd_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            lr=lr,
             eps=eps,
-            ssd_shards=2,
-        ).cuda()
-
-        bs = [
-            torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
-            for (E, D) in zip(Es, Ds)
-        ]
-        torch.manual_seed(42)
-        xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
-        xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-
-        fs = (
-            [b_indices(b, x) for (b, x) in zip(bs, xs)]
-            if not weighted
-            else [
-                b_indices(b, x, per_sample_weights=xw.view(-1))
-                for (b, x, xw) in zip(bs, xs, xws)
-            ]
-        )
-        f = torch.cat([f.view(B, -1) for f in fs], dim=1)
-        gos = [torch.randn_like(f) for f in fs]
-        [f.backward(go) for (f, go) in zip(fs, gos)]
-
-        for t in range(T):
-            emb.ssd_db.set_cuda(
-                torch.arange(t * E, (t + 1) * E).to(torch.int64),
-                bs[t].weight.cpu(),
-                torch.as_tensor([E]),
-                t,
-            )
-
-        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
-        (indices, offsets) = get_table_batched_offsets_from_dense(x)
-        fc2 = (
-            emb(indices.cuda(), offsets.cuda())
-            if not weighted
-            else emb(indices.cuda(), offsets.cuda(), xw.contiguous().view(-1).cuda())
-        )
-        torch.testing.assert_close(
-            fc2.float(),
-            f.float(),
-            atol=1.0e-5,
-            rtol=1.0e-5,
+            ssd_shards=ssd_shards,
         )
 
-        fc2.backward(torch.cat([go.view(B, -1) for go in gos], dim=1))
+        Es = [emb.embedding_specs[t][0] for t in range(T)]
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+        ) = self.generate_inputs_(B, L, Es)
 
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            weighted,
+        )
+
+        # Generate output gradient
+        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+
+        # Execute torch EmbeddingBag backward
+        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
+
+        # Execute TBE SSD backward
+        output.backward(
+            torch.cat([grad.view(B, -1) for grad in output_grad_list], dim=1)
+        )
+        # Compare optimizer states
         split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
         for t in range(T):
             # pyre-fixme[16]: Optional type has no attribute `float`.
-            ref_optimizer_state = bs[t].weight.grad.float().to_dense().pow(2)
+            ref_optimizer_state = emb_ref[t].weight.grad.float().to_dense().pow(2)
             torch.testing.assert_close(
                 split_optimizer_states[t].float(),
                 ref_optimizer_state.mean(dim=1),
                 atol=1.0e-4,
                 rtol=1.0e-4,
             )
+
+        # Compare weights
         emb.flush()
         for t in range(T):
             torch.testing.assert_close(
                 emb.debug_split_embedding_weights()[t].float().cuda(),
                 torch.addcdiv(
-                    bs[t].weight.float(),
+                    emb_ref[t].weight.float(),
                     value=-lr,
-                    tensor1=bs[t].weight.grad.float().to_dense(),
+                    tensor1=emb_ref[t].weight.grad.float().to_dense(),
                     tensor2=split_optimizer_states[t]
                     .float()
                     .sqrt_()
@@ -261,51 +370,30 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # log_E=3
         # L=14
         # weighted=False
-        import tempfile
-
-        E = int(10**log_E)
-        D = D * 4
-        Ds = [D] * T
-        Es = [E] * T
-        lr = 0.5
-        eps = 0.2
-        C = max(T * B * L, 1)
-
-        feature_table_map = list(range(T))
-        emb = ssd_split_table_batched_embeddings_ops.SSDTableBatchedEmbeddingBags(
-            embedding_specs=[(E, D) for (E, D) in zip(Es, Ds)],
-            feature_table_map=feature_table_map,
-            ssd_storage_directory=tempfile.mkdtemp(),
-            cache_sets=C,
-            ssd_uniform_init_lower=-0.1,
-            ssd_uniform_init_upper=0.1,
-            learning_rate=lr,
-            eps=eps,
-            ssd_shards=2,
-        ).cuda()
-
-        bs = [
-            torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
-            for (E, D) in zip(Es, Ds)
-        ]
         torch.manual_seed(42)
+        # Generate embedding modules
+        (
+            emb,
+            emb_ref,
+        ) = self.generate_ssd_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+        )
 
-        for t in range(T):
-            emb.ssd_db.set_cuda(
-                torch.arange(t * E, (t + 1) * E).to(torch.int64),
-                bs[t].weight.cpu(),
-                torch.as_tensor([E]),
-                t,
-            )
+        Es = [emb.embedding_specs[t][0] for t in range(T)]
 
         for i in range(10):
-            xs = [torch.randint(low=0, high=e, size=(B, L)).cuda() for e in Es]
-            x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-            xws = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
-            xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
-
-            (indices, offsets) = get_table_batched_offsets_from_dense(x)
-            (indices, offsets) = indices.cuda(), offsets.cuda()
+            (
+                indices_list,
+                per_sample_weights_list,
+                indices,
+                offsets,
+                per_sample_weights,
+            ) = self.generate_inputs_(B, L, Es)
             assert emb.timestep == i
 
             emb.prefetch(indices, offsets)
@@ -353,25 +441,18 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 loc_slot = loc % ASSOC
                 assert lru_state_cpu[loc_set, loc_slot] == emb.timestep
                 assert lxu_cache_state_cpu[loc_set, loc_slot] == linear_idx
-            fs = (
-                [b_indices(b, x) for (b, x) in zip(bs, xs)]
-                if not weighted
-                else [
-                    b_indices(b, x, per_sample_weights=xw.view(-1))
-                    for (b, x, xw) in zip(bs, xs, xws)
-                ]
-            )
-            f = torch.cat([f.view(B, -1) for f in fs], dim=1)
-            fc2 = (
-                emb(indices, offsets)
-                if not weighted
-                else emb(indices, offsets, xw.contiguous().view(-1).cuda())
-            )
-            torch.testing.assert_close(
-                fc2.float(),
-                f.float(),
-                atol=1.0e-5,
-                rtol=1.0e-5,
+
+            self.execute_ssd_forward_(
+                emb,
+                emb_ref,
+                indices_list,
+                per_sample_weights_list,
+                indices,
+                offsets,
+                per_sample_weights,
+                B,
+                L,
+                weighted,
             )
 
 
@@ -389,13 +470,11 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         count = torch.tensor([N])
 
         feature_table_map = list(range(1))
-        emb = (
-            ssd_split_table_batched_embeddings_ops.SSDIntNBitTableBatchedEmbeddingBags(
-                embedding_specs=[("", E, D, SparseType.FP32)],
-                feature_table_map=feature_table_map,
-                ssd_storage_directory=tempfile.mkdtemp(),
-                cache_sets=1,
-            )
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[("", E, D, SparseType.FP32)],
+            feature_table_map=feature_table_map,
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=1,
         )
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
@@ -468,19 +547,17 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_alignment = 16
 
         feature_table_map = list(range(T))
-        emb = (
-            ssd_split_table_batched_embeddings_ops.SSDIntNBitTableBatchedEmbeddingBags(
-                embedding_specs=[
-                    ("", E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
-                ],
-                feature_table_map=feature_table_map,
-                ssd_storage_directory=tempfile.mkdtemp(),
-                cache_sets=max(T * B * L, 1),
-                ssd_uniform_init_lower=-0.1,
-                ssd_uniform_init_upper=0.1,
-                pooling_mode=PoolingMode.SUM,
-            ).cuda()
-        )
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[
+                ("", E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
+            ],
+            feature_table_map=feature_table_map,
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=max(T * B * L, 1),
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
         # # NOTE: test TorchScript-compatible!
         # emb = torch.jit.script(emb)
 
@@ -611,20 +688,18 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         row_alignment = 16
 
         feature_table_map = list(range(T))
-        emb = (
-            ssd_split_table_batched_embeddings_ops.SSDIntNBitTableBatchedEmbeddingBags(
-                embedding_specs=[
-                    ("", E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
-                ],
-                feature_table_map=feature_table_map,
-                ssd_storage_directory=tempfile.mkdtemp(),
-                cache_sets=C,
-                ssd_uniform_init_lower=-0.1,
-                ssd_uniform_init_upper=0.1,
-                ssd_shards=2,
-                pooling_mode=PoolingMode.SUM,
-            ).cuda()
-        )
+        emb = SSDIntNBitTableBatchedEmbeddingBags(
+            embedding_specs=[
+                ("", E, D, W_TY) for (E, D, W_TY) in zip(Es, Ds, weights_ty_list)
+            ],
+            feature_table_map=feature_table_map,
+            ssd_storage_directory=tempfile.mkdtemp(),
+            cache_sets=C,
+            ssd_uniform_init_lower=-0.1,
+            ssd_uniform_init_upper=0.1,
+            ssd_shards=2,
+            pooling_mode=PoolingMode.SUM,
+        ).cuda()
         # # NOTE: test TorchScript-compatible!
         # emb = torch.jit.script(emb)
 
