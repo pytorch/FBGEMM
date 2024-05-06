@@ -42,7 +42,6 @@ using Tensor = at::Tensor;
         nobag,
         vbe,
         is_index_select,
-        is_rocm,
         has_global_weight_decay_support
     ) else [False])
 %}

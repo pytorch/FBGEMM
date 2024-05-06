@@ -125,8 +125,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     dense,
     nobag,
     vbe,
-    is_index_select,
-    is_rocm) %}
+    is_index_select) %}
 {%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
     typename emb_t,
@@ -315,8 +314,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     dense,
     nobag,
     vbe,
-    is_index_select,
-    is_rocm) %}
+    is_index_select) %}
 {%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 Tensor
 {%- if is_index_select %}
