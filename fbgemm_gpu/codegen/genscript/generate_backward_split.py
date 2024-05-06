@@ -95,7 +95,7 @@ class BackwardSplitGenerator:
                 kwargs,
             )
         # Generate the global weight decay CUDA kernels
-        if kwargs.get("has_global_weight_decay_support") and not args.is_rocm:
+        if kwargs.get("has_global_weight_decay_support"):
             for template_filepath, filename_format in [
                 (
                     "training/backward/embedding_backward_split_kernel_cta_template.cu",

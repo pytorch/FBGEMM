@@ -298,7 +298,6 @@ using namespace fbgemm_gpu;
       nobag,
       vbe,
       is_index_select,
-      is_rocm,
       has_global_weight_decay_support
       )
       else [False]) %}
@@ -434,7 +433,6 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
       nobag,
       vbe,
       is_index_select,
-      is_rocm,
       has_global_weight_decay_support
       )
       else [False]) %}
@@ -835,7 +833,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     }
     {%- endif %} {#-/* if has_vbe_support */ #}
 
-    {%- if has_global_weight_decay_support and (not is_rocm) %}
+    {%- if has_global_weight_decay_support %}
     // has gwd support
     if (apply_global_weight_decay && weight_decay > 0) {
       // not vbe and gwd

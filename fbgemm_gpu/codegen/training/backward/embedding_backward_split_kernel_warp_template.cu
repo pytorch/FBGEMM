@@ -22,7 +22,6 @@
     nobag,
     vbe,
     is_index_select,
-    is_rocm,
     has_global_weight_decay_support) %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"

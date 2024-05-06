@@ -303,7 +303,6 @@ def is_valid_gwd_config(
     nobag: bool,
     vbe: bool,
     is_index_select: bool,
-    is_rocm: bool,
     has_global_weight_decay_support: bool = True,
 ) -> bool:
     """
@@ -311,14 +310,13 @@ def is_valid_gwd_config(
     - `has_global_weight_decay_support` is whether global weight decay is available for
     an optimizer, but not all configs of such optimizer offer global weight decay support
     - any updates to the configs need to be reflected in embedding_backward_split_host_template.cpp
-    - global weight decay does not support dense, nobag, vbe, is_index_select, and is_rocm
+    - global weight decay does not support dense, nobag, vbe, index_select
     """
     return (
         not dense
         and not nobag
         and not vbe
         and not is_index_select
-        and not is_rocm
         and has_global_weight_decay_support
     )
 

@@ -35,7 +35,6 @@ using namespace fbgemm_gpu;
     nobag,
     vbe,
     is_index_select,
-    is_rocm,
     has_global_weight_decay_support) %}
 {%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
@@ -418,7 +417,6 @@ int32_t compute_num_groups_and_dynamic_smem_bytes(
     nobag,
     vbe,
     is_index_select,
-    is_rocm,
     has_global_weight_decay_support) %}
 {%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 

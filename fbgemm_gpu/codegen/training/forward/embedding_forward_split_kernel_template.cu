@@ -23,8 +23,7 @@
     dense,
     nobag,
     vbe,
-    is_index_select,
-    is_rocm) %}
+    is_index_select) %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
