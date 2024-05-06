@@ -16,6 +16,7 @@ set(THIRDPARTY ${FBGEMM}/third_party)
 
 include(${CMAKEMODULES}/Utilities.cmake)
 
+set(CMAKE_VERBOSE_MAKEFILE on)
 
 ################################################################################
 # FBGEMM_GPU Build Options
