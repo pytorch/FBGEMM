@@ -436,7 +436,8 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         indices,
         offsets,
         /*B_offsets=*/c10::optional<Tensor>(),
-        /*max_B=*/-1);
+        /*max_B=*/-1,
+        /*indices_base_offset=*/0);
 
     bool gather_uvm_stats = false;
     // populate_uvm_stats indicates whether to calculate cache related ratios,

@@ -60,7 +60,8 @@ at::Tensor linearize_cache_indices_cuda(
     const at::Tensor& indices,
     const at::Tensor& offsets,
     const c10::optional<at::Tensor>& B_offsets,
-    const int64_t max_B);
+    const int64_t max_B,
+    const int64_t indices_base_offset);
 
 ///@ingroup table-batched-embed-cuda
 /// Linearize the indices of all tables to make it be unique.
