@@ -25,7 +25,7 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #elif (defined(USE_ROCM))
-#include <hip/hip_bf16.h>
+#include <hip/hip_bfloat16.h>
 #include <hip/hip_fp16.h>
 #endif
 
@@ -77,19 +77,19 @@ static __host__ DEVICE_INLINE int32_t round_up(int32_t a, int32_t b) {
 }
 
 #ifdef __HIP_PLATFORM_AMD__
-constexpr int32_t kThreadsPerWarp = 64;
-constexpr int32_t kWarpsPerBlock = 16;
+// constexpr int32_t kThreadsPerWarp = 64;
+// constexpr int32_t kWarpsPerBlock = 16;
 #else
 constexpr int32_t kThreadsPerWarp = 32;
-constexpr int32_t kWarpsPerBlock = 32;
+// constexpr int32_t kWarpsPerBlock = 32;
 #endif
 
-constexpr int32_t D_H = 128;
+// constexpr int32_t D_H = 128;
 // MAX_T: max seq len. We need to make sure shared memory size
 // (https://fburl.com/code/ruc41vc7) <= limit of V100/A100/H100 GPUs
 // (https://fburl.com/code/gh9j9go4).
-constexpr int32_t MAX_T = 16384;
-constexpr int SMEM_ADJUST_THRESHOLD = 48 * 1024;
+// constexpr int32_t MAX_T = 16384;
+// constexpr int SMEM_ADJUST_THRESHOLD = 48 * 1024;
 
 #ifdef __HIP_PLATFORM_AMD__
 static __host__ __device__ float __bfloat162float(__nv_bfloat16 f) {
