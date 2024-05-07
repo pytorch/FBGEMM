@@ -16,14 +16,17 @@
     defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#include <cublasLt.h>
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include <cuda/atomic>
 #elif (defined(USE_ROCM))
-#include <hip/hip_bfloat16.h>
+#include <hip/hip_bf16.h>
+#include <hip/hip_fp16.h>
+#include <hipblaslt/hipblaslt.h>
 #endif
 #include <c10/core/ScalarType.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <cublasLt.h>
 #include <cutlass/core_io.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/gemm/device/gemm.h>

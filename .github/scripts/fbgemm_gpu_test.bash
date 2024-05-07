@@ -379,6 +379,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
     local variant_versions=(
       11.8.0
       12.1.1
+      12.4.1
     )
   elif [ "$variant_type" == "rocm" ]; then
     local variant_versions=(

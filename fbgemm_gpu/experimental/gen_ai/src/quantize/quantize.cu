@@ -23,8 +23,10 @@
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
 #include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #elif (defined(USE_ROCM))
-#include <hip/hip_bfloat16.h>
+#include <hip/hip_bf16.h>
+#include <hip/hip_fp16.h>
 #endif
 
 #ifndef USE_ROCM
