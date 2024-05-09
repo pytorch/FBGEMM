@@ -124,6 +124,7 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_inputs=st.integers(min_value=1, max_value=10),
         num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
         r=st.randoms(use_true_random=False),
+        arbitrary_dim_input=st.randoms(use_true_random=False),
     )
     # Can instantiate 8 contexts which takes a long time.
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
@@ -135,10 +136,23 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         num_gpus,
         # pyre-fixme[2]: Parameter must be annotated.
         r,
+        # pyre-fixme[2]: Parameter must be annotated.
+        arbitrary_dim_input,
     ) -> None:
         dst_device = torch.device(f"cuda:{r.randint(0, num_gpus - 1)}")
         with torch.cuda.device(dst_device):
-            inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
+            if arbitrary_dim_input:
+                ranks = torch.randint(0, 5, (num_inputs,))
+                # pyre-ignore
+                dims = torch.randint(0, 10, (ranks.sum().item(),))
+                inputs = []
+                offset = 0
+                for i in range(num_inputs):
+                    rank = ranks[i].item()
+                    inputs.append(torch.randn(dims[offset : offset + rank].tolist()))
+                    offset += rank
+            else:
+                inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
             cuda_inputs = [
                 input.to(f"cuda:{i % num_gpus}") for i, input in enumerate(inputs)
             ]

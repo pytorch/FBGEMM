@@ -164,6 +164,35 @@ void all_to_one(
 
   static auto intermediate_nodes =
       get_intermediate_node(fbgemm_gpu::get_nvlink_matrix());
+
+  auto copy_fn =
+      [&](Tensor& dst, const Tensor& src, at::cuda::CUDAStream& copy_stream) {
+        if (src.numel() == 0) {
+          return;
+        }
+
+        if (src.dim() == 2u) {
+          AT_CUDA_CHECK(cudaMemcpy2DAsync(
+              dst.data_ptr(),
+              dst.stride(0) * dst.element_size(),
+              src.data_ptr(),
+              src.stride(0) * src.element_size(),
+              src.size(1) * src.element_size(),
+              src.size(0),
+              cudaMemcpyDeviceToDevice,
+              copy_stream));
+        } else {
+          TORCH_CHECK(dst.is_contiguous());
+          TORCH_CHECK(src.is_contiguous());
+          AT_CUDA_CHECK(cudaMemcpyAsync(
+              dst.data_ptr(),
+              src.data_ptr(),
+              src.numel() * src.element_size(),
+              cudaMemcpyDeviceToDevice,
+              copy_stream));
+        }
+      };
+
   for (const auto i : c10::irange(input_tensors.size())) {
     const auto& src = input_tensors.at(i);
     Node src_device_id = src.get_device();
@@ -180,15 +209,7 @@ void all_to_one(
       auto& dst = two_hop_transfers.back().intermediate_tensor;
       at::cuda::CUDAStream copy_stream =
           at::cuda::getCurrentCUDAStream(src_device_id);
-      AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.data_ptr(),
-          dst.stride(0) * dst.element_size(),
-          src.data_ptr(),
-          src.stride(0) * src.element_size(),
-          src.size(1) * src.element_size(),
-          src.size(0),
-          cudaMemcpyDeviceToDevice,
-          copy_stream));
+      copy_fn(dst, src, copy_stream);
       two_hop_transfers.back().transfer_cuda_event->record(copy_stream);
       is_two_hop_transfer.push_back(true);
     } else {
@@ -233,23 +254,17 @@ void all_to_one(
       if (metadata) {
         continue;
       }
-
       auto& src = input_tensors[i];
+      if (src.numel() == 0) {
+        continue;
+      }
       if (src.device() != src_device) {
         continue;
       }
 
       auto& dst = output_tensors[i];
       // on source device, launch memcpy.
-      AT_CUDA_CHECK(cudaMemcpy2DAsync(
-          dst.data_ptr(),
-          dst.stride(0) * dst.element_size(),
-          src.data_ptr(),
-          src.stride(0) * src.element_size(),
-          src.size(1) * src.element_size(),
-          src.size(0),
-          cudaMemcpyDeviceToDevice,
-          copy_stream));
+      copy_fn(dst, src, copy_stream);
     }
   }
 
@@ -259,6 +274,9 @@ void all_to_one(
     const auto src_device_id = src.get_device();
     const auto src_device = at::Device(at::kCUDA, src_device_id);
     if (src_device == target_device) {
+      continue;
+    }
+    if (src.numel() == 0) {
       continue;
     }
 
@@ -279,15 +297,7 @@ void all_to_one(
     const auto output_index = two_hop_transfer.output_idx;
     auto& dst = output_tensors.at(output_index);
     // on source device, launch memcpy.
-    AT_CUDA_CHECK(cudaMemcpy2DAsync(
-        dst.data_ptr(),
-        dst.stride(0) * dst.element_size(),
-        src.data_ptr(),
-        src.stride(0) * src.element_size(),
-        src.size(1) * src.element_size(),
-        src.size(0),
-        cudaMemcpyDeviceToDevice,
-        copy_stream));
+    copy_fn(dst, src, copy_stream);
   }
 
   // Do the same-GPU cases.
@@ -299,15 +309,7 @@ void all_to_one(
         // single device memcpy, not that src_device == dst_device.
         at::cuda::CUDAStream copy_stream =
             at::cuda::getCurrentCUDAStream(target_device_index);
-        AT_CUDA_CHECK(cudaMemcpy2DAsync(
-            dst.data_ptr(),
-            dst.stride(0) * dst.element_size(),
-            src.data_ptr(),
-            src.stride(0) * src.element_size(),
-            src.size(1) * src.element_size(),
-            src.size(0),
-            cudaMemcpyDeviceToDevice,
-            copy_stream));
+        copy_fn(dst, src, copy_stream);
       }
     }
   }
@@ -621,7 +623,7 @@ std::vector<Tensor> all_to_one_device(
     TORCH_CHECK(tensor.is_cuda());
     output_tensors.push_back(
         tensor.device() != target_device
-            ? at::empty(tensor.sizes(), tensor.options().device(target_device))
+            ? at::empty_like(tensor, tensor.options().device(target_device))
             : tensor);
   }
   all_to_one(
