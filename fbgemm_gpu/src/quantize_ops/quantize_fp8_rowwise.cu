@@ -17,10 +17,10 @@ namespace {
 // FP32/FP16 -> FP8 rowwise kernel
 template <typename input_t>
 __global__ inline void _float_to_FP8rowwise_cuda_kernel(
-    const at::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
     const int64_t nrows,
     const int64_t ncols,
-    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
   // Assert if index is out of bound
   CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
@@ -59,10 +59,10 @@ __global__ inline void _float_to_FP8rowwise_cuda_kernel(
 
 template <typename input_t>
 __global__ inline void _get_FP8_qparam_cuda_kernel(
-    const at::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
     const int64_t nrows,
     const int64_t ncols,
-    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
   // Assert if index is out of bound
   CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
@@ -119,10 +119,10 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
 
 template <typename input_t>
 __global__ inline void _compute_FP8_quantize_cuda_kernel(
-    const at::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
     const int64_t nrows,
     const int64_t ncols,
-    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
   // Assert if index is out of bound
   CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
@@ -159,10 +159,10 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
 
 template <typename output_t>
 __global__ inline void _FP8rowwise_to_float_cuda_kernel(
-    at::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> input,
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> input,
     const int64_t nrows,
     const int64_t ncols,
-    at::PackedTensorAccessor64<output_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor64<output_t, 1, at::RestrictPtrTraits> output,
     const bool forward) {
   // Assert if index is out of bound
   CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
@@ -234,17 +234,18 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
   if (nrows <= 20) {
     FBGEMM_DISPATCH_FLOATING_TYPES(
         input.scalar_type(), "_float_to_FP8rowwise_cuda_kernel", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+          const auto func_name = "_float_to_FP8rowwise_cuda_kernel";
+#endif
           _float_to_FP8rowwise_cuda_kernel<scalar_t>
               <<<num_blocks,
                  threads_per_block,
                  0,
                  at::cuda::getCurrentCUDAStream()>>>(
-                  input_1D
-                      .packed_accessor64<scalar_t, 1, at::RestrictPtrTraits>(),
+                  MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
                   nrows,
                   ncols,
-                  output_1D
-                      .packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+                  MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
                   forward);
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
@@ -276,19 +277,18 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_get_FP8_qparam_cuda_kernel", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+            const auto func_name = "_get_FP8_qparam_cuda_kernel";
+#endif
             _get_FP8_qparam_cuda_kernel<scalar_t>
                 <<<num_blocks_warp,
                    dim3(blockDim_x, rows_per_block),
                    0,
                    at::cuda::getCurrentCUDAStream()>>>(
-                    input_1D.packed_accessor64<
-                        scalar_t,
-                        1,
-                        at::RestrictPtrTraits>(),
+                    MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
                     nrows,
                     ncols,
-                    output_1D
-                        .packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
                     forward);
             C10_CUDA_KERNEL_LAUNCH_CHECK();
           });
@@ -304,16 +304,15 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
 
       FBGEMM_DISPATCH_FLOATING_TYPES(
           input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+            const auto func_name = "_compute_FP8_quantize_cuda_kernel";
+#endif
             _compute_FP8_quantize_cuda_kernel<scalar_t>
                 <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    input_1D.packed_accessor64<
-                        scalar_t,
-                        1,
-                        at::RestrictPtrTraits>(),
+                    MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
                     nrows,
                     ncols,
-                    output_1D
-                        .packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+                    MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
                     forward);
             C10_CUDA_KERNEL_LAUNCH_CHECK();
           });
@@ -399,13 +398,15 @@ Tensor _FP8rowwise_to_float_gpu_t(
 
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "FP8rowwise_to_float_cuda_kernel", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name = "_FP8rowwise_to_float_cuda_kernel";
+#endif
         _FP8rowwise_to_float_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                input_1D.packed_accessor64<uint8_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, input_1D, uint8_t, 1, 64),
                 nrows,
                 ncols,
-                output_1D
-                    .packed_accessor64<scalar_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, output_1D, scalar_t, 1, 64),
                 forward);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
