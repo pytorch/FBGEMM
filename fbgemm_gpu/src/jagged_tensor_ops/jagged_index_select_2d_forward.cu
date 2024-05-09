@@ -14,12 +14,13 @@ namespace fbgemm_gpu {
 
 template <typename index_t, typename offset_t, typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void jagged_index_select_2d_kernel(
-    at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> output,
-    const at::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> output,
+    const pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         input_offsets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         output_offsets,
     const int64_t num_dense_output_rows) {
   __shared__ int smem[1];
@@ -95,27 +96,21 @@ Tensor jagged_index_select_2d_forward_cuda(
               indices.scalar_type(),
               "jagged_index_select_2d_kernel_wrapper_2",
               [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+                const auto func_name = "jagged_index_select_2d_kernel";
+#endif
                 jagged_index_select_2d_kernel<<<
                     dim3(num_blocks),
                     dim3(num_cols),
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
-                    output.packed_accessor64<
-                        scalar_t,
-                        2,
-                        at::RestrictPtrTraits>(),
-                    values.packed_accessor64<
-                        scalar_t,
-                        2,
-                        at::RestrictPtrTraits>(),
-                    input_offsets
-                        .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                    indices
-                        .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                    output_offsets_contig->packed_accessor32<
-                        int64_t,
-                        1,
-                        at::RestrictPtrTraits>(),
+                    MAKE_PTA_WITH_NAME(func_name, output, scalar_t, 2, 64),
+                    MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 64),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, input_offsets, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, (*output_offsets_contig), int64_t, 1, 32),
                     num_dense_output_rows);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
