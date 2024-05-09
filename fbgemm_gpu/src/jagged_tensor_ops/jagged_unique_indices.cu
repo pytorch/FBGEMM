@@ -16,11 +16,13 @@ namespace fbgemm_gpu {
 // can be sorted together.
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void linearize_index_wo_infos_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        offsets,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices,
     FixedDivisor fd) {
   const int32_t T = hash_size_cumsum.size(0) - 1;
@@ -54,10 +56,11 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_wo_infos_kernel(
 // the element from the unique indices according to the reverse index info.
 template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void delinearize_unique_index_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         reverse_index,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         unique_indices) {
   const auto total_indices = indices.size(0);
   const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
@@ -73,12 +76,13 @@ __global__ __launch_bounds__(kMaxThreads) void delinearize_unique_index_kernel(
 // values in the reverse index array.
 template <typename index_t, auto max_value, auto min_value>
 __global__ __launch_bounds__(kMaxThreads) void unique_indices_length_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_offsets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         reverse_index,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> lengths) {
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        offsets,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> lengths) {
   typedef cub::BlockReduce<index_t, kMaxThreads> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage_max;
   __shared__ typename BlockReduce::TempStorage temp_storage_min;
@@ -144,15 +148,18 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
       indices.scalar_type(), "linearize_index", ([&] {
         const auto linearize_index_kernel_ =
             linearize_index_wo_infos_kernel<index_t>;
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name = "linearize_index_kernel_";
+#endif
         linearize_index_kernel_<<<
             div_round_up(total_B, kMaxThreads),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            hash_size_cumsum.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            linear_indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, linear_indices, index_t, 1, 32),
             FixedDivisor(total_B / T));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
@@ -170,14 +177,17 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
       indices.scalar_type(), "delinearize_unique_index", ([&] {
         const auto delinearize_unique_index_kernel_ =
             delinearize_unique_index_kernel<index_t>;
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name = "delinearize_unique_index_kernel_";
+#endif
         delinearize_unique_index_kernel_<<<
             div_round_up(total_indices + 1, kMaxThreads),
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            reverse_index.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            unique_indices.packed_accessor32<index_t, 1, RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, reverse_index, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 
@@ -188,16 +198,18 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
             index_t,
             std::numeric_limits<index_t>::max(),
             std::numeric_limits<index_t>::min()>;
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name = "unique_indices_length_kernel_";
+#endif
         unique_indices_length_kernel_<<<
             T,
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            hash_size_offsets
-                .packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            reverse_index.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            output_lengths.packed_accessor32<index_t, 1, RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, hash_size_offsets, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, reverse_index, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, output_lengths, index_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 
@@ -209,10 +221,12 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 // Compute hash size for each key using the max value of indices per key.
 template <typename index_t, auto min_value>
 __global__ __launch_bounds__(kMaxThreads) void compute_hash_size_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        offsets,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
     const int64_t batch_size,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> hash_size) {
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> hash_size) {
   typedef cub::BlockReduce<index_t, kMaxThreads> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage_max;
 
@@ -254,15 +268,18 @@ std::tuple<Tensor, Tensor> jagged_hash_size_cumsum_cuda(
         const auto compute_hash_size_kernel_ = compute_hash_size_kernel<
             index_t,
             std::numeric_limits<index_t>::min()>;
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name = "compute_hash_size_kernel_";
+#endif
         compute_hash_size_kernel_<<<
             T,
             kMaxThreads,
             0,
             at::cuda::getCurrentCUDAStream()>>>(
-            offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
             batch_size,
-            hash_size.packed_accessor32<index_t, 1, RestrictPtrTraits>());
+            MAKE_PTA_WITH_NAME(func_name, hash_size, index_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       }));
 
