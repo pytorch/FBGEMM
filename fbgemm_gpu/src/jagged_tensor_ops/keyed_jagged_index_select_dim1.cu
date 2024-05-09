@@ -19,10 +19,11 @@ template <
     int NUM_THREADS_PER_BLOCK,
     int MAX_ENTRIES_PER_BLOCK>
 __global__ void index_select_scalar_cumsum_kernel(
-    at::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
-    at::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
-    const at::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
+    const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
     const int num_batches,
     const int input_batch_size,
     const int last_block_num_entries,
@@ -73,16 +74,17 @@ template <
     typename weight_t,
     bool has_weights>
 __global__ void keyed_jagged_index_select_dim1_kernel(
-    at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
-    at::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
         output_weights,
-    const at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
         weights,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         input_offsets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         output_offsets,
     const int num_batches,
     const int input_batch_size) {
@@ -121,12 +123,13 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
 
 template <typename scalar_t, typename index_t, typename offset_t>
 __global__ void keyed_jagged_index_add_dim1_kernel(
-    at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
-    const at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
+    const pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         input_offsets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         output_offsets,
     const int num_batches,
     const int output_batch_size) {
@@ -226,6 +229,10 @@ class KeyedJaggedIndexSelectDim1GPUOp
                     indices.scalar_type(),
                     "index_select_scalar_cumsum_wrapper_3",
                     [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+                      const auto func_name =
+                          "index_select_scalar_cumsum_kernel";
+#endif
                       index_select_scalar_cumsum_kernel<
                           length_t,
                           index_t,
@@ -236,22 +243,14 @@ class KeyedJaggedIndexSelectDim1GPUOp
                              MAX_CUMSUM_ENTRIES_PER_BLOCK,
                              0,
                              at::cuda::getCurrentCUDAStream()>>>(
-                              output_lengths.packed_accessor32<
-                                  length_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
-                              output_offsets.packed_accessor32<
-                                  offset_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
-                              lengths.packed_accessor32<
-                                  length_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
-                              indices.packed_accessor32<
-                                  index_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, output_lengths, length_t, 1, 32),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, output_offsets, offset_t, 1, 32),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, lengths, length_t, 1, 32),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, indices, index_t, 1, 32),
                               num_batches,
                               batch_size,
                               num_output_lengths -
@@ -282,27 +281,27 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const auto output_offsets_contig = output_offsets.expect_contiguous();
 
     if (grid_size != 0) {
-#define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS)        \
-  {                                                                          \
-    keyed_jagged_index_select_dim1_kernel<                                   \
-        value_t,                                                             \
-        index_t,                                                             \
-        offset_t,                                                            \
-        WEIGHT_TYPE,                                                         \
-        WEIGHTED>                                                            \
-        <<<grid_size, kMaxThreads, 0, at::cuda::getCurrentCUDAStream()>>>(   \
-            output.packed_accessor64<value_t, 1, at::RestrictPtrTraits>(),   \
-            OUTPUT_WEIGHTS                                                   \
-                .packed_accessor64<WEIGHT_TYPE, 1, at::RestrictPtrTraits>(), \
-            values.packed_accessor64<value_t, 1, at::RestrictPtrTraits>(),   \
-            WEIGHTS                                                          \
-                .packed_accessor64<WEIGHT_TYPE, 1, at::RestrictPtrTraits>(), \
-            offsets.packed_accessor32<offset_t, 1, at::RestrictPtrTraits>(), \
-            indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),  \
-            output_offsets_contig                                            \
-                ->packed_accessor32<offset_t, 1, at::RestrictPtrTraits>(),   \
-            num_batches,                                                     \
-            batch_size);                                                     \
+#define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS)          \
+  {                                                                            \
+    [[maybe_unused]] const auto func_name =                                    \
+        "keyed_jagged_index_select_dim1_kernel";                               \
+    keyed_jagged_index_select_dim1_kernel<                                     \
+        value_t,                                                               \
+        index_t,                                                               \
+        offset_t,                                                              \
+        WEIGHT_TYPE,                                                           \
+        WEIGHTED>                                                              \
+        <<<grid_size, kMaxThreads, 0, at::cuda::getCurrentCUDAStream()>>>(     \
+            MAKE_PTA_WITH_NAME(func_name, output, value_t, 1, 64),             \
+            MAKE_PTA_WITH_NAME(func_name, OUTPUT_WEIGHTS, WEIGHT_TYPE, 1, 64), \
+            MAKE_PTA_WITH_NAME(func_name, values, value_t, 1, 64),             \
+            MAKE_PTA_WITH_NAME(func_name, WEIGHTS, WEIGHT_TYPE, 1, 64),        \
+            MAKE_PTA_WITH_NAME(func_name, offsets, offset_t, 1, 32),           \
+            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),            \
+            MAKE_PTA_WITH_NAME(                                                \
+                func_name, (*output_offsets_contig), offset_t, 1, 32),         \
+            num_batches,                                                       \
+            batch_size);                                                       \
   }
       FBGEMM_DISPATCH_ALL_TYPES(
           values.scalar_type(),
@@ -395,6 +394,9 @@ class KeyedJaggedIndexSelectDim1GPUOp
                 "keyed_jagged_index_add_dim1_wrapper_2",
                 [&] {
                   using offset_t = index_t;
+#ifdef FBGEMM_GPU_MEMCHECK
+                  const auto func_name = "keyed_jagged_index_add_dim1_kernel";
+#endif
                   AT_DISPATCH_INDEX_TYPES(
                       indices.scalar_type(),
                       "keyed_jagged_index_add_dim1_wrapper_3",
@@ -404,26 +406,20 @@ class KeyedJaggedIndexSelectDim1GPUOp
                             kMaxThreads,
                             0,
                             at::cuda::getCurrentCUDAStream()>>>(
-                            grad_input.packed_accessor64<
-                                scalar_t,
-                                1,
-                                at::RestrictPtrTraits>(),
-                            grad.packed_accessor64<
-                                scalar_t,
-                                1,
-                                at::RestrictPtrTraits>(),
-                            grad_offsets_contig->packed_accessor32<
+                            MAKE_PTA_WITH_NAME(
+                                func_name, grad_input, scalar_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(
+                                func_name, grad, scalar_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(
+                                func_name,
+                                (*grad_offsets_contig),
                                 offset_t,
                                 1,
-                                at::RestrictPtrTraits>(),
-                            indices.packed_accessor32<
-                                index_t,
-                                1,
-                                at::RestrictPtrTraits>(),
-                            output_offsets.packed_accessor32<
-                                offset_t,
-                                1,
-                                at::RestrictPtrTraits>(),
+                                32),
+                            MAKE_PTA_WITH_NAME(
+                                func_name, indices, index_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(
+                                func_name, output_offsets, offset_t, 1, 32),
                             num_batches,
                             output_batch_size);
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
