@@ -193,10 +193,10 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
 // Fused 8-bit rowwise -> FP32/FP16 kernel
 template <typename output_t>
 __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
-    const at::PackedTensorAccessor32<uint8_t, 2, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<uint8_t, 2, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
-    at::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output) {
+    pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output) {
   const int batch_size = input.size(0);
 
   const int thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
@@ -600,12 +600,15 @@ DLL_PUBLIC at::Tensor _fused8bitrowwise_to_float_mixed_dim_gpu(
       output.scalar_type(),
       "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name =
+            "_fused8bitrowwise_to_float_mixed_dim_cuda_kernel";
+#endif
         _fused8bitrowwise_to_float_mixed_dim_cuda_kernel<scalar_t>
             <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                input.packed_accessor32<uint8_t, 2, at::RestrictPtrTraits>(),
-                D_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                output.packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>());
+                MAKE_PTA_WITH_NAME(func_name, input, uint8_t, 2, 32),
+                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, output, scalar_t, 2, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return output;
