@@ -2854,6 +2854,20 @@ torch::autograd::variable_list group_index_select_dim0(
   return output_group;
 }
 
+torch::autograd::variable_list group_index_select_dim0_gpu_impl_cpu(
+    at::TensorList all_indices_input,
+    const int64_t group_size) {
+  throw std::runtime_error(
+      "group_index_select_dim0_gpu_impl is not implemented for CPU");
+}
+
+torch::autograd::variable_list group_index_select_dim0_gpu_backward_cpu(
+    at::TensorList all_inputs,
+    c10::SymIntArrayRef output_shape_group_ref) {
+  throw std::runtime_error(
+      "group_index_select_dim0_gpu_backward is not implemented for CPU");
+}
+
 Tensor bottom_k_per_row(
     const Tensor& input,
     const Tensor& k_offsets,
@@ -3017,6 +3031,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "group_index_select_dim0(Tensor[] input_group, Tensor[] indices_group) -> Tensor[]",
       {PT2_COMPLIANT_TAG});
+  // group_index_select_dim0_gpu helper functions - not defined for CPU!
+  m.def(
+      "group_index_select_dim0_gpu_impl(Tensor[] inputs, int group_size) -> Tensor[]");
+  m.def(
+      "group_index_select_dim0_gpu_backward(Tensor[] inputs, SymInt[] output_shape_group) -> Tensor[]");
   // This is an one-off op to be used in split_embedding_utils.py for zipf
   // generation w/o replacement along dim=-1. If requires_unique=True, find
   // smallest unique k.  If the number of unique elements is less than k,
@@ -3106,6 +3125,12 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   DISPATCH_TO_CPU("index_select_dim0", fbgemm_gpu::index_select_dim0);
   DISPATCH_TO_CPU(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0);
+  DISPATCH_TO_CPU(
+      "group_index_select_dim0_gpu_impl",
+      fbgemm_gpu::group_index_select_dim0_gpu_impl_cpu);
+  DISPATCH_TO_CPU(
+      "group_index_select_dim0_gpu_backward",
+      fbgemm_gpu::group_index_select_dim0_gpu_backward_cpu);
   DISPATCH_TO_CPU("bottom_k_per_row", fbgemm_gpu::bottom_k_per_row);
 }
 

@@ -6,6 +6,7 @@
 
 # pyre-strict
 
+import math
 from typing import Callable, List, Optional, Tuple
 
 import torch
@@ -579,3 +580,63 @@ def bounds_check_indices_abstract(
     from the original function `fbgemm::bounds_check_indices`
     """
     return
+
+
+@impl_abstract("fbgemm::group_index_select_dim0_gpu_impl")
+def group_index_select_dim0_gpu_impl_abstract(
+    inputs: List[torch.Tensor], group_size: int
+) -> List[torch.Tensor]:
+    """
+    Calculate output shapes for group_index_select_dim0_gpu_impl
+    without the actual data.
+    """
+    indices_group = inputs[:group_size]
+    input_group = inputs[group_size:]
+    torch._check(len(input_group) == group_size)
+
+    ret = []
+    for i in range(group_size):
+        size = list(input_group[i].size())
+        ret.append(input_group[i].new_empty([indices_group[i].size(0)] + size[1:]))
+
+    # divide by 2 since sizeof(int64_t) / sizeof(int32_t) = 2
+    args_tensor_numel = 4 * group_size + 1 + int(math.ceil(group_size / 2))
+
+    ret.append(
+        # sizeof(int64_t) = 8, torch.uint8 = at::kByte
+        input_group[0].new_empty(
+            args_tensor_numel * 8, dtype=torch.uint8, pin_memory=True
+        )
+    )
+
+    ret.append(torch.zeros(5, dtype=torch.int64, device="cpu"))
+
+    return ret
+
+
+@impl_abstract("fbgemm::group_index_select_dim0_gpu_backward")
+def group_index_select_dim0_gpu_backward_abstract(
+    all_inputs: List[torch.Tensor], output_shape_group_ref: List[torch.SymInt]
+) -> List[torch.Tensor]:
+    """
+    Calculate output shapes for group_index_select_dim0_gpu_backward
+    without the actual data.
+    """
+    torch._check(len(all_inputs) > 3)
+    group_size = (len(all_inputs) - 3) // 2
+    ret = []
+
+    # indices
+    for _ in range(group_size):
+        ret.append(all_inputs[0].new_empty(0))
+
+    # inputs
+    output_dim = len(output_shape_group_ref) // group_size
+    for i in range(group_size):
+        ret.append(
+            all_inputs[0].new_empty(
+                output_shape_group_ref[i * output_dim : (i + 1) * output_dim]
+            )
+        )
+
+    return ret
