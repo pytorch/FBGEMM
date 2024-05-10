@@ -28,16 +28,22 @@ enum uvm_cache_stats_index {
 
 ///@ingroup table-batched-embed-cuda
 /// Deduplicate indices.
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    c10::optional<at::Tensor>,
+    c10::optional<at::Tensor>>
 get_unique_indices_cuda(
     at::Tensor linear_indices,
     int64_t max_indices,
-    bool compute_count);
+    bool compute_count,
+    const bool compute_inverse_indices);
 
 ///@ingroup table-batched-embed-cuda
 /// Lookup LRU cache to find uncached indices, and then sort them based on the
 /// set.
-std::pair<at::Tensor, at::Tensor> lru_cache_find_uncached_cuda(
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+lru_cache_find_uncached_cuda(
     at::Tensor unique_indices,
     at::Tensor unique_indices_length,
     int64_t max_indices,
@@ -47,7 +53,8 @@ std::pair<at::Tensor, at::Tensor> lru_cache_find_uncached_cuda(
     bool gather_cache_stats,
     at::Tensor uvm_cache_stats,
     bool lock_cache_line,
-    at::Tensor lxu_cache_locking_counter);
+    at::Tensor lxu_cache_locking_counter,
+    const bool compute_inverse_indices);
 
 ///@ingroup table-batched-embed-cuda
 /// Map index to cache_set. h_in: linear_indices; C: #cache_sets.

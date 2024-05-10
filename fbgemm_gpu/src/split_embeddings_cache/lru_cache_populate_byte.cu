@@ -549,29 +549,36 @@ DLL_PUBLIC void lru_cache_populate_byte_cuda(
   }
 
   // Get unqiue indices
-  Tensor unique_indices;
-  Tensor unique_indices_length;
-  c10::optional<Tensor> unique_indices_count;
-  std::tie(unique_indices, unique_indices_length, unique_indices_count) =
-      get_unique_indices_cuda(
-          linear_cache_indices, total_cache_hash_size, false);
+  auto
+      [unique_indices,
+       unique_indices_length,
+       unique_indices_count,
+       linear_cache_indices_positions_sorted] =
+          get_unique_indices_cuda(
+              linear_cache_indices,
+              total_cache_hash_size,
+              /*compute_count=*/false,
+              /*compute_inverse_indices=*/false);
 
   // Find uncached indices
   Tensor lxu_cache_locking_counter =
       at::empty({0, 0}, lxu_cache_state.options().dtype(at::kInt));
-  auto cache_sets_and_unique_indices = lru_cache_find_uncached_cuda(
-      unique_indices,
-      unique_indices_length,
-      total_cache_hash_size,
-      lxu_cache_state,
-      time_stamp,
-      lru_state,
-      gather_cache_stats,
-      uvm_cache_stats_,
-      false, // lock_cache_line
-      lxu_cache_locking_counter);
-  auto sorted_cache_sets = cache_sets_and_unique_indices.first;
-  auto cache_set_sorted_unique_indices = cache_sets_and_unique_indices.second;
+  auto
+      [sorted_cache_sets,
+       cache_set_sorted_unique_indices,
+       cache_set_inverse_indices] =
+          lru_cache_find_uncached_cuda(
+              unique_indices,
+              unique_indices_length,
+              total_cache_hash_size,
+              lxu_cache_state,
+              time_stamp,
+              lru_state,
+              gather_cache_stats,
+              uvm_cache_stats_,
+              /*lock_cache_line=*/false,
+              lxu_cache_locking_counter,
+              /*compute_inverse_indices=*/false);
 
   // insert caching weights
   lru_cache_insert_byte_cuda(

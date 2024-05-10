@@ -364,6 +364,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             evicted_indices,
             assigned_cache_slots,
             actions_count_gpu,
+            _,
+            _,
+            _,
+            _,
         ) = torch.ops.fbgemm.ssd_cache_populate_actions(
             linear_cache_indices,
             self.total_hash_size,
@@ -874,6 +878,10 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             evicted_indices,
             assigned_cache_slots,
             actions_count_gpu,
+            _,
+            _,
+            _,
+            _,
         ) = torch.ops.fbgemm.ssd_cache_populate_actions(
             linear_cache_indices,
             self.total_hash_size,

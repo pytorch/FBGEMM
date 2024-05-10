@@ -200,11 +200,13 @@ DLL_PUBLIC Tensor linearize_cache_indices_from_row_idx_cuda(
   return linear_cache_indices;
 }
 
-DLL_PUBLIC std::tuple<Tensor, Tensor, c10::optional<Tensor>>
+DLL_PUBLIC
+std::tuple<Tensor, Tensor, c10::optional<Tensor>, c10::optional<Tensor>>
 get_unique_indices_cuda(
     Tensor linear_indices,
     int64_t max_indices,
-    bool compute_count) {
+    bool compute_count,
+    const bool compute_inverse_indices) {
   TENSOR_ON_CUDA_GPU(linear_indices);
 
   CUDA_DEVICE_GUARD(linear_indices);
@@ -216,90 +218,112 @@ get_unique_indices_cuda(
   auto unique_indices_length =
       at::empty({1}, linear_indices.options().dtype(at::kInt));
   c10::optional<Tensor> unique_indices_count = c10::nullopt;
+  c10::optional<Tensor> linear_index_positions_sorted = c10::nullopt;
+
+  Tensor linear_index_positions;
+  if (compute_inverse_indices) {
+    linear_index_positions = at::arange(
+        {linear_indices.numel()}, linear_indices.options().dtype(at::kInt));
+    linear_index_positions_sorted = at::empty_like(linear_index_positions);
+  }
   if (compute_count) {
     unique_indices_count = at::empty(
         {linear_indices.numel()}, linear_indices.options().dtype(at::kInt));
   }
+
+#define INVOKE_CUB_SORT_PAIRS(TEMP_STORAGE_PTR)                           \
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
+      TEMP_STORAGE_PTR,                                                   \
+      temp_storage_bytes,                                                 \
+      linear_indices.data_ptr<index_t>(),                                 \
+      sorted_indices.data_ptr<index_t>(),                                 \
+      linear_index_positions.data_ptr<int32_t>(),                         \
+      linear_index_positions_sorted->data_ptr<int32_t>(),                 \
+      N,                                                                  \
+      0,                                                                  \
+      int(log2(float(max_indices + 1)) + 1),                              \
+      at::cuda::getCurrentCUDAStream(),                                   \
+      false))
+
+#define INVOKE_CUB_SORT_KEYS(TEMP_STORAGE_PTR)                           \
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys( \
+      TEMP_STORAGE_PTR,                                                  \
+      temp_storage_bytes,                                                \
+      linear_indices.data_ptr<index_t>(),                                \
+      sorted_indices.data_ptr<index_t>(),                                \
+      N,                                                                 \
+      0,                                                                 \
+      int(log2(float(max_indices + 1)) + 1),                             \
+      at::cuda::getCurrentCUDAStream(),                                  \
+      false))
+
+#define INVOKE_CUB_ENCODE(TEMP_STORAGE_PTR)                                  \
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode( \
+      TEMP_STORAGE_PTR,                                                      \
+      temp_storage_bytes,                                                    \
+      sorted_indices.data_ptr<index_t>(),                                    \
+      unique_indices.data_ptr<index_t>(),                                    \
+      unique_indices_count->data_ptr<int32_t>(),                             \
+      unique_indices_length.data_ptr<int32_t>(),                             \
+      N,                                                                     \
+      at::cuda::getCurrentCUDAStream(),                                      \
+      false))
+
+#define INVOKE_CUB_UNIQUE(TEMP_STORAGE_PTR)                         \
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique( \
+      TEMP_STORAGE_PTR,                                             \
+      temp_storage_bytes,                                           \
+      sorted_indices.data_ptr<index_t>(),                           \
+      unique_indices.data_ptr<index_t>(),                           \
+      unique_indices_length.data_ptr<int32_t>(),                    \
+      N,                                                            \
+      at::cuda::getCurrentCUDAStream(),                             \
+      false))
+
   AT_DISPATCH_INDEX_TYPES(
       linear_indices.scalar_type(), "get_unique_indices_cuda", [&] {
         // sort indices
-        size_t temp_storage_bytes_0 = 0;
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
-            nullptr,
-            temp_storage_bytes_0,
-            linear_indices.data_ptr<index_t>(),
-            sorted_indices.data_ptr<index_t>(),
-            N,
-            0,
-            int(log2(float(max_indices + 1)) + 1),
-            at::cuda::getCurrentCUDAStream(),
-            false));
-        auto temp_storage_0 = at::empty(
-            {static_cast<index_t>(temp_storage_bytes_0)},
-            linear_indices.options().dtype(at::kByte));
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortKeys(
-            temp_storage_0.data_ptr(),
-            temp_storage_bytes_0,
-            linear_indices.data_ptr<index_t>(),
-            sorted_indices.data_ptr<index_t>(),
-            N,
-            0,
-            int(log2(float(max_indices + 1)) + 1),
-            at::cuda::getCurrentCUDAStream(),
-            false));
+        if (compute_inverse_indices) {
+          size_t temp_storage_bytes = 0;
+          INVOKE_CUB_SORT_PAIRS(nullptr);
+          auto temp_storage = at::empty(
+              {static_cast<int64_t>(temp_storage_bytes)},
+              linear_indices.options().dtype(at::kByte));
+          INVOKE_CUB_SORT_PAIRS(temp_storage.data_ptr());
+        } else {
+          size_t temp_storage_bytes = 0;
+          INVOKE_CUB_SORT_KEYS(nullptr);
+          auto temp_storage = at::empty(
+              {static_cast<index_t>(temp_storage_bytes)},
+              linear_indices.options().dtype(at::kByte));
+          INVOKE_CUB_SORT_KEYS(temp_storage.data_ptr());
+        }
         // get unique indices
         if (compute_count) {
-          size_t temp_storage_bytes_1 = 0;
-          AT_CUDA_CHECK(
-              FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
-                  nullptr,
-                  temp_storage_bytes_1,
-                  sorted_indices.data_ptr<index_t>(),
-                  unique_indices.data_ptr<index_t>(),
-                  unique_indices_count->data_ptr<int32_t>(),
-                  unique_indices_length.data_ptr<int32_t>(),
-                  N,
-                  at::cuda::getCurrentCUDAStream(),
-                  false));
-          auto temp_storage_1 = at::empty(
-              {static_cast<index_t>(temp_storage_bytes_1)},
+          size_t temp_storage_bytes = 0;
+          INVOKE_CUB_ENCODE(nullptr);
+          auto temp_storage = at::empty(
+              {static_cast<index_t>(temp_storage_bytes)},
               linear_indices.options().dtype(at::kByte));
-          AT_CUDA_CHECK(
-              FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRunLengthEncode::Encode(
-                  temp_storage_1.data_ptr(),
-                  temp_storage_bytes_1,
-                  sorted_indices.data_ptr<index_t>(),
-                  unique_indices.data_ptr<index_t>(),
-                  unique_indices_count->data_ptr<int32_t>(),
-                  unique_indices_length.data_ptr<int32_t>(),
-                  N,
-                  at::cuda::getCurrentCUDAStream(),
-                  false));
+          INVOKE_CUB_ENCODE(temp_storage.data_ptr());
         } else {
-          size_t temp_storage_bytes_1 = 0;
-          AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique(
-              nullptr,
-              temp_storage_bytes_1,
-              sorted_indices.data_ptr<index_t>(),
-              unique_indices.data_ptr<index_t>(),
-              unique_indices_length.data_ptr<int32_t>(),
-              N,
-              at::cuda::getCurrentCUDAStream(),
-              false));
-          auto temp_storage_1 = at::empty(
-              {static_cast<index_t>(temp_storage_bytes_1)},
+          size_t temp_storage_bytes = 0;
+          INVOKE_CUB_UNIQUE(nullptr);
+          auto temp_storage = at::empty(
+              {static_cast<index_t>(temp_storage_bytes)},
               linear_indices.options().dtype(at::kByte));
-          AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceSelect::Unique(
-              temp_storage_1.data_ptr(),
-              temp_storage_bytes_1,
-              sorted_indices.data_ptr<index_t>(),
-              unique_indices.data_ptr<index_t>(),
-              unique_indices_length.data_ptr<int32_t>(),
-              N,
-              at::cuda::getCurrentCUDAStream(),
-              false));
+          INVOKE_CUB_UNIQUE(temp_storage.data_ptr());
         }
       });
+
   return std::make_tuple(
-      unique_indices, unique_indices_length, unique_indices_count);
+      unique_indices,
+      unique_indices_length,
+      unique_indices_count,
+      linear_index_positions_sorted);
+
+#undef INVOKE_CUB_SORT_PAIRS
+#undef INVOKE_CUB_SORT_KEYS
+#undef INVOKE_CUB_ENCODE
+#undef INVOKE_CUB_UNIQUE
 }
