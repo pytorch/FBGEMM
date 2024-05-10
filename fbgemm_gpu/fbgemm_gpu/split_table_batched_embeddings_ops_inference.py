@@ -1090,7 +1090,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self.register_buffer(
                 "cache_miss_counter",
-                torch.tensor([0, 0, 0, 0], dtype=torch.int64),
+                torch.tensor(
+                    [0, 0, 0, 0], dtype=torch.int64, device=self.current_device
+                ),
                 persistent=False,
             )
             self.register_buffer(
