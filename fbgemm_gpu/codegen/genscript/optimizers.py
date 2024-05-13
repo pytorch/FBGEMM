@@ -1004,6 +1004,48 @@ def adam() -> Dict[str, Any]:
 
 
 def partial_rowwise_adam() -> Dict[str, Any]:
+    split_post_update = """
+    if (max_norm > 0.0) {
+        CUDA_KERNEL_ASSERT(!(std::is_same<emb_t, uint8_t>::value && !cache_weights)); // not supported for uint8 yet
+
+        // compute weight norm
+        at::acc_type<cache_t, true> weight_sum_square = 0.0;
+        for (int32_t vec = 0;
+             vec < max_vecs && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+             ++vec) {
+            const int32_t d = (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH;
+            Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
+            weight_sum_square
+                += weight_new.acc.x * weight_new.acc.x
+                + weight_new.acc.y * weight_new.acc.y
+                + weight_new.acc.z * weight_new.acc.z
+                + weight_new.acc.w * weight_new.acc.w;
+        }
+        const at::acc_type<cache_t, true> weight_norm =
+            sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_square, at::acc_type<cache_t, true>));
+
+        // scale by max_norm if weight_norm exceeds max_norm
+        at::acc_type<cache_t, true> multiplier;
+        if (threadIdx.x == 0) {
+            multiplier = weight_norm > max_norm ? max_norm / weight_norm : 1.0f;
+        }
+        multiplier = SHFL_SYNC(multiplier, 0);
+        if (weight_norm > max_norm) {
+            for (int32_t vec = 0;
+                 vec < max_vecs && (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH < D;
+                 ++vec) {
+                const int32_t d = (kThreadGroupSize * vec + threadIdx.x) * VEC_WIDTH;
+                Vec4TAcc<cache_t> weight_new = weight_row_template.load(d, qparams_template);
+
+                weight_new.acc.x *= multiplier;
+                weight_new.acc.y *= multiplier;
+                weight_new.acc.z *= multiplier;
+                weight_new.acc.w *= multiplier;
+                weight_row_template.store(weight_new, d, qparams_new); // qparams_new not used if embedding is not int8
+            }
+        }
+    }
+    """
     split_precomputation = """
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
     """
@@ -1065,11 +1107,12 @@ def partial_rowwise_adam() -> Dict[str, Any]:
                 OptimItem(ArgType.FLOAT, "beta2"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
                 OptimItem(ArgType.INT, "iter"),
+                OptimItem(ArgType.FLOAT, "max_norm", 0.0),
             ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
-        "split_post_update": "",
+        "split_post_update": split_post_update,
         "split_weight_update_cpu": split_weight_update_cpu,
         "has_cpu_support": False,
         "has_gpu_support": True,

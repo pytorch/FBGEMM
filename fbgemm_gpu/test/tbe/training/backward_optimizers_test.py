@@ -92,6 +92,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         uvm_non_rowwise_momentum: bool = False,
         optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
+        max_norm: float = 0.0,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
         assume(not use_cpu or T * B * L * D <= 2048)
@@ -125,7 +126,11 @@ class BackwardOptimizersTest(unittest.TestCase):
                 ]
             )
         )
-
+        # max_norm is only applicable to PARTIAL_ROWWISE_ADAM GPU version
+        assume(
+            max_norm == 0.0
+            or (not use_cpu and optimizer == OptimType.PARTIAL_ROWWISE_ADAM)
+        )
         assume(pooling_mode == PoolingMode.SUM or not weighted)
         # No bag ops only work on GPUs, no mixed, no weighted
         assume(not use_cpu or pooling_mode != PoolingMode.NONE)
@@ -288,6 +293,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["beta2"] = beta2
             optimizer_kwargs["weight_decay"] = weight_decay
             optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
+            optimizer_kwargs["max_norm"] = max_norm
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
             optimizer_kwargs["eps"] = eps
@@ -514,6 +520,19 @@ class BackwardOptimizersTest(unittest.TestCase):
                     )
                     - lr * weight_decay * bs[t].weight.cpu()
                 )
+
+                if rowwise and max_norm > 0:
+                    grads = bs[t].weight.grad.cpu().to_dense()
+                    non_zero_grads = grads.abs().sum(dim=1, keepdim=True) > 0
+                    weights_norm = (
+                        weights_ref.norm(dim=1, keepdim=True) * non_zero_grads
+                    )
+                    weights_ref = torch.where(
+                        weights_norm > max_norm,
+                        weights_ref * max_norm / weights_norm,
+                        weights_ref,
+                    )
+
                 torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=xs[t].view(-1)).cpu(),
                     weights_ref.index_select(dim=0, index=xs[t].view(-1).cpu()),
@@ -765,6 +784,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         ),
         use_cpu=use_cpu_strategy(),
         uvm_non_rowwise_momentum=st.booleans(),
+        max_norm=st.floats(min_value=0.01, max_value=1.0),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -787,6 +807,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         use_cpu: bool,
         uvm_non_rowwise_momentum: bool,
+        max_norm: float,
     ) -> None:
         self.execute_backward_optimizers_(
             T,
@@ -802,6 +823,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
+            max_norm=max_norm,
         )
 
     @given(
