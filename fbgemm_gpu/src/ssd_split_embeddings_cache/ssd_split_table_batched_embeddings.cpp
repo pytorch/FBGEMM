@@ -52,7 +52,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       int64_t max_write_buffer_num,
       double uniform_init_lower,
       double uniform_init_upper,
-      int64_t row_storage_bitwidth = 32)
+      int64_t row_storage_bitwidth = 32,
+      int64_t cache_size = 0)
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -68,7 +69,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             max_write_buffer_num,
             uniform_init_lower,
             uniform_init_upper,
-            row_storage_bitwidth)) {}
+            row_storage_bitwidth,
+            cache_size)) {}
 
   void
   set_cuda(Tensor indices, Tensor weights, Tensor count, int64_t timestep) {
@@ -117,6 +119,7 @@ static auto embedding_rocks_db_wrapper =
              int64_t,
              double,
              double,
+             int64_t,
              int64_t>())
         .def("set_cuda", &EmbeddingRocksDBWrapper::set_cuda)
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
