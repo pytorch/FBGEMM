@@ -337,6 +337,8 @@ def ssd_training(  # noqa C901
 
     # TODO: Adjust cache sets
     cache_set = max(T * B * L, 1)
+    tempdir = tempfile.mkdtemp(prefix=ssd_prefix)
+    logging.info(f"Using SSD dir: {tempdir}")
     tbe_generators = {
         "HBM": gen_split_tbe_generator(EmbeddingLocation.DEVICE),
         "UVM": gen_split_tbe_generator(EmbeddingLocation.MANAGED),
@@ -344,7 +346,7 @@ def ssd_training(  # noqa C901
         "SSD": lambda: SSDTableBatchedEmbeddingBags(
             embedding_specs=[(E, d) for d in Ds],
             cache_sets=cache_set,
-            ssd_storage_directory=tempfile.mkdtemp(prefix=ssd_prefix),
+            ssd_storage_directory=tempdir,
             ssd_cache_location=EmbeddingLocation.MANAGED,
             ssd_shards=8,
             **common_args,
@@ -417,11 +419,13 @@ def ssd_training(  # noqa C901
         # Forward
         test_name = f"{prefix} Forward"
         logging.info(f"Running benchmark: {test_name}")
+
         time_per_iter = benchmark_requests(
             requests,
             gen_forward_func(emb, feature_requires_grad),
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
             num_warmups=warmup_runs,
+            periodic_logs=True,
         )
 
         bw = f"{read_write_bytes / time_per_iter / 1.0e9: .2f}"
@@ -442,6 +446,7 @@ def ssd_training(  # noqa C901
             bwd_only=True,
             grad=grad_output,
             num_warmups=warmup_runs,
+            periodic_logs=True,
         )
 
         bw = f"{2 * read_write_bytes / time_per_iter / 1.0e9: .2f}"
