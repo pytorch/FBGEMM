@@ -528,7 +528,9 @@ def jagged_slice_cpu(
 
     profiler = profile(
         activities=[
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             torch.profiler.ProfilerActivity.CPU,
+            # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
             torch.profiler.ProfilerActivity.CUDA,
         ],
         schedule=torch.profiler.schedule(

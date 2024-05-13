@@ -28,6 +28,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 )
 
 from torch import Tensor
+
+# pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.
 from torch.profiler import profile, ProfilerActivity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
@@ -426,6 +428,7 @@ def benchmark(  # noqa C901
             flush_gpu_cache_size_mb=0,
             iters=iters,
         )
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         with profile(activities=[ProfilerActivity.CUDA]) as prof:
             pool_func_with_quantization(
                 batch_indices,
