@@ -8,6 +8,26 @@
 # Target Sources
 ################################################################################
 
+if(FBGEMM_GENAI_ONLY)
+  set(fbgemm_sources_include_directories
+    # FBGEMM
+    ${FBGEMM}/include
+    # FBGEMM_GPU
+    ${CMAKE_CURRENT_SOURCE_DIR}/../..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../include
+    # Third-party
+    ${THIRDPARTY}/asmjit/src
+    ${THIRDPARTY}/cpuinfo/include
+    ${THIRDPARTY}/cutlass/include
+    ${THIRDPARTY}/cutlass/tools/util/include)
+
+  set(third_party_include_directories
+    ${THIRDPARTY}/asmjit/src
+    ${THIRDPARTY}/cpuinfo/include
+    ${THIRDPARTY}/cutlass/include)
+endif()
+
 set(attention_ops_sources
     src/attention/attention.cpp
     src/attention/gqa_attn_splitk.cu)
