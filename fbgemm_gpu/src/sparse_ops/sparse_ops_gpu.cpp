@@ -384,7 +384,6 @@ class GroupIndexSelectDim0GPUOp
         at::TensorOptions().dtype(at::kLong));
     TORCH_CHECK(saved_data_t.is_contiguous());
     memcpy(saved_data_t.data_ptr<int64_t>(), saved_data, sizeof(saved_data));
-    saved_data_t = saved_data_t.to(first_input.device(), true);
 
     group_index_select_or_add_cuda(
         input_ptrs,
@@ -471,7 +470,6 @@ class GroupIndexSelectDim0GPUOp
         all_inputs.cbegin() + group_size, all_inputs.cbegin() + 2 * group_size);
 
     // Retrieve saved data
-    saved_data = saved_data.to(at::kCPU);
     TORCH_CHECK(saved_data.device() == at::kCPU);
     TORCH_CHECK(saved_data.is_contiguous());
     int64_t* saved_data_ptr = saved_data.data_ptr<int64_t>();
@@ -653,57 +651,6 @@ torch::autograd::variable_list group_index_select_dim0_gpu_impl(
   return GroupIndexSelectDim0GPUOp::apply(all_indices_input, group_size);
 }
 
-torch::autograd::variable_list group_index_select_dim0_gpu_impl_meta(
-    at::TensorList all_indices_input,
-    const int64_t group_size) {
-  auto [input_group, indices_group] =
-      group_index_select_dim0_unpack(all_indices_input, group_size);
-
-  int num_groups = input_group.size();
-  TORCH_CHECK(num_groups == (int)indices_group.size())
-  std::vector<Tensor> res;
-  for (const auto i : c10::irange(num_groups)) {
-    auto output_size = input_group[i].sym_sizes().vec();
-    output_size[0] = indices_group[i].sym_size(0);
-    res.push_back(at::zeros_symint(output_size, input_group[i].options()));
-  }
-  int64_t args_tensor_numel =
-      4 * group_size + 1 + compute_num_int64s<int32_t>(group_size);
-  res.push_back(at::zeros_symint(
-      {c10::SymInt(args_tensor_numel * sizeof(int64_t))},
-      at::TensorOptions().dtype(at::kByte).pinned_memory(true).device(
-          input_group[0].device())));
-  res.push_back(at::zeros_symint(
-      {c10::SymInt(5)},
-      at::TensorOptions().dtype(at::kLong).device(input_group[0].device())));
-  return res;
-}
-
-torch::autograd::variable_list group_index_select_dim0_gpu_backward_meta(
-    at::TensorList all_inputs,
-    c10::SymIntArrayRef output_shape_group_ref) {
-  TORCH_CHECK(all_inputs.size() > 3);
-  const auto group_size = (all_inputs.size() - 3) / 2;
-  std::vector<Tensor> outputs;
-  outputs.reserve(group_size * 2 + 1);
-
-  // grad for indices
-  for (int i = 0; i < (int)group_size; i++) {
-    outputs.push_back(
-        at::zeros_symint({c10::SymInt(0)}, all_inputs[0].options()));
-  }
-  // grad for inputs
-  const auto output_dim = output_shape_group_ref.size() / group_size;
-  for (int i = 0; i < (int)group_size; i++) {
-    outputs.push_back(at::zeros_symint(
-        std::vector<c10::SymInt>(
-            output_shape_group_ref.cbegin() + i * output_dim,
-            output_shape_group_ref.cbegin() + (i + 1) * output_dim),
-        all_inputs[0].options()));
-  }
-  return outputs;
-}
-
 torch::autograd::variable_list group_index_select_dim0_gpu(
     at::TensorList input_group,
     at::TensorList indices_group) {
@@ -739,13 +686,6 @@ torch::autograd::variable_list group_index_select_dim0_gpu(
 }
 } // namespace fbgemm_gpu
 
-TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def(
-      "group_index_select_dim0_gpu_impl(Tensor[] inputs, int group_size) -> Tensor[]");
-  m.def(
-      "group_index_select_dim0_gpu_backward(Tensor[] inputs, SymInt[] output_shape_group) -> Tensor[]");
-}
-
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA(
       "reorder_batched_ad_lengths", fbgemm_gpu::reorder_batched_ad_lengths_gpu);
@@ -778,15 +718,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       fbgemm_gpu::GroupIndexSelectDim0GPUOp::backward_impl);
   DISPATCH_TO_CUDA(
       "group_index_select_dim0", fbgemm_gpu::group_index_select_dim0_gpu);
-}
-
-TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
-  m.impl(
-      "group_index_select_dim0_gpu_impl",
-      &fbgemm_gpu::group_index_select_dim0_gpu_impl_meta);
-  m.impl(
-      "group_index_select_dim0_gpu_backward",
-      &fbgemm_gpu::group_index_select_dim0_gpu_backward_meta);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, AutogradCUDA, m) {
