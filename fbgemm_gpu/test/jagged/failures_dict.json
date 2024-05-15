@@ -89,20 +89,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::keyed_jagged_index_select_dim1": {
-      "KeyedJaggedIndexSelectTest.test_aot_dispatch_dynamic__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "KeyedJaggedIndexSelectTest.test_autograd_registration__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "KeyedJaggedIndexSelectTest.test_faketensor__test_keyed_jagged_index_select_dim1": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::keyed_jagged_index_select_dim1": {},
     "fbgemm::masked_select_jagged_1d": {},
     "fbgemm::offsets_range": {
       "Jagged1DToDenseTest.test_aot_dispatch_dynamic__test_jagged_1d_to_dense": {

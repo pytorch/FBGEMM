@@ -640,3 +640,50 @@ def group_index_select_dim0_gpu_backward_abstract(
         )
 
     return ret
+
+
+@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_forward_cuda_impl")
+def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
+    values: torch.Tensor,
+    lengths: torch.Tensor,
+    offsets: torch.Tensor,
+    indices: torch.Tensor,
+    batch_size: int,
+    weights: Optional[torch.Tensor] = None,
+    selected_lengths_sum: Optional[int] = None,
+) -> List[torch.Tensor]:
+    num_batches = len(lengths) // batch_size
+    torch._check(len(lengths) + 1 == len(offsets))
+    torch._check(len(lengths) % batch_size == 0)
+
+    if weights is not None:
+        # weights must have the same shape as values
+        torch._check(values.shape == weights.shape)
+
+    if selected_lengths_sum is None:
+        selected_lengths_sum = torch.library.get_ctx().new_dynamic_size()
+
+    torch._check_is_size(selected_lengths_sum)
+    vlw: List[torch.Tensor] = [
+        values.new_empty([selected_lengths_sum]),  # output
+        lengths.new_empty([indices.shape[0] * num_batches]),  # output_lengths
+    ]
+    if weights is not None:
+        vlw.append(weights.new_empty([selected_lengths_sum]))  # output_weights
+
+    return [
+        *vlw,
+        offsets.new_empty([indices.shape[0] * num_batches]),  # output_offsets
+        torch.empty([4], dtype=torch.int64, device="cpu"),  # saved_data_tensor
+    ]
+
+
+@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_backward_cuda_impl")
+def keyed_jagged_index_select_dim1_backward_cuda_impl_abstract(
+    grad: torch.Tensor,
+    indices: torch.Tensor,
+    grad_offsets: torch.Tensor,
+    output_offsets: torch.Tensor,
+    saved_tensor: torch.Tensor,
+) -> torch.Tensor:
+    return grad.new_empty([torch.library.get_ctx().new_dynamic_size()])
