@@ -12,6 +12,8 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Union
 
+import fbgemm_gpu.split_embeddings_cache_ops  # noqa: F401
+
 import numpy as np
 import torch
 from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig

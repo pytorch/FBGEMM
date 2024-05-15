@@ -410,6 +410,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 _,
                 _,
                 actions_count_gpu,
+                _,
+                _,
+                _,
+                _,
             ) = torch.ops.fbgemm.ssd_cache_populate_actions(  # noqa
                 linear_cache_indices,
                 emb.total_hash_size,
@@ -798,6 +802,10 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 _,
                 _,
                 actions_count_gpu,
+                _,
+                _,
+                _,
+                _,
             ) = torch.ops.fbgemm.ssd_cache_populate_actions(  # noqa
                 linear_cache_indices,
                 emb.total_hash_size,

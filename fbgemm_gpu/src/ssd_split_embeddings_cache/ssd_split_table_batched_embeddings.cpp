@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+/// @defgroup embedding-ssd Embedding SSD Operators
+
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
@@ -17,7 +19,8 @@
 
 using namespace at;
 
-std::tuple<Tensor, Tensor, Tensor, Tensor> ssd_cache_populate_actions_cuda(
+std::tuple<Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor>
+ssd_cache_populate_actions_cuda(
     Tensor linear_indices,
     int64_t total_hash_size,
     Tensor lxu_cache_state,
@@ -33,6 +36,63 @@ Tensor masked_index_put_byte_cuda(
     Tensor indices,
     Tensor values,
     Tensor count);
+
+/// @ingroup embedding-ssd
+///
+/// @brief Generate memory addresses for SSD TBE data
+///
+/// The data retrieved from SSD can be stored in either a scratch pad
+/// (HBM) or LXU cache (also HBM). `lxu_cache_locations` is used to
+/// specify the location of the data. If the location is -1, the data
+/// for the associated index is in the scratch pad; otherwise, it is
+/// in the cache. To enable TBE kernels to access the data
+/// conveniently, this operator generates memory addresses of the
+/// first byte for each index. When accessing data, a TBE kernel only
+/// needs to convert addresses into pointers.
+///
+/// Moreover, this operator also generate the list of post backward
+/// evicted indices which are basically the indices that their data
+/// is in the scratch pad.
+///
+/// @param lxu_cache_locations The tensor that contains cache slots
+///                            where data is stored for the *full* list
+///                            of indices. -1 is a sentinel value that
+///                            indicates that data is not in cache.
+/// @param assigned_cache_slots The tensor that contains cache slots
+///                             for the *unique* list of indices. -1
+///                             indicates that data is not in cache
+/// @param linear_index_inverse_indices The tensor that contains
+///                                     the original position of
+///                                     linear indices before being
+///                                     sorted
+/// @param unique_indices_count_cumsum The tensor that contains the
+///                                    the exclusive prefix sum
+///                                    results of the counts of unique
+///                                    indices
+/// @param cache_set_inverse_indices The tensor that contains the
+///                                  original positions of cache sets
+///                                  before being sorted
+/// @param lxu_cache_weights The LXU cache tensor
+/// @param inserted_ssd_weights The scratch pad tensor
+/// @param unique_indices_length The tensor that contains the number
+///                              of unique indices (GPU tensor)
+/// @param cache_set_sorted_unique_indices The tensor that contains
+///                                        associated unique indices
+///                                        for the sorted unique cache
+///                                        sets
+///
+/// @return A tuple of tensors (the SSD row address tensor and the
+///         post backward evicted index tensor)
+std::tuple<Tensor, Tensor> ssd_generate_row_addrs_cuda(
+    const Tensor& lxu_cache_locations,
+    const Tensor& assigned_cache_slots,
+    const Tensor& linear_index_inverse_indices,
+    const Tensor& unique_indices_count_cumsum,
+    const Tensor& cache_set_inverse_indices,
+    const Tensor& lxu_cache_weights,
+    const Tensor& inserted_ssd_weights,
+    const Tensor& unique_indices_length,
+    const Tensor& cache_set_sorted_unique_indices);
 
 namespace {
 class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
@@ -127,11 +187,36 @@ static auto embedding_rocks_db_wrapper =
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "masked_index_put(Tensor self, Tensor indices, Tensor values, Tensor count) -> Tensor");
+      "masked_index_put("
+      "    Tensor self, "
+      "    Tensor indices, "
+      "    Tensor values, "
+      "    Tensor count"
+      ") -> Tensor");
   DISPATCH_TO_CUDA("masked_index_put", masked_index_put_cuda);
   m.def(
-      "ssd_cache_populate_actions(Tensor linear_indices, int total_hash_size, Tensor lxu_cache_state, int time_stamp, int prefetch_dist, Tensor lru_state) -> (Tensor, Tensor, Tensor, Tensor)");
+      "ssd_cache_populate_actions("
+      "    Tensor linear_indices, "
+      "    int total_hash_size, "
+      "    Tensor lxu_cache_state, "
+      "    int time_stamp, "
+      "    int prefetch_dist, "
+      "    Tensor lru_state"
+      ") -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
   DISPATCH_TO_CUDA(
       "ssd_cache_populate_actions", ssd_cache_populate_actions_cuda);
+  m.def(
+      "ssd_generate_row_addrs("
+      "    Tensor lxu_cache_locations, "
+      "    Tensor assigned_cache_slots, "
+      "    Tensor linear_index_inverse_indices, "
+      "    Tensor unique_indices_count_cumsum, "
+      "    Tensor cache_set_inverse_indices, "
+      "    Tensor lxu_cache_weights, "
+      "    Tensor inserted_ssd_weights, "
+      "    Tensor unique_indices_length, "
+      "    Tensor cache_set_sorted_unique_indices"
+      ") -> (Tensor, Tensor)");
+  DISPATCH_TO_CUDA("ssd_generate_row_addrs", ssd_generate_row_addrs_cuda);
 }
 } // namespace

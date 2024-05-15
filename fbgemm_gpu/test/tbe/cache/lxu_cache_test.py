@@ -14,6 +14,8 @@ import unittest
 from itertools import accumulate
 from typing import Tuple
 
+import fbgemm_gpu.split_embeddings_cache_ops  # noqa: F401
+
 import hypothesis.strategies as st
 import numpy as np
 import torch

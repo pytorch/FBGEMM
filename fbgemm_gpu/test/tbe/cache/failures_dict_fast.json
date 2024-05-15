@@ -26,6 +26,10 @@
       "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
         "comment": "",
         "status": "xfail"
+      },
+      "LXUCacheTest.test_schema__test_unique_lxu_cache_lookup": {
+        "comment": "",
+        "status": "xfail"
       }
     },
     "fbgemm::int_nbit_split_embedding_codegen_lookup_function": {
