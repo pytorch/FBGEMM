@@ -24,6 +24,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
+# Load cache ops
+import fbgemm_gpu  # noqa: F401
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
