@@ -24,6 +24,7 @@ set(CMAKE_VERBOSE_MAKEFILE on)
 
 option(FBGEMM_CPU_ONLY  "Build FBGEMM_GPU without GPU support" OFF)
 option(USE_ROCM         "Build FBGEMM_GPU for ROCm" OFF)
+option(FBGEMM_GENAI_ONLY  "Build FBGEMM_GPU with GEN AI only support" OFF)
 
 if((NOT FBGEMM_CPU_ONLY) AND
    ((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
@@ -85,7 +86,9 @@ include(${CMAKEMODULES}/RocmSetup.cmake)
 # Build FBGEMM_GPU (Main) Module
 ################################################################################
 
-include(FbgemmGpu.cmake)
+if(NOT FBGEMM_GENAI_ONLY)
+  include(FbgemmGpu.cmake)
+endif()
 
 ################################################################################
 # Build Experimental Modules
