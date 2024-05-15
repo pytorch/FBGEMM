@@ -7,7 +7,6 @@ libraries!
 **FBGEMM** (Facebook GEneral Matrix Multiplication) is a low-precision,
 high-performance matrix-matrix multiplications and convolution library for
 server-side inference.  This library is used as a backend of
-`Caffe2 <https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server>`__ and
 `PyTorch <https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu>`__
 quantized operators on x86 machines.
 
