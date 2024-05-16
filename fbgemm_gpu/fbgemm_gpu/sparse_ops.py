@@ -13,7 +13,7 @@ import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
-from torch.fx.experimental.symbolic_shapes import guard_size_oblivious
+
 
 try:
     # pyre-ignore
@@ -49,6 +49,7 @@ except Exception:
 
 import torch.utils._pytree as pytree
 from torch import SymInt, Tensor
+from torch.fx.experimental.symbolic_shapes import guard_size_oblivious
 
 
 if hasattr(torch.library, "register_fake"):
