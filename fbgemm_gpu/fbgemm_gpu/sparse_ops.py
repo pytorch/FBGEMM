@@ -13,6 +13,7 @@ import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from torch.fx.experimental.symbolic_shapes import guard_size_oblivious
 
 try:
     # pyre-ignore
@@ -517,6 +518,107 @@ def batch_index_select_dim0_abstract(
     return inputs.new_empty([output_numel])
 
 
+@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_tensor")
+def batch_index_select_dim0_tensor_abstract(
+    inputs: torch.Tensor,
+    indices: torch.Tensor,
+    input_num_indices: torch.Tensor,
+    input_rows: torch.Tensor,
+    input_columns: torch.Tensor,
+    permute_output_dim_0_1: bool,
+) -> torch.Tensor:
+    torch._check(input_num_indices.size(0) == input_rows.size(0))
+    torch._check(input_num_indices.size(0) == input_columns.size(0))
+    output_numel = torch.library.get_ctx().new_dynamic_size()
+    return inputs.new_empty([output_numel])
+
+
+@impl_abstract("fbgemm::batch_index_select_dim0_forward_cuda_impl")
+def batch_index_select_dim0_forward_cuda_impl_abstract(
+    inputs: torch.Tensor,
+    indices: torch.Tensor,
+    input_num_indices: List[int],
+    input_rows: List[int],
+    input_columns: List[int],
+    permute_output_dim_0_1: bool,
+) -> List[torch.Tensor]:
+    num_inputs = len(input_rows)
+    torch._check(len(input_num_indices) == len(input_rows))
+    torch._check(len(input_num_indices) == len(input_columns))
+
+    output_numel = 0
+    for i, cols in enumerate(input_columns):
+        output_numel += input_num_indices[i] * cols
+
+    output_offsets = (
+        inputs.new_empty([0], dtype=torch.int64)
+        if permute_output_dim_0_1
+        else inputs.new_empty([num_inputs + 1], dtype=torch.int64)
+    )
+
+    if permute_output_dim_0_1:
+        for i in range(num_inputs):
+            torch._check(input_num_indices[0] == input_num_indices[i])
+
+    return [
+        inputs.new_empty([output_numel]),
+        inputs.new_empty([num_inputs], dtype=torch.int64),
+        inputs.new_empty([num_inputs + 1], dtype=torch.int64),
+        inputs.new_empty([num_inputs + 1], dtype=torch.int32),  # D_offsets
+        output_offsets,
+        inputs.new_empty([num_inputs + 1], dtype=torch.int64),
+        inputs.new_empty([4], dtype=torch.int64, device="cpu"),
+    ]
+
+
+@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl")
+def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
+    inputs: torch.Tensor,
+    indices: torch.Tensor,
+    input_num_indices: torch.Tensor,
+    input_rows: torch.Tensor,
+    input_columns: torch.Tensor,
+    permute_output_dim_0_1: bool,
+) -> List[torch.Tensor]:
+    num_inputs: int = input_rows.size(0)
+    torch._check(input_num_indices.size(0) == input_rows.size(0))
+    torch._check(input_num_indices.size(0) == input_columns.size(0))
+    output_numel = torch.library.get_ctx().new_dynamic_size()
+    if permute_output_dim_0_1:
+        output_offsets = inputs.new_empty([0], dtype=torch.int64)
+    else:
+        output_offsets = inputs.new_empty([num_inputs + 1], dtype=torch.int64)
+
+    return [
+        inputs.new_empty([output_numel]),
+        inputs.new_empty([num_inputs], dtype=torch.int64),
+        inputs.new_empty([num_inputs + 1], dtype=torch.int64),
+        inputs.new_empty([num_inputs + 1], dtype=torch.int32),  # D_offsets
+        output_offsets,
+        inputs.new_empty([num_inputs + 1], dtype=torch.int64),  # total_L_offsets
+        inputs.new_empty([4], dtype=torch.int64, device="cpu"),
+    ]
+
+
+@torch.library.impl_abstract(
+    "fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl"
+)
+def batch_index_select_dim0_tensor_backward_cuda_impl_abstract(
+    grad_output: torch.Tensor,
+    dev_weights: torch.Tensor,
+    weights_offsets: torch.Tensor,
+    D_offsets: torch.Tensor,
+    hash_size_cumsum: torch.Tensor,
+    indices: torch.Tensor,
+    max_segment_length_per_warp: int,
+    grad_offsets: torch.Tensor,
+    total_L_offsets: torch.Tensor,
+    permute_output_dim_0_1: bool,
+    saved_tensor: torch.Tensor,
+) -> torch.Tensor:
+    return grad_output.new_empty(dev_weights.shape)
+
+
 @impl_abstract("fbgemm::keyed_jagged_index_select_dim1")
 def keyed_jagged_index_select_dim1_abstract(
     values: torch.Tensor,
@@ -562,6 +664,90 @@ def keyed_jagged_index_select_dim1_abstract(
         ret.append(weights.new_empty([selected_lengths_sum]))
 
     return ret
+
+
+@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_backward_cuda_impl")
+def batch_index_select_dim0_backward_cuda_impl_abstract(
+    grad_output: torch.Tensor,
+    dev_weights: torch.Tensor,
+    weights_offsets: torch.Tensor,
+    D_offsets: torch.Tensor,
+    hash_size_cumsum: torch.Tensor,
+    indices: torch.Tensor,
+    max_segment_length_per_warp: int,
+    grad_offsets: torch.Tensor,
+    total_L_offsets: torch.Tensor,
+    permute_output_dim_0_1: bool,
+    saved_tensor: torch.Tensor,
+) -> torch.Tensor:
+    return grad_output.new_empty(dev_weights.shape)
+
+
+@impl_abstract("fbgemm::batch_index_select_dim0_forward_cpu_impl")
+def batch_index_select_dim0_forward_cpu_impl_abstract(
+    inputs: torch.Tensor,
+    indices: torch.Tensor,
+    input_num_indices: List[int],
+    input_rows: List[int],
+    input_columns: List[int],
+    permute_output_dim_0_1: bool,
+) -> List[torch.Tensor]:
+    # input lists must have the same length
+    num_inputs = len(input_num_indices)
+    torch._check(num_inputs == len(input_rows))
+    torch._check(num_inputs == len(input_columns))
+
+    if permute_output_dim_0_1 and guard_size_oblivious(len(input_num_indices) > 0):
+        # All num_indices must be the same if permute_output_dim_0_1 is True
+        for x in input_num_indices:
+            torch._check(x == input_num_indices[0])
+
+    output_numel: int = sum([i * c for i, c in zip(input_num_indices, input_columns)])
+
+    return [
+        inputs.new_empty([output_numel]),
+        inputs.new_empty([len(input_num_indices)], dtype=torch.int64),
+        inputs.new_empty([len(input_rows)], dtype=torch.int64),
+        inputs.new_empty([len(input_columns)], dtype=torch.int64),
+        inputs.new_empty([num_inputs], dtype=torch.int64),  # indices_numels
+        inputs.new_empty([1], dtype=torch.int64),  # saved_tensor
+    ]
+
+
+@impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cpu_impl")
+def batch_index_select_dim0_tensor_forward_cpu_impl_abstract(
+    inputs: torch.Tensor,
+    indices: torch.Tensor,
+    input_num_indices: torch.Tensor,
+    input_rows: torch.Tensor,
+    input_columns: torch.Tensor,
+    permute_output_dim_0_1: bool,
+) -> List[torch.Tensor]:
+    # input lists must have the same length
+    num_inputs = len(input_num_indices)
+    torch._check(num_inputs == len(input_rows))
+    torch._check(num_inputs == len(input_columns))
+
+    output_numel = torch.library.get_ctx().new_dynamic_size()
+
+    return [
+        inputs.new_empty([output_numel]),
+        inputs.new_empty([1], dtype=torch.int64),
+    ]
+
+
+@impl_abstract("fbgemm::batch_index_select_dim0_backward_cpu_impl")
+def batch_index_select_dim0_backward_cpu_impl_abstract(
+    grad_output: torch.Tensor,
+    indices: torch.Tensor,
+    indices_numels: torch.Tensor,
+    input_num_indices: torch.Tensor,
+    input_rows: torch.Tensor,
+    input_columns: torch.Tensor,
+    permute_output_dim_0_1: bool,
+    saved_tensor: torch.Tensor,
+) -> torch.Tensor:
+    return grad_output.new_empty([torch.library.get_ctx().new_dynamic_size()])
 
 
 @impl_abstract("fbgemm::bounds_check_indices")
