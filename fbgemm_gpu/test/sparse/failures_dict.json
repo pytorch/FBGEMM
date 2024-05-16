@@ -5,20 +5,7 @@
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::asynchronous_exclusive_cumsum": {},
     "fbgemm::asynchronous_inclusive_cumsum": {},
-    "fbgemm::batch_index_select_dim0": {
-      "IndexSelectTest.test_aot_dispatch_dynamic__test_batch_index_select_dim0": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "IndexSelectTest.test_autograd_registration__test_batch_index_select_dim0": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "IndexSelectTest.test_faketensor__test_batch_index_select_dim0": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::batch_index_select_dim0": {},
     "fbgemm::block_bucketize_sparse_features": {
       "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features": {
         "comment": "",
