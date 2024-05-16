@@ -103,9 +103,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("i8i8bf16(Tensor XQ, Tensor WQ, float scale, int split_k=1) -> Tensor");
 
   m.def(
-      "f8f8bf16(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
-
-  m.def(
       "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
 
   m.def(
@@ -120,6 +117,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
 #endif
 
+  m.def(
+      "f8f8bf16(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
   m.def("per_tensor_quantize_i8(Tensor X, float scale) -> Tensor");
   m.impl("per_tensor_quantize_i8", per_tensor_quantize_i8);
   m.def("per_tensor_dynamic_quantize_i8(Tensor X) -> (Tensor, Tensor)");
@@ -165,16 +164,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 #endif
 }
 
-#ifndef USE_ROCM
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
+#ifndef USE_ROCM
+  m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl(
       "quantize_fp8_per_tensor_tensor_scale",
       quantize_fp8_per_tensor_tensor_scale);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
+#endif
 }
 
 at::Tensor i8i8bf16_meta(
@@ -256,8 +256,9 @@ at::Tensor f8i4bf16_rowwise_meta(
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
-  m.impl("i8i8bf16", i8i8bf16_meta);
   m.impl("f8f8bf16", f8f8bf16_meta);
+#ifndef USE_ROCM
+  m.impl("i8i8bf16", i8i8bf16_meta);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
   m.impl(
@@ -265,8 +266,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
       quantize_fp8_per_tensor_tensor_scale_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
-}
-
 #endif
+}
 
 } // namespace fbgemm_gpu
