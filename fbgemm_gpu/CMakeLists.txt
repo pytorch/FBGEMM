@@ -98,7 +98,7 @@ if(NOT FBGEMM_CPU_ONLY)
   add_subdirectory(experimental/example)
 
   if(NOT USE_ROCM)
-    # CUTLASS currently doesn't build on ROCm:
+    # CUTLASS currently doesn't build on ROCm and CK hasnt yet been added:
     #
     # 2024-05-06T23:09:35.5730483Z /__w/FBGEMM/FBGEMM/fbgemm_gpu/../third_party/cutlass/include/cutlass/half.h:73:10: fatal error: 'cuda_fp16.h' file not found
     # #include <cuda_fp16.h>
