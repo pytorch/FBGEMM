@@ -25,6 +25,7 @@ import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+import fbgemm_gpu.tbe.cache  # noqa: F401
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
     TBEStatsReporter,
