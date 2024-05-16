@@ -36,11 +36,6 @@ at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale);
 at::Tensor f8f8bf16(
     at::Tensor XQ,
     at::Tensor WQ,
-    at::Tensor scale,
-    bool use_fast_accum = true);
-at::Tensor f8f8bf16_tensorwise(
-    at::Tensor XQ,
-    at::Tensor WQ,
     double scale,
     bool use_fast_accum = true);
 at::Tensor f8f8bf16_rowwise(
@@ -67,7 +62,12 @@ at::Tensor f8i4bf16_rowwise(
 at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale);
 std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(at::Tensor X);
 
-std::vector<at::Tensor> quantize_fp8_per_tensor(
+std::tuple<at::Tensor, double> quantize_fp8_per_tensor(
+    at::Tensor input,
+    c10::optional<at::Tensor> bs, // batch size
+    c10::optional<at::Tensor> scale_ub); // scale upperbound
+
+std::tuple<at::Tensor, at::Tensor> quantize_fp8_per_tensor_tensor_scale(
     at::Tensor input,
     c10::optional<at::Tensor> bs, // batch size
     c10::optional<at::Tensor> scale_ub); // scale upperbound
@@ -103,10 +103,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("i8i8bf16(Tensor XQ, Tensor WQ, float scale, int split_k=1) -> Tensor");
 
   m.def(
-      "f8f8bf16(Tensor XQ, Tensor WQ, Tensor scale, bool use_fast_accum=True) -> Tensor");
-
-  m.def(
-      "f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
+      "f8f8bf16(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
 
   m.def(
       "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
@@ -139,8 +136,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // quantize_ops with
   // torch.ops.load_library
   m.def(
-      "quantize_fp8_per_tensor(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]");
+      "quantize_fp8_per_tensor(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> (Tensor, float)");
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
+  m.def(
+      "quantize_fp8_per_tensor_tensor_scale(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> (Tensor, Tensor)");
+  m.impl(
+      "quantize_fp8_per_tensor_tensor_scale",
+      quantize_fp8_per_tensor_tensor_scale);
   m.def(
       "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None) -> Tensor[]");
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
@@ -166,10 +168,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 #ifndef USE_ROCM
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("i8i8bf16", i8i8bf16);
+  m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
-  m.impl("f8f8bf16", f8f8bf16);
-  m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
+  m.impl(
+      "quantize_fp8_per_tensor_tensor_scale",
+      quantize_fp8_per_tensor_tensor_scale);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
 }
 
@@ -197,13 +201,22 @@ at::Tensor f8f8bf16_rowwise_meta(
   return Y;
 }
 
-std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
+std::tuple<at::Tensor, double> quantize_fp8_per_tensor_meta(
+    at::Tensor X,
+    c10::optional<at::Tensor> bs,
+    c10::optional<at::Tensor> scale_ub) {
+  auto Y = at::empty_like(X, X.options().dtype(at::kFloat8_e4m3fn));
+  auto scale = 0.0;
+  return std::tuple<at::Tensor, double>{Y, scale};
+}
+
+std::tuple<at::Tensor, at::Tensor> quantize_fp8_per_tensor_tensor_scale_meta(
     at::Tensor X,
     c10::optional<at::Tensor> bs,
     c10::optional<at::Tensor> scale_ub) {
   auto Y = at::empty_like(X, X.options().dtype(at::kFloat8_e4m3fn));
   auto scale = at::empty({}, X.options().dtype(at::kBFloat16));
-  return {Y, scale};
+  return std::tuple<at::Tensor, at::Tensor>{Y, scale};
 }
 
 at::Tensor f8f8bf16_cublas_meta(
@@ -220,17 +233,6 @@ at::Tensor f8f8bf16_cublas_meta(
 }
 
 at::Tensor f8f8bf16_meta(
-    at::Tensor X,
-    at::Tensor W,
-    at::Tensor scale,
-    bool use_fast_accum = true) {
-  const at::SymInt M = X.sym_size(0);
-  const at::SymInt N = W.sym_size(0);
-  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
-  return Y;
-}
-
-at::Tensor f8f8bf16_tensorwise_meta(
     at::Tensor X,
     at::Tensor W,
     double scale,
@@ -255,10 +257,12 @@ at::Tensor f8i4bf16_rowwise_meta(
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("i8i8bf16", i8i8bf16_meta);
+  m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
-  m.impl("f8f8bf16", f8f8bf16_meta);
-  m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
+  m.impl(
+      "quantize_fp8_per_tensor_tensor_scale",
+      quantize_fp8_per_tensor_tensor_scale_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
 }

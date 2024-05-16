@@ -78,7 +78,9 @@ class FP8Tests(unittest.TestCase):
         wq = (w * fp8_max / w_max).to(torch.float8_e4m3fn)
 
         if kernel == "cutlass":
-            zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale, use_fast_accum)
+            zq = torch.ops.fbgemm.f8f8bf16(
+                xq, wq, (x_scale * w_scale).item(), use_fast_accum
+            )
         else:
             zq = torch.ops.fbgemm.f8f8bf16_cublas(
                 xq, wq, x_scale, w_scale, use_fast_accum
@@ -97,7 +99,7 @@ class FP8Tests(unittest.TestCase):
         B_T=st.sampled_from([2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
-        Mode=st.sampled_from(["tensorwise", "tensorwise_broadcast", "rowwise"]),
+        Mode=st.sampled_from(["tensorwise", "rowwise"]),
         QType=st.sampled_from([torch.float8_e4m3fn, torch.float8_e5m2]),
         Bias=st.sampled_from([True, False]),
     )
@@ -116,14 +118,6 @@ class FP8Tests(unittest.TestCase):
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
             wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
             zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale)
-            if bias is not None:
-                zq += bias
-        elif Mode == "tensorwise_broadcast":
-            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-            wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-            zq = torch.ops.fbgemm.f8f8bf16_tensorwise(
-                xq, wq, (x_scale * w_scale).item()
-            )
             if bias is not None:
                 zq += bias
         elif Mode == "rowwise":
