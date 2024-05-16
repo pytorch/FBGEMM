@@ -18,7 +18,15 @@ import torch
 
 from hypothesis import given, settings, strategies as st
 
-E4M3_MAX_POS: float = torch.finfo(torch.float8_e4m3fn).max
+# Supported FP8 format is different on NV and AMD.
+if torch.version.hip is not None:
+    fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
+    fp8_e5m2: torch.dtype = torch.float8_e5m2fnuz
+else:
+    fp8_e4m3: torch.dtype = torch.float8_e4m3fn
+    fp8_e5m2: torch.dtype = torch.float8_e5m2
+
+E4M3_MAX_POS: float = torch.finfo(fp8_e4m3).max
 EPS: float = 1e-12
 FP16_MAX_POS: float = torch.finfo(torch.float16).max
 
@@ -44,7 +52,7 @@ def fp8_col_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 @unittest.skipIf(
     not torch.cuda.is_available()
     or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
-    "Skip when H100 is not available",
+    "Skip when MI300 or H100 is not available",
 )
 class FP8Tests(unittest.TestCase):
     def test_fp8_python(self) -> None:
@@ -57,14 +65,16 @@ class FP8Tests(unittest.TestCase):
 
     @settings(deadline=None)
     @given(
-        kernel=st.sampled_from(["cutlass", "cublas"]),
-        use_fast_accum=st.booleans(),
+        kernel=st.sampled_from(
+            ["cutlass"] + (["cublas"] if torch.version.cuda else [])
+        ),
+        use_fast_accum=st.booleans() if torch.version.cuda else st.sampled_from([True]),
     )
     def test_f8f8bf16(self, kernel: str, use_fast_accum: bool) -> None:
-        M = 16
-        N = 32
+        M = 128
+        N = 128
         K = 256
-        fp8_max = torch.finfo(torch.float8_e4m3fn).max
+        fp8_max = E4M3_MAX_POS
         x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
 
@@ -74,8 +84,8 @@ class FP8Tests(unittest.TestCase):
         x_scale = (x_max / fp8_max).float()
         w_scale = (w_max / fp8_max).float()
 
-        xq = (x * fp8_max / x_max).to(torch.float8_e4m3fn)
-        wq = (w * fp8_max / w_max).to(torch.float8_e4m3fn)
+        xq = (x * fp8_max / x_max).to(fp8_e4m3)
+        wq = (w * fp8_max / w_max).to(fp8_e4m3)
 
         if kernel == "cutlass":
             zq = torch.ops.fbgemm.f8f8bf16(
@@ -94,6 +104,9 @@ class FP8Tests(unittest.TestCase):
 
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+    )
     @settings(deadline=None)
     @given(
         B_T=st.sampled_from([2048, 4096]),
@@ -132,6 +145,9 @@ class FP8Tests(unittest.TestCase):
             zq_ref += bias
         torch.testing.assert_close(zq, zq_ref, atol=8.0e-2, rtol=8.0e-2)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+    )
     @settings(deadline=None)
     @given(
         B_T=st.sampled_from([2048, 4096]),
@@ -167,6 +183,9 @@ class FP8Tests(unittest.TestCase):
 
         torch.testing.assert_close(xq.float(), xq_ref.float(), atol=5.0e-2, rtol=5.0e-2)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+    )
     @settings(deadline=None)
     @given(
         G_B=st.sampled_from([64, 32]),  # graph batch size
@@ -196,6 +215,9 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq[:B, :], zq_ref, atol=2.0e-3, rtol=2.0e-3)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+    )
     @settings(deadline=None)
     @given(
         B_T=st.sampled_from([2048, 4096]),
