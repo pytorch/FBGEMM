@@ -25,7 +25,4 @@ import fbgemm_gpu.docs  # noqa: F401, E402
 from fbgemm_gpu.docs.version import __version__  # noqa: F401, E402
 
 # Trigger meta operator registrations
-
-from . import sparse_ops, split_embeddings_cache_ops  # noqa: F401, E402
-
-# from . import sparse_ops # noqa: F401, E402
+from . import sparse_ops  # noqa: F401, E402

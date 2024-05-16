@@ -14,8 +14,6 @@ import unittest
 from itertools import accumulate
 from typing import Tuple
 
-import fbgemm_gpu.split_embeddings_cache_ops  # noqa: F401
-
 import hypothesis.strategies as st
 import numpy as np
 import torch
@@ -24,7 +22,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
 from hypothesis import given, settings, Verbosity
 from torch import Tensor
 
-from .. import common  # noqa E402
 from ..common import MAX_EXAMPLES, open_source
 
 if open_source:

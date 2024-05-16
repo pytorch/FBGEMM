@@ -13,12 +13,9 @@ import random
 import unittest
 from typing import Optional
 
-import fbgemm_gpu.split_embeddings_cache_ops  # noqa: F401
-
 import torch
 from hypothesis import Verbosity
 
-from .. import common  # noqa E402
 from ..common import open_source
 
 

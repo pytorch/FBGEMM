@@ -10,6 +10,7 @@
 from typing import List, Tuple
 
 import fbgemm_gpu
+import fbgemm_gpu.tbe.cache  # noqa: F401
 import numpy as np
 import torch
 from hypothesis import settings, Verbosity
