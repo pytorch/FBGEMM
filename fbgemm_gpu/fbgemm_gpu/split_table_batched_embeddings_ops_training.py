@@ -37,6 +37,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     construct_cache_state,
     EmbeddingLocation,
     MAX_PREFETCH_DEPTH,
+    MultiPassPrefetchConfig,
     PoolingMode,
     RecordCacheMetrics,
     SplitState,
@@ -389,6 +390,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Embedding table names that are contained in this TBE.
         table_names: Optional[List[str]] = None,
         optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
+        multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
@@ -402,11 +404,32 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.prefetch_pipeline: bool = prefetch_pipeline
         self.lock_cache_line: bool = self.prefetch_pipeline
         self.use_uniq_cache_locations_bwd: bool = self.prefetch_pipeline
+        self.multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = (
+            multipass_prefetch_config
+        )
 
         if record_cache_metrics is not None:
             self.record_cache_metrics = record_cache_metrics
         else:
             self.record_cache_metrics = RecordCacheMetrics(False, False)
+
+        if multipass_prefetch_config:
+            assert (
+                prefetch_pipeline
+            ), "Multipass prefetch makes no sense in non-prefetch mode."
+            assert (
+                cache_algorithm == CacheAlgorithm.LRU
+            ), "Multipass prefetch is only supported in LRU cache."
+            assert (
+                multipass_prefetch_config.num_passes > 0
+            ), f"num_passes must be positive, get {multipass_prefetch_config.num_passes}"
+            assert (
+                multipass_prefetch_config.min_splitable_pass_size > 0
+            ), f"min_splitable_pass_size must be positive, get {multipass_prefetch_config.min_splitable_pass_size}"
+            assert (
+                not self.record_cache_metrics.record_cache_miss_counter
+                and not self.record_cache_metrics.record_tablewise_cache_miss
+            ), "Unique cache miss counters are not accurate in multipass prefetch and therefore not supported"
 
         self.embedding_specs = embedding_specs
         (rows, dims, locations, compute_devices) = zip(*embedding_specs)
@@ -925,6 +948,43 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             persistent=False,
         )
 
+    @staticmethod
+    def get_prefetch_passes(
+        multipass_prefetch_config: Optional[MultiPassPrefetchConfig],
+        input_tensor: Tensor,
+        output_tensor: Tensor,
+    ) -> List[Tuple[Tensor, Tensor, int]]:
+        """
+        Given input (the indices to forward), return the segmentation for each pass
+        in the format of (input[start_idx:end_idx], output[start_idx:end_idx], start_idx).
+
+        Caller should guarantee input and output are having the size on dimension 0
+        The returned segments are guaranteed to completely and non-overlappingly cover the input tensor.
+
+        In non-multipass-prefetch mode, it returns the input/output tensor itself.
+        """
+        if multipass_prefetch_config is None:
+            return [(input_tensor, output_tensor, 0)]
+        mpp_config: MultiPassPrefetchConfig = multipass_prefetch_config
+
+        N = input_tensor.size(0)
+        if N <= mpp_config.num_passes or mpp_config.num_passes == 1:
+            # One row per pass, just don't split
+            return [(input_tensor, output_tensor, 0)]
+
+        pass_size: int = max(
+            (N + mpp_config.num_passes - 1) // mpp_config.num_passes,
+            mpp_config.min_splitable_pass_size,
+        )
+
+        return list(
+            zip(
+                torch.split(input_tensor, pass_size),
+                torch.split(output_tensor, pass_size),
+                range(0, N, pass_size),
+            )
+        )
+
     def get_states(self, prefix: str) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         if not hasattr(self, f"{prefix}_physical_placements"):
             raise DoesNotHavePrefix()
@@ -1194,7 +1254,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self._report_tbe_mem_usage()
 
         if len(self.timesteps_prefetched) == 0:
-            self._prefetch(indices, offsets, vbe_metadata)
+            # In forward, we don't enable multi-pass prefetch as we want the process
+            # to be as fast as possible and memory usage doesn't matter (will be recycled
+            # by dense fwd/bwd)
+            self._prefetch(
+                indices, offsets, vbe_metadata, multipass_prefetch_config=None
+            )
 
         if len(self.timesteps_prefetched) > 0:
             self.timesteps_prefetched.pop(0)
@@ -1509,7 +1574,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets,
             batch_size_per_feature_per_rank,
         )
-        self._prefetch(indices, offsets, vbe_metadata)
+        self._prefetch(
+            indices,
+            offsets,
+            vbe_metadata,
+            multipass_prefetch_config=self.multipass_prefetch_config,
+        )
         if forward_stream is not None:
             self._prefetch_tensors_record_stream(forward_stream)
 
@@ -1518,6 +1588,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
+        multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
     ) -> None:
         if not is_torchdynamo_compiling():
             # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
@@ -1534,81 +1605,90 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.local_uvm_cache_stats.zero_()
         self._report_io_size_count("prefetch_input", indices)
 
-        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
-            self.cache_hash_size_cumsum,
-            indices,
-            offsets,
-            vbe_metadata.B_offsets if vbe_metadata is not None else None,
-            vbe_metadata.max_B if vbe_metadata is not None else -1,
-        )
-
-        if (
-            self.record_cache_metrics.record_cache_miss_counter
-            or self.record_cache_metrics.record_tablewise_cache_miss
+        final_lxu_cache_locations = torch.empty_like(indices, dtype=torch.int32)
+        for (
+            partial_indices,
+            partial_lxu_cache_locations,
+            base_offset,
+        ) in self.get_prefetch_passes(
+            multipass_prefetch_config, indices, final_lxu_cache_locations
         ):
-            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_cache_hash_size,
-                self.gather_uvm_cache_stats,
-                self.local_uvm_cache_stats,
+            linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+                self.cache_hash_size_cumsum,
+                partial_indices,
+                offsets,
+                vbe_metadata.B_offsets if vbe_metadata is not None else None,
+                vbe_metadata.max_B if vbe_metadata is not None else -1,
+                base_offset,
             )
-            if self.record_cache_metrics.record_cache_miss_counter:
-                self._update_cache_miss_counter(
-                    lxu_cache_locations, linear_cache_indices
+
+            if (
+                self.record_cache_metrics.record_cache_miss_counter
+                or self.record_cache_metrics.record_tablewise_cache_miss
+            ):
+                lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_cache_hash_size,
+                    self.gather_uvm_cache_stats,
+                    self.local_uvm_cache_stats,
                 )
-            if self.record_cache_metrics.record_tablewise_cache_miss:
-                self._update_tablewise_cache_miss(
-                    lxu_cache_locations, linear_cache_indices, offsets
+                if self.record_cache_metrics.record_cache_miss_counter:
+                    self._update_cache_miss_counter(
+                        lxu_cache_locations, linear_cache_indices
+                    )
+                if self.record_cache_metrics.record_tablewise_cache_miss:
+                    self._update_tablewise_cache_miss(
+                        lxu_cache_locations, linear_cache_indices, offsets
+                    )
+
+            if self.cache_algorithm == CacheAlgorithm.LRU:
+                torch.ops.fbgemm.lru_cache_populate(
+                    self.weights_uvm,
+                    self.cache_hash_size_cumsum,
+                    self.total_cache_hash_size,
+                    self.cache_index_table_map,
+                    self.weights_offsets,
+                    self.D_offsets,
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.lxu_cache_weights,
+                    self.timestep,
+                    self.lxu_state,
+                    self.stochastic_rounding,
+                    self.gather_uvm_cache_stats,
+                    self.local_uvm_cache_stats,
+                    self.lock_cache_line,
+                    self.lxu_cache_locking_counter,
+                )
+            elif self.cache_algorithm == CacheAlgorithm.LFU:
+                torch.ops.fbgemm.lfu_cache_populate(
+                    self.weights_uvm,
+                    self.cache_hash_size_cumsum,
+                    self.total_cache_hash_size,
+                    self.cache_index_table_map,
+                    self.weights_offsets,
+                    self.D_offsets,
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.lxu_cache_weights,
+                    self.lxu_state,
+                    self.stochastic_rounding,
                 )
 
-        if self.cache_algorithm == CacheAlgorithm.LRU:
-            torch.ops.fbgemm.lru_cache_populate(
-                self.weights_uvm,
-                self.cache_hash_size_cumsum,
-                self.total_cache_hash_size,
-                self.cache_index_table_map,
-                self.weights_offsets,
-                self.D_offsets,
+            torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
-                self.lxu_cache_weights,
-                self.timestep,
-                self.lxu_state,
-                self.stochastic_rounding,
+                self.total_cache_hash_size,
                 self.gather_uvm_cache_stats,
                 self.local_uvm_cache_stats,
-                self.lock_cache_line,
-                self.lxu_cache_locking_counter,
-            )
-        elif self.cache_algorithm == CacheAlgorithm.LFU:
-            torch.ops.fbgemm.lfu_cache_populate(
-                self.weights_uvm,
-                self.cache_hash_size_cumsum,
-                self.total_cache_hash_size,
-                self.cache_index_table_map,
-                self.weights_offsets,
-                self.D_offsets,
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.lxu_cache_weights,
-                self.lxu_state,
-                self.stochastic_rounding,
+                lxu_cache_locations_output=partial_lxu_cache_locations,
             )
 
         assert (
             len(self.lxu_cache_locations_list) < self.max_prefetch_depth
         ), f"self.lxu_cache_locations_list has grown to size: {len(self.lxu_cache_locations_list)}, this exceeds the maximum: {self.max_prefetch_depth}. This probably indicates an error in logic where prefetch() is being called more frequently than forward()"
-
-        lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-            linear_cache_indices,
-            self.lxu_cache_state,
-            self.total_cache_hash_size,
-            self.gather_uvm_cache_stats,
-            self.local_uvm_cache_stats,
-        )
-
-        self.lxu_cache_locations_list.append(lxu_cache_locations)
+        self.lxu_cache_locations_list.append(final_lxu_cache_locations)
 
         if self.gather_uvm_cache_stats:
             # Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).

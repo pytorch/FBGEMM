@@ -36,6 +36,19 @@ class CacheAlgorithm(enum.Enum):
     LFU = 1
 
 
+class MultiPassPrefetchConfig(NamedTuple):
+    # Number of passes to split indices tensor into. Actual number of passes may
+    # be less if indices tensor is too small to split.
+    num_passes: int = 12
+
+    # The minimal number of element in indices tensor to be able to split into
+    # two passes. This is useful to prevent too many prefetch kernels spamming
+    # the CUDA launch queue.
+    # The default 6M indices means 6M * 8 * 6 = approx. 300MB of memory overhead
+    # per pass.
+    min_splitable_pass_size: int = 6 * 1024 * 1024
+
+
 class PoolingMode(enum.IntEnum):
     SUM = 0
     MEAN = 1

@@ -31,6 +31,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
+    MultiPassPrefetchConfig,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from hypothesis import assume, given, settings
@@ -42,6 +43,7 @@ from .cache_common import (
     generate_cache_tbes,
     gpu_unavailable,
     optests,
+    skipIfRocm,
     TestingStatsReporter,
     TestingStatsReporterConfig,
     VERBOSITY,
@@ -75,6 +77,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -172,6 +175,8 @@ class CacheTest(unittest.TestCase):
         stochastic_rounding: bool,
         gather_uvm_cache_stats: bool,
         mixed_B: bool = False,
+        mpp_n_passes: Optional[int] = None,
+        mpp_min_size: Optional[int] = None,
     ) -> None:
         """
         test cache prefetch pipeline with prefetch_pipeline=True.
@@ -186,6 +191,14 @@ class CacheTest(unittest.TestCase):
         assume(not mixed_B or T > 1)
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
         reporter = TestingStatsReporterConfig(interval=2)
+
+        mpp_conf: Optional[MultiPassPrefetchConfig] = None
+        if mpp_n_passes or mpp_min_size:
+            mpp_conf = MultiPassPrefetchConfig()
+            if mpp_n_passes:
+                mpp_conf = mpp_conf._replace(num_passes=mpp_n_passes)
+            if mpp_min_size:
+                mpp_conf = mpp_conf._replace(min_splitable_pass_size=mpp_min_size)
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T,
             D,
@@ -198,6 +211,7 @@ class CacheTest(unittest.TestCase):
             stochastic_rounding=stochastic_rounding,
             gather_uvm_cache_stats=gather_uvm_cache_stats,
             reporter_config=reporter,
+            multipass_prefetch_config=mpp_conf,
         )
         iters = 5
         vbe_num_ranks = random.randint(2, 5)
@@ -410,6 +424,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -421,6 +436,8 @@ class CacheTest(unittest.TestCase):
         weights_cache_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
         stochastic_rounding=st.booleans(),
         gather_uvm_cache_stats=st.booleans(),
+        mpp_n_passes=st.sampled_from([None, 1, 6, 12]),
+        mpp_min_size=st.sampled_from([None, 1, 5, 10, 1024]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline(
@@ -434,6 +451,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -445,6 +463,8 @@ class CacheTest(unittest.TestCase):
         stochastic_rounding=st.booleans(),
         gather_uvm_cache_stats=st.booleans(),
         mixed_B=st.booleans(),
+        mpp_n_passes=st.sampled_from([None, 1, 6, 12]),
+        mpp_min_size=st.sampled_from([None, 1, 5, 10, 1024]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_1(
@@ -459,6 +479,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @skipIfRocm
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -470,6 +491,8 @@ class CacheTest(unittest.TestCase):
         stochastic_rounding=st.booleans(),
         gather_uvm_cache_stats=st.booleans(),
         mixed_B=st.booleans(),
+        mpp_n_passes=st.sampled_from([None, 1, 6, 12]),
+        mpp_min_size=st.sampled_from([None, 1, 5, 10, 1024]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_2(
@@ -481,6 +504,59 @@ class CacheTest(unittest.TestCase):
             prefetch_location="between_fwd_bwd",
             prefetch_stream=torch.cuda.Stream(),
         )
+
+    @given(
+        S=st.sampled_from([0, 7, 100, 1024]),
+        mpp_n_passes=st.sampled_from([None, 1, 6, 12]),
+        mpp_min_size=st.sampled_from([None, 1, 5, 10, 128]),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_get_prefetch_passes(
+        self, S: int, mpp_n_passes: Optional[int], mpp_min_size: Optional[int]
+    ) -> None:
+        mpp_conf: Optional[MultiPassPrefetchConfig] = None
+        if mpp_n_passes or mpp_min_size:
+            mpp_conf = MultiPassPrefetchConfig()
+            if mpp_n_passes:
+                mpp_conf = mpp_conf._replace(num_passes=mpp_n_passes)
+            if mpp_min_size:
+                mpp_conf = mpp_conf._replace(min_splitable_pass_size=mpp_min_size)
+        input_tensor = torch.randn(S)
+        output_tensor = torch.randn(S)
+
+        ret = SplitTableBatchedEmbeddingBagsCodegen.get_prefetch_passes(
+            mpp_conf, input_tensor, output_tensor
+        )
+
+        if not mpp_conf:
+            self.assertEqual(len(ret), 1)
+            self.assertTrue(torch.equal(ret[0][0], input_tensor))
+            self.assertTrue(torch.equal(ret[0][1], output_tensor))
+            self.assertEqual(ret[0][2], 0)
+            return
+
+        # Make sure the max passes is not exceeding the configured value
+        self.assertGreaterEqual(mpp_conf.num_passes, len(ret))
+
+        # Make sure the passes are having the right start offset. Also make sure
+        # every pass would not go below the configured min size (except for the
+        # last pass)
+        for idx, t in enumerate(ret):
+            i, o, s = t
+            if idx < len(ret) - 1:
+                self.assertGreaterEqual(i.numel(), mpp_conf.min_splitable_pass_size)
+            self.assertTrue(torch.equal(i, input_tensor[s : s + i.numel()]))
+            self.assertTrue(torch.equal(o, output_tensor[s : s + i.numel()]))
+
+        # Make sure the returned passes are both non-overlapping and complete. We do
+        # this by settong the tensor to all zero, and increment them when visited
+        input_tensor.zero_()
+        output_tensor.zero_()
+        for i, o, _ in ret:
+            i.add_(1)
+            o.add_(1)
+        self.assertTrue(torch.equal(torch.full_like(input_tensor, 1), input_tensor))
+        self.assertTrue(torch.equal(torch.full_like(output_tensor, 1), output_tensor))
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
