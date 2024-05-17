@@ -419,7 +419,6 @@
 <span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
 <span class="c1"># pyre-strict</span>
-
 <span class="c1"># pyre-ignore-all-errors[56]</span>
 
 <span class="kn">import</span> <span class="nn">contextlib</span>
@@ -437,8 +436,6 @@
 <span class="kn">import</span> <span class="nn">torch</span>  <span class="c1"># usort:skip</span>
 <span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
 
-<span class="c1"># Load cache ops</span>
-<span class="kn">import</span> <span class="nn">fbgemm_gpu</span>  <span class="c1"># noqa: F401</span>
 <span class="kn">import</span> <span class="nn">fbgemm_gpu.split_embedding_codegen_lookup_invokers</span> <span class="k">as</span> <span class="nn">invokers</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.runtime_monitor</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">AsyncSeriesTimer</span><span class="p">,</span>
@@ -453,6 +450,7 @@
     <span class="n">construct_cache_state</span><span class="p">,</span>
     <span class="n">EmbeddingLocation</span><span class="p">,</span>
     <span class="n">MAX_PREFETCH_DEPTH</span><span class="p">,</span>
+    <span class="n">MultiPassPrefetchConfig</span><span class="p">,</span>
     <span class="n">PoolingMode</span><span class="p">,</span>
     <span class="n">RecordCacheMetrics</span><span class="p">,</span>
     <span class="n">SplitState</span><span class="p">,</span>
@@ -805,6 +803,7 @@
         <span class="c1"># Embedding table names that are contained in this TBE.</span>
         <span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">optimizer_state_dtypes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SparseType</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
@@ -818,11 +817,32 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_pipeline</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">prefetch_pipeline</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lock_cache_line</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_pipeline</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">use_uniq_cache_locations_bwd</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_pipeline</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">multipass_prefetch_config</span>
+        <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">record_cache_metrics</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span> <span class="o">=</span> <span class="n">record_cache_metrics</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span> <span class="o">=</span> <span class="n">RecordCacheMetrics</span><span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">multipass_prefetch_config</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">prefetch_pipeline</span>
+            <span class="p">),</span> <span class="s2">&quot;Multipass prefetch makes no sense in non-prefetch mode.&quot;</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span>
+            <span class="p">),</span> <span class="s2">&quot;Multipass prefetch is only supported in LRU cache.&quot;</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">multipass_prefetch_config</span><span class="o">.</span><span class="n">num_passes</span> <span class="o">&gt;</span> <span class="mi">0</span>
+            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;num_passes must be positive, get </span><span class="si">{</span><span class="n">multipass_prefetch_config</span><span class="o">.</span><span class="n">num_passes</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">multipass_prefetch_config</span><span class="o">.</span><span class="n">min_splitable_pass_size</span> <span class="o">&gt;</span> <span class="mi">0</span>
+            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;min_splitable_pass_size must be positive, get </span><span class="si">{</span><span class="n">multipass_prefetch_config</span><span class="o">.</span><span class="n">min_splitable_pass_size</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span>
+                <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_tablewise_cache_miss</span>
+            <span class="p">),</span> <span class="s2">&quot;Unique cache miss counters are not accurate in multipass prefetch and therefore not supported&quot;</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span> <span class="o">=</span> <span class="n">embedding_specs</span>
         <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">dims</span><span class="p">,</span> <span class="n">locations</span><span class="p">,</span> <span class="n">compute_devices</span><span class="p">)</span> <span class="o">=</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">embedding_specs</span><span class="p">)</span>
@@ -1341,6 +1361,43 @@
             <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="p">)</span>
 
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_prefetch_passes</span><span class="p">(</span>
+        <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">],</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">output_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Given input (the indices to forward), return the segmentation for each pass</span>
+<span class="sd">        in the format of (input[start_idx:end_idx], output[start_idx:end_idx], start_idx).</span>
+
+<span class="sd">        Caller should guarantee input and output are having the size on dimension 0</span>
+<span class="sd">        The returned segments are guaranteed to completely and non-overlappingly cover the input tensor.</span>
+
+<span class="sd">        In non-multipass-prefetch mode, it returns the input/output tensor itself.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">multipass_prefetch_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">output_tensor</span><span class="p">,</span> <span class="mi">0</span><span class="p">)]</span>
+        <span class="n">mpp_config</span><span class="p">:</span> <span class="n">MultiPassPrefetchConfig</span> <span class="o">=</span> <span class="n">multipass_prefetch_config</span>
+
+        <span class="n">N</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">N</span> <span class="o">&lt;=</span> <span class="n">mpp_config</span><span class="o">.</span><span class="n">num_passes</span> <span class="ow">or</span> <span class="n">mpp_config</span><span class="o">.</span><span class="n">num_passes</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="c1"># One row per pass, just don&#39;t split</span>
+            <span class="k">return</span> <span class="p">[(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">output_tensor</span><span class="p">,</span> <span class="mi">0</span><span class="p">)]</span>
+
+        <span class="n">pass_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">N</span> <span class="o">+</span> <span class="n">mpp_config</span><span class="o">.</span><span class="n">num_passes</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">mpp_config</span><span class="o">.</span><span class="n">num_passes</span><span class="p">,</span>
+            <span class="n">mpp_config</span><span class="o">.</span><span class="n">min_splitable_pass_size</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span>
+            <span class="nb">zip</span><span class="p">(</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">pass_size</span><span class="p">),</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">output_tensor</span><span class="p">,</span> <span class="n">pass_size</span><span class="p">),</span>
+                <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">pass_size</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
     <span class="k">def</span> <span class="nf">get_states</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_physical_placements&quot;</span><span class="p">):</span>
             <span class="k">raise</span> <span class="n">DoesNotHavePrefix</span><span class="p">()</span>
@@ -1610,7 +1667,12 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_report_tbe_mem_usage</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">)</span>
+            <span class="c1"># In forward, we don&#39;t enable multi-pass prefetch as we want the process</span>
+            <span class="c1"># to be as fast as possible and memory usage doesn&#39;t matter (will be recycled</span>
+            <span class="c1"># by dense fwd/bwd)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span>
+                <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">,</span> <span class="n">multipass_prefetch_config</span><span class="o">=</span><span class="kc">None</span>
+            <span class="p">)</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
@@ -1925,7 +1987,12 @@
             <span class="n">offsets</span><span class="p">,</span>
             <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">vbe_metadata</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span>
+            <span class="n">indices</span><span class="p">,</span>
+            <span class="n">offsets</span><span class="p">,</span>
+            <span class="n">vbe_metadata</span><span class="p">,</span>
+            <span class="n">multipass_prefetch_config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">multipass_prefetch_config</span><span class="p">,</span>
+        <span class="p">)</span>
         <span class="k">if</span> <span class="n">forward_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch_tensors_record_stream</span><span class="p">(</span><span class="n">forward_stream</span><span class="p">)</span>
 
@@ -1934,6 +2001,7 @@
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">vbe_metadata</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
             <span class="c1"># Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time</span>
@@ -1950,81 +2018,90 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;prefetch_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
 
-        <span class="n">linear_cache_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">linearize_cache_indices</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
-            <span class="n">indices</span><span class="p">,</span>
-            <span class="n">offsets</span><span class="p">,</span>
-            <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span> <span class="k">if</span> <span class="n">vbe_metadata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-            <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span> <span class="k">if</span> <span class="n">vbe_metadata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
-        <span class="p">)</span>
-
-        <span class="k">if</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span>
-            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_tablewise_cache_miss</span>
+        <span class="n">final_lxu_cache_locations</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span>
+            <span class="n">partial_indices</span><span class="p">,</span>
+            <span class="n">partial_lxu_cache_locations</span><span class="p">,</span>
+            <span class="n">base_offset</span><span class="p">,</span>
+        <span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_prefetch_passes</span><span class="p">(</span>
+            <span class="n">multipass_prefetch_config</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">final_lxu_cache_locations</span>
         <span class="p">):</span>
-            <span class="n">lxu_cache_locations</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lxu_cache_lookup</span><span class="p">(</span>
-                <span class="n">linear_cache_indices</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="p">,</span>
+            <span class="n">linear_cache_indices</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">linearize_cache_indices</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
+                <span class="n">partial_indices</span><span class="p">,</span>
+                <span class="n">offsets</span><span class="p">,</span>
+                <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span> <span class="k">if</span> <span class="n">vbe_metadata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span> <span class="k">if</span> <span class="n">vbe_metadata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">base_offset</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_update_cache_miss_counter</span><span class="p">(</span>
-                    <span class="n">lxu_cache_locations</span><span class="p">,</span> <span class="n">linear_cache_indices</span>
+
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span>
+                <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_tablewise_cache_miss</span>
+            <span class="p">):</span>
+                <span class="n">lxu_cache_locations</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lxu_cache_lookup</span><span class="p">(</span>
+                    <span class="n">linear_cache_indices</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="p">,</span>
                 <span class="p">)</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_tablewise_cache_miss</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_update_tablewise_cache_miss</span><span class="p">(</span>
-                    <span class="n">lxu_cache_locations</span><span class="p">,</span> <span class="n">linear_cache_indices</span><span class="p">,</span> <span class="n">offsets</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_update_cache_miss_counter</span><span class="p">(</span>
+                        <span class="n">lxu_cache_locations</span><span class="p">,</span> <span class="n">linear_cache_indices</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_tablewise_cache_miss</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_update_tablewise_cache_miss</span><span class="p">(</span>
+                        <span class="n">lxu_cache_locations</span><span class="p">,</span> <span class="n">linear_cache_indices</span><span class="p">,</span> <span class="n">offsets</span>
+                    <span class="p">)</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span><span class="p">:</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lru_cache_populate</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cache_index_table_map</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">weights_offsets</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="p">,</span>
+                    <span class="n">linear_cache_indices</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">timestep</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_state</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">stochastic_rounding</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lock_cache_line</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locking_counter</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LFU</span><span class="p">:</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lfu_cache_populate</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">cache_index_table_map</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">weights_offsets</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="p">,</span>
+                    <span class="n">linear_cache_indices</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lxu_state</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">stochastic_rounding</span><span class="p">,</span>
                 <span class="p">)</span>
 
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span><span class="p">:</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lru_cache_populate</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">cache_index_table_map</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">weights_offsets</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lxu_cache_lookup</span><span class="p">(</span>
                 <span class="n">linear_cache_indices</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">timestep</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lxu_state</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">stochastic_rounding</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lock_cache_line</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locking_counter</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LFU</span><span class="p">:</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lfu_cache_populate</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">cache_index_table_map</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">weights_offsets</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="p">,</span>
-                <span class="n">linear_cache_indices</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">lxu_state</span><span class="p">,</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">stochastic_rounding</span><span class="p">,</span>
+                <span class="n">lxu_cache_locations_output</span><span class="o">=</span><span class="n">partial_lxu_cache_locations</span><span class="p">,</span>
             <span class="p">)</span>
 
         <span class="k">assert</span> <span class="p">(</span>
             <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_list</span><span class="p">)</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_prefetch_depth</span>
         <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;self.lxu_cache_locations_list has grown to size: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_list</span><span class="p">)</span><span class="si">}</span><span class="s2">, this exceeds the maximum: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">max_prefetch_depth</span><span class="si">}</span><span class="s2">. This probably indicates an error in logic where prefetch() is being called more frequently than forward()&quot;</span>
-
-        <span class="n">lxu_cache_locations</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lxu_cache_lookup</span><span class="p">(</span>
-            <span class="n">linear_cache_indices</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="p">,</span>
-        <span class="p">)</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lxu_cache_locations</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">final_lxu_cache_locations</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
             <span class="c1"># Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).</span>
