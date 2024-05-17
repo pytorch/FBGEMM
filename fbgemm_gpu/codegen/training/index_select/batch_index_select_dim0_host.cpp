@@ -712,28 +712,6 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.set_python_module("fbgemm_gpu.sparse_ops");
-  m.def(
-      "batch_index_select_dim0_forward_cuda_impl("
-      "Tensor inputs,"
-      "Tensor indices,"
-      "SymInt[] input_num_indices,"
-      "SymInt[] input_rows,"
-      "SymInt[] input_columns,"
-      "bool permute_output_dim_0_1) -> Tensor[]");
-  m.def(
-      "batch_index_select_dim0_backward_cuda_impl("
-      "Tensor grad_output,"
-      "Tensor dev_weights,"
-      "Tensor weights_offsets,"
-      "Tensor D_offsets,"
-      "Tensor hash_size_cumsum,"
-      "Tensor indices,"
-      "int max_segment_length_per_warp,"
-      "Tensor grad_offsets,"
-      "Tensor total_L_offsets,"
-      "bool permute_output_dim_0_1,"
-      "Tensor saved_tensor) ->Tensor");
   DISPATCH_TO_CUDA(
       "batch_index_select_dim0_forward_cuda_impl",
       BatchIndexSelectDim0GPUOp::forward_impl);
@@ -742,30 +720,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       BatchIndexSelectDim0GPUOp::backward_impl);
   DISPATCH_TO_AUTOGRAD_CUDA(
       "batch_index_select_dim0", batch_index_select_dim0_gpu);
-
-  // Tensor alternative
-  m.def(
-      "batch_index_select_dim0_tensor_forward_cuda_impl("
-      "Tensor inputs,"
-      "Tensor indices,"
-      "Tensor input_num_indices,"
-      "Tensor input_rows,"
-      "Tensor input_columns,"
-      "bool permute_output_dim_0_1) -> Tensor[]");
-
-  m.def(
-      "batch_index_select_dim0_tensor_backward_cuda_impl("
-      "Tensor grad_output,"
-      "Tensor dev_weights,"
-      "Tensor weights_offsets,"
-      "Tensor D_offsets,"
-      "Tensor hash_size_cumsum,"
-      "Tensor indices,"
-      "int max_segment_length_per_warp,"
-      "Tensor grad_offsets,"
-      "Tensor total_L_offsets,"
-      "bool permute_output_dim_0_1,"
-      "Tensor saved_tensor) -> Tensor");
   DISPATCH_TO_CUDA(
       "batch_index_select_dim0_tensor_forward_cuda_impl",
       BatchIndexSelectDim0TensorGPUOp::forward_impl);
