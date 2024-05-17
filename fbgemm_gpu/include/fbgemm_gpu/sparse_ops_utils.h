@@ -111,6 +111,11 @@ inline bool torch_tensor_empty_or_on_cpu_check(
 #define DISPATCH_TO_AUTOGRAD(name, function) \
   m.impl(name, torch::dispatch(c10::DispatchKey::Autograd, TORCH_FN(function)))
 
+#define DISPATCH_TO_AUTOGRAD_CPU(name, function) \
+  m.impl(                                        \
+      name,                                      \
+      torch::dispatch(c10::DispatchKey::AutogradCPU, TORCH_FN(function)))
+
 #define DISPATCH_TO_AUTOGRAD_CUDA(name, function) \
   m.impl(                                         \
       name,                                       \

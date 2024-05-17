@@ -47,6 +47,7 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
 
+
 import torch.utils._pytree as pytree
 from torch import SymInt, Tensor
 from torch.fx.experimental.symbolic_shapes import guard_size_oblivious
@@ -829,7 +830,7 @@ def group_index_select_dim0_gpu_backward_abstract(
     return ret
 
 
-@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_forward_cuda_impl")
+@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_forward")
 def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
     values: torch.Tensor,
     lengths: torch.Tensor,
@@ -865,7 +866,7 @@ def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
     ]
 
 
-@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_backward_cuda_impl")
+@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_backward")
 def keyed_jagged_index_select_dim1_backward_cuda_impl_abstract(
     grad: torch.Tensor,
     indices: torch.Tensor,

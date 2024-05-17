@@ -489,71 +489,11 @@ Tensor batch_index_select_dim0_tensor_cpu_autograd(
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-  m.def(
-      "batch_index_select_dim0("
-      "    Tensor inputs,"
-      "    Tensor indices,"
-      "    SymInt[] input_num_indices,"
-      "    SymInt[] input_rows,"
-      "    SymInt[] input_columns,"
-      "    bool permute_output_dim_0_1=False) -> Tensor");
   DISPATCH_TO_CPU(
       "batch_index_select_dim0", batch_index_select_dim0_cpu_autograd);
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.impl_abstract_pystub(
-      "fbgemm_gpu.sparse_ops",
-      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
-
-  m.def(
-      "batch_index_select_dim0("
-      "    Tensor inputs,"
-      "    Tensor indices,"
-      "    SymInt[] input_num_indices,"
-      "    SymInt[] input_rows,"
-      "    SymInt[] input_columns,"
-      "    bool permute_output_dim_0_1=False) -> Tensor",
-      {PT2_COMPLIANT_TAG});
-
-  m.def(
-      "batch_index_select_dim0_forward_cpu_impl("
-      "Tensor inputs,"
-      "Tensor indices,"
-      "SymInt[] input_num_indices,"
-      "SymInt[] input_rows,"
-      "SymInt[] input_columns,"
-      "bool permute_output_dim_0_1) -> Tensor[]");
-
-  m.def(
-      "batch_index_select_dim0_backward_cpu_impl("
-      "Tensor grad_output,"
-      "Tensor indices,"
-      "Tensor indices_numels,"
-      "Tensor input_num_indices,"
-      "Tensor input_rows,"
-      "Tensor input_columns,"
-      "bool permute_output_dim_0_1,"
-      "Tensor saved_tensor) -> Tensor");
-
-  m.def(
-      "batch_index_select_dim0_tensor("
-      "    Tensor inputs,"
-      "    Tensor indices,"
-      "    Tensor input_num_indices,"
-      "    Tensor input_rows,"
-      "    Tensor input_columns,"
-      "    bool permute_output_dim_0_1=False) -> Tensor");
-
-  m.def(
-      "batch_index_select_dim0_tensor_forward_cpu_impl("
-      "Tensor inputs,"
-      "Tensor indices,"
-      "Tensor input_num_indices,"
-      "Tensor input_rows,"
-      "Tensor input_columns,"
-      "bool permute_output_dim_0_1) -> Tensor[]");
-
   DISPATCH_TO_CPU(
       "batch_index_select_dim0_forward_cpu_impl",
       BatchIndexSelectDim0CPUOp::forward_impl);
@@ -565,14 +505,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "batch_index_select_dim0_backward_cpu_impl",
       BatchIndexSelectDim0CPUOp::backward_impl);
 
-  m.impl(
-      "batch_index_select_dim0",
-      torch::dispatch(
-          c10::DispatchKey::AutogradCPU,
-          TORCH_FN(batch_index_select_dim0_cpu_autograd)));
-  m.impl(
+  DISPATCH_TO_AUTOGRAD_CPU(
+      "batch_index_select_dim0", batch_index_select_dim0_cpu_autograd);
+
+  DISPATCH_TO_AUTOGRAD_CPU(
       "batch_index_select_dim0_tensor",
-      torch::dispatch(
-          c10::DispatchKey::AutogradCPU,
-          TORCH_FN(batch_index_select_dim0_tensor_cpu_autograd)));
+      batch_index_select_dim0_tensor_cpu_autograd);
 }

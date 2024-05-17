@@ -380,7 +380,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     static auto forward_op_impl =
         c10::Dispatcher::singleton()
             .findSchemaOrThrow(
-                "fbgemm::keyed_jagged_index_select_dim1_forward_cuda_impl", "")
+                "fbgemm::keyed_jagged_index_select_dim1_forward", "")
             .typed<decltype(forward_impl)>();
 
     auto res = forward_op_impl.call(
@@ -501,7 +501,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
     static auto backward_op =
         c10::Dispatcher::singleton()
             .findSchemaOrThrow(
-                "fbgemm::keyed_jagged_index_select_dim1_backward_cuda_impl", "")
+                "fbgemm::keyed_jagged_index_select_dim1_backward", "")
             .typed<decltype(backward_impl)>();
 
     auto grad_input = backward_op.call(
@@ -542,29 +542,13 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.set_python_module("fbgemm_gpu.sparse_ops");
-  m.def(
-      "keyed_jagged_index_select_dim1_forward_cuda_impl("
-      "Tensor values,"
-      "Tensor lengths,"
-      "Tensor offsets,"
-      "Tensor indices,"
-      "SymInt batch_size,"
-      "Tensor? weights,"
-      "SymInt? selected_lengths_sum) -> Tensor[]");
-
-  m.def(
-      "keyed_jagged_index_select_dim1_backward_cuda_impl("
-      "Tensor grad,"
-      "Tensor indices,"
-      "Tensor grad_offsets,"
-      "Tensor output_offsets,"
-      "Tensor saved_tensor) -> Tensor");
 
   DISPATCH_TO_CUDA(
-      "keyed_jagged_index_select_dim1_forward_cuda_impl",
+      "keyed_jagged_index_select_dim1_forward",
       fbgemm_gpu::KeyedJaggedIndexSelectDim1GPUOp::forward_impl);
+
   DISPATCH_TO_CUDA(
-      "keyed_jagged_index_select_dim1_backward_cuda_impl",
+      "keyed_jagged_index_select_dim1_backward",
       fbgemm_gpu::KeyedJaggedIndexSelectDim1GPUOp::backward_impl);
 
   DISPATCH_TO_AUTOGRAD_CUDA(

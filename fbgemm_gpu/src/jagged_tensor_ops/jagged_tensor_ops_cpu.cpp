@@ -1597,6 +1597,27 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "fbgemm_gpu.sparse_ops",
       "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
 #endif
+
+  m.set_python_module("fbgemm_gpu.sparse_ops");
+
+  m.def(
+      "keyed_jagged_index_select_dim1_forward("
+      "   Tensor values,"
+      "   Tensor lengths,"
+      "   Tensor offsets,"
+      "   Tensor indices,"
+      "   SymInt batch_size,"
+      "   Tensor? weights,"
+      "   SymInt? selected_lengths_sum) -> Tensor[]");
+
+  m.def(
+      "keyed_jagged_index_select_dim1_backward("
+      "   Tensor grad,"
+      "   Tensor indices,"
+      "   Tensor grad_offsets,"
+      "   Tensor output_offsets,"
+      "   Tensor saved_tensor) -> Tensor");
+
   // (dense, offsets) -> jagged. Offsets output is same as input.
   // SymInt is a new PyTorch 2.0 feature to support dynamic shape. See more
   // details at https://pytorch.org/get-started/pytorch-2.0/#dynamic-shapes. If
