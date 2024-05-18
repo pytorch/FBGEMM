@@ -1108,6 +1108,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           no_bag,
           is_bf16_out,
           is_bf16_in);
+      }
     };
   }
 
@@ -1309,6 +1310,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           no_bag,
           is_bf16_out,
           is_bf16_in);
+      }
     };
   }
 }
