@@ -79,8 +79,10 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:ga2193654aaf8fe11d73c68bb0eeaaad10" id="r_ga2193654aaf8fe11d73c68bb0eeaaad10"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt;, c10::optional&lt; at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga2193654aaf8fe11d73c68bb0eeaaad10">get_unique_indices_cuda</a> (at::Tensor linear_indices, int64_t max_indices, bool compute_count, const bool compute_inverse_indices)</td></tr>
-<tr class="separator:ga2193654aaf8fe11d73c68bb0eeaaad10"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gae191fdc58b0fea96617345fb8a4d31c9" id="r_gae191fdc58b0fea96617345fb8a4d31c9"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gae191fdc58b0fea96617345fb8a4d31c9">get_unique_indices_cuda</a> (const at::Tensor &amp;linear_indices, const int64_t max_indices, const bool compute_count)</td></tr>
+<tr class="separator:gae191fdc58b0fea96617345fb8a4d31c9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga03a569dc174346515844d06e1becd0dd" id="r_ga03a569dc174346515844d06e1becd0dd"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt;, c10::optional&lt; at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga03a569dc174346515844d06e1becd0dd">get_unique_indices_with_inverse_cuda</a> (const at::Tensor &amp;linear_indices, const int64_t max_indices, const bool compute_count, const bool compute_inverse_indices)</td></tr>
+<tr class="separator:ga03a569dc174346515844d06e1becd0dd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab6c0d4c75f93676e976815c6f1aebdeb" id="r_gab6c0d4c75f93676e976815c6f1aebdeb"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gab6c0d4c75f93676e976815c6f1aebdeb">lru_cache_find_uncached_cuda</a> (at::Tensor unique_indices, at::Tensor unique_indices_length, int64_t max_indices, at::Tensor lxu_cache_state, int64_t time_stamp, at::Tensor lru_state, bool gather_cache_stats, at::Tensor uvm_cache_stats, bool lock_cache_line, at::Tensor lxu_cache_locking_counter, const bool compute_inverse_indices)</td></tr>
 <tr class="separator:gab6c0d4c75f93676e976815c6f1aebdeb"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga920da453c443675fc7fbc9d68e272a61" id="r_ga920da453c443675fc7fbc9d68e272a61"><td class="memItemLeft" align="right" valign="top">int64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga920da453c443675fc7fbc9d68e272a61">host_lxu_cache_slot</a> (int64_t h_in, int64_t C)</td></tr>
@@ -242,26 +244,53 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga2193654aaf8fe11d73c68bb0eeaaad10" name="ga2193654aaf8fe11d73c68bb0eeaaad10"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga2193654aaf8fe11d73c68bb0eeaaad10">&#9670;&#160;</a></span>get_unique_indices_cuda()</h2>
+<a id="gae191fdc58b0fea96617345fb8a4d31c9" name="gae191fdc58b0fea96617345fb8a4d31c9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gae191fdc58b0fea96617345fb8a4d31c9">&#9670;&#160;</a></span>get_unique_indices_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt;, c10::optional&lt; at::Tensor &gt; &gt; get_unique_indices_cuda </td>
+          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt; &gt; get_unique_indices_cuda </td>
           <td>(</td>
-          <td class="paramtype">at::Tensor</td>          <td class="paramname"><span class="paramname"><em>linear_indices</em>, </span></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>linear_indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>max_indices</em>, </span></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_indices</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>compute_count</em>, </span></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>compute_count</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Deduplicate indices. </p>
+
+</div>
+</div>
+<a id="ga03a569dc174346515844d06e1becd0dd" name="ga03a569dc174346515844d06e1becd0dd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga03a569dc174346515844d06e1becd0dd">&#9670;&#160;</a></span>get_unique_indices_with_inverse_cuda()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor, c10::optional&lt; at::Tensor &gt;, c10::optional&lt; at::Tensor &gt; &gt; get_unique_indices_with_inverse_cuda </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>linear_indices</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_indices</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>compute_count</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
