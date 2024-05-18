@@ -273,7 +273,7 @@ ssd_cache_populate_actions_cuda(
        unique_indices_length,
        unique_indices_count,
        linear_index_inverse_indices] =
-          get_unique_indices_cuda(
+          get_unique_indices_with_inverse_cuda(
               linear_indices,
               total_hash_size,
               /*compute_count=*/true,

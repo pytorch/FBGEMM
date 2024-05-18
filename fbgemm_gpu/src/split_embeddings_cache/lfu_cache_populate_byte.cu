@@ -240,16 +240,11 @@ DLL_PUBLIC void lfu_cache_populate_byte_cuda(
   }
 
   // get unqiue indices
-  auto
-      [unique_indices,
-       unique_indices_length,
-       unique_indices_count,
-       linear_indices_postions_sorted] =
-          get_unique_indices_cuda(
-              linear_cache_indices,
-              total_cache_hash_size,
-              /*compute_count=*/true,
-              /*compute_inverse_indices=*/false);
+  auto [unique_indices, unique_indices_length, unique_indices_count] =
+      get_unique_indices_cuda(
+          linear_cache_indices,
+          total_cache_hash_size,
+          /*compute_count=*/true);
 
   // update lfu counts
   lfu_update_counts_cuda(

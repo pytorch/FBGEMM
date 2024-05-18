@@ -28,15 +28,23 @@ enum uvm_cache_stats_index {
 
 ///@ingroup table-batched-embed-cuda
 /// Deduplicate indices.
+std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+get_unique_indices_cuda(
+    const at::Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count);
+
+///@ingroup table-batched-embed-cuda
+/// Deduplicate indices.
 std::tuple<
     at::Tensor,
     at::Tensor,
     c10::optional<at::Tensor>,
     c10::optional<at::Tensor>>
-get_unique_indices_cuda(
-    at::Tensor linear_indices,
-    int64_t max_indices,
-    bool compute_count,
+get_unique_indices_with_inverse_cuda(
+    const at::Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count,
     const bool compute_inverse_indices);
 
 ///@ingroup table-batched-embed-cuda
