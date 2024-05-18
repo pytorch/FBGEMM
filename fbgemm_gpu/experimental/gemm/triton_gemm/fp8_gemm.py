@@ -14,7 +14,7 @@ import triton  # @manual
 import triton.language as tl  # @manual
 from torch._tensor import Tensor
 
-from triton import autotune, cdiv, Config, heuristics, jit  # @manual
+from triton import Config  # @manual
 from triton.ops.matmul_perf_model import (  # @manual
     early_config_prune,
     estimate_matmul_time,
@@ -182,7 +182,7 @@ MATMUL_CONFIGS: List[Config] = [
 ] + get_configs_io_bound()
 
 
-@autotune(
+@triton.autotune(
     configs=MATMUL_CONFIGS,
     key=[
         "m_key",
@@ -195,12 +195,12 @@ MATMUL_CONFIGS: List[Config] = [
         "top_k": 10,
     },
 )
-@heuristics(
+@triton.heuristics(
     {
         "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
     }
 )
-@jit
+@triton.jit
 def _kernel_matmul_fp8_row(
     A,
     B,
@@ -367,7 +367,10 @@ def matmul_fp8_row(
         ).to(dtype=c.dtype)
 
     def grid(META):
-        return (cdiv(M, META["BLOCK_M"]) * cdiv(N, META["BLOCK_N"]), META["SPLIT_K"])
+        return (
+            triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
+            META["SPLIT_K"],
+        )
 
     _kernel_matmul_fp8_row[grid](
         a,
@@ -396,25 +399,25 @@ def matmul_fp8_row(
     return c
 
 
-@autotune(
+@triton.autotune(
     configs=MATMUL_CONFIGS,
     key=[
         "m_key",
         "n_key",
         "k_key",
-    ],  # TODO caller side bin keys so similar shapes can use same autotune.
+    ],  # TODO caller side bin keys so similar shapes can use same triton.autotune.
     prune_configs_by={
         "early_config_prune": early_config_prune,
         "perf_model": estimate_matmul_time,
         "top_k": 10,
     },
 )
-@heuristics(
+@triton.heuristics(
     {
         "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
     }
 )
-@jit
+@triton.jit
 def _kernel_matmul_fp8_block(
     A,
     B,
@@ -636,7 +639,7 @@ def matmul_fp8_block(
     # noqa: E731:
     def grid(META):
         return (
-            cdiv(M, META["BLOCK_M"]) * cdiv(N, META["BLOCK_N"]),
+            triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
             META["SPLIT_K"],
         )
 
@@ -756,7 +759,7 @@ def prep_matmul(
     return M, N, K, m_key, n_key, k_key, c, dot_out_dtype_triton, device
 
 
-@autotune(
+@triton.autotune(
     configs=[
         Config({"BLOCK_SIZE": 512}),
         Config({"BLOCK_SIZE": 1024}),
@@ -766,7 +769,7 @@ def prep_matmul(
     ],
     key=["N"],
 )
-@jit
+@triton.jit
 def _kernel_quantize_fp8_row(
     A,
     A_scale,
@@ -892,7 +895,7 @@ def quantize_fp8_row(
     return a_fp8, a_scale
 
 
-@jit
+@triton.jit
 def _kernel_quantize_fp8_block(
     A,
     A_scale,
@@ -967,8 +970,8 @@ def quantize_fp8_block(
         "cpu"
     ), "Blockwise quantization not support on cpu, please use row-wise quantization instead."
     M, K = x.shape
-    grid_m = cdiv(M, block_m)
-    grid_k = cdiv(K, block_k)
+    grid_m = triton.cdiv(M, block_m)
+    grid_k = triton.cdiv(K, block_k)
     x_scale = torch.ones((grid_m, grid_k), device=x.device, dtype=torch.float32)
     x_fp8 = torch.empty((M, K), device=x.device, dtype=torch.float8_e4m3fn)
     x_fp8 = convert_fp8_type(x_fp8)

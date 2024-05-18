@@ -33,6 +33,16 @@ __fbgemm_gpu_post_install_checks () {
   echo "[CHECK]       package channel; the package may be broken at runtime!!!"
   echo "################################################################################"
 
+  # shellcheck disable=SC2086,SC2155
+  local fbgemm_gpu_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(dir(fbgemm_gpu))")
+  # shellcheck disable=SC2086,SC2155
+  local experimental_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu.experimental; print(dir(fbgemm_gpu.experimental))")
+  echo "################################################################################"
+  echo "[CHECK] FBGEMM_GPU Experimental Packages"
+  echo "[CHECK] fbgemm_gpu: ${fbgemm_gpu_packages}"
+  echo "[CHECK] fbgemm_gpu.experimental: ${experimental_packages}"
+  echo "################################################################################"
+
   echo "[INSTALL] Checking imports and symbols ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
   (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1

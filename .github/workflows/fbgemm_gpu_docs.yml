@@ -37,6 +37,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+      BUILD_VARIANT: cpu
     strategy:
       fail-fast: false
       matrix:
@@ -71,7 +72,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu/docs; install_docs_tools $BUILD_ENV
 
     - name: Install PyTorch-CPU Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cpu
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly $BUILD_VARIANT
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -81,7 +82,7 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build + Install FBGEMM_GPU (CPU version)
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV cpu
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV $BUILD_VARIANT
 
     - name: Build FBGEMM_GPU Documentation
       run: . $PRELUDE; cd fbgemm_gpu/docs; build_fbgemm_gpu_docs $BUILD_ENV

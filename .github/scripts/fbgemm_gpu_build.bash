@@ -47,6 +47,11 @@ prepare_fbgemm_gpu_build () {
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda run --no-capture-output ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
+  # BUILD_VARIANT is provided by the github workflow file
+  if [ "$BUILD_VARIANT" == "cuda" ]; then
+    (install_triton "${env_name}") || return 1
+  fi
+
   # shellcheck disable=SC2086
   (test_python_import_package "${env_name}" numpy) || return 1
   # shellcheck disable=SC2086
