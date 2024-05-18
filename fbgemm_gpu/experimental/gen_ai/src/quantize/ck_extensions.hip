@@ -61,7 +61,7 @@ template <
     int MPER_WAVE,
     int NPER_WAVE,
     bool PADDING = false>
-at::Tensor f8f8bf16_impl(at::Tensor XQ, at::Tensor WQ, double scale) {
+at::Tensor f8f8bf16_tensorwise_impl(at::Tensor XQ, at::Tensor WQ, double scale) {
   // Get input information.
   int M = XQ.size(0);
   int N = WQ.size(0);
@@ -212,24 +212,24 @@ std::tuple<KernelMode, bool> get_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
 }
 
 at::Tensor
-f8f8bf16(at::Tensor XQ, at::Tensor WQ, double scale, bool use_fast_accum) {
+f8f8bf16_tensorwise(at::Tensor XQ, at::Tensor WQ, double scale, bool use_fast_accum) {
   TORCH_CHECK(use_fast_accum, "AMD does not support disabling use_fast_accum");
   auto [kernel, pad] = get_kernel_mode(XQ, WQ);
   if (pad) {
     if (kernel == KernelMode::Small) {
-      return f8f8bf16_impl<64, 32, 64, 64, 1, 2, true>(XQ, WQ, scale);
+      return f8f8bf16_tensorwise_impl<64, 32, 64, 64, 1, 2, true>(XQ, WQ, scale);
     } else if (kernel == KernelMode::Large) {
-      return f8f8bf16_impl<256, 256, 128, 64, 4, 2, true>(XQ, WQ, scale);
+      return f8f8bf16_tensorwise_impl<256, 256, 128, 64, 4, 2, true>(XQ, WQ, scale);
     } else {
-      return f8f8bf16_impl<256, 128, 128, 64, 2, 2, true>(XQ, WQ, scale);
+      return f8f8bf16_tensorwise_impl<256, 128, 128, 64, 2, 2, true>(XQ, WQ, scale);
     }
   } else {
     if (kernel == KernelMode::Small) {
-      return f8f8bf16_impl<64, 32, 64, 64, 1, 2>(XQ, WQ, scale);
+      return f8f8bf16_tensorwise_impl<64, 32, 64, 64, 1, 2>(XQ, WQ, scale);
     } else if (kernel == KernelMode::Large) {
-      return f8f8bf16_impl<256, 256, 128, 64, 4, 2>(XQ, WQ, scale);
+      return f8f8bf16_tensorwise_impl<256, 256, 128, 64, 4, 2>(XQ, WQ, scale);
     } else {
-      return f8f8bf16_impl<256, 128, 128, 64, 2, 2>(XQ, WQ, scale);
+      return f8f8bf16_tensorwise_impl<256, 128, 128, 64, 2, 2>(XQ, WQ, scale);
     }
   }
 }

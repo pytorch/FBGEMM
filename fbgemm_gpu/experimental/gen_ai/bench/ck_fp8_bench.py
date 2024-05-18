@@ -69,7 +69,7 @@ class CKMatmul(torch.nn.Module):
     def forward(
         self, a: torch.Tensor, b: torch.Tensor, scale: torch.Tensor
     ) -> torch.Tensor:
-        out = torch.ops.fbgemm.f8f8bf16(a, b, scale)
+        out = torch.ops.fbgemm.f8f8bf16_tensorwise(a, b, scale)
         return out
 
 
