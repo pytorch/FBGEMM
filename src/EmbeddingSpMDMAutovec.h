@@ -24,6 +24,9 @@
 #define do_prefetch(...) __builtin_prefetch(__VA_ARGS__)
 #endif
 
+/// @defgroup tbe-cpu-autovec TBE CPU Autovectorization (FP8/16/32)
+///
+
 namespace fbgemm {
 /// @ingroup tbe-cpu-autovec
 ///
