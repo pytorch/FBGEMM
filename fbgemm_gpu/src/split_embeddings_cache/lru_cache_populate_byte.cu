@@ -549,16 +549,11 @@ DLL_PUBLIC void lru_cache_populate_byte_cuda(
   }
 
   // Get unqiue indices
-  auto
-      [unique_indices,
-       unique_indices_length,
-       unique_indices_count,
-       linear_cache_indices_positions_sorted] =
-          get_unique_indices_cuda(
-              linear_cache_indices,
-              total_cache_hash_size,
-              /*compute_count=*/false,
-              /*compute_inverse_indices=*/false);
+  auto [unique_indices, unique_indices_length, unique_indices_count] =
+      get_unique_indices_cuda(
+          linear_cache_indices,
+          total_cache_hash_size,
+          /*compute_count=*/false);
 
   // Find uncached indices
   Tensor lxu_cache_locking_counter =

@@ -39,7 +39,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "lxu_cache_locations_update(Tensor(a!) lxu_cache_locations, Tensor lxu_cache_locations_new, Tensor? num_uniq_cache_indices=None) -> ()");
   m.def(
-      "get_unique_indices_internal("
+      "get_unique_indices("
+      "    Tensor linear_indices, "
+      "    int max_indices, "
+      "    bool compute_count"
+      ") -> (Tensor, Tensor, Tensor?)");
+  m.def(
+      "get_unique_indices_with_inverse("
       "    Tensor linear_indices, "
       "    int max_indices, "
       "    bool compute_count, "

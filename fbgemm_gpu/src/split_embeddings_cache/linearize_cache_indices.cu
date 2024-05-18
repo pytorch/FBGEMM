@@ -202,10 +202,10 @@ DLL_PUBLIC Tensor linearize_cache_indices_from_row_idx_cuda(
 
 DLL_PUBLIC
 std::tuple<Tensor, Tensor, c10::optional<Tensor>, c10::optional<Tensor>>
-get_unique_indices_cuda(
-    Tensor linear_indices,
-    int64_t max_indices,
-    bool compute_count,
+get_unique_indices_cuda_impl(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count,
     const bool compute_inverse_indices) {
   TENSOR_ON_CUDA_GPU(linear_indices);
 
@@ -326,4 +326,29 @@ get_unique_indices_cuda(
 #undef INVOKE_CUB_SORT_KEYS
 #undef INVOKE_CUB_ENCODE
 #undef INVOKE_CUB_UNIQUE
+}
+
+DLL_PUBLIC
+std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count) {
+  const auto ret = get_unique_indices_cuda_impl(
+      linear_indices,
+      max_indices,
+      compute_count,
+      /*compute_inverse_indices=*/false);
+
+  return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+}
+
+DLL_PUBLIC
+std::tuple<Tensor, Tensor, c10::optional<Tensor>, c10::optional<Tensor>>
+get_unique_indices_with_inverse_cuda(
+    const Tensor& linear_indices,
+    const int64_t max_indices,
+    const bool compute_count,
+    const bool compute_inverse_indices) {
+  return get_unique_indices_cuda_impl(
+      linear_indices, max_indices, compute_count, compute_inverse_indices);
 }
