@@ -9,6 +9,8 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <c10/core/SymInt.h>
+#include <c10/core/SymIntArrayRef.h>
 #include <cstdint>
 
 namespace fbgemm_gpu {

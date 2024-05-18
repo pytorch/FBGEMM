@@ -14,7 +14,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
 find_package(Torch REQUIRED)
 
 #
-# Toch Cuda Extensions are normally compiled with the flags below. However we
+# PyTorch CUDA Extensions are normally compiled with the flags below. However we
 # disabled -D__CUDA_NO_HALF_CONVERSIONS__ here as it caused "error: no suitable
 # constructor exists to convert from "int" to "__half" errors in
 # gen_embedding_forward_quantized_split_[un]weighted_codegen_cuda.cu

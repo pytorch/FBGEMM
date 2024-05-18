@@ -96,6 +96,7 @@ endif()
 
 if(NOT FBGEMM_CPU_ONLY)
   add_subdirectory(experimental/example)
+  add_subdirectory(experimental/gemm)
 
   if(NOT USE_ROCM)
     # CUTLASS currently doesn't build on ROCm and CK hasnt yet been added:

@@ -54,6 +54,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+      BUILD_VARIANT: cpu
     continue-on-error: true
     strategy:
       # Don't fast-fail all the other builds if one of the them fails
@@ -122,6 +123,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+      BUILD_VARIANT: cpu
     strategy:
       fail-fast: false
       matrix:

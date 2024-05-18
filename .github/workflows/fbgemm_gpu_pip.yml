@@ -56,6 +56,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
+      BUILD_VARIANT: cpu
     strategy:
       fail-fast: false
       matrix:
@@ -111,6 +112,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
+      BUILD_VARIANT: cuda
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -174,6 +176,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
+      BUILD_VARIANT: rocm
       ENFORCE_ROCM_DEVICE: 1
     strategy:
       fail-fast: false

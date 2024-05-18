@@ -9,10 +9,9 @@
 from typing import Callable, Tuple
 
 import torch
-
 import triton
 
-from deeplearning.fbgemm.fbgemm_gpu.experimental.gemm.triton.fp8_gemm import (
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
     matmul_fp8_row,
     quantize_fp8_block,

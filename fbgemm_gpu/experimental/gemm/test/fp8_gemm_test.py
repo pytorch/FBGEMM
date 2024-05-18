@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from deeplearning.fbgemm.fbgemm_gpu.experimental.gemm.triton.fp8_gemm import (
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
     matmul_fp8_row,
     quantize_fp8_block,
@@ -19,6 +19,11 @@ from deeplearning.fbgemm.fbgemm_gpu.experimental.gemm.triton.fp8_gemm import (
 )
 
 
+@unittest.skipIf(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
+    "Skip when H100 is not available",
+)
 class TestFp8Matmul(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
