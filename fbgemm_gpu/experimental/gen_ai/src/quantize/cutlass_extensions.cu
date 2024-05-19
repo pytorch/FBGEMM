@@ -1898,6 +1898,14 @@ at::Tensor f8f8bf16_cublas(
 at::Tensor f8f8bf16(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
+    at::Tensor scale,
+    bool use_fast_accum) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+at::Tensor f8f8bf16_tensorwise(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
     double scale,
     bool use_fast_accum) {
   throw std::runtime_error(
