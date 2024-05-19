@@ -259,3 +259,7 @@ class FP8Tests(unittest.TestCase):
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
+
+
+if __name__ == "__main__":
+    unittest.main()
