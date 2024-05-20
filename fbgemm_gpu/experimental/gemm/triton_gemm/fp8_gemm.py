@@ -529,17 +529,6 @@ def _kernel_matmul_fp8_block(
     _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
     scale_next = 0.0
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
-        if EVEN_K:
-            a = tl.load(A)
-            b = tl.load(B)
-        else:
-            k_remaining = K - k * (BLOCK_K * SPLIT_K)
-
-            a = tl.load(A, mask=rk[None, :] < k_remaining, other=_0)
-            b = tl.load(B, mask=rk[:, None] < k_remaining, other=_0)
-        if AB_DTYPE:
-            a = a.to(C.dtype.element_ty)
-            b = b.to(C.dtype.element_ty)
         # Note: Due to split_k access "pid_k" = k * SPLIT_K + pid_z
         # Access a_scale[pid_m, k * SPLIT_K + pid_z]
         # and b_scale[k * SPLIT_K + pid_z, pid_n]
@@ -573,6 +562,17 @@ def _kernel_matmul_fp8_block(
         inv_scale = 1.0 / scale
         scale_next_inv_scale = scale_next / scale
 
+        if EVEN_K:
+            a = tl.load(A)
+            b = tl.load(B)
+        else:
+            k_remaining = K - k * (BLOCK_K * SPLIT_K)
+
+            a = tl.load(A, mask=rk[None, :] < k_remaining, other=_0)
+            b = tl.load(B, mask=rk[:, None] < k_remaining, other=_0)
+        if AB_DTYPE:
+            a = a.to(C.dtype.element_ty)
+            b = b.to(C.dtype.element_ty)
         if fp8_fast_accum:
             acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
 
