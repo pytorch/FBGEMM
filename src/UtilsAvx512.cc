@@ -507,7 +507,7 @@ static inline void load_with_remainders_i16(
     int nrem) {
   __m512i t[16];
   if (nrem < 16) {
-    __mmask32 mask_nrem_v = (((long long)1) << nrem) - 1;
+    __mmask32 mask_nrem_v = (1ULL << nrem) - 1;
     for (int i = 0; i < mrem; ++i) {
       // mask load
       t[i] = _mm512_maskz_loadu_epi16(mask_nrem_v, src + i * ld_src);
@@ -537,7 +537,7 @@ static inline void load_with_remainders_i8(
     int nrem) {
   __m512i t[16];
   if (nrem < 32) {
-    __mmask64 mask_nrem_v = (((long long)1) << nrem) - 1;
+    __mmask64 mask_nrem_v = (1ULL << nrem) - 1;
     for (int i = 0; i < mrem; ++i) {
       // mask load
       t[i] = _mm512_maskz_loadu_epi8(mask_nrem_v, src + i * ld_src);
@@ -566,7 +566,7 @@ static inline void store_with_remainders_i16(
     int mrem,
     int nrem) {
   if (mrem < 16) {
-    __mmask32 mask_mrem_v = (((long long)1) << mrem) - 1;
+    __mmask32 mask_mrem_v = (1ULL << mrem) - 1;
     int i = 0;
 
     for (; i < nrem / 2 * 2; i += 2) {
@@ -616,7 +616,7 @@ static inline void store_with_remainders_i8(
     int mrem,
     int nrem) {
   if (mrem < 16) {
-    __mmask64 mask_mrem_v = (((long long)1) << mrem) - 1;
+    __mmask64 mask_mrem_v = (1ULL << mrem) - 1;
     int i = 0;
     for (; i < nrem / 4 * 4; i += 4) {
       // mask store
@@ -743,7 +743,7 @@ static inline void transpose_contiguous_4x16_block(
   __m512i r[4];
   // load
   if (nrem < 16) {
-    __mmask16 mask_mrem_v = (((long long)1) << nrem) - 1;
+    __mmask16 mask_mrem_v = (1ULL << nrem) - 1;
     r[0] = _mm512_maskz_loadu_epi32(mask_mrem_v, src);
     r[1] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + ld_src);
     r[2] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + 2 * ld_src);
@@ -790,7 +790,7 @@ static inline void transpose_contiguous_4x16_block(
   int erem = nrem * 4 - i * 16;
   if (erem > 0) {
     // mask store
-    __mmask16 mask_rem_v = (((long long)1) << erem) - 1;
+    __mmask16 mask_rem_v = (1ULL << erem) - 1;
     _mm512_mask_storeu_epi32(dst + i * 16, mask_rem_v, r[i]);
   }
 }
@@ -803,7 +803,7 @@ static inline void transpose_contiguous_4x32_block(
   __m512i r[4], d[4];
   // load
   if (nrem < 32) {
-    __mmask32 mask_mrem_v = (((long long)1) << nrem) - 1;
+    __mmask32 mask_mrem_v = (1ULL << nrem) - 1;
     r[0] = _mm512_maskz_loadu_epi16(mask_mrem_v, src);
     r[1] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + ld_src);
     r[2] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + 2 * ld_src);
@@ -844,7 +844,7 @@ static inline void transpose_contiguous_4x32_block(
   int erem = nrem * 4 - i * 32;
   if (erem > 0) {
     // mask store
-    __mmask32 mask_rem_v = (((long long)1) << erem) - 1;
+    __mmask32 mask_rem_v = (1ULL << erem) - 1;
     _mm512_mask_storeu_epi16(dst + i * 32, mask_rem_v, r[i]);
   }
 }
@@ -861,7 +861,7 @@ static inline void transpose_contiguous_16x4_block(
     r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 16));
   }
   if (i * 16 < mrem * 4) {
-    __mmask16 mask_mrem_v = (((long long)1) << (mrem * 4 - i * 16)) - 1;
+    __mmask16 mask_mrem_v = (1ULL << (mrem * 4 - i * 16)) - 1;
     r[i] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + i * 16);
   }
 
@@ -900,7 +900,7 @@ static inline void transpose_contiguous_16x4_block(
 
   if (mrem < 16) {
     // mask store
-    __mmask16 mask_rem_v = (((long long)1) << mrem) - 1;
+    __mmask16 mask_rem_v = (1ULL << mrem) - 1;
     _mm512_mask_storeu_epi32(dst + 0 * ld_dst, mask_rem_v, d[0]);
     _mm512_mask_storeu_epi32(dst + 1 * ld_dst, mask_rem_v, d[1]);
     _mm512_mask_storeu_epi32(dst + 2 * ld_dst, mask_rem_v, d[2]);
@@ -926,7 +926,7 @@ static inline void transpose_contiguous_16x2_block(
     r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 16));
   }
   if (i * 16 < mrem * 2) {
-    __mmask16 mask_mrem_v = (((long long)1) << (mrem * 2 - i * 16)) - 1;
+    __mmask16 mask_mrem_v = (1ULL << (mrem * 2 - i * 16)) - 1;
     r[i] = _mm512_maskz_loadu_epi32(mask_mrem_v, src + i * 16);
   }
   // transpose
@@ -972,7 +972,7 @@ static inline void transpose_contiguous_16x2_block(
 
   // store
   if (mrem < 16) {
-    __mmask16 mask_rem_v = (((long long)1) << mrem) - 1;
+    __mmask16 mask_rem_v = (1ULL << mrem) - 1;
     // mask store
     _mm512_mask_storeu_epi32(dst, mask_rem_v, d[0]);
     _mm512_mask_storeu_epi32(dst + ld_dst, mask_rem_v, d[1]);
@@ -996,7 +996,7 @@ static inline void transpose_contiguous_64x4_block(
   }
   int erem = mrem * 4 - i * 64;
   if (erem > 0) {
-    __mmask64 mask_mrem_v = (((long long)1) << erem) - 1;
+    __mmask64 mask_mrem_v = (1ULL << erem) - 1;
     r[i] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + i * 64);
   }
 
@@ -1043,7 +1043,7 @@ static inline void transpose_contiguous_64x4_block(
 
   // store
   if (mrem < 64) {
-    __mmask64 mask_rem_v = (((long long)1) << mrem) - 1;
+    __mmask64 mask_rem_v = (1ULL << mrem) - 1;
     // mask store
     _mm512_mask_storeu_epi8(dst, mask_rem_v, d[0]);
     _mm512_mask_storeu_epi8(dst + ld_dst, mask_rem_v, d[1]);
@@ -1070,7 +1070,7 @@ static inline void transpose_contiguous_32x4_block(
     r[i] = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(src + i * 32));
   }
   if (i * 32 < mrem * 4) {
-    __mmask32 mask_mrem_v = (((long long)1) << (mrem * 4 - i * 32)) - 1;
+    __mmask32 mask_mrem_v = (1ULL << (mrem * 4 - i * 32)) - 1;
     r[i] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + i * 32);
   }
   // transpose
@@ -1109,7 +1109,7 @@ static inline void transpose_contiguous_32x4_block(
 
   if (mrem < 32) {
     // mask store
-    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
+    __mmask32 mask_rem_v = (1ULL << mrem) - 1;
     _mm512_mask_storeu_epi16(dst + 0 * ld_dst, mask_rem_v, d[0]);
     _mm512_mask_storeu_epi16(dst + ld_dst, mask_rem_v, d[1]);
     _mm512_mask_storeu_epi16(dst + 2 * ld_dst, mask_rem_v, d[2]);
@@ -1131,7 +1131,7 @@ static inline void transpose_contiguous_2x16_block(
   __m512i r0, r1;
   // load
   if (nrem < 16) {
-    __mmask16 mask_mrem_v = (((long long)1) << nrem) - 1;
+    __mmask16 mask_mrem_v = (1ULL << nrem) - 1;
     r0 = _mm512_maskz_loadu_epi32(mask_mrem_v, src);
     r1 = _mm512_maskz_loadu_epi32(mask_mrem_v, src + ld_src);
   } else {
@@ -1181,10 +1181,10 @@ static inline void transpose_contiguous_2x16_block(
   if (nrem < 16) {
     // mask store
     if (nrem < 8) {
-      __mmask16 mask_rem_v = (((long long)1) << (nrem * 2)) - 1;
+      __mmask16 mask_rem_v = (1ULL << (nrem * 2)) - 1;
       _mm512_mask_storeu_epi32(dst, mask_rem_v, u0);
     } else {
-      __mmask16 mask_rem_v = (((long long)1) << ((nrem - 8) * 2)) - 1;
+      __mmask16 mask_rem_v = (1ULL << ((nrem - 8) * 2)) - 1;
       _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), u0);
       _mm512_mask_storeu_epi32(dst + 16, mask_rem_v, u1);
     }
@@ -1208,7 +1208,7 @@ static inline void transpose_contiguous_64x2_block(
   }
   int erem = mrem * 2 - i * 64;
   if (erem > 0) {
-    __mmask64 mask_mrem_v = (((long long)1) << erem) - 1;
+    __mmask64 mask_mrem_v = (1ULL << erem) - 1;
     r[i] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + i * 64);
   }
 
@@ -1241,7 +1241,7 @@ static inline void transpose_contiguous_64x2_block(
 
   // store
   if (mrem < 64) {
-    __mmask64 mask_rem_v = (((long long)1) << mrem) - 1;
+    __mmask64 mask_rem_v = (1ULL << mrem) - 1;
     // mask store
     _mm512_mask_storeu_epi8(dst, mask_rem_v, d[0]);
     _mm512_mask_storeu_epi8(dst + ld_dst, mask_rem_v, d[1]);
@@ -1260,7 +1260,7 @@ static inline void transpose_contiguous_4x64_block(
   __m512i r[4], d[4];
   // load
   if (nrem < 64) {
-    __mmask64 mask_mrem_v = (((long long)1) << nrem) - 1;
+    __mmask64 mask_mrem_v = (1ULL << nrem) - 1;
     r[0] = _mm512_maskz_loadu_epi8(mask_mrem_v, src);
     r[1] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + ld_src);
     r[2] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + 2 * ld_src);
@@ -1324,7 +1324,7 @@ static inline void transpose_contiguous_4x64_block(
   }
   int erem = nrem * 4 - i * 64;
   if (erem > 0) {
-    __mmask64 mask_rem_v = (((long long)1) << erem) - 1;
+    __mmask64 mask_rem_v = (1ULL << erem) - 1;
     _mm512_mask_storeu_epi8(dst + i * 64, mask_rem_v, d[i]);
   }
 }
@@ -1338,7 +1338,7 @@ static inline void transpose_contiguous_2x64_block(
   __m512i d[2];
   // load
   if (nrem < 64) {
-    __mmask64 mask_mrem_v = (((long long)1) << nrem) - 1;
+    __mmask64 mask_mrem_v = (1ULL << nrem) - 1;
     r[0] = _mm512_maskz_loadu_epi8(mask_mrem_v, src);
     r[1] = _mm512_maskz_loadu_epi8(mask_mrem_v, src + ld_src);
   } else {
@@ -1381,7 +1381,7 @@ static inline void transpose_contiguous_2x64_block(
   }
   int erem = nrem * 2 - i * 64;
   if (erem > 0) {
-    __mmask64 mask_rem_v = (((long long)1) << erem) - 1;
+    __mmask64 mask_rem_v = (1ULL << erem) - 1;
     _mm512_mask_storeu_epi8(dst + i * 64, mask_rem_v, d[i]);
   }
 }
@@ -1395,7 +1395,7 @@ static inline void transpose_contiguous_2x32_block(
   __m512i d0, d1;
   // load
   if (nrem < 32) {
-    __mmask32 mask_mrem_v = (((long long)1) << nrem) - 1;
+    __mmask32 mask_mrem_v = (1ULL << nrem) - 1;
     r0 = _mm512_maskz_loadu_epi16(mask_mrem_v, src);
     r1 = _mm512_maskz_loadu_epi16(mask_mrem_v, src + ld_src);
   } else {
@@ -1412,12 +1412,12 @@ static inline void transpose_contiguous_2x32_block(
 
   // store
   if (nrem < 16) {
-    __mmask32 mask_rem_v = (((long long)1) << (nrem * 2)) - 1;
+    __mmask32 mask_rem_v = (1ULL << (nrem * 2)) - 1;
     _mm512_mask_storeu_epi16(dst, mask_rem_v, d0);
   } else if (nrem == 16) {
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), d0);
   } else if (nrem < 32) {
-    __mmask32 mask_rem_v = (((long long)1) << (nrem * 2 - 32)) - 1;
+    __mmask32 mask_rem_v = (1ULL << (nrem * 2 - 32)) - 1;
     _mm512_mask_storeu_epi16(dst, mask_rem_v, d0);
     _mm512_storeu_si512(reinterpret_cast<__m512i*>(dst), d0);
     _mm512_mask_storeu_epi16(
@@ -1442,7 +1442,7 @@ static inline void transpose_contiguous_32x2_block(
   }
   int erem = mrem * 2 - i * 32;
   if (erem > 0) {
-    __mmask32 mask_mrem_v = (((long long)1) << erem) - 1;
+    __mmask32 mask_mrem_v = (1ULL << erem) - 1;
     r[i] = _mm512_maskz_loadu_epi16(mask_mrem_v, src + i * 32);
   }
   // transpose
@@ -1470,7 +1470,7 @@ static inline void transpose_contiguous_32x2_block(
 
   // store
   if (mrem < 32) {
-    __mmask32 mask_rem_v = (((long long)1) << mrem) - 1;
+    __mmask32 mask_rem_v = (1ULL << mrem) - 1;
     // mask store
     _mm512_mask_storeu_epi16(dst, mask_rem_v, r[0]);
     _mm512_mask_storeu_epi16(dst + ld_dst, mask_rem_v, r[1]);

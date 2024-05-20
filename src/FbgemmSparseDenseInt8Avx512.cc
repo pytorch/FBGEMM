@@ -285,7 +285,7 @@ static inline void interleave4RowsTile(
     }
   } else {
     int rem_int8 = N - col_start;
-    __mmask64 mask_int8_v = (((long long)1) << rem_int8) - 1;
+    __mmask64 mask_int8_v = (1ULL << rem_int8) - 1;
     __m512i br_v[4];
     int i = 0;
     for (; i < kBlocks; ++i) {
@@ -469,8 +469,8 @@ void SparseDenseInt8MMAvx512(
           break;
       }
 
-      __mmask16 mask_int32_v = (((long long)1) << rem_int32) - 1;
-      __mmask64 mask_int8_v = (((long long)1) << rem_int8) - 1;
+      __mmask16 mask_int32_v = (1ULL << rem_int32) - 1;
+      __mmask64 mask_int8_v = (1ULL << rem_int8) - 1;
       for (int i = 0; i < M; ++i) {
         __m512i c_v[4] = {};
         if (accum || kt > 0) {
