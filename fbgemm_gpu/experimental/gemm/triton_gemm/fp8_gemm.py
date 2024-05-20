@@ -528,7 +528,41 @@ def _kernel_matmul_fp8_block(
     scale_n = pid_n * BLOCK_N // scale_block_n
     _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
     scale_next = 0.0
+
+    a_scale = tl.load(A_scale + scale_m * stride_scale_am)
+    b_scale = tl.load(B_scale + scale_n * stride_scale_bn)
+    scale = a_scale * b_scale
+
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
+        # Note: Due to split_k access "pid_k" = k * SPLIT_K + pid_z
+        # Access a_scale[pid_m, k * SPLIT_K + pid_z]
+        # and b_scale[k * SPLIT_K + pid_z, pid_n]
+
+        # Some math to precompute on scalars, and apply once on matrix.
+        # a + c/s = (as + c) / s
+        # (((a_i-1 * s_i-1 + c_i-1) / s_i-1) * s_i + c_i) / s_i ... ) * s_k + c_k) * 1.0 / s_k
+        # Simplifies to (a_i-1 + c) * (s_i+1/s_i)
+        # And have s_k+1 be 1.
+        # Scale_i = pid_i * BLOCK_I / scale_block_i
+
+        # Normalize last scale with 1.
+        if k + 1 == tl.cdiv(K, BLOCK_K * SPLIT_K):
+            scale_next = 1.0
+        else:
+            pid_k_next = (k + 1) * SPLIT_K + pid_z
+            scale_k_next = pid_k_next * BLOCK_K // scale_block_k
+            a_scale_next = tl.load(
+                A_scale + scale_m * stride_scale_am + scale_k_next * stride_scale_bk
+            )
+            b_scale_next = tl.load(
+                B_scale + scale_n * stride_scale_bn + scale_k_next * stride_scale_bk
+            )
+            scale_next = a_scale_next * b_scale_next
+
+        inv_scale = 1.0 / scale
+        scale_next_inv_scale = scale_next / scale
+        scale = scale_next
+
         if EVEN_K:
             a = tl.load(A)
             b = tl.load(B)
@@ -540,39 +574,6 @@ def _kernel_matmul_fp8_block(
         if AB_DTYPE:
             a = a.to(C.dtype.element_ty)
             b = b.to(C.dtype.element_ty)
-        # Note: Due to split_k access "pid_k" = k * SPLIT_K + pid_z
-        # Access a_scale[pid_m, k * SPLIT_K + pid_z]
-        # and b_scale[k * SPLIT_K + pid_z, pid_n]
-        pid_k = k * SPLIT_K + pid_z
-        pid_k_next = (k + 1) * SPLIT_K + pid_z
-
-        # Some math to precompute on scalars, and apply once on matrix.
-        # a + c/s = (as + c) / s
-        # (((a_i-1 * s_i-1 + c_i-1) / s_i-1) * s_i + c_i) / s_i ... ) * s_k + c_k) * 1.0 / s_k
-        # Simplifies to (a_i-1 + c) * (s_i+1/s_i)
-        # And have s_k+1 be 1.
-        # Scale_i = pid_i * BLOCK_I / scale_block_i
-        scale_k = pid_k * BLOCK_K // scale_block_k
-
-        a_scale = tl.load(A_scale + scale_m * stride_scale_am + scale_k)
-        b_scale = tl.load(B_scale + scale_n * stride_scale_bn + scale_k)
-        scale = a_scale * b_scale
-
-        # Normalize last scale with 1.
-        if k + 1 == tl.cdiv(K, BLOCK_K * SPLIT_K):
-            scale_next = 1.0
-        else:
-            scale_k_next = pid_k_next * BLOCK_K // scale_block_k
-            a_scale_next = tl.load(
-                A_scale + scale_m * stride_scale_am + scale_k_next * stride_scale_bk
-            )
-            b_scale_next = tl.load(
-                B_scale + scale_n * stride_scale_bn + scale_k_next * stride_scale_bk
-            )
-            scale_next = a_scale_next * b_scale_next
-        inv_scale = 1.0 / scale
-        scale_next_inv_scale = scale_next / scale
-
         if fp8_fast_accum:
             acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
 

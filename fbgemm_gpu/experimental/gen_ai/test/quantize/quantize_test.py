@@ -88,9 +88,7 @@ class FP8Tests(unittest.TestCase):
         wq = (w * fp8_max / w_max).to(fp8_e4m3)
 
         if kernel == "cutlass":
-            zq = torch.ops.fbgemm.f8f8bf16(
-                xq, wq, (x_scale * w_scale).item(), use_fast_accum
-            )
+            zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale, use_fast_accum)
         else:
             zq = torch.ops.fbgemm.f8f8bf16_cublas(
                 xq, wq, x_scale, w_scale, use_fast_accum
@@ -112,12 +110,20 @@ class FP8Tests(unittest.TestCase):
         B_T=st.sampled_from([2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
-        Mode=st.sampled_from(["tensorwise", "rowwise"]),
+        Mode=st.sampled_from(["tensorwise", "tensorwise_broadcast", "rowwise"]),
         QType=st.sampled_from([torch.float8_e4m3fn, torch.float8_e5m2]),
         Bias=st.sampled_from([True, False]),
+        CudaGraph=st.sampled_from([True, False]),
     )
     def test_quantize_fp8_matmul(
-        self, B_T: int, D: int, HD_L: int, Mode: str, QType: torch.dtype, Bias: bool
+        self,
+        B_T: int,
+        D: int,
+        HD_L: int,
+        Mode: str,
+        QType: torch.dtype,
+        Bias: bool,
+        CudaGraph: bool,
     ) -> None:
         x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
@@ -128,15 +134,57 @@ class FP8Tests(unittest.TestCase):
         )
 
         if Mode == "tensorwise":
+            if CudaGraph:
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+                    wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+                    zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale)
+                    if bias is not None:
+                        zq += bias
+                g.replay()
+            else:
+                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+                zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale)
+                if bias is not None:
+                    zq += bias
+        elif Mode == "tensorwise_broadcast":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
             wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-            zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale)
-            if bias is not None:
-                zq += bias
+            x_scale = x_scale.item()
+            w_scale = w_scale.item()
+            if CudaGraph:
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    zq = torch.ops.fbgemm.f8f8bf16_tensorwise(xq, wq, x_scale * w_scale)
+                    if bias is not None:
+                        zq += bias
+                g.replay()
+            else:
+                zq = torch.ops.fbgemm.f8f8bf16_tensorwise(xq, wq, x_scale * w_scale)
+                if bias is not None:
+                    zq += bias
         elif Mode == "rowwise":
-            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x, output_dtype=QType)
-            wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
-            zq = torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, x_scale, w_scale, bias=bias)
+            if CudaGraph:
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                        x, output_dtype=QType
+                    )
+                    wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+                    zq = torch.ops.fbgemm.f8f8bf16_rowwise(
+                        xq, wq, x_scale, w_scale, bias=bias
+                    )
+                g.replay()
+            else:
+                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                    x, output_dtype=QType
+                )
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+                zq = torch.ops.fbgemm.f8f8bf16_rowwise(
+                    xq, wq, x_scale, w_scale, bias=bias
+                )
         else:
             raise ValueError(f"Invalid mode {Mode}")
 
@@ -253,3 +301,7 @@ class FP8Tests(unittest.TestCase):
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -126,7 +126,7 @@ template <
     typename T,
     typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
 static inline __mmask16 mask_from_rem(int rem) {
-  __mmask16 mask_rem_v = (((long long)1) << rem) - 1;
+  __mmask16 mask_rem_v = (1ULL << rem) - 1;
   return mask_rem_v;
 }
 
@@ -134,7 +134,7 @@ template <
     typename T,
     typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
 static inline __mmask8 mask_from_rem(int rem) {
-  __mmask8 mask_rem_v = (((long long)1) << rem) - 1;
+  __mmask8 mask_rem_v = (1ULL << rem) - 1;
   return mask_rem_v;
 }
 
@@ -307,7 +307,7 @@ static inline void mymemcpy(char* src, char* dest, int len) {
   }
   int rem = len - i;
   if (rem > 0) {
-    __mmask64 mask_rem_v = (((long long)1) << rem) - 1;
+    __mmask64 mask_rem_v = (1ULL << rem) - 1;
     auto src_v = _mm512_maskz_loadu_epi8(mask_rem_v, src + i);
     _mm512_mask_storeu_epi8(dest + i, mask_rem_v, src_v);
   }
