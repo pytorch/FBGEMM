@@ -196,3 +196,6 @@ def invoke_main() -> None:
 
     args = parser.parse_args()
     main(args)
+
+if __name__ == '__main__':
+    invoke_main()

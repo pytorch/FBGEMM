@@ -12,7 +12,9 @@
 #include <numeric>
 
 #include <ATen/ATen.h>
-#include <c10/cuda/CUDAStream.h>
+// normally hipify does this substitution for us, but this file isn't hipified
+//#include <c10/cuda/CUDAStream.h>
+#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
 #include <torch/torch.h>
 
 #if defined(USE_ROCM)
