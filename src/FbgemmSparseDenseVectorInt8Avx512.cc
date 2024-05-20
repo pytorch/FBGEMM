@@ -94,8 +94,8 @@ static inline void requantizeForMV(
   }
   int rem_int32 = len - i;
   if (rem_int32 > 0) {
-    __mmask64 mask_int8_v = (((long long)1) << rem_int32) - 1;
-    __mmask16 mask_int32_v = (((long long)1) << rem_int32) - 1;
+    __mmask64 mask_int8_v = (1ULL << rem_int32) - 1;
+    __mmask16 mask_int32_v = (1ULL << rem_int32) - 1;
     __m512i x_v = _mm512_maskz_loadu_epi32(mask_int32_v, src + i);
 
     if (!ACT_ZP_0) {
@@ -197,7 +197,7 @@ void SparseDenseInt8MVAvx512(
 
       int rem = cur_row_ptr[i + 1] - r;
       if (rem > 0) {
-        __mmask16 mask_int32_v = (((long long)1) << (rem)) - 1;
+        __mmask16 mask_int32_v = (1ULL << rem) - 1;
         __m512i a_v =
             _mm512_maskz_loadu_epi32(mask_int32_v, values + r * block_size);
         __m512i b_idx = _mm512_maskz_loadu_epi32(mask_int32_v, col_idx + r);

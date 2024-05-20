@@ -42,7 +42,7 @@ void SparseDenseMMAvx512(
     int r2_rem = N - VLEN - j;
     r2_rem = (r2_rem <= VLEN) ? r2_rem : (VLEN);
     r2_rem = (r2_rem < 0) ? 0 : r2_rem;
-    __mmask16 mask_v = (((long long)1) << r2_rem) - 1;
+    __mmask16 mask_v = (1ULL << r2_rem) - 1;
     for (int i = 0; i < M; ++i) {
       __m512 c_v_r1;
       __m512 c_v_r2;
@@ -97,7 +97,7 @@ void SparseDenseMMAvx512(
   if (rem > 0) {
     for (int i = 0; i < M; ++i) {
       __m512 c_v;
-      __mmask16 mask_v = (((long long)1) << rem) - 1;
+      __mmask16 mask_v = (1ULL << rem) - 1;
       if (accum) {
         c_v = _mm512_maskz_loadu_ps(mask_v, C + i * ldc + j);
       } else {
