@@ -156,6 +156,7 @@ def benchmark_requests(
     nvtx_range: str = "",
     # Can be used to clear model's stats after warmup for example.
     callback_after_warmup: Optional[Callable[[], None]] = None,
+    periodic_logs: bool = False,
 ) -> float:
     times = []
 
@@ -178,6 +179,12 @@ def benchmark_requests(
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
     for it, req in enumerate(requests):
+        if periodic_logs and it % 100 == 99:
+            avg_time = sum(times) / len(times) * 1.0e6
+            last_100_avg = sum(times[-100:]) / 100 * 1.0e6
+            logging.info(
+                f"Iteration [{it}/{len(requests)}]: Last 100: {last_100_avg:.2f} us, Running avg: {avg_time:.2f} us"
+            )
         indices, offsets, weights = req.unpack_3()
         if bwd_only:
             # Run forward before profiling if does backward only
