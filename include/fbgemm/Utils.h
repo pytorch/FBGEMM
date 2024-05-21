@@ -416,38 +416,4 @@ FBGEMM_API bool is_autovec_disabled();
 FBGEMM_API bool is_autovec_forced();
 FBGEMM_API bool is_asmjit_disabled();
 
-/**
- * Choosing which kernel (autovec/asmjit/ref) to use for nbit-CPU-TBE
- * Available kernels:
- *   * ref: non-optimized, reference implementation that focuses on
- *      correctness, not performance
- *   * asmjit: hand-optimized kernel by having asmjit emit SIMD
- *      instructions during runtime. Only supports x86_64 CPUs with
- *      AVX2/AVX512 instruction sets
- *   * autovec: the kernel written in regular C++ code but in a
- *      way that makes compilers easier to generate vectorized SIMD
- *      instructions out of it. Supports both x86_64 and aarch64 CPUs.
- *      Currently only available on Linux.
- * How to set environment variables:
- *   * No environment variables: on x86_64 we will default to asmjit
- *      kernel, and on aarch64 and linux we will default to autovec.
- *      On non-linux aarch64 we will fall back to ref.
- *   * Set FBGEMM_NO_AUTOVEC: on aarch64 linux we will use ref. On other
- *      platforms this will have no effect.
- *   * Set FBGEMM_NO_ASMJIT: on x86_64 we will use ref. On other
- *      platforms this will have no effect.
- *   * Set FBGEMM_NO_ASMJIT AND FBGEMM_FORCE_AUTOVEC: on x86_64 we will
- *      use autovec if these two variables are set at the same time.
- *      No effect on other platforms.
- *   * FBGEMM_FORCE_AUTOVEC will override FBGEMM_NO_AUTOVEC if they
- *      are set at the same time.
- *   * These variables are considered set as long as they exist regardless
- *      of content. That means assigning values like "1", "true", "y", "0",
- *      "false" or "no" has the same effect. The easiest way of setting a
- *      variable is to prepend `<VARIABLE>=1` before the benchmarking command.
- */
-FBGEMM_API bool is_autovec_disabled();
-FBGEMM_API bool is_autovec_forced();
-FBGEMM_API bool is_asmjit_disabled();
-
 } // namespace fbgemm
