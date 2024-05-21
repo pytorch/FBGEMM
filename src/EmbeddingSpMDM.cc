@@ -12,6 +12,7 @@
 #define FBGEMM_EXPORTS
 
 #include "fbgemm/FbgemmEmbedding.h"
+#include "fbgemm/Utils.h"
 
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
@@ -26,6 +27,7 @@
 #include "./EmbeddingSpMDMAutovec.h"
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
+#include "./EmbeddingSpMDMAutovec.h"
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/SimdUtils.h"
 
@@ -1335,7 +1337,8 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
              const offsetType* offsets_or_lengths,
              const float* weights,
              outType* out) {
-    return EmbeddingSpMDMFP8_ref(
+    if(is_autovec_forced()){
+    return EmbeddingSpMDMFP8_autovec( // changed this from ref -> autovec.
         block_size,
         output_size,
         index_size,
@@ -1353,6 +1356,26 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         exponent_bits,
         exponent_bias,
         is_bf16_out);
+  }else{
+    return EmbeddingSpMDMFP8_ref( // changed this from ref -> autovec.
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        exponent_bits,
+        exponent_bias,
+        is_bf16_out); 
+  }
   };
 }
 
