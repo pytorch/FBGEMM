@@ -92,6 +92,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ssd_cache_location: EmbeddingLocation = EmbeddingLocation.MANAGED,
         ssd_uniform_init_lower: float = -0.01,
         ssd_uniform_init_upper: float = 0.01,
+        ssd_block_cache_size: int = 0,
         # General Optimizer args
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
@@ -233,6 +234,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ssd_uniform_init_lower,
             ssd_uniform_init_upper,
             32,  # row_storage_bitwidth
+            ssd_block_cache_size,
         )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
