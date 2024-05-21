@@ -171,7 +171,8 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
       int64_t max_write_buffer_num,
       float uniform_init_lower,
       float uniform_init_upper,
-      int64_t row_storage_bitwidth = 32) {
+      int64_t row_storage_bitwidth = 32,
+      int64_t cache_size = 0) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
     options.create_if_missing = true;
@@ -219,8 +220,14 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
     options.stats_dump_period_sec = 600;
 
     rocksdb::BlockBasedTableOptions table_options;
-    // Don't use block cache since we have a "user-mode" UVM/HBM row cache.
-    table_options.no_block_cache = true;
+
+    if (cache_size > 0) {
+      table_options.block_cache = rocksdb::NewLRUCache(cache_size);
+      table_options.cache_index_and_filter_blocks = true;
+    } else {
+      table_options.no_block_cache = true;
+    }
+
     table_options.index_type = rocksdb::BlockBasedTableOptions::kHashSearch;
     table_options.data_block_index_type =
         rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
@@ -271,6 +278,7 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
     }
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards);
     ro_.verify_checksums = false;
+    ro_.async_io = true;
     wo_.disableWAL = true;
     wo_.sync = false;
 

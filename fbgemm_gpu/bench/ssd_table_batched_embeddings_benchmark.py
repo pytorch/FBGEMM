@@ -111,6 +111,7 @@ def benchmark_read_write(
     warmup_iters: int,
     num_shards: int,
     num_threads: int,
+    block_cache_size_mb: int,
 ) -> None:
     idx_dtype = torch.int64
     data_dtype = torch.float32
@@ -136,6 +137,7 @@ def benchmark_read_write(
             -0.01,  # ssd_uniform_init_lower
             0.01,  # ssd_uniform_init_upper
             32,  # row_storage_bitwidth
+            block_cache_size_mb * (2**20),  # block cache size
         )
 
         total_indices = (warmup_iters + iters) * batch_size * bag_size
@@ -179,6 +181,7 @@ def benchmark_read_write(
 )  # Check P556577690 and https://fburl.com/t9lf4d7v
 @click.option("--num-shards", default=8)
 @click.option("--num-threads", default=8)
+@click.option("--block-cache-size-mb", default=0)
 def ssd_read_write(
     ssd_prefix: str,
     num_embeddings: int,
@@ -189,6 +192,7 @@ def ssd_read_write(
     warmup_iters: int,
     num_shards: int,
     num_threads: int,
+    block_cache_size_mb: int,
 ) -> None:
     benchmark_read_write(
         ssd_prefix,
@@ -200,6 +204,7 @@ def ssd_read_write(
         warmup_iters,
         num_shards,
         num_threads,
+        block_cache_size_mb,
     )
 
 
@@ -227,6 +232,7 @@ def ssd_read_write(
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
 @click.option("--ssd-prefix", type=str, default="/tmp/ssd_benchmark")
+@click.option("--block-cache-size-mb", default=0)
 def ssd_training(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -250,6 +256,7 @@ def ssd_training(  # noqa C901
     requests_data_file: Optional[str],
     tables: Optional[str],
     ssd_prefix: Optional[str],
+    block_cache_size_mb: int,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -349,6 +356,7 @@ def ssd_training(  # noqa C901
             ssd_storage_directory=tempdir,
             ssd_cache_location=EmbeddingLocation.MANAGED,
             ssd_shards=8,
+            ssd_block_cache_size=block_cache_size_mb * (2**20),
             **common_args,
         ),
     }
