@@ -83,7 +83,7 @@ __device__ long rk_zipf(rk_state* state, double a) {
 __global__ void zipf_kernel(
     const double a,
     const int64_t seed,
-    at::PackedTensorAccessor64<long, 1, at::RestrictPtrTraits> y) {
+    pta::PackedTensorAccessor64<long, 1, at::RestrictPtrTraits> y) {
   rk_state internal_state;
   auto N = y.size(0);
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < N;
@@ -99,12 +99,15 @@ zipf_cuda(const double a, const int64_t n, const int64_t seed) {
       {n},
       at::TensorOptions().dtype(at::kLong).device(
           at::kCUDA, at::cuda::current_device()));
+#ifdef FBGEMM_GPU_MEMCHECK
+  const auto func_name = "zipf_kernel";
+#endif
   zipf_kernel<<<
       cuda_calc_xblock_count(n, kMaxThreads),
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      a, seed, y.packed_accessor64<long, 1, at::RestrictPtrTraits>());
+      a, seed, MAKE_PTA_WITH_NAME(func_name, y, long, 1, 64));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return y;

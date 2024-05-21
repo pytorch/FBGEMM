@@ -29,6 +29,7 @@
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 #ifdef USE_ROCM
@@ -61,7 +62,7 @@ template <
     typename scalar_t,
     int ndim,
     template <typename U> class PtrTraits = at::DefaultPtrTraits>
-at::PackedTensorAccessor64<scalar_t, ndim, PtrTraits>
+pta::PackedTensorAccessor64<scalar_t, ndim, PtrTraits>
 dummy_packed_accessor64() {
   std::array<int64_t, ndim> zeros{};
   return {nullptr, zeros.data(), zeros.data()};
