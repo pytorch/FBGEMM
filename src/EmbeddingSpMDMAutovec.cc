@@ -458,6 +458,7 @@ bool EmbeddingSpMDMFP8_autovec(
     int exponent_bits,
     int exponent_bias,
     bool is_bf16_out /*=false*/) {
+      printf("Peppa\n");
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -466,22 +467,6 @@ bool EmbeddingSpMDMFP8_autovec(
 
   if (input_stride == -1) {
     input_stride = block_size;
-  }
-
-  // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
-  // prefetching helps reduce backend stall and therefore enable vectorization
-  // reach better of its potential. 16 is tuned for Neoverse-V2.
-
-  // print to test
-  printf("testing autovec PEPPA PIG");
-
-  constexpr int64_t max_initial_prefetch_rows = 16;
-  const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
-  for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    do_prefetch(
-        reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-        0,
-        0);
   }
 
   // Reference implementation of FP8 SLS. The algorithm is similar to FP32 SLS
@@ -494,47 +479,22 @@ bool EmbeddingSpMDMFP8_autovec(
     if (current + len > index_size) {
       return false;
     }
-
-    constexpr int tile_size = 4;
-    #if _OPENMP >= 202011
-    #pragma omp tile sizes(tile_size)
-    #endif
     for (int i = 0; i < len; ++i) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         return false;
       }
 
-      int64_t prefetch_idx =
-          indices[std::min(current + prefetch_stride, index_size - 1)];
-      do_prefetch(
-          reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
-          0,
-          0);
-
       float w = 1.f;
       if (weights) {
         w = weights[is_weight_positional ? i : current];
       }
-      //check if each loop interation depends on one another
-      // if not, approach it with parellel,
-      // the code is iterating thru a dimisonals of a embedding vectory
 
-      // original
-      
-      #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
-        // input stride equals the stride between different embeddings
-        //idx is what vector is being process
-        //j is each element of the specfic vector
-        //input is start
         const uint8_t* inptr = input + input_stride * idx + j;
         float input_f;
         // Dequantize FP8 to FP32 before compute
-        //vector time
-        //maybe need to check if we call this function differently
         Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
-        
         buf[j] = std::fma(w, input_f, buf[j]);
       }
 
@@ -542,166 +502,20 @@ bool EmbeddingSpMDMFP8_autovec(
     }
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;
-      #pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         buf[j] *= scale;
       }
     }
-
-    if (std::is_same<OutType, float>::value) {
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        out[j] = buf[j];
-      }
-    } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        // out[j] = cpu_bf162float(buf[j]);
-        out[j] = convert_from_float_ref<uint16_t>(buf[j], true);
-      }
-    } else {
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        // out[j] = cpu_half2float(buf[j]);
-        out[j] = convert_from_float_ref<uint16_t>(buf[j], false);
-      }
+    for (int j = 0; j < block_size; ++j) {
+      out[j] = std::is_same<OutType, uint16_t>::value
+          ? convert_from_float_ref<OutType>(buf[j], is_bf16_out)
+          : buf[j];
     }
-
     out += output_stride;
   }
   return current == index_size;
 }
 
-template <typename IndexType, typename OffsetType, typename OutType>
-bool EmbeddingSpMDMFP8_autovec(
-    const int64_t block_size,
-    const int64_t output_size,
-    const int64_t index_size,
-    const int64_t data_size,
-    const uint8_t* input,
-    const IndexType* indices,
-    const OffsetType* offsets_or_lengths,
-    const float* weights,
-    bool normalize_by_lengths,
-    OutType* out,
-    bool is_weight_positional,
-    bool use_offsets,
-    int64_t output_stride,
-    int64_t input_stride,
-    int exponent_bits,
-    int exponent_bias,
-    bool is_bf16_out /*=false*/) {
-  if (output_stride == -1) {
-    output_stride = block_size;
-  }
-
-  vector<float> buf(block_size);
-
-  if (input_stride == -1) {
-    input_stride = block_size;
-  }
-
-  // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
-  // prefetching helps reduce backend stall and therefore enable vectorization
-  // reach better of its potential. 16 is tuned for Neoverse-V2.
-
-  // print to test
-  printf("testing autovec PEPPA PIG");
-
-  constexpr int64_t max_initial_prefetch_rows = 16;
-  const int64_t prefetch_stride = std::min(max_initial_prefetch_rows, index_size);
-  for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    do_prefetch(
-        reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-        0,
-        0);
-  }
-
-  // Reference implementation of FP8 SLS. The algorithm is similar to FP32 SLS
-  // except for the FP8->FP32 conversion after reading the embedding weight.
-  int64_t current = 0;
-  for (int m = 0; m < output_size; ++m) {
-    memset(buf.data(), 0, sizeof(float) * block_size);
-    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
-                          : offsets_or_lengths[m];
-    if (current + len > index_size) {
-      return false;
-    }
-
-    constexpr int tile_size = 4;
-    #if _OPENMP >= 202011
-    #pragma omp tile sizes(tile_size)
-    #endif
-    for (int i = 0; i < len; ++i) {
-      int64_t idx = indices[current];
-      if (idx < 0 || idx >= data_size) {
-        return false;
-      }
-
-      int64_t prefetch_idx =
-          indices[std::min(current + prefetch_stride, index_size - 1)];
-      do_prefetch(
-          reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
-          0,
-          0);
-
-      float w = 1.f;
-      if (weights) {
-        w = weights[is_weight_positional ? i : current];
-      }
-      //check if each loop interation depends on one another
-      // if not, approach it with parellel,
-      // the code is iterating thru a dimisonals of a embedding vectory
-
-      // original
-      
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        // input stride equals the stride between different embeddings
-        //idx is what vector is being process
-        //j is each element of the specfic vector
-        //input is start
-        const uint8_t* inptr = input + input_stride * idx + j;
-        float input_f;
-        // Dequantize FP8 to FP32 before compute
-        //vector time
-        //maybe need to check if we call this function differently
-        Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
-        
-        buf[j] = std::fma(w, input_f, buf[j]);
-      }
-
-      ++current;
-    }
-    if (normalize_by_lengths && len) {
-      float scale = 1.f / len;
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        buf[j] *= scale;
-      }
-    }
-
-    if (std::is_same<OutType, float>::value) {
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        out[j] = buf[j];
-      }
-    } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2bfloat16(buf[j]);
-      }
-    } else {
-      #pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        out[j] = cpu_float2half(buf[j]);
-      }
-    }
-
-    out += output_stride;
-  }
-  return current == index_size;
-}
 
 #define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   template FBGEMM_API bool EmbeddingSpMDMNBit_autovec(            \
