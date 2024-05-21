@@ -117,7 +117,7 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     const index_t* __restrict__ table_offsets,
     scalar_t* __restrict__ grad_weight, // [N * sum_E * 1] (embedding
                                         // dimension is 1)
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         sorted_linear_indices_run,
     const int32_t* __restrict__ sorted_linear_indices_cumulative_run_lengths,
     const int32_t* __restrict__ sorted_infos,
@@ -225,6 +225,9 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
             grad_output.scalar_type(),
             "batched_unary_embeddings_backward_kernel",
             [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+              const auto func_name = "batched_unary_embeddings_backward_kernel";
+#endif
               batched_unary_embeddings_backward_kernel<scalar_t>
                   <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
                       N,
@@ -233,10 +236,8 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
                       grad_output.data_ptr<scalar_t>(),
                       table_offsets.data_ptr<index_t>(),
                       grad_weight.data_ptr<scalar_t>(),
-                      sorted_linear_indices_run.packed_accessor32<
-                          index_t,
-                          1,
-                          at::RestrictPtrTraits>(),
+                      MAKE_PTA_WITH_NAME(
+                          func_name, sorted_linear_indices_run, index_t, 1, 32),
                       sorted_linear_indices_cumulative_run_lengths
                           .data_ptr<int32_t>(),
                       infos_sorted.data_ptr<int32_t>(),
