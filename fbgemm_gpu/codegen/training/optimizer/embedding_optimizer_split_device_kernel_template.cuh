@@ -14,6 +14,11 @@
 #define GROUP_REDUCE_ALL_SUM(val, ...) \
   warpReduceAllSum<__VA_ARGS__, kThreadGroupSize>(val, shfl_sync_mask)
 
+{%- set mdesc = "ssd" if ssd else "split" %}
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
+{%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
+{%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
+
 using namespace fbgemm_gpu;
 
 template <
@@ -28,13 +33,13 @@ template <
     int32_t VEC_WIDTH,
     bool kUseVecBlocking
 >
-DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
+DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& dev_weights,
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits>& uvm_weights,
     pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits>& lxu_cache_weights,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& weights_placements,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>& weights_offsets,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>& sorted_lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits>& sorted_{{ locs_or_addrs_tensor }},
     Vec4TAcc<cache_t>* grad_sum,
     Vec4TAcc<cache_t>* smem_grad_sum,
     Vec4TAcc<cache_t>* shared_weight_update_row,
@@ -71,10 +76,15 @@ DEVICE_INLINE void split_{{ optimizer }}_table_update_kernel(
         weights = &uvm_weights[weights_offset + idx * D_emb];
     }
     if (weights_placement == PlacementType::MANAGED_CACHING) {
-        const int32_t cache_idx = sorted_lxu_cache_locations[cache_loc_run_id];
-        if (cache_idx != kCacheLocationMissing) {
-            cache_weights = &lxu_cache_weights[cache_idx][0];
+        const auto {{ locs_or_addrs_idx }} = sorted_{{ locs_or_addrs_tensor }}[cache_loc_run_id];
+        {%- if ssd %}
+        cache_weights = reinterpret_cast<cache_t*>(
+            *reinterpret_cast<const uint64_t*>(&{{ locs_or_addrs_idx }}));
+        {%- else %}
+        if ({{ locs_or_addrs_idx }} != kCacheLocationMissing) {
+          cache_weights = &lxu_cache_weights[{{ locs_or_addrs_idx }}][0];
         }
+        {%- endif %}
     }
     {%- for tensor in args.split_tensors %}
     {{ args.split_tensor_types[tensor] }}* __restrict__ {{ tensor }};

@@ -1279,15 +1279,12 @@ struct WeightRow {
 
 template <typename emb_t, typename cache_t, typename dst_t, bool uses_cache>
 struct WeightRowAccessor {
-  emb_t* row_;
-  cache_t* cache_row_;
-  int dim_;
+  const emb_t* row_;
+  const cache_t* cache_row_;
+  const int dim_;
 
-  DEVICE_INLINE WeightRowAccessor(
-      emb_t* row,
-      cache_t* cache_row,
-      int dim,
-      StochasticRoundingRNGState* stoc_rounding_state)
+  DEVICE_INLINE
+  WeightRowAccessor(const emb_t* row, const cache_t* cache_row, const int dim)
       : row_(row), cache_row_(cache_row), dim_(dim) {}
 
   DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {

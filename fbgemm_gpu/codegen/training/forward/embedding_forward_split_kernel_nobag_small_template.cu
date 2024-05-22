@@ -15,6 +15,11 @@
 // See https://fburl.com/dw9ljh4h
 #}
 
+{%- set mdesc = "dense" if dense else ("ssd" if ssd else "split") %}
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
+{%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
+{%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
+
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 
 using Tensor = at::Tensor;
@@ -31,7 +36,7 @@ __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_small_kernel(
 {%- else %}
-{{ "dense" if dense else "split" }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
+{{ mdesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -51,7 +56,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
@@ -112,7 +117,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     if (placement == PlacementType::DEVICE) {
         weights = &dev_weights[weights_offset];
     } else {
-        weights = &uvm_weights[weights_offset];
+        weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset]" }};
     }
     {%- else %}
     weights = &dev_weights[weights_offset];
@@ -131,7 +136,9 @@ batch_index_select_dim0_codegen_forward_small_kernel(
         int32_t l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
         {%- if not dense %}
-        int32_t cache_idx = (placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+        const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} =
+          (placement == PlacementType::MANAGED_CACHING && l < L)
+            ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
         {%- endif %}
         for (auto j = group_start; j < group_end && l_start + j < L; ++j) {
             int64_t idx_j = shfl_sync(idx, j);
@@ -141,7 +148,8 @@ batch_index_select_dim0_codegen_forward_small_kernel(
             int64_t output_j = indices_start + l_start + j;
             {%- endif %}
             {%- if not dense %}
-            int32_t cache_idx_j = shfl_sync(cache_idx, j);
+            const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j =
+              shfl_sync({{ locs_or_addrs_idx }}, j);
             {%- endif %}
 
             {%- if not dense %}
@@ -150,10 +158,13 @@ batch_index_select_dim0_codegen_forward_small_kernel(
             float2 qparams_cache = make_float2(0.0f, 0.0f);
 
             {%- endif %}
-            auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
-                const_cast<emb_t*>(&weights[idx_j * D_emb]),
+            auto weight_row_emb = WeightRowAccessor<
+                emb_t, cache_t, cache_t, false
+            >(
+                &weights[idx_j * D_emb],
                 nullptr,
-                D);
+                D
+            );
             [[maybe_unused]] float2 qparams_emb;
             if (std::is_same<emb_t, uint8_t>::value) {
                 qparams_emb = weight_row_emb.load_qparams();
@@ -161,11 +172,24 @@ batch_index_select_dim0_codegen_forward_small_kernel(
 
             if (d < D) {
                 {%- if not dense %}
-                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                    auto weight_row_cache = WeightRow<emb_t, cache_t, cache_t>(
-                        const_cast<emb_t*>(&weights[idx_j * D_emb]),
-                        const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
-                        D);
+                if (placement == PlacementType::MANAGED_CACHING &&
+                    {{ locs_or_addrs_idx }}_j != kCacheLocationMissing) {
+                    const cache_t* cache_weights;
+                    {%- if ssd %}
+                    cache_weights = reinterpret_cast<const cache_t*>(
+                        *reinterpret_cast<const uint64_t*>(&{{ locs_or_addrs_idx }}_j));
+                    {%- else %}
+                    cache_weights = reinterpret_cast<const cache_t*>(
+                        &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][0]);
+                    {%- endif  %}
+
+                    auto weight_row_cache = WeightRowAccessor<
+                        emb_t, cache_t, cache_t, true
+                    >(
+                        &weights[idx_j * D_emb],
+                        cache_weights,
+                        D
+                    );
                     Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
                     weight.store(&output[output_j][d]);
                 } else {
@@ -203,7 +227,7 @@ template __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_small_kernel
 {%- else %}
-{{ "dense" if dense else "split" }}_embedding_nobag_codegen_forward_unweighted_small_kernel
+{{ mdesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel
 {%- endif %}
 <
   {{ emb_type }},
@@ -230,7 +254,7 @@ batch_index_select_dim0_codegen_forward_small_kernel
     const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> offsets,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
