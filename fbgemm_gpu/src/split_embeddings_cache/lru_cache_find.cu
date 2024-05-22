@@ -153,7 +153,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
 
 } // namespace
 
-DLL_PUBLIC std::tuple<Tensor, Tensor, c10::optional<Tensor>>
+DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
 lru_cache_find_uncached_cuda(
     Tensor unique_indices,
     Tensor unique_indices_length,
@@ -186,7 +186,7 @@ lru_cache_find_uncached_cuda(
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
   Tensor cache_sets_positions;
-  c10::optional<Tensor> cache_set_inverse_indices = c10::nullopt;
+  std::optional<Tensor> cache_set_inverse_indices = c10::nullopt;
   if (compute_inverse_indices) {
     TORCH_CHECK(
         cache_sets.numel() <=

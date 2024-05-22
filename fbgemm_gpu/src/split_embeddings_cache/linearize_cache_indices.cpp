@@ -16,7 +16,7 @@ DLL_PUBLIC Tensor linearize_cache_indices_cpu(
     const Tensor& /*cache_hash_size_cumsum*/,
     const Tensor& indices,
     const Tensor& /*offsets*/,
-    const c10::optional<Tensor>& /*B_offsets*/,
+    const std::optional<Tensor>& /*B_offsets*/,
     const int64_t /*max_B*/,
     const int64_t /*indices_base_offset*/) {
   return at::empty_like(indices);

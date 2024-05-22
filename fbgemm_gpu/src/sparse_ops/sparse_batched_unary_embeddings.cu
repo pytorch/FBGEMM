@@ -211,7 +211,7 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
           indices,
           offsets,
           false, // nobag
-          c10::optional<Tensor>(),
+          std::optional<Tensor>(),
           info_B_num_bits,
           info_B_mask);
 

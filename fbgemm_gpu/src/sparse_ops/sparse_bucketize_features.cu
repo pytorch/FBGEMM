@@ -84,13 +84,13 @@ __launch_bounds__(kMaxThreads) void _bucketize_sparse_features_cuda_kernel2(
 // This function partitions sparse features
 // cyclically along the sparse dimension into my_size blocks
 DLL_PUBLIC
-std::tuple<Tensor, Tensor, c10::optional<Tensor>, c10::optional<Tensor>>
+std::tuple<Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
 bucketize_sparse_features_cuda(
     const Tensor& lengths,
     const Tensor& indices,
     const bool bucketize_pos,
     const int64_t my_size,
-    const c10::optional<Tensor>& weights) {
+    const std::optional<Tensor>& weights) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
   CUDA_DEVICE_GUARD(lengths);

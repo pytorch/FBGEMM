@@ -57,7 +57,7 @@ TEST(SparseOpsUtilsTest, gpu_tensors_pass) {
 
 TEST(SparseOpsUtilsTest, optional_tensor_passes) {
   const auto ten1 = get_valid_cpu_tensor().cuda();
-  const c10::optional<at::Tensor> ten2;
+  const std::optional<at::Tensor> ten2;
   const auto func = [&]() {
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(ten1, ten2);
   };

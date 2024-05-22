@@ -61,8 +61,8 @@ DLL_PUBLIC std::tuple<Tensor, Tensor> permute_sequence_embeddings_cuda(
 
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
-  c10::optional<Tensor> weights_dummy;
-  c10::optional<int64_t> permuted_lengths_sum_dummy;
+  std::optional<Tensor> weights_dummy;
+  std::optional<int64_t> permuted_lengths_sum_dummy;
 
   const auto T = permute.numel();
   const auto B = lengths.size(1);

@@ -78,8 +78,8 @@ void embedding_inplace_update_cpu(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations) {
+    std::optional<Tensor> lxu_cache_weights,
+    std::optional<Tensor> lxu_cache_locations) {
   TENSOR_ON_CPU(dev_weights);
   TENSOR_ON_CPU(uvm_weights);
   TENSOR_ON_CPU(weights_placements);

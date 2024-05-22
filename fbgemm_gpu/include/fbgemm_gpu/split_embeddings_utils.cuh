@@ -40,13 +40,13 @@ transpose_embedding_input(
     at::Tensor indices,
     at::Tensor offsets,
     bool nobag = false,
-    const c10::optional<at::Tensor>& vbe_b_t_map = c10::optional<at::Tensor>(),
+    const std::optional<at::Tensor>& vbe_b_t_map = std::optional<at::Tensor>(),
     const int64_t info_B_num_bits = 26,
     const int64_t info_B_mask = 0x2FFFFFF,
     const int64_t total_unique_indices = -1,
     const bool is_index_select = false,
-    const c10::optional<at::Tensor>& total_L_offsets =
-        c10::optional<at::Tensor>(),
+    const std::optional<at::Tensor>& total_L_offsets =
+        std::optional<at::Tensor>(),
     const int64_t fixed_L_per_warp = 0,
     const int64_t num_warps_per_feature = 0);
 

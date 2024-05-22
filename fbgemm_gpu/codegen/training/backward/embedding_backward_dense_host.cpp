@@ -99,8 +99,8 @@ class SplitLookupFunction_Dense_Op
       Tensor indices,
       Tensor offsets,
       int64_t pooling_mode,
-      c10::optional<Tensor> indice_weights,
-      c10::optional<Tensor> feature_requires_grad) {
+      std::optional<Tensor> indice_weights,
+      std::optional<Tensor> feature_requires_grad) {
     ctx->save_for_backward({
         dev_weights,
         weights_offsets,
@@ -388,8 +388,8 @@ Tensor split_embedding_codegen_lookup_dense_function(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights,
-    c10::optional<Tensor> feature_requires_grad,
+    std::optional<Tensor> indice_weights,
+    std::optional<Tensor> feature_requires_grad,
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     return SplitNoBagLookupFunction_Dense_Op::apply(
