@@ -36,7 +36,7 @@ def fp8_row_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     x_row_max = torch.max(torch.abs(x), dim=1).values
     max_scaling_factor = E4M3_MAX_POS * 512.0  # Match kernel logics
     scale = torch.Tensor(E4M3_MAX_POS / x_row_max).clamp(max=max_scaling_factor)
-    xq = (x * scale.unsqueeze(1)).to(torch.float8_e4m3fn)
+    xq = (x * scale.unsqueeze(1)).to(fp8_e4m3)
     return xq, scale.reciprocal().to(torch.float32)
 
 
@@ -45,7 +45,7 @@ def fp8_col_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     x_col_max = torch.max(torch.abs(x), dim=0).values
     max_scaling_factor = E4M3_MAX_POS * 512.0  # Match kernel logics
     scale = torch.Tensor(E4M3_MAX_POS / x_col_max).clamp(max=max_scaling_factor)
-    xq = (x * scale.unsqueeze(0)).to(torch.float8_e4m3fn)
+    xq = (x * scale.unsqueeze(0)).to(fp8_e4m3)
     return xq, scale.reciprocal().to(torch.float32)
 
 
@@ -58,8 +58,8 @@ class FP8Tests(unittest.TestCase):
     def test_fp8_python(self) -> None:
         src_float = torch.randn(1000, 1000).cuda()
         src_float[0, 0] = 1e6
-        fp8_152 = src_float.to(torch.float8_e5m2)
-        fp8_143 = src_float.to(torch.float8_e4m3fn)
+        fp8_152 = src_float.to(fp8_e5m2)
+        fp8_143 = src_float.to(fp8_e4m3)
         assert len(fp8_152.float().unique()) <= 256
         assert len(fp8_143.float().unique()) <= 256
 
@@ -103,6 +103,31 @@ class FP8Tests(unittest.TestCase):
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
     @unittest.skipIf(
+        ((not torch.version.cuda) and (not torch.version.hip)),
+        "Skip if no GPU is present.",
+    )
+    @settings(deadline=None)
+    def test_f8f8bf16_rowwise_simple(self) -> None:
+        M = 128
+        N = 128
+        K = 256
+        x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
+        w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+
+        xq, x_scale = fp8_row_quantize_ref(x)
+        wq, w_scale = fp8_row_quantize_ref(w)
+
+        zq = torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, x_scale, w_scale)
+
+        # Fake quant
+        x = xq.bfloat16()
+        w = wq.bfloat16()
+
+        zq_ref = (x @ w.T).to(torch.bfloat16) * x_scale[:, None] * w_scale[None, :]
+
+        torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
+
+    @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
     )
     @settings(deadline=None)
@@ -111,7 +136,7 @@ class FP8Tests(unittest.TestCase):
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
         Mode=st.sampled_from(["tensorwise", "tensorwise_broadcast", "rowwise"]),
-        QType=st.sampled_from([torch.float8_e4m3fn, torch.float8_e5m2]),
+        QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
         Bias=st.sampled_from([True, False]),
         CudaGraph=st.sampled_from([True, False]),
     )
@@ -204,7 +229,7 @@ class FP8Tests(unittest.TestCase):
     )
     def test_quantize_fp8_per_tensor_row_col(self, B_T: int, D: int, Mode: str) -> None:
         x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
-        fp8_max = torch.finfo(torch.float8_e4m3fn).max
+        fp8_max = torch.finfo(fp8_e4m3).max
 
         if Mode == "tensorwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
@@ -212,7 +237,7 @@ class FP8Tests(unittest.TestCase):
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
             x_max = x.abs().max()
             x_scale_ref = (x_max / fp8_max).float()
-            xq_ref = (x * fp8_max / x_max).to(torch.float8_e4m3fn)
+            xq_ref = (x * fp8_max / x_max).to(fp8_e4m3)
         elif Mode == "rowwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
             x = (xq.float() / x_scale.unsqueeze(1)).bfloat16()  # Fake quantization
