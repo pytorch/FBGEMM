@@ -16,6 +16,7 @@
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
 
+#include <fbgemm_gpu/sparse_ops_utils.h>
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 
 #if !(                                                  \
@@ -33,7 +34,6 @@
 #include <mma.h>
 #endif
 #include <cub/cub.cuh>
-#include "cuda_dispatch_utils.h"
 
 #include <torch/torch.h>
 
