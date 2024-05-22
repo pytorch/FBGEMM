@@ -539,6 +539,19 @@ struct TensorQueue : torch::CustomClassHolder {
     return queue_.size();
   }
 
+  std::tuple<
+      std::tuple<std::string, Tensor>,
+      std::tuple<std::string, std::vector<Tensor>>>
+  __obj_flatten__() {
+    std::vector<Tensor> queue_vec;
+    for (const auto& val : queue_) {
+      queue_vec.push_back(val);
+    }
+    return std::make_tuple(
+        std::make_tuple("init_tensor", init_tensor_),
+        std::make_tuple("queue", queue_vec));
+  }
+
  private:
   std::deque<Tensor> queue_;
   std::mutex mutex_;
@@ -552,6 +565,7 @@ static auto TensorQueueRegistry =
         .def("pop", &TensorQueue::pop)
         .def("top", &TensorQueue::top)
         .def("size", &TensorQueue::size)
+        .def("__obj_flatten__", &TensorQueue::__obj_flatten__)
         .def_pickle(
             // __getstate__
             [](const c10::intrusive_ptr<TensorQueue>& self)
