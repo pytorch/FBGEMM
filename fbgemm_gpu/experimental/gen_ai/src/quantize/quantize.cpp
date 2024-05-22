@@ -106,9 +106,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "f8f8bf16(Tensor XQ, Tensor WQ, Tensor scale, bool use_fast_accum=True) -> Tensor");
 
   m.def(
-      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
-
-  m.def(
       "f8f8bf16_cublas(Tensor A, Tensor B, Tensor Ainvs, Tensor Binvs, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
 
   m.def(
@@ -120,6 +117,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
 #endif
 
+  m.def(
+      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
   m.def(
       "f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
   m.def("per_tensor_quantize_i8(Tensor X, float scale) -> Tensor");
@@ -164,9 +163,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
+  m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16);
-  m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
@@ -255,9 +254,9 @@ at::Tensor f8i4bf16_rowwise_meta(
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
+  m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16_meta);
-  m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
   m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);

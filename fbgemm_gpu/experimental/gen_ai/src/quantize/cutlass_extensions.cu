@@ -1326,11 +1326,6 @@ at::Tensor f8f8bf16_rowwise(
             bias.value().dtype() == at::kBFloat16,
         "Bias type must be bfloat16 or float32 if provided.");
   }
-  // Extract problem size.
-  auto M = XQ.size(0);
-  auto K = XQ.size(1);
-  auto N = WQ.size(0);
-
   bool use_bias = bias.has_value();
   bool bf16_bias = use_bias && bias.value().dtype() == at::kBFloat16;
 
