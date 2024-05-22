@@ -2,7 +2,7 @@ var searchData=
 [
   ['ics_0',['ICs',['../classfbgemm_1_1_compressed_sparse_column.html#a639afa1bb5bcdb507506ee50ef8f93e7',1,'fbgemm::CompressedSparseColumn']]],
   ['initcregs_1',['initCRegs',['../namespacefbgemm.html#a3a50b707287c0456d23e735846b144c0',1,'fbgemm']]],
-  ['int_5fnbit_5fsplit_5fembedding_5fuvm_5fcaching_5fcodegen_5flookup_5ffunction_2',['int_nbit_split_embedding_uvm_caching_codegen_lookup_function',['../group__embedding-cuda.html#gabbe880100f1036a979f3a8d8755447d0',1,'embedding_forward_quantized_host.cpp']]],
+  ['int_5fnbit_5fsplit_5fembedding_5fuvm_5fcaching_5fcodegen_5flookup_5ffunction_2',['int_nbit_split_embedding_uvm_caching_codegen_lookup_function',['../group__embedding-cuda.html#ga70bac2e0b81b8ab78e2476a38f438b2d',1,'embedding_forward_quantized_host.cpp']]],
   ['is_5fautovec_5fdisabled_3',['is_autovec_disabled',['../namespacefbgemm.html#a4bd183ba7e59151ac6bff236729d4a41',1,'fbgemm']]],
   ['is_5fradix_5fsort_5faccelerated_5fwith_5fopenmp_4',['is_radix_sort_accelerated_with_openmp',['../namespacefbgemm.html#af24ff1c82832652af861c3634486513a',1,'fbgemm']]],
   ['is_5fuvm_5ftensor_5',['is_uvm_tensor',['../group__cumem-utils.html#gacba28ed334d071e79c1ead1792391e9d',1,'fbgemm_gpu']]],

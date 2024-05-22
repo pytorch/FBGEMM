@@ -5,7 +5,7 @@ var searchData=
   ['utilities_20avx512_2',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]],
   ['utilities_20generic_3',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]],
   ['uvm_5fcuda_5fmem_5fadvise_4',['uvm_cuda_mem_advise',['../group__cumem-utils.html#gae8c724e90d31245756fc4b0d975f9370',1,'fbgemm_gpu']]],
-  ['uvm_5fcuda_5fmem_5fprefetch_5fasync_5',['uvm_cuda_mem_prefetch_async',['../group__cumem-utils.html#gaf060db44e71e3419df6e596614ef2081',1,'fbgemm_gpu']]],
+  ['uvm_5fcuda_5fmem_5fprefetch_5fasync_5',['uvm_cuda_mem_prefetch_async',['../group__cumem-utils.html#ga6bc25db5211698851a7664c945aeffa5',1,'fbgemm_gpu']]],
   ['uvm_5fmem_5fadvice_5fdont_5ffork_6',['uvm_mem_advice_dont_fork',['../group__cumem-utils.html#ga01301ad686f7570c21e81c122d2c7af8',1,'fbgemm_gpu']]],
   ['uvm_5fstorage_7',['uvm_storage',['../group__cumem-utils.html#ga05bf2c435c434904ca454c6992861cb6',1,'fbgemm_gpu']]],
   ['uvm_5fto_5fcpu_8',['uvm_to_cpu',['../group__cumem-utils.html#gab5a3dab831988b1ce368ccc545b75b48',1,'fbgemm_gpu']]],
