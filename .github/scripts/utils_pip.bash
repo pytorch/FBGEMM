@@ -98,12 +98,17 @@ __export_package_variant_info () {
 }
 
 __export_pip_arguments () {
+  local include_variant="$1"
+
+  # shellcheck disable=SC2155
+  local postfix=$([ "$include_variant" = true ] && echo "${package_variant}/" || echo "")
+
   # Extract the PIP channel
   if [ "$package_channel" == "release" ]; then
-    export pip_channel="https://download.pytorch.org/whl/${package_variant}/"
+    export pip_channel="https://download.pytorch.org/whl/${postfix}"
   else
     echo "[INSTALL] Using a non-RELEASE channel: ${package_channel} ..."
-    export pip_channel="https://download.pytorch.org/whl/${package_channel}/${package_variant}/"
+    export pip_channel="https://download.pytorch.org/whl/${package_channel}/${postfix}"
   fi
   echo "[INSTALL] Extracted the full PIP channel: ${pip_channel}"
 
@@ -114,9 +119,13 @@ __export_pip_arguments () {
   else
     export pip_package="${package_name}"
   fi
+
+  # shellcheck disable=SC2155
+  local postfix=$([ "$include_variant" = true ] && echo "+${package_variant}" || echo "")
+
   # If a specific version is specified, then append with `==<version>`
   if [ "$package_version" != "" ]; then
-    export pip_package="${pip_package}==${package_version}+${package_variant}"
+    export pip_package="${pip_package}==${package_version}${postfix}"
   fi
   echo "[INSTALL] Extracted the full PIP package: ${pip_package}"
 }
@@ -125,8 +134,8 @@ __prepare_pip_arguments () {
   local package_name_raw="$1"
   local package_channel_version="$2"
   local package_variant_type_version="$3"
-  if [ "$package_variant_type_version" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} PACKAGE_NAME PACKAGE_CHANNEL[/VERSION] PACKAGE_VARIANT_TYPE[/VARIANT_VERSION]"
+  if [ "$package_channel_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} PACKAGE_NAME PACKAGE_CHANNEL[/VERSION] [PACKAGE_VARIANT_TYPE[/VARIANT_VERSION]]"
     return 1
   else
     echo "################################################################################"
@@ -146,13 +155,15 @@ __prepare_pip_arguments () {
   # export variables to environment
   __export_package_channel_info "$package_channel_version"
 
-  # Extract the package variant type and variant version from the tuple-string,
-  # and export variables to environment
-  __export_package_variant_info "${package_variant_type_version}"
+  if [ "$package_variant_type_version" != "" ]; then
+    # Extract the package variant type and variant version from the tuple-string,
+    # and export variables to environment
+    __export_package_variant_info "${package_variant_type_version}"
+  fi
 
   # With all package_* variables exported, extract the arguments for PIP, and
   # export variabels to environment
-  __export_pip_arguments
+  __export_pip_arguments "$([ "$package_variant_type_version" != "" ] && echo "true" || echo "false")"
 }
 
 install_from_pytorch_pip () {
@@ -160,13 +171,17 @@ install_from_pytorch_pip () {
   local package_name_raw="$2"
   local package_channel_version="$3"
   local package_variant_type_version="$4"
-  if [ "$package_variant_type_version" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_CHANNEL[/VERSION] PACKAGE_VARIANT_TYPE[/VARIANT_VERSION]"
+  if [ "$package_channel_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PACKAGE_CHANNEL[/VERSION] [PACKAGE_VARIANT_TYPE[/VARIANT_VERSION]]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Install the CPU variant, latest version from release channel"
     echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.6.0rc0 cuda/12.1.0   # Install the CUDA 12.1 variant, specific version from test channel"
     echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/5.3            # Install the ROCM 5.3 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env pytorch_triton 1.11.0                  # Install specific version from release channel"
+    echo "    ${FUNCNAME[0]} build_env pytorch_triton release                 # Install latest version from release channel"
+    echo "    ${FUNCNAME[0]} build_env pytorch_triton test/0.6.0rc0           # Install specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env pytorch_triton_rocm nightly            # Install latest version from nightly channel"
     return 1
   else
     echo "################################################################################"
@@ -188,8 +203,8 @@ install_from_pytorch_pip () {
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda run ${env_prefix} pip install ${pip_package} --index-url ${pip_channel}) || return 1
 
-  # Check only applies to non-CPU variants
-  if [ "$package_variant_type" != "cpu" ]; then
+  # Check applies to installation of packages with variants, and only to non-CPU variants
+  if [ "$package_variant_type_version" != "" ] && [ "$package_variant_type" != "cpu" ]; then
     # Ensure that the package build is of the correct variant
     # This test usually applies to the nightly builds
     # shellcheck disable=SC2086
@@ -202,6 +217,7 @@ install_from_pytorch_pip () {
     fi
   fi
 }
+
 
 ################################################################################
 # PyTorch PIP Download Functions
