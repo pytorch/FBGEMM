@@ -55,8 +55,8 @@ void embedding_inplace_update_cuda(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights = c10::nullopt,
-    c10::optional<Tensor> lxu_cache_locations = c10::nullopt);
+    std::optional<Tensor> lxu_cache_weights = c10::nullopt,
+    std::optional<Tensor> lxu_cache_locations = c10::nullopt);
 
 void embedding_inplace_update_cpu(
     Tensor dev_weights,
@@ -70,9 +70,9 @@ void embedding_inplace_update_cpu(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights =
+    std::optional<Tensor> lxu_cache_weights =
         c10::nullopt, // Not used, to match cache interface for CUDA op
-    c10::optional<Tensor> lxu_cache_locations =
+    std::optional<Tensor> lxu_cache_locations =
         c10::nullopt // Not used, to match cache interface for CUDA op
 );
 

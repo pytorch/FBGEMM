@@ -208,12 +208,12 @@ transpose_embedding_input(
     Tensor indices,
     Tensor offsets,
     bool nobag,
-    const c10::optional<Tensor>& vbe_b_t_map,
+    const std::optional<Tensor>& vbe_b_t_map,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask,
     const int64_t total_unique_indices,
     const bool is_index_select,
-    const c10::optional<Tensor>& total_L_offsets,
+    const std::optional<Tensor>& total_L_offsets,
     const int64_t fixed_L_per_warp,
     const int64_t num_warps_per_feature) {
   const bool vbe = vbe_b_t_map.has_value();

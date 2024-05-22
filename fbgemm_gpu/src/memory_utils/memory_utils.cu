@@ -360,7 +360,7 @@ void uvm_cuda_mem_advise(const Tensor& t, int64_t cuda_memory_advise) {
 
 void uvm_cuda_mem_prefetch_async(
     const Tensor& t,
-    c10::optional<Tensor> device_t) {
+    std::optional<Tensor> device_t) {
   // Call cudaMemPrefetchAsync on Tensor
   at::cuda::OptionalCUDAGuard device_guard;
   TORCH_CHECK(uvm_storage(t));

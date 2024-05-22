@@ -27,7 +27,7 @@ DLL_PUBLIC void lru_cache_populate_byte_cpu(
     Tensor lru_state,
     int64_t row_alignment,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats) {
+    std::optional<Tensor> uvm_cache_stats) {
   return;
 }
 
@@ -47,7 +47,7 @@ DLL_PUBLIC void direct_mapped_lru_cache_populate_byte_cpu(
     Tensor lxu_cache_miss_timestamp,
     int64_t row_alignment,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats) {
+    std::optional<Tensor> uvm_cache_stats) {
   return;
 }
 
