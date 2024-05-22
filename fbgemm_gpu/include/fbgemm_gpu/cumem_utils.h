@@ -153,7 +153,7 @@ void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 /// for more information on `cudaMemPrefetchAsync()`.
 void uvm_cuda_mem_prefetch_async(
     const Tensor& self,
-    c10::optional<Tensor> device_t);
+    std::optional<Tensor> device_t);
 
 /// @ingroup cumem-utils
 ///

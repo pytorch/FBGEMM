@@ -631,9 +631,9 @@ Tensor pack_segments_cuda(
 Tensor index_select_dim0_gpu(
     const Tensor& input,
     const Tensor& indices,
-    c10::optional<int64_t> consecutive_range_start,
-    c10::optional<int64_t> consecutive_range_length,
-    c10::optional<bool> skip_indices_sorting_fwd) {
+    std::optional<int64_t> consecutive_range_start,
+    std::optional<int64_t> consecutive_range_length,
+    std::optional<bool> skip_indices_sorting_fwd) {
   bool user_skip_indices_sorting_fwd =
       skip_indices_sorting_fwd ? *skip_indices_sorting_fwd : false;
   return IndexSelectDim0GPUOp::apply(

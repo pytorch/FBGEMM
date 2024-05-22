@@ -116,8 +116,8 @@ void embedding_inplace_update_cuda(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations) {
+    std::optional<Tensor> lxu_cache_weights,
+    std::optional<Tensor> lxu_cache_locations) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       dev_weights,
       uvm_weights,

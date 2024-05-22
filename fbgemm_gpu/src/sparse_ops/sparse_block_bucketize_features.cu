@@ -323,10 +323,10 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
 std::tuple<
     Tensor,
     Tensor,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>>
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>>
 _block_bucketize_sparse_features_cuda(
     const Tensor& lengths,
     const Tensor& indices,
@@ -334,10 +334,10 @@ _block_bucketize_sparse_features_cuda(
     const bool sequence,
     const Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_size_per_feature,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& batch_size_per_feature,
     const int64_t max_B,
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
@@ -877,9 +877,9 @@ _block_bucketize_sparse_features_cuda(
 DLL_PUBLIC std::tuple<
     Tensor,
     Tensor,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>>
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>>
 block_bucketize_sparse_features_cuda(
     const Tensor& lengths,
     const Tensor& indices,
@@ -887,15 +887,15 @@ block_bucketize_sparse_features_cuda(
     const bool sequence,
     const Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_size_per_feature,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& batch_size_per_feature,
     const int64_t max_B,
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos) {
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos) {
   Tensor new_lengths;
   Tensor new_indices;
-  c10::optional<Tensor> new_weights;
-  c10::optional<Tensor> new_pos;
-  c10::optional<Tensor> unbucketize_permute;
+  std::optional<Tensor> new_weights;
+  std::optional<Tensor> new_pos;
+  std::optional<Tensor> unbucketize_permute;
   std::tie(
       new_lengths,
       new_indices,
@@ -923,10 +923,10 @@ block_bucketize_sparse_features_cuda(
 DLL_PUBLIC std::tuple<
     Tensor,
     Tensor,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>>
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>>
 block_bucketize_sparse_features_inference_cuda(
     const Tensor& lengths,
     const Tensor& indices,
@@ -934,10 +934,10 @@ block_bucketize_sparse_features_inference_cuda(
     const bool sequence,
     const Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_size_per_feature,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& batch_size_per_feature,
     const int64_t max_B,
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping) {
   return _block_bucketize_sparse_features_cuda(
       lengths,

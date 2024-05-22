@@ -607,8 +607,8 @@ void invokeComputeScale(
 
 at::Tensor get_fp8_per_tensor_scale(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub) // scale upper bound
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub) // scale upper bound
 {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
@@ -644,7 +644,7 @@ at::Tensor get_fp8_per_tensor_scale(
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
     at::Tensor scale,
-    c10::optional<at::Tensor> bs) // batch size
+    std::optional<at::Tensor> bs) // batch size
 {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
@@ -682,8 +682,8 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
 // usecases/models when needed
 std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub) // scale upperbound)
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub) // scale upperbound)
 {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
@@ -894,9 +894,9 @@ void invokeComputeScalesAndQuantizeMatrixCol(
 
 std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub, // scale upperbound
-    c10::optional<c10::ScalarType> output_dtype) // Quantization type
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub, // scale upperbound
+    std::optional<c10::ScalarType> output_dtype) // Quantization type
 {
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
@@ -969,8 +969,8 @@ std::vector<at::Tensor> quantize_fp8_per_row(
 
 std::vector<at::Tensor> quantize_fp8_per_col(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub) // scale upperbound)
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub) // scale upperbound)
 {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
@@ -1014,17 +1014,17 @@ std::vector<at::Tensor> quantize_fp8_per_col(
 #else
 std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub) { // scale upperbound
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub, // scale upperbound
-    c10::optional<c10::ScalarType> output_dtype) { // quantization type
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub, // scale upperbound
+    std::optional<c10::ScalarType> output_dtype) { // quantization type
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -1032,15 +1032,15 @@ std::vector<at::Tensor> quantize_fp8_per_row(
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
     at::Tensor scale,
-    c10::optional<at::Tensor> bs) { // batch size
+    std::optional<at::Tensor> bs) { // batch size
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 at::Tensor get_fp8_per_tensor_scale(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub) { // scale upperbound
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

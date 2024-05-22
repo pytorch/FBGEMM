@@ -17,7 +17,7 @@ inline bool torch_tensor_on_cpu_check(const at::Tensor& ten) {
   return ten.is_cpu();
 }
 
-inline bool torch_tensor_on_cpu_check(const c10::optional<at::Tensor>& ten) {
+inline bool torch_tensor_on_cpu_check(const std::optional<at::Tensor>& ten) {
   return !ten.has_value() || torch_tensor_on_cpu_check(ten.value());
 }
 
@@ -27,7 +27,7 @@ inline std::optional<int64_t> get_device_index_from_tensor(
 }
 
 inline std::optional<int64_t> get_device_index_from_tensor(
-    const c10::optional<at::Tensor>& ten) {
+    const std::optional<at::Tensor>& ten) {
   if (ten) {
     return {ten->device().index()};
   } else {
@@ -40,7 +40,7 @@ inline std::string torch_tensor_device_name(const at::Tensor& ten) {
 }
 
 inline std::string torch_tensor_device_name(
-    const c10::optional<at::Tensor>& ten) {
+    const std::optional<at::Tensor>& ten) {
   if (ten.has_value()) {
     return torch_tensor_device_name(ten.value());
   } else {
@@ -56,7 +56,7 @@ inline bool torch_tensor_on_same_device_check(
 
 inline bool torch_tensor_on_same_device_check(
     const at::Tensor& ten1,
-    const c10::optional<at::Tensor>& ten2) {
+    const std::optional<at::Tensor>& ten2) {
   return !ten2.has_value() || ten1.get_device() == ten2->get_device();
 }
 
@@ -64,7 +64,7 @@ inline bool torch_tensor_undefined(const at::Tensor& ten) {
   return ten.defined();
 }
 
-inline bool torch_tensor_undefined(const c10::optional<at::Tensor>& ten) {
+inline bool torch_tensor_undefined(const std::optional<at::Tensor>& ten) {
   return !ten.has_value() || torch_tensor_undefined(ten.value());
 }
 
@@ -73,7 +73,7 @@ inline bool torch_tensor_on_cuda_gpu_check(const at::Tensor& ten) {
 }
 
 inline bool torch_tensor_on_cuda_gpu_check(
-    const c10::optional<at::Tensor>& ten) {
+    const std::optional<at::Tensor>& ten) {
   return !ten.has_value() || torch_tensor_on_cuda_gpu_check(ten.value());
 }
 
@@ -82,7 +82,7 @@ inline bool torch_tensor_empty_or_on_cuda_gpu_check(const at::Tensor& ten) {
 }
 
 inline bool torch_tensor_empty_or_on_cuda_gpu_check(
-    const c10::optional<at::Tensor>& ten) {
+    const std::optional<at::Tensor>& ten) {
   return !ten.has_value() ||
       torch_tensor_empty_or_on_cuda_gpu_check(ten.value());
 }
@@ -92,7 +92,7 @@ inline bool torch_tensor_empty_or_on_cpu_check(const at::Tensor& ten) {
 }
 
 inline bool torch_tensor_empty_or_on_cpu_check(
-    const c10::optional<at::Tensor>& ten) {
+    const std::optional<at::Tensor>& ten) {
   return !ten.has_value() || torch_tensor_empty_or_on_cpu_check(ten.value());
 }
 

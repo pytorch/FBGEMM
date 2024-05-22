@@ -25,8 +25,8 @@ void bounds_check_indices_cuda(
     Tensor& offsets,
     int64_t bounds_check_mode,
     Tensor& warning,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& B_ofsets,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& B_ofsets,
     const int64_t max_B);
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!

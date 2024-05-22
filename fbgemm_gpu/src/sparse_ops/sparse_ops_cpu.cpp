@@ -278,18 +278,18 @@ template <
 void _block_bucketize_sparse_features_cpu_kernel(
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights,
+    const std::optional<Tensor>& weights,
     const bool bucketize_pos,
     const Tensor& block_sizes,
     const int64_t my_size,
     Tensor new_lengths,
     Tensor new_indices,
-    c10::optional<Tensor> new_weights,
-    c10::optional<Tensor> new_pos,
-    const c10::optional<Tensor>& unbucketize_permute,
-    const c10::optional<Tensor>& batch_size_per_feature,
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const c10::optional<Tensor>& bucket_mapping) {
+    std::optional<Tensor> new_weights,
+    std::optional<Tensor> new_pos,
+    const std::optional<Tensor>& unbucketize_permute,
+    const std::optional<Tensor>& batch_size_per_feature,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const std::optional<Tensor>& bucket_mapping) {
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
@@ -503,13 +503,13 @@ template <bool has_weight, typename index_t, typename scalar_t>
 void _bucketize_sparse_features_cpu(
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights,
+    const std::optional<at::Tensor>& weights,
     const bool bucketize_pos,
     const int64_t my_size,
     at::Tensor& new_lengths,
     at::Tensor& new_indices,
-    c10::optional<at::Tensor> new_weights,
-    c10::optional<at::Tensor> new_pos) {
+    std::optional<at::Tensor> new_weights,
+    std::optional<at::Tensor> new_pos) {
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
   TENSOR_EMPTY_OR_ON_CPU(weights);
@@ -581,12 +581,12 @@ void _bucketize_sparse_features_cpu(
   }
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
+std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<int64_t>& permuted_lengths_sum) {
+    const std::optional<Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
@@ -605,7 +605,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_2D_sparse_data_cpu(
 
   Tensor permuted_lengths;
   Tensor permuted_indices;
-  c10::optional<Tensor> permuted_weights;
+  std::optional<Tensor> permuted_weights;
 
   permuted_lengths = at::empty({T, B}, lengths.options());
 
@@ -753,12 +753,12 @@ void _permute_1D_indices_weights_kernel_cpu(
       }); // parallel_for T x B, different B across T
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_1D_sparse_data_cpu(
+std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_1D_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<int64_t>& permuted_lengths_sum) {
+    const std::optional<Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
@@ -990,10 +990,10 @@ Tensor populate_bucketized_permute_cpu(
 std::tuple<
     Tensor,
     Tensor,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>>
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>>
 _block_bucketize_sparse_features_cpu(
     const Tensor& lengths,
     const Tensor& indices,
@@ -1001,10 +1001,10 @@ _block_bucketize_sparse_features_cpu(
     const bool sequence,
     const Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_size_per_feature,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& batch_size_per_feature,
     const int64_t /* max_batch_size */, // Only used in GPU variant
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping) {
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
@@ -1141,9 +1141,9 @@ _block_bucketize_sparse_features_cpu(
 std::tuple<
     Tensor,
     Tensor,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>>
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>>
 block_bucketize_sparse_features_cpu(
     const Tensor& lengths,
     const Tensor& indices,
@@ -1151,15 +1151,15 @@ block_bucketize_sparse_features_cpu(
     const bool sequence,
     const Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_size_per_feature,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& batch_size_per_feature,
     const int64_t /* max_batch_size */, // Only used in GPU variant
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos) {
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos) {
   Tensor new_lengths;
   Tensor new_indices;
-  c10::optional<Tensor> new_weights;
-  c10::optional<Tensor> new_pos;
-  c10::optional<Tensor> unbucketize_permute;
+  std::optional<Tensor> new_weights;
+  std::optional<Tensor> new_pos;
+  std::optional<Tensor> unbucketize_permute;
   std::tie(
       new_lengths,
       new_indices,
@@ -1185,10 +1185,10 @@ block_bucketize_sparse_features_cpu(
 std::tuple<
     Tensor,
     Tensor,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>,
-    c10::optional<Tensor>>
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>,
+    std::optional<Tensor>>
 block_bucketize_sparse_features_inference_cpu(
     const Tensor& lengths,
     const Tensor& indices,
@@ -1196,10 +1196,10 @@ block_bucketize_sparse_features_inference_cpu(
     const bool sequence,
     const Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<Tensor>& batch_size_per_feature,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& batch_size_per_feature,
     const int64_t /* max_batch_size */, // Only used in GPU variant
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping) {
   return _block_bucketize_sparse_features_cpu(
       lengths,
@@ -1220,14 +1220,14 @@ block_bucketize_sparse_features_inference_cpu(
 std::tuple<
     at::Tensor,
     at::Tensor,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>>
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
 bucketize_sparse_features_cpu(
     const at::Tensor& lengths,
     const at::Tensor& indices,
     const bool bucketize_pos,
     const int64_t my_size,
-    const c10::optional<at::Tensor>& weights) {
+    const std::optional<at::Tensor>& weights) {
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
   TENSOR_ON_CPU(weights);
@@ -2351,7 +2351,7 @@ std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
     at::ScalarType compressed_indices_dtype,
     const bool abs,
     const int64_t min_non_pruned_rows,
-    const c10::optional<double>& min_save_ratio) {
+    const std::optional<double>& min_save_ratio) {
   TENSOR_ON_CPU(weights);
   TENSOR_ON_CPU(indicator);
   TENSOR_NDIM_EQUALS(weights, 2);
@@ -2403,7 +2403,7 @@ std::tuple<Tensor, Tensor> embedding_bag_rowwise_prune(
 Tensor& lengths_range_out(
     Tensor& output,
     const Tensor& t_in,
-    const c10::optional<std::vector<int64_t>>& shape) {
+    const std::optional<std::vector<int64_t>>& shape) {
   TENSOR_ON_CPU(t_in);
   TENSOR_NDIM_EQUALS(t_in, 1);
 
@@ -2449,7 +2449,7 @@ Tensor& lengths_range_out(
 
 Tensor lengths_range(
     const Tensor& t_in,
-    const c10::optional<std::vector<int64_t>>& shape) {
+    const std::optional<std::vector<int64_t>>& shape) {
   auto output = at::empty({0}, t_in.options());
   return lengths_range_out(output, t_in, shape);
 }
@@ -2492,11 +2492,11 @@ void _permute_data_kernel_cpu(
       }); // parallel_for T * B
 }
 
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> permute_sparse_features_cpu(
+std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_sparse_features_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights) {
+    const std::optional<Tensor>& weights) {
   TENSOR_ON_CPU(permute);
   TENSOR_ON_CPU(lengths);
   TENSOR_ON_CPU(indices);
@@ -2755,8 +2755,8 @@ std::tuple<Tensor, Tensor> permute_sequence_embeddings_cpu(
 
   Tensor permuted_lengths;
   Tensor permuted_embeddings;
-  c10::optional<Tensor> weights_dummy;
-  c10::optional<int64_t> permuted_lengths_sum_dummy;
+  std::optional<Tensor> weights_dummy;
+  std::optional<int64_t> permuted_lengths_sum_dummy;
 
   const auto T = permute.numel();
   const auto B = lengths.size(1);
@@ -2922,9 +2922,9 @@ namespace {
 Tensor index_select_dim0(
     const Tensor& input,
     const Tensor& indices,
-    c10::optional<int64_t> /*consecutive_range_start*/,
-    c10::optional<int64_t> /*consecutive_range_length*/,
-    c10::optional<bool> /*skip_indices_sorting_fwd*/) {
+    std::optional<int64_t> /*consecutive_range_start*/,
+    std::optional<int64_t> /*consecutive_range_length*/,
+    std::optional<bool> /*skip_indices_sorting_fwd*/) {
   return at::index_select(input, 0, indices);
 }
 

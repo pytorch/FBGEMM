@@ -108,7 +108,7 @@ offsets_range_cuda(const Tensor& offsets, int64_t range_size) {
 
 DLL_PUBLIC Tensor lengths_range_cuda(
     const Tensor& t_in,
-    const c10::optional<std::vector<int64_t>>& shape) {
+    const std::optional<std::vector<int64_t>>& shape) {
   TENSOR_ON_CUDA_GPU(t_in);
   TENSOR_NDIM_EQUALS(t_in, 1);
 

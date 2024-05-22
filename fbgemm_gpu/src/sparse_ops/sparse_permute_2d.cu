@@ -67,13 +67,13 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_lengths_kernel(
   }
 }
 
-DLL_PUBLIC std::tuple<Tensor, Tensor, c10::optional<Tensor>>
+DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
 permute_2D_sparse_data_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<int64_t>& permuted_lengths_sum) {
+    const std::optional<Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
   TORCH_CHECK(lengths.dim() == 2);
 
@@ -228,12 +228,12 @@ __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
   }
 }
 
-DLL_PUBLIC std::tuple<Tensor, Tensor, c10::optional<Tensor>>
+DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
 permute_sparse_features_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<Tensor>& weights) {
+    const std::optional<Tensor>& weights) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(permute, lengths, indices, weights);
 
   CUDA_DEVICE_GUARD(indices);

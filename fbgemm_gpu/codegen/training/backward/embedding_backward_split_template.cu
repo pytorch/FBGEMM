@@ -661,13 +661,13 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             indices,
             {{ "offsets" if not is_index_select else "Tensor()" }},
             {{ "true" if nobag else "false" }},
-            {{ "c10::optional<Tensor>(vbe_b_t_map)" if vbe else "c10::optional<Tensor>()" }},
+            {{ "std::optional<Tensor>(vbe_b_t_map)" if vbe else "std::optional<Tensor>()" }},
             info_B_num_bits,
             info_B_mask,
             total_unique_indices,
             {%- if is_index_select %}
             true, // is_index_select
-            c10::optional<Tensor>(total_L_offsets),
+            std::optional<Tensor>(total_L_offsets),
             fixed_L_per_warp,
             num_warps_per_feature
             {%- else %}

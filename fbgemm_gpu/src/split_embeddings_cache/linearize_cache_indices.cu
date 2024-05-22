@@ -62,7 +62,7 @@ DLL_PUBLIC Tensor linearize_cache_indices_cuda(
     const Tensor& cache_hash_size_cumsum,
     const Tensor& indices,
     const Tensor& offsets,
-    const c10::optional<Tensor>& B_offsets,
+    const std::optional<Tensor>& B_offsets,
     const int64_t max_B,
     const int64_t indices_base_offset) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
@@ -201,7 +201,7 @@ DLL_PUBLIC Tensor linearize_cache_indices_from_row_idx_cuda(
 }
 
 DLL_PUBLIC
-std::tuple<Tensor, Tensor, c10::optional<Tensor>, c10::optional<Tensor>>
+std::tuple<Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
 get_unique_indices_cuda_impl(
     const Tensor& linear_indices,
     const int64_t max_indices,
@@ -217,8 +217,8 @@ get_unique_indices_cuda_impl(
   auto unique_indices = at::empty_like(linear_indices);
   auto unique_indices_length =
       at::empty({1}, linear_indices.options().dtype(at::kInt));
-  c10::optional<Tensor> unique_indices_count = c10::nullopt;
-  c10::optional<Tensor> linear_index_positions_sorted = c10::nullopt;
+  std::optional<Tensor> unique_indices_count = c10::nullopt;
+  std::optional<Tensor> linear_index_positions_sorted = c10::nullopt;
 
   Tensor linear_index_positions;
   if (compute_inverse_indices) {
@@ -329,7 +329,7 @@ get_unique_indices_cuda_impl(
 }
 
 DLL_PUBLIC
-std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
+std::tuple<Tensor, Tensor, std::optional<Tensor>> get_unique_indices_cuda(
     const Tensor& linear_indices,
     const int64_t max_indices,
     const bool compute_count) {
@@ -343,7 +343,7 @@ std::tuple<Tensor, Tensor, c10::optional<Tensor>> get_unique_indices_cuda(
 }
 
 DLL_PUBLIC
-std::tuple<Tensor, Tensor, c10::optional<Tensor>, c10::optional<Tensor>>
+std::tuple<Tensor, Tensor, std::optional<Tensor>, std::optional<Tensor>>
 get_unique_indices_with_inverse_cuda(
     const Tensor& linear_indices,
     const int64_t max_indices,

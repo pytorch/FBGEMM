@@ -410,9 +410,9 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
     const Tensor lxu_cache_state,
     const int64_t invalid_index,
     const bool gather_cache_stats,
-    const c10::optional<Tensor> uvm_cache_stats,
-    const c10::optional<Tensor> num_uniq_cache_indices,
-    const c10::optional<Tensor> lxu_cache_locations_output) {
+    const std::optional<Tensor> uvm_cache_stats,
+    const std::optional<Tensor> num_uniq_cache_indices,
+    const std::optional<Tensor> lxu_cache_locations_output) {
   const auto uniq_lookup = num_uniq_cache_indices.has_value();
   // TODO: Support gather_cache_stats=true when uniq_lookup=true
   TORCH_CHECK(
@@ -472,7 +472,7 @@ DLL_PUBLIC Tensor direct_mapped_lxu_cache_lookup_cuda(
     Tensor lxu_cache_state,
     int64_t invalid_index,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats) {
+    std::optional<Tensor> uvm_cache_stats) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       linear_cache_indices, lxu_cache_state);
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(uvm_cache_stats, lxu_cache_state);
@@ -543,7 +543,7 @@ __launch_bounds__(kMaxThreads) void lxu_cache_locations_update_kernel(
 DLL_PUBLIC void lxu_cache_locations_update_cuda(
     Tensor lxu_cache_locations,
     Tensor lxu_cache_locations_new,
-    c10::optional<Tensor> num_uniq_cache_indices) {
+    std::optional<Tensor> num_uniq_cache_indices) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       lxu_cache_locations, lxu_cache_locations_new, num_uniq_cache_indices);
 

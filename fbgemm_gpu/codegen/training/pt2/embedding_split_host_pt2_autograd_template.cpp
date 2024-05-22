@@ -87,20 +87,20 @@ class {{ autograd_func }} :
     const Tensor& offsets,
     {%- if not nobag %}
     const int64_t pooling_mode,
-    const c10::optional<Tensor>& indice_weights,
-    const c10::optional<Tensor>& feature_requires_grad,
+    const std::optional<Tensor>& indice_weights,
+    const std::optional<Tensor>& feature_requires_grad,
     {%- endif %}
     const Tensor& lxu_cache_locations,
-    c10::optional<Tensor> uvm_cache_stats,
+    std::optional<Tensor> uvm_cache_stats,
     {%- if optimizer != "none" %}
     const bool gradient_clipping,
     const double max_gradient,
     const bool stochastic_rounding,
     {%- endif %}
     {%- if vbe %}
-    const c10::optional<Tensor>& B_offsets,
-    const c10::optional<Tensor>& vbe_output_offsets_feature_rank,
-    const c10::optional<Tensor>& vbe_B_offsets_rank_per_feature,
+    const std::optional<Tensor>& B_offsets,
+    const std::optional<Tensor>& vbe_output_offsets_feature_rank,
+    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature,
     const c10::SymInt max_B,
     const c10::SymInt max_B_feature_rank,
     const c10::SymInt vbe_output_size,
@@ -773,8 +773,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     const Tensor& indices,
     const Tensor& offsets,
     const int64_t pooling_mode,
-    const c10::optional<Tensor>& indice_weights,
-    const c10::optional<Tensor>& feature_requires_grad,
+    const std::optional<Tensor>& indice_weights,
+    const std::optional<Tensor>& feature_requires_grad,
     const Tensor& lxu_cache_locations,
     {%- if optimizer != "none" %}
     const bool gradient_clipping,
@@ -783,16 +783,16 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     {%- endif %}
     {{ args_pt2.split_function_args | join(", ") }},
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
-    const c10::optional<Tensor>& B_offsets = c10::optional<Tensor>(),
-    const c10::optional<Tensor>& vbe_output_offsets_feature_rank = c10::optional<Tensor>(),
-    const c10::optional<Tensor>& vbe_B_offsets_rank_per_feature = c10::optional<Tensor>(),
+    const std::optional<Tensor>& B_offsets = std::optional<Tensor>(),
+    const std::optional<Tensor>& vbe_output_offsets_feature_rank = std::optional<Tensor>(),
+    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature = std::optional<Tensor>(),
     const c10::SymInt max_B = -1,
     const c10::SymInt max_B_feature_rank = -1,
     const c10::SymInt vbe_output_size = -1,
     const bool is_experimental = false,
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
-    const c10::optional<Tensor>& uvm_cache_stats = c10::optional<Tensor>()) {
+    const std::optional<Tensor>& uvm_cache_stats = std::optional<Tensor>()) {
     {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
     {%- if has_vbe_support %}
     {%- if vbe %}

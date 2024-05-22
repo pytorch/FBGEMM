@@ -48,7 +48,7 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    c10::optional<at::Tensor> bias = c10::nullopt,
+    std::optional<at::Tensor> bias = c10::nullopt,
     bool use_fast_accum = true);
 at::Tensor f8f8bf16_cublas(
     at::Tensor A,
@@ -56,7 +56,7 @@ at::Tensor f8f8bf16_cublas(
     at::Tensor Ainvs,
     at::Tensor Binvs,
     bool use_fast_accum,
-    c10::optional<at::Tensor> output);
+    std::optional<at::Tensor> output);
 at::Tensor f8i4bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -69,31 +69,31 @@ std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(at::Tensor X);
 
 std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub); // scale upperbound
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub); // scale upperbound
 
 std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub, // scale upperbound
-    c10::optional<c10::ScalarType> output_dtype); // output dtype
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub, // scale upperbound
+    std::optional<c10::ScalarType> output_dtype); // output dtype
 
 #if CUDART_VERSION >= 12000
 std::vector<at::Tensor> quantize_fp8_per_col(
     at::Tensor input,
-    c10::optional<at::Tensor> bs, // batch size
-    c10::optional<at::Tensor> scale_ub); // scale upperbound
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub); // scale upperbound
 #endif
 
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
     at::Tensor scale,
-    c10::optional<at::Tensor> bs);
+    std::optional<at::Tensor> bs);
 
 at::Tensor get_fp8_per_tensor_scale(
     at::Tensor input,
-    c10::optional<at::Tensor> bs,
-    c10::optional<at::Tensor> scale_ub); // scale upperbound
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> scale_ub); // scale upperbound
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 #ifndef USE_ROCM
@@ -133,7 +133,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // TODO: On AMD this throws "undefined symbol:
   // _ZN8facebook6gen_ai13llm_inference23quantize_fp8_per_tensorEN2at6TensorEN3c108optionalIS3_EE"
   // i.e. facebook::gen_ai::llm_inference::quantize_fp8_per_tensor(at::Tensor,
-  // c10::optional<at::Tensor>) when loading
+  // std::optional<at::Tensor>) when loading
   // quantize_ops with
   // torch.ops.load_library
   m.def(
@@ -188,7 +188,7 @@ at::Tensor f8f8bf16_rowwise_meta(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    c10::optional<at::Tensor> bias = c10::nullopt,
+    std::optional<at::Tensor> bias = c10::nullopt,
     bool use_fast_accum = true) {
   int M = XQ.size(0);
   int N = WQ.size(0);
@@ -198,8 +198,8 @@ at::Tensor f8f8bf16_rowwise_meta(
 
 std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
     at::Tensor X,
-    c10::optional<at::Tensor> bs,
-    c10::optional<at::Tensor> scale_ub) {
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> scale_ub) {
   auto Y = at::empty_like(X, X.options().dtype(at::kFloat8_e4m3fn));
   auto scale = at::empty({}, X.options().dtype(at::kBFloat16));
   return {Y, scale};
@@ -211,7 +211,7 @@ at::Tensor f8f8bf16_cublas_meta(
     at::Tensor x_scale,
     at::Tensor w_scale,
     bool use_fast_accum = true,
-    c10::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = c10::nullopt) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));

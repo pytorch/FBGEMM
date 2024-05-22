@@ -286,9 +286,9 @@ DLL_PUBLIC void lru_cache_populate_cuda(
     Tensor lru_state,
     const bool stochastic_rounding,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats,
+    std::optional<Tensor> uvm_cache_stats,
     bool lock_cache_line,
-    c10::optional<Tensor> lxu_cache_locking_counter) {
+    std::optional<Tensor> lxu_cache_locking_counter) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       weights,
       cache_hash_size_cumsum,
