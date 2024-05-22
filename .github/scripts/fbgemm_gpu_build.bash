@@ -49,7 +49,7 @@ prepare_fbgemm_gpu_build () {
 
   # BUILD_VARIANT is provided by the github workflow file
   if [ "$BUILD_VARIANT" == "cuda" ]; then
-    (install_triton "${env_name}") || return 1
+    (install_triton_pip "${env_name}") || return 1
   fi
 
   # shellcheck disable=SC2086
