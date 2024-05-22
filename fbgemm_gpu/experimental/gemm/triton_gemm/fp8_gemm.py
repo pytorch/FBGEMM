@@ -560,7 +560,7 @@ def _kernel_matmul_fp8_block(
             scale_next = a_scale_next * b_scale_next
 
         inv_scale = 1.0 / scale
-        scale_next_inv_scale = scale_next / scale
+        scale_next_inv_scale = scale_next * inv_scale
         scale = scale_next
 
         if EVEN_K:
