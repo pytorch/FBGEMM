@@ -77,12 +77,21 @@ __configure_fbgemm_gpu_build_nvcc () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
+  echo "[BUILD] Looking up CUDA version ..."
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} which c++)
   # shellcheck disable=SC2155,SC2086
   local cuda_version=$(conda run ${env_prefix} nvcc --version | sed -n 's/^.*release \([0-9]\+\.[0-9]\+\).*$/\1/p')
   # shellcheck disable=SC2206
   local cuda_version_arr=(${cuda_version//./ })
+
+  echo "[BUILD] Looking up NCCL path ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155,SC2086
+  local nccl_lib=$(conda run ${env_prefix} find ${conda_prefix} -name "libnccl.so*")
+  # shellcheck disable=SC2155,SC2086
+  local nccl_path=$(dirname "$(dirname ${nccl_lib})")
 
   # Only NVCC 12+ supports C++20
   if [[ ${cuda_version_arr[0]} -lt 12 ]]; then
@@ -109,11 +118,13 @@ __configure_fbgemm_gpu_build_nvcc () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags}\"
 
+  echo "[BUILD] Setting CUDA build args ..."
   # shellcheck disable=SC2206
   build_args+=(
     # Override CMake configuration
     -DCMAKE_CXX_STANDARD="${cppstd_ver}"
-    -DHIP_STANDARD="${cppstd_ver}"
+    -DNCCL_INCLUDE_DIR=${nccl_path}/include
+    -DNCCL_LIB_DIR=${nccl_path}/lib
   )
 }
 
@@ -158,14 +169,17 @@ __configure_fbgemm_gpu_build_rocm () {
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
 
   echo "[BUILD] Setting ROCm build args ..."
+  # shellcheck disable=SC2155
+  local cxx_flags="-DTORCH_USE_HIP_DSA"
+
   build_args=(
     --package_variant=rocm
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
     -DHIP_ROOT_DIR=/opt/rocm
     # Enable device-side assertions in HIP
     # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
-    -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA"
-    -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
+    -DCMAKE_C_FLAGS="'${cxx_flags}'"
+    -DCMAKE_CXX_FLAGS="'${cxx_flags}'"
   )
 }
 
@@ -473,18 +487,18 @@ build_fbgemm_gpu_package () {
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python -m build --wheel --no-isolation \
-      "${build_args[@]}"
+      "${build_args[@]}" || return 1
 
   # Run checks on the built libraries
   (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
 
   echo "[BUILD] Enumerating the built wheels ..."
-  print_exec ls -lth dist/*.whl
+  print_exec ls -lth dist/*.whl || return 1
 
   echo "[BUILD] Enumerating the wheel SHAs ..."
-  print_exec sha1sum dist/*.whl
-  print_exec sha256sum dist/*.whl
-  print_exec md5sum dist/*.whl
+  print_exec sha1sum dist/*.whl || return 1
+  print_exec sha256sum dist/*.whl || return 1
+  print_exec md5sum dist/*.whl || return 1
 
   echo "[BUILD] FBGEMM-GPU build + package completed"
 }
@@ -524,7 +538,7 @@ build_fbgemm_gpu_install () {
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py "${run_multicore}" install \
-      "${build_args[@]}"
+      "${build_args[@]}" || return 1
 
   # Run checks on the built libraries
   (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1

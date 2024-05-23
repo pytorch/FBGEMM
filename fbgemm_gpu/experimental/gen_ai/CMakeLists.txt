@@ -16,16 +16,14 @@ if(FBGEMM_GENAI_ONLY)
     ${CMAKE_CURRENT_SOURCE_DIR}/../..
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../include
+    # PyTorch
+    ${TORCH_INCLUDE_DIRS}
     # Third-party
     ${THIRDPARTY}/asmjit/src
     ${THIRDPARTY}/cpuinfo/include
     ${THIRDPARTY}/cutlass/include
-    ${THIRDPARTY}/cutlass/tools/util/include)
-
-  set(third_party_include_directories
-    ${THIRDPARTY}/asmjit/src
-    ${THIRDPARTY}/cpuinfo/include
-    ${THIRDPARTY}/cutlass/include)
+    ${THIRDPARTY}/cutlass/tools/util/include
+    ${NCCL_INCLUDE_DIR})
 endif()
 
 set(attention_ops_sources
@@ -98,18 +96,19 @@ if(USE_ROCM)
     ${ROCRAND_INCLUDE}
     ${ROCM_SMI_INCLUDE})
 
-  list(GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
-
 else()
   # Else create a CUDA library
   add_library(fbgemm_gpu_experimental_gen_ai_py MODULE
       ${experimental_gen_ai_cpp_source_files})
 endif()
 
-# Link to PyTorch
-target_include_directories(fbgemm_gpu_experimental_gen_ai_py
-  PRIVATE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(fbgemm_gpu_experimental_gen_ai_py ${TORCH_LIBRARIES})
+target_include_directories(fbgemm_gpu_experimental_gen_ai_py PRIVATE
+  ${TORCH_INCLUDE_DIRS}
+  ${NCCL_INCLUDE_DIR})
+
+target_link_libraries(fbgemm_gpu_experimental_gen_ai_py
+  ${TORCH_LIBRARIES}
+  ${NCCL_LIB_DIR})
 
 # Remove `lib` from the output artifact name
 set_target_properties(fbgemm_gpu_experimental_gen_ai_py PROPERTIES PREFIX "")
