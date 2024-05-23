@@ -523,7 +523,7 @@ def batch_index_select_dim0_abstract(
     return inputs.new_empty([output_numel])
 
 
-@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_tensor")
+@impl_abstract("fbgemm::batch_index_select_dim0_tensor")
 def batch_index_select_dim0_tensor_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -576,7 +576,7 @@ def batch_index_select_dim0_forward_cuda_impl_abstract(
     ]
 
 
-@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl")
+@impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl")
 def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -605,9 +605,7 @@ def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
     ]
 
 
-@torch.library.impl_abstract(
-    "fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl"
-)
+@impl_abstract("fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl")
 def batch_index_select_dim0_tensor_backward_cuda_impl_abstract(
     grad_output: torch.Tensor,
     dev_weights: torch.Tensor,
@@ -671,7 +669,7 @@ def keyed_jagged_index_select_dim1_abstract(
     return ret
 
 
-@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_backward_cuda_impl")
+@impl_abstract("fbgemm::batch_index_select_dim0_backward_cuda_impl")
 def batch_index_select_dim0_backward_cuda_impl_abstract(
     grad_output: torch.Tensor,
     dev_weights: torch.Tensor,
