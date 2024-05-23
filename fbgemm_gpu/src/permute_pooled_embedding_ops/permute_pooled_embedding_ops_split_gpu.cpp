@@ -100,9 +100,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "permute_duplicate_pooled_embs_split",
       fbgemm_gpu::permute_duplicate_pooled_embs_split_gpu);
+  DISPATCH_TO_CUDA(
+      "permute_pooled_embs_auto_grad_split",
+      fbgemm_gpu::permute_pooled_embs_auto_grad_split_gpu);
   DISPATCH_TO_AUTOGRAD_CUDA(
       "permute_pooled_embs_auto_grad_split",
       fbgemm_gpu::permute_pooled_embs_auto_grad_split_gpu);
+  DISPATCH_TO_CUDA(
+      "permute_duplicate_pooled_embs_auto_grad_split",
+      fbgemm_gpu::permute_duplicate_pooled_embs_auto_grad_split_gpu);
   DISPATCH_TO_AUTOGRAD_CUDA(
       "permute_duplicate_pooled_embs_auto_grad_split",
       fbgemm_gpu::permute_duplicate_pooled_embs_auto_grad_split_gpu);

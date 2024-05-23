@@ -167,11 +167,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       fbgemm_gpu::permute_duplicate_pooled_embs_split_cpu);
   m.def(
       "permute_pooled_embs_auto_grad_split(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
+  DISPATCH_TO_CPU(
+      "permute_pooled_embs_auto_grad_split",
+      fbgemm_gpu::permute_pooled_embs_auto_grad_split_cpu);
   DISPATCH_TO_AUTOGRAD_CPU(
       "permute_pooled_embs_auto_grad_split",
       fbgemm_gpu::permute_pooled_embs_auto_grad_split_cpu);
   m.def(
       "permute_duplicate_pooled_embs_auto_grad_split(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
+  DISPATCH_TO_CPU(
+      "permute_duplicate_pooled_embs_auto_grad_split",
+      fbgemm_gpu::permute_duplicate_pooled_embs_auto_grad_split_cpu);
   DISPATCH_TO_AUTOGRAD_CPU(
       "permute_duplicate_pooled_embs_auto_grad_split",
       fbgemm_gpu::permute_duplicate_pooled_embs_auto_grad_split_cpu);
