@@ -106,7 +106,6 @@ class FP8Tests(unittest.TestCase):
         ((not torch.version.cuda) and (not torch.version.hip)),
         "Skip if no GPU is present.",
     )
-    @settings(deadline=None)
     def test_f8f8bf16_rowwise_simple(self) -> None:
         M = 128
         N = 128
