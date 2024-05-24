@@ -15,7 +15,7 @@
 // See https://fburl.com/dw9ljh4h
 #}
 
-{%- set ddesc = "dense" if dense else "split" %}
+{%- set mdesc = "dense" if dense else ("ssd" if ssd else "split") %}
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
@@ -23,7 +23,16 @@
     dense,
     nobag,
     vbe,
-    is_index_select) %}
+    is_index_select,
+    has_global_weight_decay_support=True,
+    ssd=ssd) %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+{%- set desc_suffix = wdesc + vdesc + gwddesc %}
+
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
+{%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
+{%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
+
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
@@ -50,7 +59,7 @@ using namespace fbgemm_gpu;
         idx_j
         D_emb
         lxu_cache_weights
-        cache_idx_j
+        {{ locs_or_addrs_idx }}_j
         idx_weight_j
         VEC_WIDTH
         D
@@ -58,6 +67,16 @@ using namespace fbgemm_gpu;
         output_j
 */#}
 {%- macro load_and_accumulate(from_cache) %}
+    {%- if from_cache %}
+    const cache_t* cache_weights;
+    {%- if ssd %}
+    cache_weights = reinterpret_cast<const cache_t*>(
+          *reinterpret_cast<uint64_t*>(&{{ locs_or_addrs_idx }}_j));
+    {%- else %}
+    cache_weights = reinterpret_cast<const cache_t*>(
+        &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][0]);
+    {%- endif %}
+    {%- endif %}
     {#-/* Set the weights row */#}
     const auto weights_row = WeightRowAccessor
         <
@@ -75,15 +94,14 @@ using namespace fbgemm_gpu;
         // memory into the registers as a side effect
         nullptr,
         // Load from the cache
-        const_cast<cache_t*>(&lxu_cache_weights[cache_idx_j][0]),
+        cache_weights,
         {%- else %}
         // Load from the embedding table
-        const_cast<emb_t*>(&weights[idx_j * D_emb]),
+        &weights[idx_j * D_emb],
         // Pass nullptr bc we are loading from the embedding table
         nullptr,
         {%- endif %}
-        D,
-        nullptr);
+        D);
 
     {#-/* Set the quantization params */#}
     {%- if from_cache %}
@@ -160,7 +178,7 @@ using namespace fbgemm_gpu;
 
         {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
         // Cooperatively load the cache's indices
-        [[maybe_unused]] int32_t cache_idx = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? lxu_cache_locations[indices_start + l] : 0;
+        [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
         {%- endif %}
         {%- if lxu_miss_rate == "cache_conflict_miss_rate::zero" and is_gwd_kernel %}
         int64_t idx = l < L ? indices[indices_start + l] : 0; // only used for accessing prev_iter
@@ -191,7 +209,8 @@ using namespace fbgemm_gpu;
 
             {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
             // Load cache's index from thread j in the group
-            [[maybe_unused]] int32_t cache_idx_j = use_lxu_cache ? SHFL_SYNC(cache_idx, j) : 0;
+            [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j
+                = use_lxu_cache ? SHFL_SYNC({{ locs_or_addrs_idx }}, j) : 0;
             {%- endif %}
 
             {%- if weighted %}
@@ -223,7 +242,9 @@ using namespace fbgemm_gpu;
                 {{ load_and_accumulate(true) }}
             {%- else %}
                 {#-/* Else we defer to run-time selection */#}
-                if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
+                if (placement == PlacementType::MANAGED_CACHING
+                    && {{ locs_or_addrs_idx }}_j != kCacheLocationMissing
+                ) {
                     {#-/* If the row is available in the cache, fetch from the cache */#}
                     {{ load_and_accumulate(true) }}
                 } else {
@@ -246,7 +267,6 @@ using namespace fbgemm_gpu;
      with global_weight_decay, otherwise, only generate regular kernel.
    */
 #}
-{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
     typename emb_t,
     typename cache_t,
@@ -258,12 +278,12 @@ template <
     {%- if not nobag %}
     size_t kMaxVecsPerThread,
     {%- endif %}
-    size_t kThreadGroupSize >
+    size_t kThreadGroupSize>
 __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel(
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -296,7 +316,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     /*
       NOTE: We pass in `lxu_cache_conflict_misses =
       uvm_cache_stats[uvm_cache_stats_index::num_conflict_unique_misses]` as a
@@ -533,13 +553,19 @@ batch_index_select_dim0_codegen_forward_kernel(
     embedding_forward_split_template.cu
 */
 
-{%- macro template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
-{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+{%- macro template_instantiation(
+    emb_type,
+    cache_type,
+    output_type,
+    use_cache,
+    kMaxVecsPerThread,
+    kThreadGroupSize)
+%}
 template __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_kernel
 {%- endif %}
 <
     {{ emb_type }},
@@ -585,7 +611,7 @@ batch_index_select_dim0_codegen_forward_kernel
     pta::PackedTensorAccessor32<at::acc_type<{{ cache_type }}, true>, 1, at::RestrictPtrTraits> indice_weights,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     const int32_t* lxu_cache_conflict_misses,
     {%- endif %}
     {%- if is_index_select %}
@@ -608,7 +634,14 @@ batch_index_select_dim0_codegen_forward_kernel
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
-        {{ template_instantiation(emb_type, cache_type, output_type, use_cache, kMaxVecsPerThread, kThreadGroupSize) }}
+        {{ template_instantiation(
+            emb_type,
+            cache_type,
+            output_type,
+            use_cache,
+            kMaxVecsPerThread,
+            kThreadGroupSize)
+        }}
     {%- endfor %}
     {%- endfor %}
     {%- endfor %}
@@ -616,7 +649,7 @@ batch_index_select_dim0_codegen_forward_kernel
 
 {%- macro instantiate_templates(use_subwarp_shuffle) %}
 {%- set has_experimental =
-      has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm)
+      has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm, ssd)
 %}
 {%- set max_forward_embedding_dim =
       legacy_max_embedding_dim if has_experimental else max_embedding_dim

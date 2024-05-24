@@ -17,9 +17,11 @@
 
 // Companion template is embedding_forward_split_template.cu
 
-{%- set ddesc =  "dense" if dense else "split" %}
+{%- set mdesc =  "dense" if dense else ("ssd" if ssd else "split") %}
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
+
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
@@ -47,12 +49,14 @@ static constexpr float kINT8QparamsBytes = 8;
         dense,
         nobag,
         vbe,
-        is_index_select
+        is_index_select,
+        has_global_weight_decay_support=True,
+        ssd=False,
     ) else [False])
 %}
 {%- set gwddesc = "_gwd" if is_gwd else "" %}
 Tensor
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_meta(
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_meta(
     const Tensor& dev_weights,
     {%- if not dense %}
     const Tensor& uvm_weights,
@@ -80,7 +84,7 @@ Tensor
     const Tensor& indice_weights,
     {%- endif %}
     {%- if not dense %}
-    const Tensor& lxu_cache_locations,
+    const Tensor& {{ locs_or_addrs_tensor }},
     const Tensor& uvm_cache_stats,
     {%- endif %}
     const int64_t output_dtype,
@@ -200,10 +204,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     // NB: yes cuda here
     {%- set embedding_codegen_forward_op =
         "{}_embedding{}_codegen_forward_{}{}{}_cuda".format(
-            ddesc, ndesc, wdesc, vdesc, gwddesc
+            mdesc, ndesc, wdesc, vdesc, gwddesc
         )
     %}
-    m.impl("{{ embedding_codegen_forward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_meta)));
+    m.impl("{{ embedding_codegen_forward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_meta)));
 }
 {%- endfor %} {#-/* for is_gwd */#}
 {%- endif %} {#/* if (not nobag or (not weighted and not vbe)) */#}

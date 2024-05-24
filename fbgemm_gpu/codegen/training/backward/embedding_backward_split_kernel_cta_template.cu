@@ -7,6 +7,7 @@
  */
 
 // clang-format off
+{%- set mdesc = "ssd" if ssd else "split" %}
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
@@ -23,16 +24,23 @@
     nobag,
     vbe,
     is_index_select,
-    has_global_weight_decay_support) %}
+    has_global_weight_decay_support,
+    ssd) %}
+{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+
+{%- set desc_suffix = wdesc + vdesc + gwddesc %}
+
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
+{%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 {%- if optimizer != "none" and not dense %}
-#include "gen_embedding_optimizer_{{ optimizer }}_split_device_kernel.cuh"
+#include "gen_embedding_optimizer_{{ optimizer }}_{{ mdesc }}_device_kernel.cuh"
 {%- endif %}
-#include "gen_embedding_backward_{{ kdesc }}_split_device_kernel.cuh"
-#include "gen_embedding_backward_common_split_device_kernel.cuh"
+#include "gen_embedding_backward_split_{{ kdesc }}_device_kernel.cuh"
+#include "gen_embedding_backward_split_common_device_kernel.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -65,7 +73,6 @@ using namespace fbgemm_gpu;
     thus reduce the kernel occupancy, which can degrade the kernel performance.
     This increases the binary size, but the increase is minimal.
 */ #}
-{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
 template <
     typename emb_t,
     typename grad_t,
@@ -80,7 +87,7 @@ __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_cta_per_row_1(
+{{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_kernel_cta_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -108,7 +115,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> sorted_{{ locs_or_addrs_tensor }},
     const bool use_uniq_cache_locations,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
@@ -341,7 +348,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
         {{ compute_global_weight_decay(is_gwd_kernel) }}
 
         {%- if not dense and optimizer != "none" %}
-        split_{{ optimizer }}_table_update_kernel<
+        {{ mdesc }}_{{ optimizer }}_table_update_kernel<
           emb_t,
           cache_t,
           {%- for ph_name in args.placeholder_tensor_names %}
@@ -356,7 +363,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
               lxu_cache_weights,
               weights_placements,
               weights_offsets,
-              sorted_lxu_cache_locations,
+              sorted_{{ locs_or_addrs_tensor }},
               grad_sum,
               kUseVecBlocking ? smem_grad_sum : nullptr,
               kIsInt8 ? smem_grad_sum : nullptr,
@@ -433,7 +440,7 @@ template __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_cta_per_row
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_cta_per_row_1
+{{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_kernel_cta_per_row_1
 {%- endif %}
 < {{ emb_type }},
   {{ grad_type }},
@@ -472,8 +479,8 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
-        sorted_lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits>
+        sorted_{{ locs_or_addrs_tensor }},
     const bool use_uniq_cache_locations,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}

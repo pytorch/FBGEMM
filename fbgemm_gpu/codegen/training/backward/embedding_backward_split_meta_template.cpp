@@ -17,9 +17,12 @@
 
 // Companion template is embedding_backward_split_template.cu
 
+{%- set mdesc = "ssd" if ssd else "split" %}
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
+
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
@@ -42,14 +45,15 @@ using Tensor = at::Tensor;
         nobag,
         vbe,
         is_index_select,
-        has_global_weight_decay_support
+        has_global_weight_decay_support,
+        ssd=False
     ) else [False])
 %}
 {%- set gwddesc = "_gwd" if is_gwd else "" %}
 {%- if is_index_select %}
 Tensor batch_index_select_dim0_codegen_backward_meta(
 {%- else %}
-Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_meta(
+Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_meta(
 {%- endif %}
     const Tensor& grad_output,
     const Tensor& dev_weights,
@@ -78,7 +82,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& indice_weights,
     {%- endif %}
     {%- if not dense %}
-    const Tensor& lxu_cache_locations,
+    const Tensor& {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if not is_index_select %}
     const int64_t unused_,

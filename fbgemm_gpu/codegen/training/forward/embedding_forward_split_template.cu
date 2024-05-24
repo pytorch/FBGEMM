@@ -15,9 +15,17 @@
 // See https://fburl.com/dw9ljh4h
 #}
 
-{%- set ddesc = "dense" if dense else "split" %}
+{%- set mdesc = "dense" if dense else ("ssd" if ssd else "split") %}
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
+
+{%- macro get_desc_suffix(gwd) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
+{%- set gwddesc = "_gwd" if gwd else "" %}
+{{- wdesc + vdesc + gwddesc }}
+{%- endmacro %}
+
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
+{%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 {%- if not dense and not nobag and not vbe %}
 #include "fbgemm_gpu/dispatch_macros.h"
@@ -50,7 +58,7 @@ __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_small_kernel(
 {%- else %}
-{{ ddesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
+{{ mdesc }}_embedding_nobag_codegen_forward_unweighted_small_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -70,7 +78,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
@@ -119,14 +127,15 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 {%- for nobag in ([True, False] if (not is_gwd) else [False]) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
-{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm, ssd) %}
 
 {%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
     dense,
     nobag,
     vbe,
-    is_index_select) %}
-{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+    is_index_select,
+    has_global_weight_decay_support=True,
+    ssd=ssd) %}
 template <
     typename emb_t,
     typename cache_t,
@@ -144,7 +153,7 @@ __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_kernel(
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel(
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ get_desc_suffix(is_gwd_kernel) }}_kernel(
 {%- endif %}
     const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     {%- if not dense %}
@@ -177,7 +186,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> indice_weights,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     const int32_t* lxu_cache_conflict_misses,
     {%- endif %}
     {%- if is_index_select %}
@@ -307,20 +316,22 @@ batch_index_select_dim0_codegen_forward_kernel(
 {%- for nobag in ([True, False] if (not is_gwd) else [False]) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
-{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm, ssd) %}
 
 {#- /* Generate a separate cuda host to enable global weight decay using Jinja */ #}
 {%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
     dense,
     nobag,
     vbe,
-    is_index_select) %}
-{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+    is_index_select,
+    has_global_weight_decay_support=True,
+    ssd=ssd) %}
+{%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
 Tensor
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_forward_cuda(
 {%- else %}
-{{ ddesc }}_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_cuda(
+{{ mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_cuda(
 {%- endif %}
     const Tensor& dev_weights,
     {%- if not dense %}
@@ -351,7 +362,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     const Tensor& indice_weights,
     {%- endif %}
     {%- if not dense %}
-    const Tensor& lxu_cache_locations,
+    const Tensor& {{ locs_or_addrs_tensor }},
     const Tensor& uvm_cache_stats,
     {%- endif %}
     const int64_t output_dtype,
@@ -391,7 +402,6 @@ batch_index_select_dim0_codegen_forward_cuda(
     const int64_t total_D = total_D_.guard_int(__FILE__, __LINE__);
     {%- endif %}
 
-
     {%- if not nobag or is_index_select %}
     const int64_t max_D = max_D_.guard_int(__FILE__, __LINE__);
     {%- endif %}
@@ -417,7 +427,7 @@ batch_index_select_dim0_codegen_forward_cuda(
         indice_weights,
         {%- endif %}
         {%- if not dense %}
-        lxu_cache_locations,
+        {{ locs_or_addrs_tensor }},
         {%- endif %}
         {%- if vbe %}
         vbe_row_output_offsets,
@@ -576,12 +586,17 @@ batch_index_select_dim0_codegen_forward_cuda(
           {%- set nobag_small_kernel =
               "batch_index_select_dim0_codegen_forward_small_kernel"
               if is_index_select else
-              "{}_embedding_nobag_codegen_forward_unweighted_small_kernel".format(ddesc)
+              "{}_embedding_nobag_codegen_forward_unweighted_small_kernel".format(mdesc)
           %}
 #ifdef FBGEMM_GPU_MEMCHECK
           const auto func_name = "{{ nobag_small_kernel }}";
 #endif
-          {{ nobag_small_kernel }}<emb_t, cache_t, output_t, int64_t, kEmbeddingSize / 4>
+          {{ nobag_small_kernel }}<
+            emb_t,
+            cache_t,
+            output_t,
+            int64_t,
+            kEmbeddingSize / 4>
             <<<
               div_round_up(total_B, kForwardMaxThreads / kWarpSize),
               dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
@@ -606,7 +621,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
               {%- endif %}
               {%- if not dense %}
-              MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
               {%- endif %}
               {%- if is_index_select %}
               MAKE_PTA_WITH_NAME(func_name, output_offsets, int64_t, 1, 32),
@@ -617,6 +632,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               MAKE_PTA_WITH_NAME(func_name, output, output_t, {{ "1" if is_index_select else "2" }}, 64)
             );
 
+
           C10_CUDA_KERNEL_LAUNCH_CHECK();
           return;
         });
@@ -625,7 +641,7 @@ batch_index_select_dim0_codegen_forward_cuda(
           {%- set nobag_kernel =
               "batch_index_select_dim0_codegen_forward_kernel"
               if is_index_select else
-              "{}_embedding_nobag_codegen_forward_unweighted_kernel".format(ddesc)
+              "{}_embedding_nobag_codegen_forward_unweighted_kernel".format(mdesc)
           %}
 #ifdef FBGEMM_GPU_MEMCHECK
           const auto func_name = "{{ nobag_kernel }}";
@@ -661,7 +677,7 @@ batch_index_select_dim0_codegen_forward_cuda(
               MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
               {%- endif %}
               {%- if not dense %}
-              MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
               uvm_cache_stats.size(0) == 0
                   ? nullptr
                   : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
@@ -674,7 +690,6 @@ batch_index_select_dim0_codegen_forward_cuda(
               {%- endif %}
               MAKE_PTA_WITH_NAME(func_name, output, output_t, {{ "1" if is_index_select else "2" }}, 64)
             );
-
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             return;
         });
@@ -692,7 +707,7 @@ batch_index_select_dim0_codegen_forward_cuda(
           {{ dispatcher }}(max_D, [&] {
 
 #ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "{{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel";
+            const auto func_name = "{{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel";
 #endif
             // Other components in TBE (backward, backward_indice_weights) use
             // kFixedMaxVecsPerThread. Thus, the codegen generates
@@ -700,7 +715,7 @@ batch_index_select_dim0_codegen_forward_cuda(
             // kMaxVecsPerThread and kFixedMaxVecsPerThread are the same
             // forward
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
-            {{ ddesc }}_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel
+            {{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
                 <emb_t,
                 cache_t,
                 output_t,
@@ -739,7 +754,7 @@ batch_index_select_dim0_codegen_forward_cuda(
                 MAKE_PTA_ACC_WITH_NAME(func_name, indice_weights, cache_t, 1, 32),
                 {%- endif %}
                 {%- if not dense %}
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
                 uvm_cache_stats.size(0) == 0
                     ? nullptr
                     : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
@@ -753,7 +768,6 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- endif %} // if not dense
                 MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
               );
-
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             {%- if vbe %}
             output = output.reshape({-1});
@@ -777,8 +791,10 @@ batch_index_select_dim0_codegen_forward_cuda(
             const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
 
             const auto kernel_func =
-              (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, true>
-                              : split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<emb_t, cache_t, output_t, int64_t, false>);
+              (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
+                                  emb_t, cache_t, output_t, int64_t, true>
+                              : split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
+                                  emb_t, cache_t, output_t, int64_t, false>);
 
             kernel_func
               <<<
@@ -823,8 +839,8 @@ batch_index_select_dim0_codegen_forward_cuda(
 {%- if not is_index_select %}
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     {%- set embedding_codegen_forward_op =
-        "{}_embedding{}_codegen_forward_{}{}{}_cuda".format(
-            ddesc, ndesc, wdesc, vdesc, gwddesc
+        "{}_embedding{}_codegen_forward_{}_cuda".format(
+            mdesc, ndesc, desc_suffix
         )
     %}
     m.def("{{ embedding_codegen_forward_op }}("
@@ -851,7 +867,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    Tensor indice_weights, "
           {%- endif %}
           {%- if not dense %}
-          "    Tensor lxu_cache_locations, "
+          "    Tensor {{ locs_or_addrs_tensor }}, "
           "    Tensor uvm_cache_stats, "
           {%- endif %}
           "    int output_dtype, "

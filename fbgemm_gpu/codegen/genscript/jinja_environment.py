@@ -289,13 +289,20 @@ def is_valid_forward_config(
 
 
 def has_experimental_support(
-    dense: bool, nobag: bool, vbe: bool, is_index_select: bool, is_rocm: bool
+    dense: bool, nobag: bool, vbe: bool, is_index_select: bool, is_rocm: bool, ssd: bool
 ) -> bool:
     """
     Check if the given combination of configs has TBE v2 support
-    - TBE v2 does not support dense, nobag, vbe, is_index_select, and is_rocm
+    - TBE v2 does not support dense, nobag, vbe, is_index_select, is_rocm, and ssd
     """
-    return not dense and not nobag and not vbe and not is_index_select and not is_rocm
+    return (
+        not dense
+        and not nobag
+        and not vbe
+        and not is_index_select
+        and not is_rocm
+        and not ssd
+    )
 
 
 def is_valid_gwd_config(
@@ -303,7 +310,8 @@ def is_valid_gwd_config(
     nobag: bool,
     vbe: bool,
     is_index_select: bool,
-    has_global_weight_decay_support: bool = True,
+    has_global_weight_decay_support: bool,
+    ssd: bool,
 ) -> bool:
     """
     Check if the given combination of configs is valid for global weight decay support
@@ -318,6 +326,7 @@ def is_valid_gwd_config(
         and not vbe
         and not is_index_select
         and has_global_weight_decay_support
+        and not ssd
     )
 
 

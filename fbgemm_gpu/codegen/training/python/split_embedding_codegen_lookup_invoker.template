@@ -7,12 +7,14 @@
 
 # pyre-ignore-all-errors
 
+{%- set mdesc = "ssd" if ssd else "split" %}
+{%- set sdesc = "_ssd" if ssd else "" %}
+
 import torch
 {%- if is_experimental_optimizer %}
 import warnings
 {%- endif %}
-from .lookup_args import *
-
+from .lookup_args{{ sdesc }} import *
 
 {%- if is_fbcode %}
 
@@ -73,7 +75,7 @@ def invoke(
     )
     {%- endif %}
 
-    {%- if has_cpu_support %}
+    {%- if has_cpu_support and not ssd %}
     if (common_args.host_weights.numel() > 0):
         return torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
             # common_args
@@ -192,7 +194,19 @@ def invoke(
 
     {%- if has_gpu_support %}
     vbe_metadata = common_args.vbe_metadata
-    return torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function(
+
+    {%- if ssd %}
+    ssd_tensors = []
+    {%- for tensor in ssd_tensors %}
+    assert "{{ tensor }}" in common_args.ssd_tensors, (
+        "{{ tensor }} must be in common_args.ssd_tensors. "
+        "Please check the backend version"
+    )
+    ssd_tensors.append(common_args.ssd_tensors["{{ tensor }}"])
+    {%- endfor %}
+    {%- endif %}
+
+    return torch.ops.fbgemm.{{ mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
         # common_args
         {%- if not dense %}
         placeholder_autograd_tensor=common_args.placeholder_autograd_tensor,
@@ -214,6 +228,9 @@ def invoke(
         feature_requires_grad=common_args.feature_requires_grad,
         lxu_cache_locations=common_args.lxu_cache_locations,
         uvm_cache_stats=common_args.uvm_cache_stats,
+        {%- if ssd %}
+        ssd_tensors=ssd_tensors,
+        {%- endif %}
         # VBE metadata
         B_offsets=vbe_metadata.B_offsets,
         vbe_output_offsets_feature_rank=vbe_metadata.output_offsets_feature_rank,
