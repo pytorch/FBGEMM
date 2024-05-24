@@ -48,8 +48,8 @@ class SplitLookupFunction_Dense_Op
       Tensor indices,
       Tensor offsets,
       int64_t pooling_mode,
-      c10::optional<Tensor> indice_weights,
-      c10::optional<Tensor> feature_requires_grad) {
+      std::optional<Tensor> indice_weights,
+      std::optional<Tensor> feature_requires_grad) {
     Tensor indice_weights_value = indice_weights.value_or(Tensor());
     Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
@@ -161,8 +161,8 @@ Tensor split_embedding_codegen_lookup_dense_function(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights,
-    c10::optional<Tensor> feature_requires_grad,
+    std::optional<Tensor> indice_weights,
+    std::optional<Tensor> feature_requires_grad,
     int64_t /* output_dtype = static_cast<int64_t>(SparseType::FP32) */) {
   return SplitLookupFunction_Dense_Op::apply(
       host_weights,

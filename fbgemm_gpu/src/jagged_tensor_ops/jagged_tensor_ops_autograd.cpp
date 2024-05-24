@@ -264,7 +264,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
       torch::autograd::AutogradContext* ctx,
       const Tensor& dense,
       const std::vector<Tensor>& offsets,
-      const c10::optional<at::SymInt>& total_L) {
+      const std::optional<at::SymInt>& total_L) {
     ctx->save_for_backward(offsets);
 
     // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
@@ -284,7 +284,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
             .typed<Tensor(
                 const Tensor& dense,
                 const std::vector<Tensor>& offsets,
-                c10::optional<at::SymInt> total_L)>();
+                std::optional<at::SymInt> total_L)>();
     auto output = op.call(dense, offsets, total_L);
 
     return {output};
@@ -604,7 +604,7 @@ class JaggedIndexSelect2dOp
       const Tensor& values,
       const Tensor& lengths,
       const Tensor& indices,
-      const c10::optional<int64_t> optional_num_dense_output_rows) {
+      const std::optional<int64_t> optional_num_dense_output_rows) {
     TORCH_CHECK(
         values.dim() == 2, "jagged_index_select supports only 2D inputs")
     TENSORS_ON_SAME_DEVICE(lengths, indices);
@@ -625,7 +625,7 @@ class JaggedIndexSelect2dOp
                 const Tensor& indices,
                 const Tensor& input_offsets,
                 const Tensor& output_offsets,
-                const c10::optional<int64_t>)>();
+                const std::optional<int64_t>)>();
 
     auto out = op.call(
         values,
@@ -853,7 +853,7 @@ Tensor batched_dense_vec_jagged_2d_mul(
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    c10::optional<at::SymInt> total_L) {
+    std::optional<at::SymInt> total_L) {
   return {DenseToJaggedOp::apply(dense, offsets, total_L)[0], offsets};
 }
 
@@ -936,7 +936,7 @@ std::vector<Tensor> jagged_index_select_2d(
     const Tensor& values,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<int64_t> num_dense_output_rows) {
+    const std::optional<int64_t> num_dense_output_rows) {
   return JaggedIndexSelect2dOp::apply(
       values, lengths, indices, num_dense_output_rows);
 }

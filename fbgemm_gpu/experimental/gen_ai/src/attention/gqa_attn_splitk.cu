@@ -1836,7 +1836,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_impl(
     const at::Tensor& seq_positions, // [B]
     const double qk_scale,
     const int64_t split_k,
-    const c10::optional<int64_t>& num_groups) {
+    const std::optional<int64_t>& num_groups) {
   at::OptionalDeviceGuard guard(XQ.device());
   TORCH_CHECK(XQ.is_cuda());
   TORCH_CHECK(cache_K.is_cuda());

@@ -41,12 +41,12 @@ static inline void fill_output(
   } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
 #pragma omp simd
     for (int j = 0; j < block_size; ++j) {
-      out[j] = cpu_bf162float(src[j]);
+      out[j] = cpu_float2bfloat16(src[j]);
     }
   } else {
 #pragma omp simd
     for (int j = 0; j < block_size; ++j) {
-      out[j] = cpu_half2float(src[j]);
+      out[j] = cpu_float2half(src[j]);
     }
   }
 }

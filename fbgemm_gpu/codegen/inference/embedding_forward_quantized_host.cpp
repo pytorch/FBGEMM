@@ -275,14 +275,14 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights,
+    std::optional<Tensor> indice_weights,
     int64_t output_dtype,
-    c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations,
-    c10::optional<int64_t> row_alignment,
-    c10::optional<int64_t> max_float8_D,
-    c10::optional<int64_t> fp8_exponent_bits,
-    c10::optional<int64_t> fp8_exponent_bias) {
+    std::optional<Tensor> lxu_cache_weights,
+    std::optional<Tensor> lxu_cache_locations,
+    std::optional<int64_t> row_alignment,
+    std::optional<int64_t> max_float8_D,
+    std::optional<int64_t> fp8_exponent_bits,
+    std::optional<int64_t> fp8_exponent_bias) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     std::vector<int64_t> max_D_list{
         max_int2_D,
@@ -390,29 +390,29 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights,
+    std::optional<Tensor> indice_weights,
     int64_t output_dtype,
-    c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations,
-    c10::optional<int64_t> row_alignment,
-    c10::optional<int64_t> max_float8_D,
-    c10::optional<int64_t> fp8_exponent_bits,
-    c10::optional<int64_t> fp8_exponent_bias,
+    std::optional<Tensor> lxu_cache_weights,
+    std::optional<Tensor> lxu_cache_locations,
+    std::optional<int64_t> row_alignment,
+    std::optional<int64_t> max_float8_D,
+    std::optional<int64_t> fp8_exponent_bits,
+    std::optional<int64_t> fp8_exponent_bias,
     // Additional args for UVM_CACHING.
     // cache_hash_size_cumsum: cumulative sum of # embedding rows of all the
     // tables. 1D tensor, dtype=int64.
-    c10::optional<Tensor> cache_hash_size_cumsum,
+    std::optional<Tensor> cache_hash_size_cumsum,
     // total_cache_hash_size: sum of # embedding rows of all the tables.
-    c10::optional<int64_t> total_cache_hash_size,
+    std::optional<int64_t> total_cache_hash_size,
     // cache_index_table_map: (linearized) index to table number map.
     // 1D tensor, dtype=int32.
-    c10::optional<Tensor> cache_index_table_map,
+    std::optional<Tensor> cache_index_table_map,
     // lxu_cache_state: Cache state (cached index, or invalid).
     // 2D tensor: # sets x assoc. dtype=int64.
-    c10::optional<Tensor> lxu_cache_state,
+    std::optional<Tensor> lxu_cache_state,
     // lxu_state: meta info for replacement (time stamp for LRU).
     // 2D tensor: # sets x assoc. dtype=int64.
-    c10::optional<Tensor> lxu_state) {
+    std::optional<Tensor> lxu_state) {
   // This function does prefetch() and foward() methods in
   // IntNBitTableBatchedEmbeddingBagsCodegen, but run them in sequence.
   // Prefetching of multiple batches of requests is not yet supported.
@@ -435,7 +435,7 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         cache_hash_size_cumsum.value(),
         indices,
         offsets,
-        /*B_offsets=*/c10::optional<Tensor>(),
+        /*B_offsets=*/std::optional<Tensor>(),
         /*max_B=*/-1,
         /*indices_base_offset=*/0);
 
@@ -506,8 +506,8 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         total_cache_hash_size.value(),
         gather_uvm_stats,
         uvm_cache_stats,
-        c10::optional<Tensor>(), // num_uniq_cache_indices
-        c10::optional<Tensor>() // lxu_cache_locations_output
+        std::optional<Tensor>(), // num_uniq_cache_indices
+        std::optional<Tensor>() // lxu_cache_locations_output
     );
 
 #ifdef FBCODE_CAFFE2

@@ -15,7 +15,7 @@ namespace fbgemm_gpu {
 Tensor dense_to_jagged_forward(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    c10::optional<at::SymInt> total_L) {
+    std::optional<at::SymInt> total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
 
