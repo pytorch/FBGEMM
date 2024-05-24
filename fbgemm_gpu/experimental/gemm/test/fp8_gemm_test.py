@@ -44,7 +44,7 @@ class TestFp8Matmul(unittest.TestCase):
 
             # Undo scaling.
             a_torch = a_fp8.base.to(torch.bfloat16)
-            a_torch /= a_scale[:, None]
+            a_torch *= a_scale[:, None]
 
             self.assertTrue(
                 torch.allclose(
@@ -98,7 +98,7 @@ class TestFp8Matmul(unittest.TestCase):
                 for j in range(0, K, BLOCK_K):
                     block = a_torch[i : i + BLOCK_M, j : j + BLOCK_K]
                     scaling = a_scale[i // BLOCK_M, j // BLOCK_K]
-                    scaled_block = block / scaling
+                    scaled_block = block * scaling
                     a_torch[i : i + BLOCK_M, j : j + BLOCK_K] = scaled_block
 
             self.assertTrue(torch.allclose(a, a_torch, atol=2e-1, rtol=5e-2))
