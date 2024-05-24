@@ -454,7 +454,7 @@ at::Tensor jagged_to_padded_dense_backward(
 Tensor dense_to_jagged_forward(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    c10::optional<at::SymInt> total_L) {
+    std::optional<at::SymInt> total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
 
@@ -488,9 +488,9 @@ at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
     const at::Tensor& y_1) {
   // Convert to jagged
   auto jagged_values_0 =
-      dense_to_jagged_forward(y_0, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y_0, x_offsets, std::optional<at::SymInt>());
   auto jagged_values_1 =
-      dense_to_jagged_forward(y_1, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y_1, x_offsets, std::optional<at::SymInt>());
 
   // Add jagged_values + x_values -> sum_values
   auto sum_values = x_values + jagged_values_0 + jagged_values_1;
@@ -635,7 +635,7 @@ Tensor jagged_dense_elementwise_mul_forward(
     const Tensor& y) {
   // Convert to jagged
   auto jagged_values =
-      dense_to_jagged_forward(y, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y, x_offsets, std::optional<at::SymInt>());
 
   // Multiply x_values * jagged_values -> prod_values
   auto prod_values = x_values * jagged_values;
@@ -677,7 +677,7 @@ jagged_dense_elementwise_add_jagged_output_cpu(
     const Tensor& y) {
   // Convert to jagged
   auto jagged_values =
-      dense_to_jagged_forward(y, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y, x_offsets, std::optional<at::SymInt>());
 
   auto sum_values = x_values + jagged_values;
 
@@ -1131,7 +1131,7 @@ Tensor jagged_index_select_2d_forward_v2_impl(
     const Tensor& indices,
     const Tensor& input_offsets,
     const Tensor& output_offsets,
-    const c10::optional<int64_t> optional_num_dense_output_rows) {
+    const std::optional<int64_t> optional_num_dense_output_rows) {
   // Intentionally not using optional::value_or here to avoid materializing
   // .item() call when possible.
   const auto num_dense_output_rows = optional_num_dense_output_rows.has_value()

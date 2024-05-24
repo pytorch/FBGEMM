@@ -174,8 +174,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const Tensor& offsets,
       const Tensor& indices,
       const c10::SymInt _batch_size,
-      const c10::optional<Tensor>& weights,
-      const c10::optional<c10::SymInt>& selected_lengths_sum) {
+      const std::optional<Tensor>& weights,
+      const std::optional<c10::SymInt>& selected_lengths_sum) {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(values.get_device());
 
@@ -355,8 +355,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const Tensor& offsets,
       const Tensor& indices, // select same indices for all batches
       const c10::SymInt batch_size,
-      const c10::optional<Tensor>& weights,
-      const c10::optional<c10::SymInt>& selected_lengths_sum) {
+      const std::optional<Tensor>& weights,
+      const std::optional<c10::SymInt>& selected_lengths_sum) {
     at::AutoDispatchBelowADInplaceOrView guard;
     // TODO: Add weights support
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, offsets, values, indices);
@@ -526,8 +526,8 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
     const Tensor& offsets,
     const Tensor& indices,
     const c10::SymInt batch_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<c10::SymInt> selected_lengths_sum) {
+    const std::optional<Tensor>& weights,
+    const std::optional<c10::SymInt> selected_lengths_sum) {
   return KeyedJaggedIndexSelectDim1GPUOp::apply(
       values,
       lengths,
