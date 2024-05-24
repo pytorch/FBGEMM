@@ -44,11 +44,12 @@ def bench() -> None:
 
         gemm_fn = bench_factory(input_, weight_)
 
-        ms = triton.testing.do_bench(
-            lambda: gemm_fn(),
-            warmup=25,
-            rep=100,
-        )
+        bench_stream = torch.cuda.Stream()
+        with torch.cuda.stream(bench_stream):
+            ms = triton.testing.do_bench_cudagraph(
+                lambda: gemm_fn(),
+                rep=100,
+            )
         tflops = (2 * m * n * k) / 1e12
         sec = ms / 1e3
         perf_str = f"{tflops / sec:.2f}"
