@@ -20,6 +20,17 @@ using Tensor = at::Tensor;
 
 using namespace fbgemm_gpu;
 
+{#/* Module description */#}
+{%- set mdesc = "ssd" if ssd else "split" %}
+
+{%- if ssd %}
+enum SSDTensor {
+  {%- for tensor in ssd_tensors %}
+  {{ tensor | upper }} = {{ loop.index - 1 }},
+  {%- endfor %}
+};
+{%- endif %}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Macro Helper Functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -31,22 +42,21 @@ using namespace fbgemm_gpu;
 */
 #}
 {%- macro call_forward_op_dispatch(nobag, weighted, vbe, is_gwd) %}
-  {%- set vdesc = "_vbe" if vbe else "" %}
-  {%- set gwddesc = "_gwd" if is_gwd else "" %}
-  {%- set wdesc = "weighted" if weighted else "unweighted" %}
-  {%- set nobag = "_nobag" if nobag else "" %}
-
-    {%- set forward_op = "split_embedding{}_codegen_forward_{}{}{}_cuda".format(
-            nobag, wdesc, vdesc, gwddesc
+    {%- set forward_op = "{}_embedding{}_codegen_forward_{}{}{}_cuda".format(
+            mdesc,
+            "_nobag" if nobag else "",
+            "weighted" if weighted else "unweighted",
+            "_vbe" if vbe else "",
+            "_gwd" if is_gwd else "",
         )
     %}
-    static auto split_embedding_codegen_forward_op =
+    static auto embedding_codegen_forward_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ forward_op }}", "")
             .typed<decltype({{ forward_op }})>();
 
     return {
-      split_embedding_codegen_forward_op.call(
+      embedding_codegen_forward_op.call(
         flatten_dev_weights,
         uvm_weights,
         lxu_cache_weights,
@@ -67,7 +77,11 @@ using namespace fbgemm_gpu;
         *indice_weights,
         {%- endif %}
         {%- endif %} {# /* if not nobag */ #}
+        {%- if ssd %}
+        ssd_tensors[SSDTensor::ROW_ADDRS],
+        {%- else %}
         lxu_cache_locations,
+        {%- endif %}
         uvm_cache_stats_,
         output_dtype,
         {%- if not nobag %}
@@ -99,20 +113,22 @@ using namespace fbgemm_gpu;
     unweighted backward op via Pytorch dispatcher
 */
 {%- macro call_backward_op_dispatch(nobag, weighted, vbe, is_gwd) %}
-  {%- set nobag = "_nobag" if nobag else "" %}
-  {%- set vdesc = "_vbe" if vbe else "" %}
-  {%- set gwddesc = "_gwd" if is_gwd else "" %}
-  {%- set wdesc = "weighted" if weighted else "unweighted" %}
-  {%- set backward_op = "split_embedding{}_backward_codegen_{}_{}_exact{}{}_cuda".format(
-          nobag, optimizer, wdesc, vdesc, gwddesc
+  {%- set wdesc = "_weighted" if weighted else "_unweighted" %}
+  {%- set backward_op = "{}_embedding{}_backward_codegen_{}{}{}{}_exact_cuda".format(
+          mdesc,
+          "_nobag" if nobag else "",
+          optimizer,
+          wdesc,
+          "_vbe" if vbe else "",
+          "_gwd" if is_gwd else "",
       )
   %}
-    static auto split_embedding_codegen_{{ wdesc }}_backward_op =
+    static auto embedding_codegen_{{ wdesc }}_backward_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ backward_op }}", "")
             .typed<decltype({{ backward_op }})>();
 
-    grad_dev_weights = split_embedding_codegen_{{ wdesc }}_backward_op.call(
+    grad_dev_weights = embedding_codegen_{{ wdesc }}_backward_op.call(
           grad_output,
           dev_weights,
           uvm_weights,
@@ -135,7 +151,11 @@ using namespace fbgemm_gpu;
           indice_weights,
           {%- endif %}
           {%- endif %} {# /* if not nobag */ #}
+          {%- if ssd %}
+          ssd_row_addrs,
+          {%- else %}
           lxu_cache_locations,
+          {%- endif %}
           BT_block_size,
           max_segment_length_per_warp,
           {%- if optimizer != "none" %}
@@ -209,6 +229,11 @@ using namespace fbgemm_gpu;
         Variable(), // iter
         {%- endif %}
         {%- endif %}
+        {%- if ssd %}
+        {%- for tensor in ssd_tensors %}
+        Variable(), // {{ tensor }}
+        {%- endfor %}
+        {%- endif %}
         {{ args.split_variables | join(", ") }}
     };
 {%- endmacro %}
@@ -217,7 +242,8 @@ using namespace fbgemm_gpu;
     from lookup_function
 */
 {%- macro call_autograd(nobag, vbe, is_gwd) %}
-    {%- set autograd_func = "Split{}{}{}LookupFunction_{}_Op".format(
+    {%- set autograd_func = "{}{}{}{}LookupFunction_{}_Op".format(
+          "SSD" if ssd else "Split",
           "NoBag" if nobag else "",
           "VBE" if vbe else "",
           "GWD" if is_gwd else "",
@@ -274,6 +300,9 @@ using namespace fbgemm_gpu;
           iter,
           {%- endif %}
           {%- endif %}
+          {%- if ssd %}
+          ssd_tensors.value(),
+          {%- endif  %}
           {{ args.split_function_arg_names | join(", ") }})[0];
 {%- endmacro %}
 
@@ -287,9 +316,34 @@ using namespace fbgemm_gpu;
 {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
-{%- for weighted in [True, False] %}
+Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
+    const Tensor& grad_output,
+    const Tensor& dev_weights,
+    const Tensor& uvm_weights,
+    const Tensor& lxu_cache_weights,
+    const Tensor& weights_placements,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    const c10::SymInt max_D,
+    const Tensor& indices,
+    const Tensor& offsets,
+    {%- if ssd %}
+    const Tensor& ssd_row_addrs,
+    {%- else %}
+    const Tensor& lxu_cache_locations,
+    {%- endif %}
+    {%- if vbe %}
+    const Tensor& feature_requires_grad,
+    const Tensor& vbe_row_output_offsets,
+    const Tensor& vbe_b_t_map,
+    const int64_t info_B_num_bits,
+    const int64_t info_B_mask_int64
+    {%- else %}
+    const Tensor& feature_requires_grad
+    {%- endif %}
+);
+
 {%- for nobag in ([False] if (weighted or vbe) else [True, False]) %}
-{%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 
 {%- for is_gwd in ([True, False]
@@ -298,11 +352,17 @@ using namespace fbgemm_gpu;
       nobag,
       vbe,
       is_index_select,
-      has_global_weight_decay_support
-      )
+      has_global_weight_decay_support,
+      ssd)
       else [False]) %}
 {%- set gwddesc = "_gwd" if is_gwd else "" %}
-Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_cuda(
+
+{%- for weighted in [True, False] %}
+{%- set wdesc = "_weighted" if weighted else "_unweighted" %}
+
+{%- set desc_suffix = wdesc + vdesc + gwddesc %}
+
+Tensor {{ mdesc }}_embedding{{ ndesc }}_codegen_forward{{ desc_suffix }}_cuda(
     const Tensor& dev_weights,
     const Tensor& uvm_weights,
     const Tensor& lxu_cache_weights,
@@ -323,7 +383,11 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwdde
     {%- if weighted %}
     const Tensor& indice_weights,
     {%- endif %}
+    {%- if ssd %}
+    const Tensor& ssd_row_addrs,
+    {%- else %}
     const Tensor& lxu_cache_locations,
+    {%- endif %}
     const Tensor& uvm_cache_stats,
     const int64_t output_dtype,
     {%- if vbe %}
@@ -343,9 +407,10 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}{{ gwdde
     {%- else %}
     const bool is_experimental
     {%- endif %}
-    );
+);
 
-Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_cuda(
+Tensor
+{{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}{{ desc_suffix }}_exact_cuda(
     const Tensor& grad_output,
     const Tensor& dev_weights,
     const Tensor& uvm_weights,
@@ -368,7 +433,11 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     {%- if weighted %}
     const Tensor& indice_weights,
     {%- endif %}
+    {%- if ssd %}
+    const Tensor& ssd_row_addrs,
+    {%- else %}
     const Tensor& lxu_cache_locations,
+    {%- endif %}
     const int64_t BT_block_size,
     const int64_t max_segment_length_per_warp,
     {%- if optimizer != "none" %}
@@ -392,58 +461,21 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     {%- endif %}
     {%- endif %}
     {{ args.split_function_args | join(", ") }});
-
-{%- endfor %} {#-/*for is_gwd*/#}
-{%- endfor %} {#-/*for nobag*/#}
-{%- endfor %} {#-/*for weighted*/#}
-
-Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
-    const Tensor& grad_output,
-    const Tensor& dev_weights,
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
-    const Tensor& weights_offsets,
-    const Tensor& D_offsets,
-    const c10::SymInt max_D,
-    const Tensor& indices,
-    const Tensor& offsets,
-    const Tensor& lxu_cache_locations,
-    {%- if vbe %}
-    const Tensor& feature_requires_grad,
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64
-    {%- else %}
-    const Tensor& feature_requires_grad
-    {%- endif %}
-);
+{%- endfor %} {#-/* for weighted*/#}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Autograd Function Declarations
 ////////////////////////////////////////////////////////////////////////////////
 
-{%- for nobag in [True, False] %}
-{%- if not nobag or not vbe %} {#-/* nobag does not support vbe */#}
 {#- /* Generate a separate autograd function for global weight decay */ #}
-{%- for is_gwd in ([True, False]
-    if is_valid_gwd_config(
-      dense,
-      nobag,
-      vbe,
-      is_index_select,
-      has_global_weight_decay_support
-      )
-      else [False]) %}
-{%- set autograd_func = "Split{}{}{}LookupFunction_{}_Op".format(
+{%- set autograd_func = "{}{}{}{}LookupFunction_{}_Op".format(
+      "SSD" if ssd else "Split",
       "NoBag" if nobag else "",
       "VBE" if vbe else "",
       "GWD" if is_gwd else "",
       optimizer,
     )
 %}
-
 
 class {{ autograd_func }} :
     public torch::autograd::Function<{{ autograd_func }}> {
@@ -498,6 +530,9 @@ class {{ autograd_func }} :
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    {%- endif %}
+    {%- if ssd %}
+    const at::TensorList& ssd_tensors,
     {%- endif %}
     {{ args.split_function_args | join(", ") }}) {
 
@@ -590,6 +625,11 @@ class {{ autograd_func }} :
         {%- if is_gwd and "prev_iter_dev" not in args.split_function_arg_names %}
         prev_iter_dev_,
         {%- endif %}
+        {%- if ssd %}
+        {%- for tensor in ssd_tensors %}
+        ssd_tensors[SSDTensor::{{ tensor | upper }}],
+        {%- endfor %}
+        {%- endif %}
         {{ args.split_saved_tensors | join(", ") }}
     });
 
@@ -627,12 +667,33 @@ class {{ autograd_func }} :
     {%- endif %}
 
     {%- if nobag %}
-      {{ call_forward_op_dispatch(nobag=True, weighted=False, vbe=vbe, is_gwd=is_gwd) }}
+      {{
+         call_forward_op_dispatch(
+             nobag=True,
+             weighted=False,
+             vbe=vbe,
+             is_gwd=is_gwd,
+         )
+      }}
     {%- else %}
     if (indice_weights) {
-      {{ call_forward_op_dispatch(nobag=False, weighted=True, vbe=vbe, is_gwd=is_gwd) }}
+      {{
+         call_forward_op_dispatch(
+             nobag=False,
+             weighted=True,
+             vbe=vbe,
+             is_gwd=is_gwd,
+         )
+       }}
     }
-    {{ call_forward_op_dispatch(nobag=False, weighted=False, vbe=vbe, is_gwd=is_gwd) }}
+    {{
+       call_forward_op_dispatch(
+           nobag=False,
+           weighted=False,
+           vbe=vbe,
+           is_gwd=is_gwd,
+       )
+     }}
 
     {%- endif %} {#-/* if not nobag */ #}
   }
@@ -665,6 +726,11 @@ class {{ autograd_func }} :
     {%- endif %}
     {%- if is_gwd and "prev_iter_dev" not in args.split_function_arg_names %}
     auto prev_iter_dev = *savedItr++;
+    {%- endif %}
+    {%- if ssd %}
+    {%- for tensor in ssd_tensors %}
+    auto ssd_{{ tensor }} = *savedItr++;
+    {%- endfor %}
     {%- endif %}
 
     {%- for tensor in args.split_saved_tensors %}
@@ -719,21 +785,21 @@ class {{ autograd_func }} :
     {%- if not nobag %}
     {%- if optimizer == "none" %}
     // Flatten (dev_weights is used in
-    // split_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda)
+    // {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda)
     dev_weights = dev_weights.flatten();
     {%- endif %}
 
     {%- set grad_indice_weights_op =
-        "split_embedding_codegen_grad_indice_weights{}_cuda".format(vdesc)
+        "{}_embedding_codegen_grad_indice_weights{}_cuda".format(mdesc, vdesc)
     %}
-    static auto split_embedding_codegen_grad_indice_weights_op =
+    static auto {{ mdesc }}_embedding_codegen_grad_indice_weights_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ grad_indice_weights_op }}", "")
             .typed<decltype({{ grad_indice_weights_op }})>();
 
     const auto grad_indice_weights = !indice_weights.defined() ?
       Variable() :
-      split_embedding_codegen_grad_indice_weights_op.call(
+      {{ mdesc }}_embedding_codegen_grad_indice_weights_op.call(
         grad_output,
         dev_weights,
         uvm_weights,
@@ -744,7 +810,11 @@ class {{ autograd_func }} :
         max_D,
         indices,
         offsets,
+        {%- if ssd %}
+        ssd_row_addrs,
+        {%- else %}
         lxu_cache_locations,
+        {%- endif %}
         {%- if vbe %}
         feature_requires_grad,
         vbe_row_output_offsets,
@@ -758,24 +828,43 @@ class {{ autograd_func }} :
     Tensor grad_dev_weights;
     if (indice_weights.defined())
     {
-      {{ call_backward_op_dispatch(nobag=False, weighted=True, vbe=vbe, is_gwd=is_gwd) }}
+      {{
+         call_backward_op_dispatch(
+             nobag=False,
+             weighted=True,
+             vbe=vbe,
+             is_gwd=is_gwd,
+        )
+      }}
     }
-    {{ call_backward_op_dispatch(nobag=False, weighted=False, vbe=vbe, is_gwd=is_gwd) }}
-
+    {{
+       call_backward_op_dispatch(
+           nobag=False,
+           weighted=False,
+           vbe=vbe,
+           is_gwd=is_gwd,
+      )
+    }}
     {%- else %}
     Tensor grad_dev_weights;
-      {{ call_backward_op_dispatch(nobag=True, weighted=False, vbe=vbe, is_gwd=is_gwd) }}
+      {{
+         call_backward_op_dispatch(
+             nobag=True,
+             weighted=False,
+             vbe=vbe,
+             is_gwd=is_gwd,
+        )
+      }}
     {%- endif %}
   }
 };
 {%- endfor %} {#-/* for is_gwd */#}
-{%- endif %} {#-/* if not nobag or not vbe */#}
-{%- endfor %} {#-/* for nobag in [True, False] */#}
-{%- endfor %} {#-/* for vbe in [True, False] */#}
+{%- endfor %} {#-/* for nobag */#}
+{%- endfor %} {#-/* for vbe */#}
 {%- endif %} {#-/* if has_gpu_support */#}
 
 ///@ingroup embedding-cuda
-Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
+Tensor {{ mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const Tensor& placeholder_autograd_tensor,
     const Tensor& dev_weights,
     const Tensor& uvm_weights,
@@ -816,15 +905,17 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter = 0,
     {%- endif %}
+    {%- if ssd %}
+    const bool apply_global_weight_decay = false,
+    const c10::optional<at::TensorList>& ssd_tensors = c10::nullopt
+    {%- else %}
     const bool apply_global_weight_decay = false
+    {%- endif %}
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
-    if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
-      // no bag
-      {{ call_autograd(nobag=True, vbe=False, is_gwd=False) }}
-    }
 
+    {%- if not ssd %}
     {%- if has_vbe_support %}
     // has vbe support
     if (B_offsets.has_value()) {
@@ -840,11 +931,26 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
       {{ call_autograd(nobag=False, vbe=False, is_gwd=True) }}
     }
     {%- endif %} {#-/* if has_global_weight_decay_support */ #}
+    {%- endif %} {#-/* if not ssd */#}
 
-    {{ call_autograd(nobag=False, vbe=False, is_gwd=False) }}
+    {%- if ssd %}
+    TORCH_CHECK(
+        ssd_tensors.value().size() == {{ ssd_tensors | length }},
+        "SSD TBE expects {{ ssd_tensors | length }} in ssd_tensors");
+    {%- endif %}
 
+    if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
+      // no bag
+      {{ call_autograd(nobag=True, vbe=False, is_gwd=False) }}
+    }
+    else {
+      {{ call_autograd(nobag=False, vbe=False, is_gwd=False) }}
+    }
   {%- else %}
-  TORCH_CHECK(false, "split_embedding_codegen_lookup_{{ optimizer }}_function is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail.");
+  TORCH_CHECK(
+      false,
+      "{{ mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail."
+  );
   return Tensor();
   {%- endif %} {#-/* if has_gpu_support */#}
 }
@@ -852,7 +958,8 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function(
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 {%- for lib_name in ["fb", "fbgemm"] %}
 TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function("
+    {%- set op_name = "{}_embedding_codegen_lookup_{}_function".format(mdesc, optimizer) %}
+    m.def("{{ op_name }}("
           "    Tensor placeholder_autograd_tensor, "
           "    Tensor dev_weights, "
           "    Tensor uvm_weights, "
@@ -893,7 +1000,12 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           {%- if "iter" not in args.split_function_arg_names %}
           "    int iter=0, "
           {%- endif %}
-          "    bool apply_global_weight_decay=False "
+          {%- if ssd %}
+          "    bool apply_global_weight_decay=False, "
+          "    Tensor[]? ssd_tensors=None"
+          {%- else %}
+          "    bool apply_global_weight_decay=False"
+          {%- endif %}
           ") -> Tensor",
           {PT2_COMPLIANT_TAG});
     // We're playing a funny trick here: we're using the autograd
@@ -902,18 +1014,18 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
     // no autograd enabled, and all of the internal implementations redispatch
     // appropriately
     m.impl(
-        "split_embedding_codegen_lookup_{{ optimizer }}_function",
+        "{{ op_name }}",
         torch::dispatch(
           c10::DispatchKey::Autograd,
-          TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
+          TORCH_FN({{ op_name }})));
     m.impl(
-        "split_embedding_codegen_lookup_{{ optimizer }}_function",
+        "{{ op_name }}",
         torch::dispatch(
           c10::DispatchKey::Meta,
-          TORCH_FN(split_embedding_codegen_lookup_{{ optimizer }}_function)));
+          TORCH_FN({{ op_name }})));
     DISPATCH_TO_CUDA(
-        "split_embedding_codegen_lookup_{{ optimizer }}_function",
-        split_embedding_codegen_lookup_{{ optimizer }}_function);
+        "{{ op_name }}",
+        {{ op_name }});
 }
 {%- endfor %} {#-/* for lib_name */#}
-  // clang-format on
+    // clang-format on
