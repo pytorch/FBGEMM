@@ -102,43 +102,6 @@ def permute_2D_sparse_data_meta(
     return permuted_lengths, permuted_indices, permuted_weights
 
 
-@impl_abstract("fbgemm::invert_permute")
-def invert_permute_abstract(permute: Tensor) -> Tensor:
-    return torch.empty_like(permute)
-
-
-# pyre-ignore
-def permute_2D_sparse_data_setup_context(ctx, inputs, output):
-    permute, lengths, values, weights, permuted_lengths_sum = inputs
-    permuted_lengths, permuted_values, permuted_weights = output
-    ctx.permute = permute
-    ctx.permuted_lengths = permuted_lengths
-
-
-# pyre-ignore
-def permute_2D_sparse_data_backward(ctx, grad_lengths, grad_values, grad_weights):
-    inv_permute = torch.ops.fbgemm.invert_permute(ctx.permute)
-    permuted_grad_lengths, permuted_grad_values, permuted_grad_weights = (
-        torch.ops.fbgemm.permute_2D_sparse_data(
-            inv_permute, ctx.permuted_lengths, grad_values, grad_weights
-        )
-    )
-    return (
-        None,
-        permuted_grad_lengths,
-        permuted_grad_values,
-        permuted_grad_weights,
-        None,
-    )
-
-
-torch.library.register_autograd(
-    "fbgemm::permute_2D_sparse_data",
-    permute_2D_sparse_data_backward,
-    setup_context=permute_2D_sparse_data_setup_context,
-)
-
-
 @impl_abstract("fbgemm::permute_1D_sparse_data")
 def permute_1D_sparse_data_meta(
     permute: Tensor,
