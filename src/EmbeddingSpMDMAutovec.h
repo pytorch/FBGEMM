@@ -24,6 +24,9 @@
 #define do_prefetch(...) __builtin_prefetch(__VA_ARGS__)
 #endif
 
+/// @defgroup tbe-cpu-autovec TBE CPU Autovectorization (FP8/16/32)
+///
+
 namespace fbgemm {
 
 template <typename IndexType, typename OffsetType, typename OutType>
@@ -101,7 +104,6 @@ FBGEMM_API bool EmbeddingSpMDMNBit_autovec(
 ///  @param exponent_bits Bits to use in exponent
 ///  @param exponent_bias Bias to use in exponent
 ///  @param is_bf16_out If `true`, output is `BFLOAT16` type; set to `false` for FP8 autovec implementation (`bool`)
-
 template <
     typename IndexType = std::int64_t,
     typename OffsetType = std::int32_t,
