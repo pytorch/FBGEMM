@@ -88,7 +88,7 @@ To run the benchmarks:
   python split_table_batched_embeddings_benchmark.py uvm
 
 Testing the forward pass functionality
------------------------------
+--------------------------------------
 
 To test the basic forwarding operation, there are two separate files: one to test the default or reference version, and one to test the autovectorized version, if available.
 These unit tests verify the correctness of the operations against a reference and can be easily extended to test for new autovectorized implementations.
