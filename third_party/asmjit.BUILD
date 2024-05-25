@@ -19,6 +19,9 @@ cc_library(
         "-fmerge-all-constants",
         "-DTH_BLAS_MKL",
     ],
+    linkopts = [
+      "-lrt",
+    ],
     includes = [
         "asmjit/",
         "src/",
