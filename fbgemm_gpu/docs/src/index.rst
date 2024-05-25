@@ -63,6 +63,7 @@ Table of Contents
    :caption: FBGEMM C++ API
 
    fbgemm-cpp-api/QuantUtils.rst
+   fbgemm-cpp-api/tbe_cpu_autovec.rst
 
 .. _fbgemm-gpu.toc.api.cpp:
 

@@ -459,34 +459,6 @@ namespace{
   }
 }
 }
-/// @ingroup tbe-cpu-autovec
-///
-/// Autovectorized version of method `EmbeddingSpMDM_ref` for FP8 weight type.
-///
-/// @tparam InType input data type (`uint8_t` is used)
-///
-/// @tparam IndexType index data type (`int64_t` is used)
-///
-/// @tparam OffsetType offset data type (`int32_t` is used)
-///
-/// @tparam OutType output data type (`float` is used)
-///
-///  @param block_size Number of elements in a block (`int64_t`)
-///  @param output_size Number of elements in output (`int64_t`)
-///  @param index_size Number of elements in index (`int64_t`)
-///  @param data_size Number of elements in data (`int64_t`)
-///  @param input Address of input (`InType*`)
-///  @param indices Address of index (`IndexType*`)
-///  @param offsets_or_lengths Address of offset (`OffsetType*`)
-///  @param weights Weights of sum; optional, can be null for non-weighted sum (`float*`)
-///  @param normalize_by_lengths Whether or not to normalize by lengths (`bool`)
-///  @param out Address of output (`OutType*`)
-///  @param is_weight_positional If `true`, weight is positional; set to `false` for FP8 autovec implementation (`bool`)
-///  @param use_offsets If `true`, will use offsets instead of lengths; set to `true` for FP8 autovec implementation (`bool`)
-///  @param output_stride If -1, output_stride is same as block_size; set to -1 for FP8 autovec implementation (`int64_t`)
-///  @param exponent_bits Bits to use in exponent
-///  @param exponent_bias Bias to use in exponent
-///  @param is_bf16_out If `true`, output is `BFLOAT16` type; set to `false` for FP8 autovec implementation (`bool`)
 
 template <typename IndexType, typename OffsetType, typename OutType>
 bool EmbeddingSpMDMFP8_autovec(
