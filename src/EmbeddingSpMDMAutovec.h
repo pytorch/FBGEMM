@@ -122,8 +122,6 @@ bool EmbeddingSpMDMFP8_autovec(
     int exponent_bits = 4,
     int exponent_bias = 7,
     bool is_bf16_out = false);
-    bool scale_bias_last = true,
-    bool is_bf16_out = false);
 
 template <
     typename IndexType = std::int64_t,
