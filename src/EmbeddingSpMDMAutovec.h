@@ -54,8 +54,7 @@ template <
     typename OffsetType = std::int32_t,
     typename OutType = float>
 FBGEMM_API bool EmbeddingSpMDMNBit_autovec(
-    int bit_rate,
-    int bit_rate,
+    const int bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -64,17 +63,14 @@ FBGEMM_API bool EmbeddingSpMDMNBit_autovec(
     const IndexType* indices,
     const OffsetType* offsets_or_lengths,
     const float* weights, // optional, can be null for non-weighted sum
-    bool normalize_by_lengths,
-    bool normalize_by_lengths,
+    const bool normalize_by_lengths,
     OutType* out,
-    bool is_weight_positional = false,
-    bool use_offsets = true,
-    bool is_weight_positional = false,
-    bool use_offsets = true,
+    const bool is_weight_positional = false,
+    const bool use_offsets = true,
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
-    bool scale_bias_last = true,
-    bool is_bf16_out = false);
+    const bool scale_bias_last = true,
+    const bool is_bf16_out = false);
 
 /// @ingroup tbe-cpu-autovec
 ///
