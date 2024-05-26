@@ -122,30 +122,6 @@ bool EmbeddingSpMDMFP8_autovec(
     int exponent_bits = 4,
     int exponent_bias = 7,
     bool is_bf16_out = false);
-
-template <
-    typename IndexType = std::int64_t,
-    typename OffsetType = std::int32_t,
-    typename OutType = float>
-bool EmbeddingSpMDMFP8_autovec(
-    const int64_t block_size,
-    const int64_t output_size,
-    const int64_t index_size,
-    const int64_t data_size,
-    const uint8_t* input,
-    const IndexType* indices,
-    const OffsetType* offsets_or_lengths,
-    const float* weights,
-    bool normalize_by_lengths,
-    OutType* out,
-    bool is_weight_positional = false,
-    bool use_offsets = true,
-    int64_t output_stride = -1,
-    int64_t input_stride = -1,
-    int exponent_bits = 4,
-    int exponent_bias = 7,
-    bool is_bf16_out = false);
-
 } // namespace fbgemm
 
 #else // #ifdef __linux__
