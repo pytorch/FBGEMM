@@ -511,7 +511,7 @@ Tensor {{ embedding_cuda_op }}(
     // This is actually passed via args.split_function_args_no_defaults but explicitly list
     // it here for code readability
     int64_t total_hash_size,
-    int64_t total_unique_indices
+    c10::SymInt total_unique_indices_
     {%- endif %}
 ) {
     {%- if not nobag or is_index_select %}
@@ -576,6 +576,7 @@ Tensor {{ embedding_cuda_op }}(
 
     {%- if optimizer == "none" %}
     // grad_dev_weights has emb_t type
+    const auto total_unique_indices = total_unique_indices_.guard_int(__FILE__, __LINE__);
     auto grad_dev_weights = at::empty({total_unique_indices * max_D}, dev_weights.options());
     {%- else %}
     // Set total_unique_indices to total num indices by default

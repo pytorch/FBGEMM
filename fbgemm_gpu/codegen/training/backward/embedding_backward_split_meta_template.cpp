@@ -122,7 +122,7 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdes
     // This is actually passed via args.split_function_args_no_defaults but explicitly list
     // it here for code readability
     int64_t total_hash_size,
-    int64_t total_unique_indices
+    c10::SymInt total_unique_indices
     {%- endif %}
 ) {
 
@@ -206,7 +206,7 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdes
 
     // Took allocation from https://www.internalfb.com/code/fbsource/fbcode/deeplearning/fbgemm/fbgemm_gpu/src/split_embeddings_utils.cu?lines=339-347
     Tensor sorted_linear_indices_run;
-    if (total_unique_indices > 0) {
+    if (TORCH_GUARD_SIZE_OBLIVIOUS(total_unique_indices.sym_gt(0))) {
         sorted_linear_indices_run = at::empty_symint({total_unique_indices}, indices.options());
     } else {
         sorted_linear_indices_run = at::empty_like(indices);
