@@ -14,7 +14,6 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 
-
 try:
     # pyre-ignore
     from fbgemm_gpu import open_source  # noqa: F401
@@ -508,7 +507,7 @@ def dense_to_jagged_forward(
     offsets: List[torch.Tensor],
     total_L: Optional[torch.SymInt] = None,
 ) -> torch.Tensor:
-    if not total_L:
+    if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
     return dense.new_zeros(
         [total_L, dense.size()[-1]],
@@ -524,7 +523,7 @@ def dense_to_jagged(
     offsets: List[torch.Tensor],
     total_L: Optional[torch.SymInt] = None,
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-    if not total_L:
+    if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
     return (dense_to_jagged_forward(dense, offsets, total_L), offsets)
 
