@@ -245,6 +245,10 @@
       "SplitTableBatchedEmbeddingsTest.test_faketensor__test_stb_uvm_cache_stats": {
         "comment": "",
         "status": "xfail"
+      },
+      "SplitTableBatchedEmbeddingsTest.test_schema__test_stb_uvm_cache_stats": {
+        "comment": "",
+        "status": "xfail"
       }
     },
     "fbgemm::new_managed_tensor": {},

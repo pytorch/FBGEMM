@@ -222,6 +222,10 @@
         "comment": "",
         "status": "xfail"
       },
+      "CacheTest.test_schema__test_cache_miss_counter": {
+        "comment": "",
+        "status": "xfail"
+      },
       "LXUCacheTest.test_faketensor__test_lxu_cache_lookup": {
         "comment": "",
         "status": "xfail"
