@@ -39,7 +39,7 @@ class ForwardSplitGenerator:
         ):
             if nobag and (weighted or vbe):
                 continue
-            if dense and (vbe or ssd):
+            if dense and ssd:
                 continue
             if ssd and (vbe or is_gwd):
                 continue
@@ -64,6 +64,7 @@ class ForwardSplitGenerator:
                 is_gwd=is_gwd,
             )
 
+    @staticmethod
     def generate_pt2_wrappers() -> None:
         # Generate PT2 forward wrapper (CUDA)
         CodeTemplate.load(
