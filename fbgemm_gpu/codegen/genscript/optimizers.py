@@ -1166,7 +1166,7 @@ def none_optimizer() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.INT, "total_hash_size"),
-                OptimItem(ArgType.INT, "total_unique_indices"),
+                OptimItem(ArgType.SYM_INT, "total_unique_indices"),
             ]
         ),
         # Generate only GPU code

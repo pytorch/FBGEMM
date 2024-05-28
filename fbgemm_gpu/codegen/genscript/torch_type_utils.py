@@ -25,6 +25,7 @@ class ArgType(IntEnum):
     PLACEHOLDER_TENSOR = 6
     INT = 7
     FLOAT = 8
+    SYM_INT = 9
 
 
 @dataclass
