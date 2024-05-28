@@ -34,17 +34,24 @@ class TestFp8Matmul(unittest.TestCase):
             use_triton: bool,
             device: torch.device,
             output_device: Optional[torch.device] = None,
+            use_scale_ub: bool = False,
         ) -> None:
             M, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
 
+            scale_ub = (
+                torch.tensor([1200], dtype=torch.float, device=device)
+                if use_scale_ub
+                else None
+            )
+
             a_fp8, a_scale = quantize_fp8_row(
-                a, use_triton=use_triton, output_device=output_device
+                a, scale_ub=scale_ub, use_triton=use_triton, output_device=output_device
             )
 
             # Undo scaling.
             a_torch = a_fp8.base.to(torch.bfloat16)
-            a_torch /= a_scale[:, None]
+            a_torch *= a_scale[:, None]
 
             self.assertTrue(
                 torch.allclose(
@@ -53,7 +60,11 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
         _test_quantize_fp8_row((2, 3), True, torch.device("cuda"))
+        _test_quantize_fp8_row((2, 3), True, torch.device("cuda"), use_scale_ub=True)
         _test_quantize_fp8_row((2, 3), False, torch.device("cpu"), torch.device("cuda"))
+        _test_quantize_fp8_row(
+            (2, 3), False, torch.device("cpu"), torch.device("cuda"), use_scale_ub=True
+        )
 
     def test_matmul_fp8_row(self) -> None:
         def _test_matmul_fp8_row(
@@ -83,13 +94,21 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_quantize_fp8_block(self) -> None:
         def _test_quantize_fp8_block(
-            shape: Tuple[int, int], block_shape: Tuple[int, int]
+            shape: Tuple[int, int],
+            block_shape: Tuple[int, int],
+            use_scale_ub: bool = False,
         ) -> None:
             M, K = shape
             BLOCK_M, BLOCK_K = block_shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
 
-            a_fp8, a_scale = quantize_fp8_block(a, BLOCK_M, BLOCK_K)
+            scale_ub = (
+                torch.tensor([1200], dtype=torch.float, device="cuda")
+                if use_scale_ub
+                else None
+            )
+
+            a_fp8, a_scale = quantize_fp8_block(a, BLOCK_M, BLOCK_K, scale_ub=scale_ub)
 
             a_torch = a_fp8.base.to(torch.bfloat16)
 
@@ -98,13 +117,14 @@ class TestFp8Matmul(unittest.TestCase):
                 for j in range(0, K, BLOCK_K):
                     block = a_torch[i : i + BLOCK_M, j : j + BLOCK_K]
                     scaling = a_scale[i // BLOCK_M, j // BLOCK_K]
-                    scaled_block = block / scaling
+                    scaled_block = block * scaling
                     a_torch[i : i + BLOCK_M, j : j + BLOCK_K] = scaled_block
 
             self.assertTrue(torch.allclose(a, a_torch, atol=2e-1, rtol=5e-2))
 
         _test_quantize_fp8_block((2, 4), (1, 2))
         _test_quantize_fp8_block((3, 6), (2, 8))
+        _test_quantize_fp8_block((3, 6), (2, 8), use_scale_ub=True)
 
     def test_matmul_fp8_block(self) -> None:
         def _test_matmul_fp8_block(
