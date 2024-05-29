@@ -141,7 +141,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.def(
       "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None) -> Tensor[]");
-  m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
 
 #if CUDART_VERSION >= 12000
   m.def(
@@ -169,6 +168,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
+  m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
 #endif
 }
 
@@ -252,6 +252,17 @@ at::Tensor f8i4bf16_rowwise_meta(
   return Y;
 }
 
+std::vector<at::Tensor> quantize_fp8_per_row_meta(
+    at::Tensor input,
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> scale_ub,
+    std::optional<c10::ScalarType> output_dtype) {
+  const at::SymInt M = input.sym_size(0);
+  auto Y = at::empty_like(input, input.options().dtype(at::kFloat8_e4m3fn));
+  auto scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  return {Y, scale};
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
@@ -261,6 +272,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
+  m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
 #endif
 }
 
