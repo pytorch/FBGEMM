@@ -18,10 +18,10 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import jinja2
-from deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.torch_type_utils import ArgType
 
 try:
     from .torch_type_utils import arg_type_to_tensor_type, ArgType, TensorType
+
 except ImportError:
     # pyre-ignore[21]
     from torch_type_utils import arg_type_to_tensor_type, ArgType, TensorType
