@@ -55,7 +55,7 @@ class BackwardSplitGenerator:
         ):
             if nobag and (weighted or vbe):
                 continue
-            if kwargs.get("dense") and (vbe or ssd):
+            if kwargs.get("dense") and ssd:
                 continue
             if ssd and (vbe or is_gwd):
                 continue
@@ -152,7 +152,7 @@ class BackwardSplitGenerator:
                 **kwargs,
             )
 
-        # Generate the backward splits (non-dense)
+        # Generate the backward splits
         # We generate only the API to preserve the backward compatibility if
         # has_gpu_support=True
         if not kwargs.get("dense"):
@@ -196,6 +196,17 @@ class BackwardSplitGenerator:
                         template.write(
                             filename, is_fbcode=args.is_fbcode, ssd=ssd, **kwargs
                         )
+
+        else:
+            template_filepath = (
+                "training/backward/embedding_backward_split_host_template.cpp"
+            )
+            filename = "gen_embedding_backward_split_dense.cpp"
+            CodeTemplate.load(template_filepath).write(
+                filename,
+                is_forward=False,
+                **kwargs,
+            )
 
     @staticmethod
     def generate_backward_split_cpu(**kwargs: Any) -> None:
