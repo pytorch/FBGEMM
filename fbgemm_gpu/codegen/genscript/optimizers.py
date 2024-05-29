@@ -40,7 +40,7 @@ def dense() -> Dict[str, Any]:
         ),
         "has_cpu_support": True,
         "has_gpu_support": True,
-        "has_vbe_support": False,
+        "has_vbe_support": True,
         "has_global_weight_decay_support": False,
         "has_ssd_support": False,
     }
