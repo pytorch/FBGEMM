@@ -12,9 +12,10 @@
 import itertools
 import logging
 from math import log2
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Type
 
 import torch  # usort:skip
+import functools
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
@@ -24,6 +25,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
     PoolingMode,
+    SplitState,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     align_to_cacheline,
@@ -31,6 +33,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     unpadded_row_size_in_bytes,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    apply_split_helper,
     CounterBasedRegularizationDefinition,
     CowClipDefinition,
     WeightDecayMode,
@@ -301,73 +304,30 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         table_embedding_dtype = weights_precision.as_dtype()
-        self.weights_dev = nn.Parameter(
-            torch.empty(
-                (0,),
-                device=self.current_device,
-                dtype=table_embedding_dtype,
-            )
-        )
-        self.register_buffer(
-            "weights_uvm",
-            torch.tensor((0,), device=self.current_device, dtype=table_embedding_dtype),
-        )
-        self.register_buffer(
-            "weights_host",
-            torch.empty(0),
+
+        self._apply_split(
+            SplitState(
+                dev_size=0,
+                host_size=0,
+                uvm_size=0,
+                placements=[EmbeddingLocation.MANAGED_CACHING for _ in range(T_)],
+                offsets=[0] * (len(rows)),
+            ),
+            "weights",
+            dtype=table_embedding_dtype,
         )
 
-        self.register_buffer(
-            "weights_placements",
-            torch.tensor(
-                [EmbeddingLocation.MANAGED_CACHING for _ in range(T_)],
-                dtype=torch.int32,
-            ),
-        )
-        # weights_offsets = [0] + list(
-        #    itertools.accumulate([row * dim for (row, dim) in zip(rows, dims)])
-        # )
-        weights_offsets = [0] * (len(rows) + 1)
-        self.register_buffer(
-            "weights_offsets",
-            torch.tensor(
-                weights_offsets[:-1],
-                device=self.current_device,
-                dtype=torch.int64,
-            ),
-        )
-
-        self.register_buffer(
-            "momentum1_dev",
-            torch.zeros(
-                self.total_hash_size,
-                device=self.current_device,
-                dtype=torch.float32,
-            ),
-        )
-        self.register_buffer(
-            "momentum1_uvm",
-            torch.empty((0,), device=self.current_device, dtype=torch.float32),
-        )
-        self.register_buffer(
-            "momentum1_host",
-            torch.empty(0),
-        )
-
-        self.register_buffer(
-            "momentum1_placements",
-            torch.tensor(
-                [EmbeddingLocation.DEVICE for _ in range(T_)], dtype=torch.int32
-            ),
-        )
         momentum1_offsets = [0] + list(itertools.accumulate(rows))
-        self.register_buffer(
-            "momentum1_offsets",
-            torch.tensor(
-                momentum1_offsets[:-1],
-                device=self.current_device,
-                dtype=torch.int64,
+        self._apply_split(
+            SplitState(
+                dev_size=self.total_hash_size,
+                host_size=0,
+                uvm_size=0,
+                placements=[EmbeddingLocation.DEVICE for _ in range(T_)],
+                offsets=momentum1_offsets[:-1],
             ),
+            "momentum1",
+            dtype=torch.float32,
         )
 
         # add placeholder require_grad param to enable autograd without nn.parameter
@@ -384,6 +344,29 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             OptimType.EXACT_ROWWISE_ADAGRAD,
         ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
         self.optimizer = optimizer
+
+    def _apply_split(
+        self,
+        split: SplitState,
+        prefix: str,
+        dtype: Type[torch.dtype],
+        enforce_hbm: bool = False,
+        make_dev_param: bool = False,
+        dev_reshape: Optional[Tuple[int, ...]] = None,
+    ) -> None:
+        apply_split_helper(
+            self.register_buffer,
+            functools.partial(setattr, self),
+            self.current_device,
+            False,  # use_cpu
+            self.feature_table_map,
+            split,
+            prefix,
+            dtype,
+            enforce_hbm,
+            make_dev_param,
+            dev_reshape,
+        )
 
     def to_pinned_cpu(self, t: torch.Tensor) -> torch.Tensor:
         t_cpu = torch.empty(t.shape, pin_memory=True, dtype=t.dtype)
