@@ -63,6 +63,11 @@ at::Tensor f8i4bf16_rowwise(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_zp);
+at::Tensor bf16i4bf16_rowwise(
+    at::Tensor X,
+    at::Tensor WQ,
+    at::Tensor w_scale,
+    at::Tensor w_zp);
 
 at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale);
 std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(at::Tensor X);
@@ -111,6 +116,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
+
+  m.def(
+      "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
+  m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
 
   m.def(
       "i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor");
@@ -242,13 +251,24 @@ at::Tensor f8f8bf16_tensorwise_meta(
 
 at::Tensor f8i4bf16_rowwise_meta(
     at::Tensor XQ, // FP8
-    at::Tensor WQ, // FP8
+    at::Tensor WQ, // INT4
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_zp) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor bf16i4bf16_rowwise_meta(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor w_scale,
+    at::Tensor w_zp) {
+  int M = X.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -273,6 +293,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
+  m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
 #endif
 }
 
