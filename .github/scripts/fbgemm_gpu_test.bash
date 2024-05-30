@@ -70,12 +70,16 @@ __configure_fbgemm_gpu_test_cpu () {
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
+    # require multiple GPUs
+    ./comm/multi_gpu_car_test.py
   )
 }
 
 __configure_fbgemm_gpu_test_cuda () {
   ignored_tests=(
     ./ssd_split_table_batched_embeddings_test.py
+    # require multiple GPUs
+    ./comm/multi_gpu_car_test.py
   )
 }
 
@@ -101,6 +105,8 @@ __configure_fbgemm_gpu_test_rocm () {
     ./ssd_split_table_batched_embeddings_test.py
     # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
+    # require multiple GPUs
+    ./comm/multi_gpu_car_test.py
   )
 }
 
