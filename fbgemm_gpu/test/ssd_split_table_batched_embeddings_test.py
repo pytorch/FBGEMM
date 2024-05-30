@@ -10,7 +10,7 @@
 
 import random
 import unittest
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -42,14 +42,18 @@ MAX_EXAMPLES = 40
 
 @unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
 class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
-    def test_ssd(self) -> None:
+    @given(
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_ssd(self, weights_precision: SparseType) -> None:
         import tempfile
 
         E = int(1e4)
         D = 128
         N = 100
         indices = torch.as_tensor(np.random.choice(E, replace=False, size=(N,)))
-        weights = torch.randn(N, D)
+        weights = torch.randn(N, D, dtype=weights_precision.as_dtype())
         output_weights = torch.empty_like(weights)
         count = torch.tensor([N])
 
@@ -61,6 +65,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cache_sets=1,
             ssd_uniform_init_lower=-0.1,
             ssd_uniform_init_upper=0.1,
+            weights_precision=weights_precision,
         )
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
@@ -73,7 +78,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         torch.testing.assert_close(weights, output_weights)
 
     def generate_inputs_(
-        self, B: int, L: int, Es: List[int]
+        self,
+        B: int,
+        L: int,
+        Es: List[int],
+        weights_precision: SparseType = SparseType.FP32,
     ) -> Tuple[
         List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor
     ]:
@@ -119,6 +128,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
         cache_set_scale: float = 1.0,
         pooling_mode: bool = PoolingMode.SUM,
+        weights_precision: SparseType = SparseType.FP32,
+        output_dtype: SparseType = SparseType.FP32,
+        stochastic_rounding: bool = True,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -157,6 +169,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.nn.Embedding(E, D, sparse=True).cuda() for (E, D) in zip(Es, Ds)
             ]
 
+        if weights_precision == SparseType.FP16:
+            emb_ref = [emb.half() for emb in emb_ref]
+
         cache_sets = max(int(max(T * B * L, 1) * cache_set_scale), 1)
 
         # Generate TBE SSD
@@ -172,16 +187,25 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_shards=ssd_shards,
             optimizer=optimizer,
             pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            stochastic_rounding=stochastic_rounding,
         ).cuda()
 
         # Initialize TBE SSD weights
         for t in range(T):
+            emb_ref[t].weight.data.uniform_(-2.0, 2.0)
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
                 emb_ref[t].weight.cpu(),
                 torch.as_tensor([E]),
                 t,
             )
+
+        # Convert back to float (to make sure that accumulation is done
+        # in FP32 -- like TBE)
+        if weights_precision == SparseType.FP16:
+            emb_ref = [emb.float() for emb in emb_ref]
 
         return emb, emb_ref
 
@@ -208,7 +232,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         B: int,
         L: int,
         weighted: bool,
-        i: int = 0,
+        tolerance: Optional[float] = None,
+        it: int = -1,
     ) -> Tuple[List[torch.Tensor], torch.Tensor]:
         """
         Execute the forward functions of SSDTableBatchedEmbeddingBags and
@@ -250,12 +275,30 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else emb(indices, offsets, per_sample_weights)
         )
 
+        out_dtype = output.dtype
+        # Cast the ref output type the output types do not match between ref
+        # and test
+        if output_ref.dtype != out_dtype:
+            output_ref_list = [out.to(out_dtype) for out in output_ref_list]
+            output_ref = output_ref.to(out_dtype)
+
+        # Set tolerance
+        tolerance = (
+            (
+                1.0e-5
+                if emb_ref[0].weight.dtype == torch.float and out_dtype == torch.float
+                else 8.0e-3
+            )
+            if tolerance is None
+            else tolerance
+        )
+
         # Compare outputs
         torch.testing.assert_close(
             output.float(),
             output_ref.float(),
-            atol=1.0e-5,
-            rtol=1.0e-5,
+            atol=tolerance,
+            rtol=tolerance,
         )
         return output_ref_list, output
 
@@ -270,6 +313,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(
             [PoolingMode.NONE, PoolingMode.SUM, PoolingMode.MEAN]
         ),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_forward(
@@ -282,6 +327,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         cache_set_scale: float,
         pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
 
@@ -298,6 +345,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weighted,
             cache_set_scale=cache_set_scale,
             pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
         )
 
         # Generate inputs
@@ -308,7 +357,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices,
             offsets,
             per_sample_weights,
-        ) = self.generate_inputs_(B, L, Es)
+        ) = self.generate_inputs_(B, L, Es, weights_precision=weights_precision)
 
         # Execute forward
         self.execute_ssd_forward_(
@@ -335,6 +384,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(
             [PoolingMode.NONE, PoolingMode.SUM, PoolingMode.MEAN]
         ),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_backward_adagrad(
@@ -347,6 +398,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         cache_set_scale: float,
         pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
 
@@ -371,6 +424,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_shards=ssd_shards,
             cache_set_scale=cache_set_scale,
             pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
         )
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
@@ -380,7 +435,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices,
             offsets,
             per_sample_weights,
-        ) = self.generate_inputs_(B, L, Es)
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            weights_precision=weights_precision,
+        )
 
         # Execute forward
         output_ref_list, output = self.execute_ssd_forward_(
@@ -413,6 +473,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         # Execute TBE SSD backward
         output.backward(grad_test)
 
+        tolerance = (
+            1.0e-4
+            if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
+            else 1.0e-2
+        )
+
         # Compare optimizer states
         split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
         for t in range(T):
@@ -421,27 +487,35 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             torch.testing.assert_close(
                 split_optimizer_states[t].float(),
                 ref_optimizer_state.mean(dim=1),
-                atol=1.0e-4,
-                rtol=1.0e-4,
+                atol=tolerance,
+                rtol=tolerance,
             )
 
         # Compare weights
         emb.flush()
+
+        emb_test = emb.debug_split_embedding_weights()
         for t in range(T):
+            new_ref_weight = torch.addcdiv(
+                emb_ref[t].weight.float(),
+                value=-lr,
+                tensor1=emb_ref[t].weight.grad.float().to_dense(),
+                tensor2=split_optimizer_states[t]
+                .float()
+                .sqrt_()
+                .add_(eps)
+                .view(Es[t], 1),
+            )
+
+            if weights_precision == SparseType.FP16:
+                # Round the reference weight the same way that TBE does
+                new_ref_weight = new_ref_weight.half().float()
+
             torch.testing.assert_close(
-                emb.debug_split_embedding_weights()[t].float().cuda(),
-                torch.addcdiv(
-                    emb_ref[t].weight.float(),
-                    value=-lr,
-                    tensor1=emb_ref[t].weight.grad.float().to_dense(),
-                    tensor2=split_optimizer_states[t]
-                    .float()
-                    .sqrt_()
-                    .add_(eps)
-                    .view(Es[t], 1),
-                ),
-                atol=1.0e-4,
-                rtol=1.0e-4,
+                emb_test[t].float().cuda(),
+                new_ref_weight,
+                atol=tolerance,
+                rtol=tolerance,
             )
 
     @given(
@@ -455,6 +529,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         pooling_mode=st.sampled_from(
             [PoolingMode.NONE, PoolingMode.SUM, PoolingMode.MEAN]
         ),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_cache(
@@ -467,6 +543,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weighted: bool,
         cache_set_scale: float,
         pooling_mode: PoolingMode,
+        weights_precision: SparseType,
+        output_dtype: SparseType,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
 
@@ -491,6 +569,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_shards=ssd_shards,
             cache_set_scale=cache_set_scale,
             pooling_mode=pooling_mode,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            # Disable stochastic rounding because error is too large when
+            # running for many iterations. This should be OK for testing the
+            # functionality of the cache
+            stochastic_rounding=False,
         )
 
         optimizer_states_ref = [
@@ -499,6 +583,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
 
+        tolerance = (
+            1.0e-4
+            if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
+            else 1.0e-2
+        )
+
         for i in range(10):
             (
                 indices_list,
@@ -506,7 +596,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 indices,
                 offsets,
                 per_sample_weights,
-            ) = self.generate_inputs_(B, L, Es)
+            ) = self.generate_inputs_(
+                B,
+                L,
+                Es,
+                weights_precision=weights_precision,
+            )
             assert emb.timestep == i
 
             emb.prefetch(indices, offsets)
@@ -548,7 +643,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 B,
                 L,
                 weighted,
-                i=i,
+                tolerance=tolerance,
+                it=i,
             )
 
             # Generate output gradient
@@ -581,22 +677,28 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_close(
                     split_optimizer_states[t].float(),
                     optimizer_states_ref[t],
-                    atol=1.0e-4,
-                    rtol=1.0e-4,
+                    atol=tolerance,
+                    rtol=tolerance,
                 )
 
-                emb_ref[t].weight.data.copy_(
-                    torch.addcdiv(
-                        emb_ref[t].weight.float(),
-                        value=-lr,
-                        tensor1=emb_ref[t].weight.grad.float().to_dense(),
-                        tensor2=split_optimizer_states[t]
-                        .float()
-                        .sqrt()
-                        .add(eps)
-                        .view(Es[t], 1),
-                    )
+                new_ref_weight = torch.addcdiv(
+                    emb_ref[t].weight.float(),
+                    value=-lr,
+                    tensor1=emb_ref[t].weight.grad.float().to_dense(),
+                    tensor2=split_optimizer_states[t]
+                    .float()
+                    .sqrt()
+                    .add(eps)
+                    .view(Es[t], 1),
                 )
+
+                if weights_precision == SparseType.FP16:
+                    # Round the reference weight the same way that
+                    # TBE does
+                    new_ref_weight = new_ref_weight.half().float()
+                    assert new_ref_weight.dtype == emb_ref[t].weight.dtype
+
+                emb_ref[t].weight.data.copy_(new_ref_weight)
 
         # Compare weights
         emb.flush()
@@ -604,8 +706,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             torch.testing.assert_close(
                 emb.debug_split_embedding_weights()[t].float().cuda(),
                 emb_ref[t].weight.float(),
-                atol=1.0e-4,
-                rtol=1.0e-4,
+                atol=tolerance,
+                rtol=tolerance,
             )
 
 
