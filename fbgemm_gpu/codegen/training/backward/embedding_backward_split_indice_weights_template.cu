@@ -8,7 +8,11 @@
 
 // clang-format off
 
-{%- set ddesc =  "dense" if dense else "split" %}
+{%- set mdesc =  "dense" if dense else ("ssd" if ssd else "split") %}
+
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
+{%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
+{%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
@@ -41,9 +45,8 @@ using namespace fbgemm_gpu;
     -}}
   }()
 
-{%- for vbe in [True, False] %}
+{%- for vbe in ([True, False] if not ssd else [False]) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
-{%- if not dense or not vbe %}
 
 {#-
   /* Generate different kernels for different kUseVecBlocking using Jinja
@@ -64,7 +67,7 @@ template <
   int32_t kFixedMaxVecsPerThread
 >
 __global__ __launch_bounds__(kForwardMaxThreads) void
-{{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_{{ vbdesc }}kernel(
+{{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_{{ vbdesc }}kernel(
     // [\sum_t E_t x D_t]
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
@@ -78,7 +81,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices, // [N = \sum_{b,t} L_{b,t} total indices, i.e. flattened [B][T][L]
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets, // [B x T + 1]
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     {%- endif %}
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> feature_requires_grad, // [T],
     pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> grad_indice_weights,
@@ -172,14 +175,14 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
             int32_t l = l_start + threadIdx.x;
             int64_t idx = l < L ? indices[indices_start + l] : 0;
             {%- if not dense %}
-            int32_t cache_idx =
+            const auto {{ locs_or_addrs_idx }} =
                 (placement == PlacementType::MANAGED_CACHING && l < L)
-                    ? lxu_cache_locations[indices_start + l] : 0;
+                    ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
             {%- endif %}
             for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
                 int64_t idx_j = shfl_sync(idx, j);
                 {%- if not dense %}
-                int32_t cache_idx_j = shfl_sync(cache_idx, j);
+                const auto {{ locs_or_addrs_idx }}_j = shfl_sync({{ locs_or_addrs_idx }}, j);
                 {%- endif %}
                 at::acc_type<cache_t, true> grad_indice_weight = 0.0;
 
@@ -189,8 +192,20 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                     ++vec) {
                     const int32_t d = {{ d }};
                     {%- if not dense %}
-                    if (placement == PlacementType::MANAGED_CACHING && cache_idx_j != kCacheLocationMissing) {
-                        Vec4T<cache_t> weight(&lxu_cache_weights[cache_idx_j][d]);
+                    if ({{ "true || " if ssd else "" }}
+                      (
+                          placement == PlacementType::MANAGED_CACHING
+                          && ({{ locs_or_addrs_idx }}_j != kCacheLocationMissing)
+                      )
+                    ) {
+                        const cache_t* cache_weights =
+                          {%- if ssd  %}
+                          reinterpret_cast<cache_t*>(
+                              *reinterpret_cast<const uint64_t*>(&{{ locs_or_addrs_idx }}_j));
+                          {%- else %}
+                          &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][d];
+                          {%- endif %}
+                        Vec4T<cache_t> weight(cache_weights);
                         grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
                             weight.acc.y * grad_out[vec].acc.y +
                             weight.acc.z * grad_out[vec].acc.z +
@@ -261,7 +276,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 }
 {%- endfor %} {# /* for use_vec_blocking */ #}
 
-Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
+Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const Tensor& grad_output,
     const Tensor& dev_weights,
     {%- if not dense %}
@@ -275,7 +290,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not dense %}
-    const Tensor& lxu_cache_locations,
+    const Tensor& {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if vbe %}
     const Tensor& feature_requires_grad,
@@ -300,7 +315,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         indices,
         offsets,
         {%- if not dense %}
-        lxu_cache_locations,
+        {{ locs_or_addrs_tensor }},
         {%- endif %}
         {%- if vbe %}
         vbe_row_output_offsets,
@@ -347,7 +362,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
         {%- else %}
         dev_weights.scalar_type(),
         {%- endif %}
-        "split_embedding_codegen_grad_indice_weights_kernel",
+        "split_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel",
         [&] {
             {%- if vbe %}
             const auto& grad_output_reshaped = aligned_grad_output.reshape({1, -1});
@@ -361,7 +376,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
             DISPATCH_{{ dpdesc }}VEC_BLOCKING_KERNEL(max_D, [&] {
                 {%- set kernel_name =
                     "{}_embedding_codegen_grad_indice_weights{}_{}kernel".format(
-                        ddesc, vdesc, vbdesc)
+                        mdesc, vdesc, vbdesc)
                  %}
 #ifdef FBGEMM_GPU_MEMCHECK
                 const auto func_name =
@@ -388,7 +403,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                     MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
                     MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
                     {%- if not dense %}
-                    MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
                     {%- endif %}
                     MAKE_PTA_WITH_NAME(func_name, feature_requires_grad_, int32_t, 1, 32),
                     MAKE_PTA_ACC_WITH_NAME(func_name, grad_indice_weights, grad_t, 1, 32),
@@ -412,7 +427,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
 }
 
 
-Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
+Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
     const Tensor& grad_output,
     const Tensor& dev_weights,
     {%- if not dense %}
@@ -426,7 +441,7 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not dense %}
-    const Tensor& lxu_cache_locations,
+    const Tensor& {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if vbe %}
     const Tensor& feature_requires_grad,
@@ -457,11 +472,12 @@ Tensor {{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta(
 ////////////////////////////////////////////////////////////////////////////////
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     {%- set embedding_codegen_grad_indice_weights_op =
-        "{}_embedding_codegen_grad_indice_weights{}_cuda".format(
-            ddesc, vdesc
+        "{}_embedding_codegen_grad_indice_weights{}".format(
+            mdesc, vdesc
         )
     %}
-    m.def("{{ embedding_codegen_grad_indice_weights_op }}("
+    {%- set embedding_codegen_grad_indice_weights_op_cuda = embedding_codegen_grad_indice_weights_op + "_cuda" %}
+    m.def("{{ embedding_codegen_grad_indice_weights_op_cuda }}("
           "    Tensor grad_output, "
           "    Tensor dev_weights, "
           {%- if not dense %}
@@ -475,7 +491,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    Tensor indices, "
           "    Tensor offsets, "
           {%- if not dense %}
-          "    Tensor lxu_cache_locations, "
+          "    Tensor {{ locs_or_addrs_tensor }}, "
           {%- endif %}
           {%- if vbe %}
           "    Tensor feature_requires_grad, "
@@ -488,12 +504,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- endif %}
           ") -> Tensor");
     DISPATCH_TO_CUDA(
-        "{{ embedding_codegen_grad_indice_weights_op }}",
-        {{ embedding_codegen_grad_indice_weights_op }}
+        "{{ embedding_codegen_grad_indice_weights_op_cuda }}",
+        {{ embedding_codegen_grad_indice_weights_op_cuda }}
     );
-    m.impl("{{ embedding_codegen_grad_indice_weights_op }}",
-        torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ ddesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_meta)));
+    m.impl("{{ embedding_codegen_grad_indice_weights_op_cuda }}",
+        torch::dispatch(c10::DispatchKey::Meta,
+          TORCH_FN({{ embedding_codegen_grad_indice_weights_op }}_meta)));
 }
-{%- endif %} {#-/* if not dense or not vbe */#}
 {%- endfor %} {#-/* for vbe */#}
   // clang-format on

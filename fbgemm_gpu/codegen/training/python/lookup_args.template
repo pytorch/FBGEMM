@@ -7,7 +7,7 @@
 
 # pyre-strict
 
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Dict
 
 import torch
 
@@ -46,6 +46,9 @@ class CommonArgs(NamedTuple):
     is_experimental: bool
     use_uniq_cache_locations_bwd: bool
     use_homogeneous_placements: bool
+    {%- if ssd %}
+    ssd_tensors: Dict[str, torch.Tensor]
+    {%- endif %}
 
 
 class OptimizerArgs(NamedTuple):

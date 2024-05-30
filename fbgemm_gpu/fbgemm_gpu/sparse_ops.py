@@ -14,7 +14,6 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 
-
 try:
     # pyre-ignore
     from fbgemm_gpu import open_source  # noqa: F401
@@ -46,6 +45,9 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_cpu")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_cpu"
+    )
 
 
 import torch.utils._pytree as pytree
@@ -88,7 +90,7 @@ def permute_2D_sparse_data_meta(
     if permuted_lengths_sum is not None:
         permuted_indices_size = permuted_lengths_sum
     else:
-        ctx = torch._custom_op.impl.get_ctx()
+        ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
     # pyre-fixme
     permuted_indices = indices.new_empty(permuted_indices_size)
@@ -97,6 +99,43 @@ def permute_2D_sparse_data_meta(
         # pyre-fixme
         permuted_weights = weights.new_empty(permuted_indices_size)
     return permuted_lengths, permuted_indices, permuted_weights
+
+
+@impl_abstract("fbgemm::invert_permute")
+def invert_permute_abstract(permute: Tensor) -> Tensor:
+    return torch.empty_like(permute)
+
+
+# pyre-ignore
+def permute_2D_sparse_data_setup_context(ctx, inputs, output):
+    permute, lengths, values, weights, permuted_lengths_sum = inputs
+    permuted_lengths, permuted_values, permuted_weights = output
+    ctx.permute = permute
+    ctx.permuted_lengths = permuted_lengths
+
+
+# pyre-ignore
+def permute_2D_sparse_data_backward(ctx, grad_lengths, grad_values, grad_weights):
+    inv_permute = torch.ops.fbgemm.invert_permute(ctx.permute)
+    permuted_grad_lengths, permuted_grad_values, permuted_grad_weights = (
+        torch.ops.fbgemm.permute_2D_sparse_data(
+            inv_permute, ctx.permuted_lengths, grad_values, grad_weights
+        )
+    )
+    return (
+        None,
+        permuted_grad_lengths,
+        permuted_grad_values,
+        permuted_grad_weights,
+        None,
+    )
+
+
+torch.library.register_autograd(
+    "fbgemm::permute_2D_sparse_data",
+    permute_2D_sparse_data_backward,
+    setup_context=permute_2D_sparse_data_setup_context,
+)
 
 
 @impl_abstract("fbgemm::permute_1D_sparse_data")
@@ -114,7 +153,7 @@ def permute_1D_sparse_data_meta(
     if permuted_lengths_sum is not None:
         permuted_indices_size = permuted_lengths_sum
     else:
-        ctx = torch._custom_op.impl.get_ctx()
+        ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
     # pyre-fixme
     permuted_indices = indices.new_empty(permuted_indices_size)
@@ -468,7 +507,7 @@ def dense_to_jagged_forward(
     offsets: List[torch.Tensor],
     total_L: Optional[torch.SymInt] = None,
 ) -> torch.Tensor:
-    if not total_L:
+    if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
     return dense.new_zeros(
         [total_L, dense.size()[-1]],
@@ -484,7 +523,7 @@ def dense_to_jagged(
     offsets: List[torch.Tensor],
     total_L: Optional[torch.SymInt] = None,
 ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-    if not total_L:
+    if total_L is None:
         total_L = torch.library.get_ctx().new_dynamic_size()
     return (dense_to_jagged_forward(dense, offsets, total_L), offsets)
 
@@ -520,7 +559,7 @@ def batch_index_select_dim0_abstract(
     return inputs.new_empty([output_numel])
 
 
-@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_tensor")
+@impl_abstract("fbgemm::batch_index_select_dim0_tensor")
 def batch_index_select_dim0_tensor_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -573,7 +612,7 @@ def batch_index_select_dim0_forward_cuda_impl_abstract(
     ]
 
 
-@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl")
+@impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl")
 def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -602,9 +641,7 @@ def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
     ]
 
 
-@torch.library.impl_abstract(
-    "fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl"
-)
+@impl_abstract("fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl")
 def batch_index_select_dim0_tensor_backward_cuda_impl_abstract(
     grad_output: torch.Tensor,
     dev_weights: torch.Tensor,
@@ -668,7 +705,7 @@ def keyed_jagged_index_select_dim1_abstract(
     return ret
 
 
-@torch.library.impl_abstract("fbgemm::batch_index_select_dim0_backward_cuda_impl")
+@impl_abstract("fbgemm::batch_index_select_dim0_backward_cuda_impl")
 def batch_index_select_dim0_backward_cuda_impl_abstract(
     grad_output: torch.Tensor,
     dev_weights: torch.Tensor,
@@ -875,3 +912,25 @@ def keyed_jagged_index_select_dim1_backward_cuda_impl_abstract(
     saved_tensor: torch.Tensor,
 ) -> torch.Tensor:
     return grad.new_empty([torch.library.get_ctx().new_dynamic_size()])
+
+
+@impl_abstract("fbgemm::permute_pooled_embs_split")
+def permute_pooled_embs_split_abstract(
+    pooled_embs: Tensor,
+    offset_dim_list: Tensor,
+    permute_list: Tensor,
+    inv_offset_dim_list: Tensor,
+    inv_permute_list: Tensor,
+) -> Tensor:
+    return torch.empty_like(pooled_embs)
+
+
+@impl_abstract("fbgemm::permute_duplicate_pooled_embs_split")
+def permute_duplicate_pooled_embs_split_abstract(
+    pooled_embs: Tensor,
+    offset_dim_list: Tensor,
+    permute_list: Tensor,
+    inv_offset_dim_list: Tensor,
+    inv_permute_list: Tensor,
+) -> Tensor:
+    return torch.empty_like(pooled_embs)

@@ -144,16 +144,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::invert_permute": {
-      "MiscOpsTest.test_aot_dispatch_dynamic__test_invert_permute": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "MiscOpsTest.test_faketensor__test_invert_permute": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::invert_permute": {},
     "fbgemm::pack_segments": {},
     "fbgemm::permute102_baddbmm_permute102": {
       "MiscOpsTest.test_aot_dispatch_dynamic__test_permute102_baddbmm_permute102": {

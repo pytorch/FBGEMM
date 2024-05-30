@@ -58,7 +58,7 @@ class IndexSelectGenerator:
             ),
             (
                 "training/backward/embedding_backward_split_device_kernel_template.cuh",
-                "gen_embedding_backward_batch_index_select_split_device_kernel.cuh",
+                "gen_embedding_backward_split_batch_index_select_device_kernel.cuh",
             ),
         ]:
             CodeTemplate.load(template_file).write(
@@ -84,7 +84,7 @@ class IndexSelectGenerator:
         CodeTemplate.load(
             "training/backward/embedding_backward_split_device_kernel_template.cuh"
         ).write(
-            "gen_embedding_backward_common_split_device_kernel.cuh",
+            "gen_embedding_backward_split_common_device_kernel.cuh",
             gen_once=True,
         )
 

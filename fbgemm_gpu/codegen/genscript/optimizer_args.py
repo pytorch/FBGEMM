@@ -21,6 +21,7 @@ import jinja2
 
 try:
     from .torch_type_utils import arg_type_to_tensor_type, ArgType, TensorType
+
 except ImportError:
     # pyre-ignore[21]
     from torch_type_utils import arg_type_to_tensor_type, ArgType, TensorType
@@ -148,6 +149,22 @@ def int_arg(name: str, default: int = 0) -> str:
     return f"int {name} = {default}"
 
 
+def sym_int_arg(name: str, default: int = 0) -> str:
+    return f"c10::SymInt {name} = {default}"
+
+
+def sym_int_arg_no_default(name: str) -> str:
+    return f"c10::SymInt {name}"
+
+
+def schema_sym_int_arg(name: str, default: int = 0) -> str:
+    return f"SymInt {name} = {default}"
+
+
+def schema_sym_int_arg_no_default(name: str) -> str:
+    return f"SymInt {name}"
+
+
 def make_kernel_arg(
     ty: ArgType, name: str, default: Union[int, float, None], pass_by_ref: bool = False
 ) -> str:
@@ -162,6 +179,11 @@ def make_kernel_arg(
             (lambda x: int64_arg(x, default=int(default)))
             if default is not None
             else int64_arg_no_default
+        ),
+        ArgType.SYM_INT: (
+            (lambda x: sym_int_arg(x, default=int(default)))
+            if default is not None
+            else sym_int_arg_no_default
         ),
         ArgType.FLOAT: (
             (lambda x: float_arg(x, default=default))
@@ -179,6 +201,7 @@ def make_kernel_arg_constructor(ty: ArgType, name: str) -> str:
         ArgType.PLACEHOLDER_TENSOR: acc_placeholder_tensor_arg_constructor,
         ArgType.INT: lambda x: x,
         ArgType.FLOAT: lambda x: x,
+        ArgType.SYM_INT: lambda x: x,
     }[ty](name)
 
 
@@ -190,6 +213,7 @@ def make_cpu_kernel_arg(ty: ArgType, name: str, default: Union[int, float]) -> s
         ArgType.PLACEHOLDER_TENSOR: acc_cache_tensor_arg_constructor,
         ArgType.INT: lambda x: int64_arg(x, default=int(default)),
         ArgType.FLOAT: lambda x: float_arg(x, default=default),
+        ArgType.SYM_INT: lambda x: sym_int_arg(x, default=int(default)),
     }[ty](name)
 
 
@@ -203,6 +227,7 @@ def make_cpu_kernel_arg_constructor(ty: ArgType, name: str) -> str:
         ),
         ArgType.INT: lambda x: x,
         ArgType.FLOAT: lambda x: x,
+        ArgType.SYM_INT: lambda x: x,
     }[ty](name)
 
 
@@ -224,6 +249,11 @@ def make_function_arg(
             if default is not None
             else double_arg_no_default
         ),
+        ArgType.SYM_INT: (
+            (lambda x: sym_int_arg(x, default=int(default)))
+            if default is not None
+            else sym_int_arg_no_default
+        ),
     }[ty](name)
 
 
@@ -235,11 +265,16 @@ def make_function_schema_arg(ty: ArgType, name: str, default: Union[int, float])
         ArgType.PLACEHOLDER_TENSOR: tensor_arg,
         ArgType.INT: lambda x: int_arg(x, default=int(default)),
         ArgType.FLOAT: lambda x: float_arg(x, default=default),
+        ArgType.SYM_INT: lambda x: schema_sym_int_arg(x, default=default),
     }[ty](name)
 
 
 def make_ivalue_cast(ty: ArgType) -> str:
-    return {ArgType.INT: "toInt", ArgType.FLOAT: "toDouble"}[ty]
+    return {
+        ArgType.INT: "toInt",
+        ArgType.FLOAT: "toDouble",
+        ArgType.SYM_INT: "toSymInt",
+    }[ty]
 
 
 ######################################################################
@@ -397,7 +432,7 @@ class OptimizerArgsSet:
     ) -> OptimizerArgs:
         split_arg_spec = []
         for s in arg_spec:
-            if s.ty in (ArgType.FLOAT, ArgType.INT):
+            if s.ty in (ArgType.FLOAT, ArgType.INT, ArgType.SYM_INT):
                 split_arg_spec.append(OptimItem(s.ty, s.name, s.default))
             else:
                 assert s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)

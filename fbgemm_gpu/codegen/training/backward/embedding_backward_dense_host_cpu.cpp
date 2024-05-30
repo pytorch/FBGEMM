@@ -38,18 +38,18 @@ class SplitLookupFunction_Dense_Op
  public:
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
-      Tensor host_weights,
-      Tensor weights_offsets,
-      Tensor D_offsets,
-      int64_t total_D,
-      int64_t max_D,
-      Tensor hash_size_cumsum,
+      const Tensor& host_weights,
+      const Tensor& weights_offsets,
+      const Tensor& D_offsets,
+      c10::SymInt total_D,
+      c10::SymInt max_D,
+      const Tensor& hash_size_cumsum,
       int64_t total_hash_size_bits,
-      Tensor indices,
-      Tensor offsets,
+      const Tensor& indices,
+      const Tensor& offsets,
       int64_t pooling_mode,
-      c10::optional<Tensor> indice_weights,
-      c10::optional<Tensor> feature_requires_grad) {
+      const std::optional<Tensor>& indice_weights,
+      const std::optional<Tensor>& feature_requires_grad) {
     Tensor indice_weights_value = indice_weights.value_or(Tensor());
     Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
@@ -151,19 +151,27 @@ class SplitLookupFunction_Dense_Op
 };
 
 Tensor split_embedding_codegen_lookup_dense_function(
-    Tensor host_weights,
-    Tensor weights_offsets,
-    Tensor D_offsets,
-    int64_t total_D,
-    int64_t max_D,
-    Tensor hash_size_cumsum,
-    int64_t total_hash_size_bits,
-    Tensor indices,
-    Tensor offsets,
-    int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights,
-    c10::optional<Tensor> feature_requires_grad,
-    int64_t /* output_dtype = static_cast<int64_t>(SparseType::FP32) */) {
+    const Tensor& host_weights,
+    const Tensor& weights_offsets,
+    const Tensor& D_offsets,
+    c10::SymInt total_D,
+    c10::SymInt max_D,
+    const Tensor& hash_size_cumsum,
+    const int64_t total_hash_size_bits,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const int64_t pooling_mode,
+    const std::optional<Tensor>& indice_weights,
+    const std::optional<Tensor>& feature_requires_grad,
+    int64_t /* output_dtype = static_cast<int64_t>(SparseType::FP32) */,
+    const std::optional<Tensor>& /* B_offsets = c10::nullopt */,
+    const std::optional<
+        Tensor>& /* vbe_output_offsets_feature_rank = c10::nullopt */,
+    const std::optional<
+        Tensor>& /* vbe_B_offsets_rank_per_feature = c10::nullopt */,
+    c10::SymInt /* max_B = -1 */,
+    c10::SymInt /* max_B_feature_rank = -1 */,
+    c10::SymInt /* vbe_output_size = -1 */) {
   return SplitLookupFunction_Dense_Op::apply(
       host_weights,
       weights_offsets,
@@ -182,7 +190,7 @@ Tensor split_embedding_codegen_lookup_dense_function(
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(
-      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0) -> Tensor");
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, SymInt max_B=-1, SymInt max_B_feature_rank=-1, SymInt vbe_output_size=-1) -> Tensor");
   DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
       split_embedding_codegen_lookup_dense_function);
@@ -190,7 +198,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, int total_D, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0) -> Tensor");
+      "dense_embedding_codegen_lookup_function(Tensor dev_weights, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, int output_dtype=0, Tensor? B_offsets=None, Tensor? vbe_output_offsets_feature_rank=None, Tensor? vbe_B_offsets_rank_per_feature=None, SymInt max_B=-1, SymInt max_B_feature_rank=-1, SymInt vbe_output_size=-1) -> Tensor");
   DISPATCH_TO_CPU(
       "dense_embedding_codegen_lookup_function",
       split_embedding_codegen_lookup_dense_function);

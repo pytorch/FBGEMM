@@ -17,7 +17,7 @@ from typing import List, Optional, Tuple
 import torch  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
@@ -92,6 +92,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ssd_cache_location: EmbeddingLocation = EmbeddingLocation.MANAGED,
         ssd_uniform_init_lower: float = -0.01,
         ssd_uniform_init_upper: float = 0.01,
+        ssd_block_cache_size: int = 0,
+        optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
         # General Optimizer args
         stochastic_rounding: bool = True,
         gradient_clipping: bool = False,
@@ -233,6 +235,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ssd_uniform_init_lower,
             ssd_uniform_init_upper,
             32,  # row_storage_bitwidth
+            ssd_block_cache_size,
         )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
@@ -240,6 +243,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_set_start = torch.cuda.Event()
         self.ssd_set_end = torch.cuda.Event()
         self.timesteps_prefetched: List[int] = []
+        self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
+        # TODO: add type annotation
+        self.ssd_prefetch_data = []
 
         if weight_decay_mode == WeightDecayMode.COUNTER or counter_based_regularization:
             raise AssertionError(
@@ -253,7 +259,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         cowclip_regularization = CowClipDefinition()
 
-        self.optimizer_args = invokers.lookup_args.OptimizerArgs(
+        self.optimizer_args = invokers.lookup_args_ssd.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
@@ -299,9 +305,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 dtype=torch.int32,
             ),
         )
-        weights_offsets = [0] + list(
-            itertools.accumulate([row * dim for (row, dim) in zip(rows, dims)])
-        )
+        # weights_offsets = [0] + list(
+        #    itertools.accumulate([row * dim for (row, dim) in zip(rows, dims)])
+        # )
+        weights_offsets = [0] * (len(rows) + 1)
         self.register_buffer(
             "weights_offsets",
             torch.tensor(
@@ -350,8 +357,92 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.zeros(0, device=self.current_device, dtype=torch.float)
         )
 
+        # Register backward hook for evicting rows from a scratch pad to SSD
+        # post backward
+        self.placeholder_autograd_tensor.register_hook(self._evict_from_scratch_pad)
+
+        assert optimizer in (
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+        ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
+        self.optimizer = optimizer
+
+    def to_pinned_cpu(self, t: torch.Tensor) -> torch.Tensor:
+        t_cpu = torch.empty(t.shape, pin_memory=True, dtype=t.dtype)
+        t_cpu.copy_(t, non_blocking=True)
+        return t_cpu
+
+    def evict(
+        self, evicted_rows: Tensor, evicted_indices: Tensor, actions_count_cpu: Tensor
+    ) -> None:
+        """
+        Evict data from the given input tensors to SSD via RocksDB
+        """
+        with torch.cuda.stream(self.ssd_stream):
+            self.ssd_stream.wait_event(self.ssd_set_start)
+            evicted_rows_cpu = self.to_pinned_cpu(evicted_rows)
+            evicted_indices_cpu = self.to_pinned_cpu(evicted_indices)
+            evicted_rows.record_stream(self.ssd_stream)
+            evicted_indices.record_stream(self.ssd_stream)
+            self.ssd_db.set_cuda(
+                evicted_indices_cpu, evicted_rows_cpu, actions_count_cpu, self.timestep
+            )
+            # TODO: is this needed?
+            # Need a way to synchronize
+            #  actions_count_cpu.record_stream(self.ssd_stream)
+            self.ssd_stream.record_event(self.ssd_set_end)
+
+    def _evict_from_scratch_pad(self, grad: Tensor) -> None:
+        assert len(self.ssd_scratch_pads) > 0, "There must be at least one scratch pad"
+        (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu) = (
+            self.ssd_scratch_pads.pop(0)
+        )
+        self.evict(inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
+
+    def _compute_cache_ptrs(
+        self,
+        linear_cache_indices: torch.Tensor,
+        assigned_cache_slots: torch.Tensor,
+        linear_index_inverse_indices: torch.Tensor,
+        unique_indices_count_cumsum: torch.Tensor,
+        cache_set_inverse_indices: torch.Tensor,
+        inserted_rows_gpu: torch.Tensor,
+        unique_indices_length: torch.Tensor,
+        inserted_indices: torch.Tensor,
+        actions_count_cpu: torch.Tensor,
+    ) -> torch.Tensor:
+        lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+            linear_cache_indices,
+            self.lxu_cache_state,
+            self.hash_size_cumsum[-1].item(),
+        )
+        lxu_cache_ptrs, post_bwd_evicted_indices = (
+            torch.ops.fbgemm.ssd_generate_row_addrs(
+                lxu_cache_locations,
+                assigned_cache_slots,
+                linear_index_inverse_indices,
+                unique_indices_count_cumsum,
+                cache_set_inverse_indices,
+                self.lxu_cache_weights,
+                inserted_rows_gpu,
+                unique_indices_length,
+                inserted_indices,
+            )
+        )
+        # Store scratch pad info for post backward eviction
+        self.ssd_scratch_pads.append(
+            (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
+        )
+        assert lxu_cache_ptrs[lxu_cache_ptrs == 0].numel() == 0
+        return (
+            lxu_cache_ptrs,
+            inserted_rows_gpu,
+            post_bwd_evicted_indices,
+            actions_count_cpu,
+        )
+
     def prefetch(self, indices: Tensor, offsets: Tensor) -> Optional[Tensor]:
         (indices, offsets) = indices.long(), offsets.long()
+
         linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
             self.hash_size_cumsum,
             indices,
@@ -364,10 +455,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             evicted_indices,
             assigned_cache_slots,
             actions_count_gpu,
-            _,
-            _,
-            _,
-            _,
+            linear_index_inverse_indices,
+            unique_indices_count_cumsum,
+            cache_set_inverse_indices,
+            unique_indices_length,
         ) = torch.ops.fbgemm.ssd_cache_populate_actions(
             linear_cache_indices,
             self.total_hash_size,
@@ -377,15 +468,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.lru_state,
         )
 
-        def to_pinned_cpu(t: torch.Tensor) -> torch.Tensor:
-            t_cpu = torch.empty(t.shape, pin_memory=True, dtype=t.dtype)
-            t_cpu.copy_(t, non_blocking=True)
-            return t_cpu
-
-        actions_count_cpu = to_pinned_cpu(actions_count_gpu)
+        actions_count_cpu = self.to_pinned_cpu(actions_count_gpu)
         assigned_cache_slots = assigned_cache_slots.long()
         evicted_rows = self.lxu_cache_weights[
-            assigned_cache_slots.clamp_(min=0).long(), :
+            assigned_cache_slots.clamp(min=0).long(), :
         ]
         inserted_rows = torch.empty(
             evicted_rows.shape,
@@ -398,14 +484,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Ensure the previous iterations l3_db.set(..) has completed.
         current_stream.wait_event(self.ssd_set_end)
         self.ssd_db.get_cuda(
-            to_pinned_cpu(inserted_indices), inserted_rows, actions_count_cpu
+            self.to_pinned_cpu(inserted_indices), inserted_rows, actions_count_cpu
         )
         current_stream.record_event(self.ssd_set_start)
         # TODO: T123943415 T123943414 this is a big copy that is (mostly) unnecessary with a decent cache hit rate.
         # Should we allocate on HBM?
         inserted_rows_gpu = inserted_rows.cuda(non_blocking=True)
 
-        # self.lxu_cache_weights[assigned_cache_slots, :] = inserted_rows.cuda(non_blocking=True)
         torch.ops.fbgemm.masked_index_put(
             self.lxu_cache_weights,
             assigned_cache_slots,
@@ -413,20 +498,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             actions_count_gpu,
         )
 
-        with torch.cuda.stream(self.ssd_stream):
-            self.ssd_stream.wait_event(self.ssd_set_start)
-            evicted_rows_cpu = to_pinned_cpu(evicted_rows)
-            evicted_indices_cpu = to_pinned_cpu(evicted_indices)
-            evicted_rows.record_stream(self.ssd_stream)
-            evicted_indices.record_stream(self.ssd_stream)
-            self.ssd_db.set_cuda(
-                evicted_indices_cpu, evicted_rows_cpu, actions_count_cpu, self.timestep
+        # Evict rows from cache to SSD
+        self.evict(evicted_rows, evicted_indices, actions_count_cpu)
+
+        # TODO: keep only necessary tensors
+        self.ssd_prefetch_data.append(
+            (
+                linear_cache_indices,
+                assigned_cache_slots,
+                linear_index_inverse_indices,
+                unique_indices_count_cumsum,
+                cache_set_inverse_indices,
+                inserted_rows_gpu,
+                unique_indices_length,
+                inserted_indices,
+                actions_count_cpu,
             )
-            # TODO: is this needed?
-            # Need a way to synchronize
-            #  actions_count_cpu.record_stream(self.ssd_stream)
-            self.ssd_stream.record_event(self.ssd_set_end)
-        return linear_cache_indices
+        )
 
     def forward(
         self,
@@ -441,19 +529,18 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             per_sample_weights = per_sample_weights.float()
         if len(self.timesteps_prefetched) == 0:
             with record_function("## prefetch ##"):
-                linear_cache_indices = self.prefetch(indices, offsets)
-        else:
-            linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
-                self.hash_size_cumsum,
-                indices,
-                offsets,
-            )
-        lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-            linear_cache_indices,
-            self.lxu_cache_state,
-            self.hash_size_cumsum[-1].item(),
-        )
-        common_args = invokers.lookup_args.CommonArgs(
+                self.prefetch(indices, offsets)
+        assert len(self.ssd_prefetch_data) > 0
+
+        prefetch_data = self.ssd_prefetch_data.pop(0)
+        (
+            lxu_cache_ptrs,
+            inserted_rows_gpu,
+            post_bwd_evicted_indices,
+            actions_count_cpu,
+        ) = self._compute_cache_ptrs(*prefetch_data)
+
+        common_args = invokers.lookup_args_ssd.CommonArgs(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
             output_dtype=SparseType.FP32.as_int(),
             dev_weights=self.weights_dev,
@@ -472,9 +559,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             pooling_mode=self.pooling_mode,
             indice_weights=per_sample_weights,
             feature_requires_grad=feature_requires_grad,
-            lxu_cache_locations=lxu_cache_locations,
+            lxu_cache_locations=lxu_cache_ptrs,
             uvm_cache_stats=None,
-            vbe_metadata=invokers.lookup_args.VBEMetadata(
+            vbe_metadata=invokers.lookup_args_ssd.VBEMetadata(
                 B_offsets=None,
                 output_offsets_feature_rank=None,
                 B_offsets_rank_per_feature=None,
@@ -486,9 +573,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             is_experimental=False,
             use_uniq_cache_locations_bwd=False,
             use_homogeneous_placements=True,
+            # The keys for ssd_tensors are controlled by ssd_tensors in
+            # codegen/genscript/optimizer_args.py
+            ssd_tensors={
+                "row_addrs": lxu_cache_ptrs,
+                "inserted_rows": inserted_rows_gpu,
+                "post_bwd_evicted_indices": post_bwd_evicted_indices,
+                "actions_count": actions_count_cpu,
+            },
         )
 
-        momentum1 = invokers.lookup_args.Momentum(
+        self.timesteps_prefetched.pop(0)
+
+        if self.optimizer == OptimType.EXACT_SGD:
+            raise AssertionError(
+                "SSDTableBatchedEmbeddingBags currently does not support SGD"
+            )
+            return invokers.lookup_sgd_ssd.invoke(common_args, self.optimizer_args)
+
+        momentum1 = invokers.lookup_args_ssd.Momentum(
             dev=self.momentum1_dev,
             host=self.momentum1_host,
             uvm=self.momentum1_uvm,
@@ -496,10 +599,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             placements=self.momentum1_placements,
         )
 
-        self.timesteps_prefetched.pop(0)
-        return invokers.lookup_rowwise_adagrad.invoke(
-            common_args, self.optimizer_args, momentum1
-        )
+        if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+            return invokers.lookup_rowwise_adagrad_ssd.invoke(
+                common_args, self.optimizer_args, momentum1
+            )
 
     @torch.jit.ignore
     def debug_split_optimizer_states(self) -> List[Tuple[torch.Tensor]]:
@@ -890,7 +993,6 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             1,  # for now assume prefetch_dist == 1
             self.lru_state,
         )
-
         actions_count_cpu = torch.empty(
             actions_count_gpu.shape, pin_memory=True, dtype=actions_count_gpu.dtype
         )

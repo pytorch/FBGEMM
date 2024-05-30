@@ -9,6 +9,7 @@
 # flake8: noqa F401
 
 import argparse
+import itertools
 import sys
 from typing import List
 
@@ -27,34 +28,41 @@ class ForwardSplitGenerator:
         dense_options: List[bool],
         nobag_options: List[bool],
         vbe_options: List[bool],
+        ssd_options: List[bool],
         is_gwd: bool = False,
     ) -> None:
         template = CodeTemplate.load(template_filepath)
-        for dense in dense_options:
-            for weighted in [True, False]:
-                for nobag in nobag_options:
-                    for vbe in vbe_options:
-                        if (not nobag or (not weighted and not vbe)) and (
-                            not dense or not vbe
-                        ):
-                            dense_desc = f"{ 'dense' if dense else 'split'}"
-                            weight_desc = (
-                                f"{ 'weighted' if weighted else 'unweighted' }"
-                            )
-                            nobag_desc = f"{ '_nobag' if nobag else '' }"
-                            vbe_desc = f"{ '_vbe' if vbe else '' }"
+        weighted_options = [True, False]
 
-                            template.write(
-                                filename_format.format(
-                                    f"{ dense_desc }_{ weight_desc }{ nobag_desc }{ vbe_desc }"
-                                ),
-                                dense=dense,
-                                weighted=weighted,
-                                nobag=nobag,
-                                vbe=vbe,
-                                is_index_select=False,
-                                is_gwd=is_gwd,
-                            )
+        for dense, weighted, nobag, vbe, ssd in itertools.product(
+            dense_options, weighted_options, nobag_options, vbe_options, ssd_options
+        ):
+            if nobag and (weighted or vbe):
+                continue
+            if dense and ssd:
+                continue
+            if ssd and (vbe or is_gwd):
+                continue
+
+            desc = "".join(
+                [
+                    f"{ 'dense' if dense else ('ssd' if ssd else 'split') }",
+                    f"{ '_weighted' if weighted else '_unweighted' }",
+                    f"{ '_nobag' if nobag else '' }",
+                    f"{ '_vbe' if vbe else '' }",
+                ]
+            )
+            fname = filename_format.format(desc)
+            template.write(
+                fname,
+                dense=dense,
+                weighted=weighted,
+                nobag=nobag,
+                vbe=vbe,
+                ssd=ssd,
+                is_index_select=False,
+                is_gwd=is_gwd,
+            )
 
     @staticmethod
     def generate_pt2_wrappers() -> None:
@@ -84,12 +92,14 @@ class ForwardSplitGenerator:
             "training/forward/embedding_forward_split_kernel_nobag_small_template.cu"
         )
         for dense in [True, False]:
-            wdesc = f"{ 'dense' if dense else 'split' }"
-            template.write(
-                f"gen_embedding_forward_{wdesc}_unweighted_nobag_kernel_small.cu",
-                dense=dense,
-                is_index_select=False,
-            )
+            for ssd in [True, False]:
+                ddesc = f"{ 'dense' if dense else ('ssd' if ssd else 'split') }"
+                template.write(
+                    f"gen_embedding_forward_{ ddesc }_unweighted_nobag_kernel_small.cu",
+                    dense=dense,
+                    ssd=ssd,
+                    is_index_select=False,
+                )
 
     @staticmethod
     def generate_kernels() -> None:
@@ -100,6 +110,7 @@ class ForwardSplitGenerator:
             dense_options=[True, False],
             nobag_options=[False],  # nobag is not used
             vbe_options=[True, False],
+            ssd_options=[True, False],
         )
         # Generate the CUDA host code for global weight decay
         ForwardSplitGenerator.render_forward_templates(
@@ -109,6 +120,7 @@ class ForwardSplitGenerator:
             nobag_options=[False],  # nobag is not used
             vbe_options=[False],
             is_gwd=True,
+            ssd_options=[False],
         )
 
         # Generate the meta kernels
@@ -118,6 +130,7 @@ class ForwardSplitGenerator:
             dense_options=[True, False],
             nobag_options=[False],  # nobag is not used
             vbe_options=[True, False],
+            ssd_options=[True, False],
         )
 
         # Generate the CUDA kernels
@@ -127,6 +140,7 @@ class ForwardSplitGenerator:
             dense_options=[True, False],
             nobag_options=[True, False],
             vbe_options=[True, False],
+            ssd_options=[True, False],
         )
         # Generate the global weight decay CUDA kernels
         ForwardSplitGenerator.render_forward_templates(
@@ -135,6 +149,7 @@ class ForwardSplitGenerator:
             dense_options=[False],
             nobag_options=[False],
             vbe_options=[False],
+            ssd_options=[False],
             is_gwd=True,
         )
 
@@ -145,6 +160,7 @@ class ForwardSplitGenerator:
             dense_options=[False],  # dense is not supported
             nobag_options=[False],  # nobag is not supported
             vbe_options=[False],  # vbe is not supported
+            ssd_options=[False],  # ssd is not supported
         )
 
     @staticmethod

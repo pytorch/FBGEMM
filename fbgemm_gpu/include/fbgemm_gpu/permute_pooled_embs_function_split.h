@@ -34,6 +34,7 @@ class PermutePooledEmbsFunctionSplit
       const at::Tensor& permute_list,
       const at::Tensor& inv_offset_dim_list,
       const at::Tensor& inv_permute_list) {
+    at::AutoDispatchBelowADInplaceOrView guard;
     ctx->saved_data["offset_dim_list"] = offset_dim_list;
     ctx->saved_data["permute_list"] = permute_list;
     ctx->saved_data["inv_offset_dim_list"] = inv_offset_dim_list;

@@ -11,6 +11,13 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
 # CUDA Setup
 ################################################################################
 
+BLOCK_PRINT(
+  "NCCL flags"
+  ""
+  "NCCL_INCLUDE_DIR=${NCCL_INCLUDE_DIR}"
+  "NCCL_LIB_DIR=${NCCL_LIB_DIR}"
+)
+
 # Set NVML_LIB_PATH if provided, or detect the default lib path
 if(NOT NVML_LIB_PATH)
   set(DEFAULT_NVML_LIB_PATH

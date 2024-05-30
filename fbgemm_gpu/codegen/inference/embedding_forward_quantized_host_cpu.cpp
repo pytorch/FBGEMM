@@ -93,16 +93,16 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights,
+    std::optional<Tensor> indice_weights,
     int64_t output_dtype,
-    c10::optional<Tensor>
+    std::optional<Tensor>
         lxu_cache_weights, // Not used, to match cache interface for CUDA op
-    c10::optional<Tensor>
+    std::optional<Tensor>
         lxu_cache_locations, // Not used, to match cache interface for CUDA op
-    c10::optional<int64_t> row_alignment,
-    c10::optional<int64_t> max_float8_D,
-    c10::optional<int64_t> fp8_exponent_bits,
-    c10::optional<int64_t> fp8_exponent_bias) {
+    std::optional<int64_t> row_alignment,
+    std::optional<int64_t> max_float8_D,
+    std::optional<int64_t> fp8_exponent_bits,
+    std::optional<int64_t> fp8_exponent_bias) {
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     std::vector<int64_t> max_D_list{
         max_int2_D,
@@ -179,20 +179,20 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu(
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
-    c10::optional<Tensor> indice_weights,
+    std::optional<Tensor> indice_weights,
     int64_t output_dtype,
-    c10::optional<Tensor> lxu_cache_weights,
-    c10::optional<Tensor> lxu_cache_locations,
-    c10::optional<int64_t> row_alignment,
-    c10::optional<int64_t> max_float8_D,
-    c10::optional<int64_t> fp8_exponent_bits,
-    c10::optional<int64_t> fp8_exponent_bias,
+    std::optional<Tensor> lxu_cache_weights,
+    std::optional<Tensor> lxu_cache_locations,
+    std::optional<int64_t> row_alignment,
+    std::optional<int64_t> max_float8_D,
+    std::optional<int64_t> fp8_exponent_bits,
+    std::optional<int64_t> fp8_exponent_bias,
     // Additinal args for uvm_caching version.
-    c10::optional<Tensor> cache_hash_size_cumsum [[maybe_unused]],
-    c10::optional<int64_t> total_cache_hash_size [[maybe_unused]],
-    c10::optional<Tensor> cache_index_table_map [[maybe_unused]],
-    c10::optional<Tensor> lxu_cache_state [[maybe_unused]],
-    c10::optional<Tensor> lxu_state [[maybe_unused]]) {
+    std::optional<Tensor> cache_hash_size_cumsum [[maybe_unused]],
+    std::optional<int64_t> total_cache_hash_size [[maybe_unused]],
+    std::optional<Tensor> cache_index_table_map [[maybe_unused]],
+    std::optional<Tensor> lxu_cache_state [[maybe_unused]],
+    std::optional<Tensor> lxu_state [[maybe_unused]]) {
   LOG(WARNING)
       << "int_nbit_split_embedding_uvm_caching_codegen_lookup_function shouldn't be called for CPU; it is only for GPU.";
   return int_nbit_split_embedding_codegen_lookup_function_cpu(
@@ -539,6 +539,19 @@ struct TensorQueue : torch::CustomClassHolder {
     return queue_.size();
   }
 
+  std::tuple<
+      std::tuple<std::string, Tensor>,
+      std::tuple<std::string, std::vector<Tensor>>>
+  __obj_flatten__() {
+    std::vector<Tensor> queue_vec;
+    for (const auto& val : queue_) {
+      queue_vec.push_back(val);
+    }
+    return std::make_tuple(
+        std::make_tuple("init_tensor", init_tensor_),
+        std::make_tuple("queue", queue_vec));
+  }
+
  private:
   std::deque<Tensor> queue_;
   std::mutex mutex_;
@@ -552,6 +565,7 @@ static auto TensorQueueRegistry =
         .def("pop", &TensorQueue::pop)
         .def("top", &TensorQueue::top)
         .def("size", &TensorQueue::size)
+        .def("__obj_flatten__", &TensorQueue::__obj_flatten__)
         .def_pickle(
             // __getstate__
             [](const c10::intrusive_ptr<TensorQueue>& self)

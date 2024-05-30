@@ -95,7 +95,11 @@ endif()
 ################################################################################
 
 if(NOT FBGEMM_CPU_ONLY)
-  add_subdirectory(experimental/example)
   add_subdirectory(experimental/gemm)
   add_subdirectory(experimental/gen_ai)
+
+  if(NOT USE_ROCM)
+    # TODO: Figure out NCCL/RCCL integration with ROCm
+    add_subdirectory(experimental/example)
+  endif()
 endif()

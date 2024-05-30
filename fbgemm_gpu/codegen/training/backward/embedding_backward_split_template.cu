@@ -8,8 +8,17 @@
 
 // clang-format off
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
-{%- set vdesc = "_vbe" if vbe else "" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
+{%- set vdesc = "_vbe" if vbe else "" %}
+{%- set mdesc = "ssd" if ssd else "split" %}
+
+{%- macro get_desc_suffix(gwd) %}
+{%- set gwddesc = "_gwd" if gwd else "" %}
+{{- wdesc + vdesc + gwddesc }}
+{%- endmacro %}
+
+{%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
+{%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 {%- if not is_index_select %}
 ////////////////////////////////////////////////////////////////////////////////
@@ -35,8 +44,9 @@ using namespace fbgemm_gpu;
     nobag,
     vbe,
     is_index_select,
-    has_global_weight_decay_support) %}
-{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+    has_global_weight_decay_support,
+    ssd) %}
+{%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
 template <
     typename emb_t,
     typename grad_t,
@@ -51,7 +61,7 @@ __global__ __launch_bounds__(kMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_cta_per_row_1(
+{{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_kernel_cta_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -79,7 +89,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> sorted_{{ locs_or_addrs_tensor }},
     const bool use_uniq_cache_locations,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
@@ -139,7 +149,7 @@ __global__ __launch_bounds__(kBackwardMaxThreads) void
 {%- if is_index_select %}
 batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
 {%- else %}
-split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}{{ gwddesc }}_kernel_warp_per_row_1(
+{{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_kernel_warp_per_row_1(
 {%- endif %}
     const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
     {%- if optimizer != "none" %}
@@ -165,7 +175,7 @@ split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc 
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
     {%- endif %}
     {%- if not dense %}
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> sorted_{{ locs_or_addrs_tensor }},
     const bool use_uniq_cache_locations,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
     {%- endif %}
@@ -417,22 +427,21 @@ int32_t compute_num_groups_and_dynamic_smem_bytes(
     nobag,
     vbe,
     is_index_select,
-    has_global_weight_decay_support) %}
-{%- set gwddesc = "_gwd" if is_gwd_kernel else "" %}
+    has_global_weight_decay_support,
+    ssd) %}
+{%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
 
-{%- set func_name0 = "split_embedding{}_backward_codegen_{}_{}_exact{}{}_cuda".format(
+{%- set embedding_cuda_op =
+    "batch_index_select_dim0_codegen_backward_cuda"
+    if is_index_select
+    else "{}_embedding{}_backward_codegen_{}_{}_exact_cuda".format(
+    mdesc,
     ndesc,
     optimizer,
-    wdesc,
-    vdesc,
-    gwddesc)
+    desc_suffix)
 %}
 
-{%- if is_index_select %}
-Tensor batch_index_select_dim0_codegen_backward_cuda(
-{%- else %}
-Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_cuda(
-{%- endif %}
+Tensor {{ embedding_cuda_op }}(
     const Tensor& grad_output,
     const Tensor& dev_weights,
     {%- if not dense %}
@@ -460,7 +469,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const Tensor& indice_weights,
     {%- endif %}
     {%- if not dense %}
-    const Tensor& lxu_cache_locations,
+    const Tensor& {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if not is_index_select %}
     const int64_t unused_,
@@ -502,7 +511,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     // This is actually passed via args.split_function_args_no_defaults but explicitly list
     // it here for code readability
     int64_t total_hash_size,
-    int64_t total_unique_indices
+    c10::SymInt total_unique_indices_
     {%- endif %}
 ) {
     {%- if not nobag or is_index_select %}
@@ -538,7 +547,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         indice_weights,
         {%- endif %}
         {%- if not dense %}
-        lxu_cache_locations,
+        {{ locs_or_addrs_tensor }},
         {%- endif %}
         {%- if is_gwd_kernel %}
         prev_iter_dev,
@@ -567,6 +576,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
 
     {%- if optimizer == "none" %}
     // grad_dev_weights has emb_t type
+    const auto total_unique_indices = total_unique_indices_.guard_int(__FILE__, __LINE__);
     auto grad_dev_weights = at::empty({total_unique_indices * max_D}, dev_weights.options());
     {%- else %}
     // Set total_unique_indices to total num indices by default
@@ -661,13 +671,13 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             indices,
             {{ "offsets" if not is_index_select else "Tensor()" }},
             {{ "true" if nobag else "false" }},
-            {{ "c10::optional<Tensor>(vbe_b_t_map)" if vbe else "c10::optional<Tensor>()" }},
+            {{ "std::optional<Tensor>(vbe_b_t_map)" if vbe else "std::optional<Tensor>()" }},
             info_B_num_bits,
             info_B_mask,
             total_unique_indices,
             {%- if is_index_select %}
             true, // is_index_select
-            c10::optional<Tensor>(total_L_offsets),
+            std::optional<Tensor>(total_L_offsets),
             fixed_L_per_warp,
             num_warps_per_feature
             {%- else %}
@@ -676,24 +686,24 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         );
 
     {%- if not dense %}
-    Tensor lxu_cache_locations_sorted = lxu_cache_locations;
+    Tensor {{ locs_or_addrs_tensor }}_sorted = {{ locs_or_addrs_tensor }};
     Tensor table_unique_indices_offsets;
-    if (lxu_cache_locations.size(0) > 0) {
+    if ({{ locs_or_addrs_tensor }}.size(0) > 0) {
       if (use_uniq_cache_locations) {
         if (!use_homogeneous_placements) {
-          // When use_uniq_cache_locations=true, lxu_cache_locations are unique
+          // When use_uniq_cache_locations=true, {{ locs_or_addrs_tensor }} are unique
           // and sorted in an ascending order based on the linear cache indices.
           // Linear cache indices of tables that are not placed in cache are set
           // to a sentinel value (i.e., the sum of hash sizes of all embedding
           // tables).  Since the sentinel value is larger than the max linear
-          // cache index value, the lxu_cache_locations can be sorted differently
+          // cache index value, the {{ locs_or_addrs_tensor }} can be sorted differently
           // than the sorted_linear_indices.
           //
           // For this reason, the run ids of sorted and unique
-          // lxu_cache_locations can be different from those of the
+          // {{ locs_or_addrs_tensor }} can be different from those of the
           // sorted_linear_indices.  We need the following code to compute
           // table_unique_indices_offsets which contains the differences between
-          // lxu_cache_locations run ids and sorted_linear_indices run ids.
+          // {{ locs_or_addrs_tensor }} run ids and sorted_linear_indices run ids.
           auto dev_or_uvm_unique_indices = at::zeros_like(weights_placements);
 
 #ifdef FBGEMM_GPU_MEMCHECK
@@ -728,15 +738,15 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         }
       }
       else {
-        lxu_cache_locations_sorted = at::empty_like(lxu_cache_locations);
+        {{ locs_or_addrs_tensor }}_sorted = at::empty_like({{ locs_or_addrs_tensor }});
         size_t temp_storage_bytes = 0;
         AT_CUDA_CHECK(radix_sort_pairs(
               nullptr,
               temp_storage_bytes,
               linear_indices.data_ptr<int64_t>(),
               linear_indices_sorted.data_ptr<int64_t>(),
-              lxu_cache_locations.data_ptr<int32_t>(),
-              lxu_cache_locations_sorted.data_ptr<int32_t>(),
+              {{ locs_or_addrs_tensor }}.data_ptr<{{ locs_or_addrs_type }}>(),
+              {{ locs_or_addrs_tensor }}_sorted.data_ptr<{{ locs_or_addrs_type }}>(),
               linear_indices.numel(),
               0,
               total_hash_size_bits,
@@ -749,8 +759,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
               temp_storage_bytes,
               linear_indices.data_ptr<int64_t>(),
               linear_indices_sorted.data_ptr<int64_t>(),
-              lxu_cache_locations.data_ptr<int32_t>(),
-              lxu_cache_locations_sorted.data_ptr<int32_t>(),
+              {{ locs_or_addrs_tensor }}.data_ptr<{{ locs_or_addrs_type }}>(),
+              {{ locs_or_addrs_tensor }}_sorted.data_ptr<{{ locs_or_addrs_type }}>(),
               linear_indices.numel(),
               0,
               total_hash_size_bits,
@@ -758,7 +768,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
       }
     }
 
-    if (lxu_cache_locations.size(0) == 0 || !use_uniq_cache_locations || use_homogeneous_placements) {
+    if ({{ locs_or_addrs_tensor }}.size(0) == 0 || !use_uniq_cache_locations || use_homogeneous_placements) {
         table_unique_indices_offsets = at::zeros_like(weights_placements);
     }
     {%- endif %}
@@ -771,7 +781,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
         {%- else %}
         dev_weights.scalar_type(),
         {%- endif %}
-            "split_embedding_backward_{{ optimizer }}_exact_kernel",
+            "{{ embedding_cuda_op }}",
         [&] {
             {%- if weighted %}
             auto indice_weights_sorted = at::empty_like(indice_weights);
@@ -816,7 +826,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             {%- endif %}
 
             auto grad_output_accessor = MAKE_PTA_WITH_NAME(
-                "{{ func_name0 }}.1",
+                "{{ embedding_cuda_op }}.1",
                 grad_output_reshaped,
                 grad_t, {{ "1" if is_index_select else "2" }},
                 64
@@ -855,7 +865,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
                 {%- endif %} // if not dense or not vbe
 
-                grad_output_accessor = MAKE_PTA_WITH_NAME("{{ func_name0 }}.2", grad_output_mean, grad_t, 2, 64);
+                grad_output_accessor = MAKE_PTA_WITH_NAME("{{ embedding_cuda_op }}.2", grad_output_mean, grad_t, 2, 64);
             }
             {%- endif %}
 
@@ -924,18 +934,17 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                   {%- for ph_name in args.placeholder_tensor_names %}
                   {{ ph_name + "_dev" }}.scalar_type(),
                   {%- endfor %}
-                  "split_embedding_backward_{{ optimizer }}_exact_placeholder_type_kernel",
+                  "{{ mdesc }}_embedding_backward_{{ optimizer }}_exact_placeholder_type_kernel",
                   [&] {
 
                     {%- set cta_kernel =
                         "batch_index_select_dim0_codegen_backward_kernel_cta_per_row"
                         if is_index_select else
-                        "split_embedding{}_backward_codegen_{}_{}{}{}_kernel_cta_per_row_1".format(
+                        "{}_embedding{}_backward_codegen_{}_{}_kernel_cta_per_row_1".format(
+                            mdesc,
                             ndesc,
                             optimizer,
-                            wdesc,
-                            vdesc,
-                            gwddesc
+                            desc_suffix,
                         )
                     %}
 
@@ -1003,7 +1012,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                             MAKE_PTA_WITH_NAME(func_name3, infos_sorted, int64_t, 1, 32),
                             {%- endif %}
                             {%- if not dense %}
-                            MAKE_PTA_WITH_NAME(func_name3, lxu_cache_locations_sorted, int32_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name3, {{ locs_or_addrs_tensor }}_sorted, {{ locs_or_addrs_type }}, 1, 32),
                             use_uniq_cache_locations,
                             MAKE_PTA_WITH_NAME(func_name3, table_unique_indices_offsets, int32_t, 1, 32),
                             {%- endif %}
@@ -1051,12 +1060,11 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                     {%- set warp_kernel =
                         "batch_index_select_dim0_codegen_backward_kernel_warp_per_row"
                         if is_index_select else
-                        "split_embedding{}_backward_codegen_{}_{}{}{}_kernel_warp_per_row_1".format(
+                        "{}_embedding{}_backward_codegen_{}_{}_kernel_warp_per_row_1".format(
+                            mdesc,
                             ndesc,
                             optimizer,
-                            wdesc,
-                            vdesc,
-                            gwddesc
+                            desc_suffix,
                         )
                     %}
                     const auto backward_warp_per_row_kernel =
@@ -1125,7 +1133,7 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
                             MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int64_t, 1, 32),
                             {%- endif %}
                             {%- if not dense %}
-                            MAKE_PTA_WITH_NAME(func_name4, lxu_cache_locations_sorted, int32_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name4, {{ locs_or_addrs_tensor }}_sorted, {{ locs_or_addrs_type }}, 1, 32),
                             use_uniq_cache_locations,
                             MAKE_PTA_WITH_NAME(func_name4, table_unique_indices_offsets, int32_t, 1, 32),
                             {%- endif %}
@@ -1191,8 +1199,8 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
 {%- if not is_index_select %}
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     {%- set embedding_codegen_backward_op =
-        "split_embedding{}_backward_codegen_{}_{}_exact{}{}_cuda".format(
-            ndesc, optimizer, wdesc, vdesc, gwddesc
+        "{}_embedding{}_backward_codegen_{}_{}_exact_cuda".format(
+            mdesc, ndesc, optimizer, desc_suffix
         )
     %}
     m.def("{{ embedding_codegen_backward_op }}("
@@ -1223,7 +1231,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    Tensor indice_weights, "
           {%- endif %}
           {%- if not dense %}
-          "    Tensor lxu_cache_locations, "
+          "    Tensor {{ locs_or_addrs_tensor }}, "
           {%- endif %}
           {%- if not is_index_select %}
           "    int unused_, "
@@ -1261,4 +1269,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     );
 }
 {%- endif %} {#-/* if not is_index_select */#}
-  // clang-format on
+// clang-format on
