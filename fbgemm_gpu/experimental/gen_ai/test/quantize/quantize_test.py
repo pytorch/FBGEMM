@@ -299,6 +299,42 @@ class FP8Tests(unittest.TestCase):
     @given(
         B_T=st.sampled_from([2048, 4096]),
         D=st.sampled_from([128, 256]),
+        HD_L=st.sampled_from([256, 512]),
+        CudaGraph=st.sampled_from([True, False]),
+    )
+    def test_quantize_int4_bf16_matmul(
+        self,
+        B_T: int,
+        D: int,
+        HD_L: int,
+        CudaGraph: bool,
+    ) -> None:
+        x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
+        w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
+
+        wq, w_scale, w_zp = int4_row_quantize(w, 128)
+        wq = pack_int4(wq).contiguous().to(device="cuda")
+        w_scale = w_scale.contiguous().to(device="cuda")
+        w_zp = w_zp.contiguous().to(device="cuda")
+
+        if CudaGraph:
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                zq = torch.ops.fbgemm.bf16i4bf16_rowwise(x, wq, w_scale, w_zp)
+            g.replay()
+        else:
+            zq = torch.ops.fbgemm.bf16i4bf16_rowwise(x, wq, w_scale, w_zp)
+
+        zq_ref = (x @ w.T).to(torch.bfloat16)
+        torch.testing.assert_close(zq, zq_ref, atol=8.0e-2, rtol=8.0e-2)
+
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+    )
+    @settings(deadline=None)
+    @given(
+        B_T=st.sampled_from([2048, 4096]),
+        D=st.sampled_from([128, 256]),
         Mode=st.sampled_from(["tensorwise", "rowwise", "colwise"]),
     )
     def test_quantize_fp8_per_tensor_row_col(self, B_T: int, D: int, Mode: str) -> None:
