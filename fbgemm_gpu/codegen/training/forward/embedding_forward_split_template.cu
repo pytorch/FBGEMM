@@ -382,16 +382,14 @@ batch_index_select_dim0_codegen_forward_cuda(
     const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
     {%- if is_gwd_kernel %}
-    const bool is_experimental,
     const Tensor& hash_size_cumsum,
     const Tensor& prev_iter_dev,
     const double learning_rate,
     const double weight_decay,
-    const int64_t iter
-    {%- else %}
+    const int64_t iter,
+    {%- endif %}
     const bool is_experimental
-    {%- endif %}
-    {%- endif %}
+    {%- endif %} {#- /*if is_index_select*/ #}
 ) {
     {%- if not nobag or is_index_select %}
     {%- else %}
@@ -879,15 +877,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    int info_B_mask_int64, "
           {%- endif %}
           {%- if is_gwd_kernel %}
-          "    bool is_experimental,"
           "    Tensor hash_size_cumsum, "
           "    Tensor prev_iter_dev, "
           "    float learning_rate, "
           "    float weight_decay, "
-          "    int iter "
-          {%- else %}
-          "    bool is_experimental"
+          "    int iter, "
           {%- endif %}
+          "    bool is_experimental"
           ") -> Tensor"
           {%- if not dense and not nobag and not vbe %}
           // only split_embedding_codegen_forward_[un]weighted_cuda
