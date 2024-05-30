@@ -665,16 +665,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     def flush(self) -> None:
         active_slots_mask = self.lxu_cache_state != -1
-        active_weights = self.lxu_cache_weights.masked_select(
-            active_slots_mask.view(-1, 1)
+
+        active_slots_mask_cpu = active_slots_mask.cpu()
+        lxu_cache_weights_cpu = self.lxu_cache_weights.cpu()
+        lxu_cache_state_cpu = self.lxu_cache_state.cpu()
+
+        active_weights = lxu_cache_weights_cpu.masked_select(
+            active_slots_mask_cpu.view(-1, 1)
         ).view(-1, self.max_D)
-        active_ids = self.lxu_cache_state.view(-1).masked_select(
-            active_slots_mask.view(-1)
+        active_ids = lxu_cache_state_cpu.view(-1).masked_select(
+            active_slots_mask_cpu.view(-1)
         )
+
         torch.cuda.current_stream().wait_stream(self.ssd_stream)
+
         self.ssd_db.set_cuda(
-            active_ids.cpu(),
-            active_weights.cpu(),
+            active_ids,
+            active_weights,
             torch.tensor([active_ids.numel()]),
             self.timestep,
         )
