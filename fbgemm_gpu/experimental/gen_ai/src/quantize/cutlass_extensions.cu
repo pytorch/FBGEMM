@@ -1444,7 +1444,7 @@ at::Tensor bf16i4bf16_rowwise_impl(
   int M = X.size(0);
   int N = WQ.size(0);
   int K = X.size(1);
-  int num_groups = w_scale.size(1);
+  int num_groups = w_scale.size(0);
 
   TORCH_CHECK(X.is_cuda() && X.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
@@ -1697,7 +1697,7 @@ at::Tensor f8i4bf16_rowwise_impl(
   int M = XQ.size(0);
   int N = WQ.size(0);
   int K = XQ.size(1);
-  int num_groups = w_scale.size(1);
+  int num_groups = w_scale.size(0);
 
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
@@ -1833,7 +1833,7 @@ at::Tensor f8i4bf16_rowwise_impl(
   StrideOutput stride_output = cutlass::make_cute_packed_stride(
       StrideOutput{}, cute::make_shape(N, M, cute::Int<1>{}));
   StrideS stride_S = cutlass::make_cute_packed_stride(
-      StrideS{}, cute::make_shape(N, K, cute::Int<1>{}));
+      StrideS{}, cute::make_shape(N, num_groups, cute::Int<1>{}));
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
