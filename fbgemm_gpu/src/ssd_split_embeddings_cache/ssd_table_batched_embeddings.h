@@ -8,47 +8,13 @@
 
 #pragma once
 
-#if defined(__x86_64__) || defined(__i386__) || \
-    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
-#include <mkl.h>
-#endif
-#include <random>
-
-#include <ATen/ATen.h>
-#include <ATen/record_function.h>
-
-#include <folly/container/F14Map.h>
-#include <glog/logging.h>
-
-#include <folly/Random.h>
-#include <folly/concurrency/UnboundedQueue.h>
-#include <folly/executors/CPUThreadPoolExecutor.h>
-#include <folly/futures/Future.h>
-#include <folly/hash/Hash.h>
-
-#include <rocksdb/cache.h>
-#include <rocksdb/db.h>
-#include <rocksdb/filter_policy.h>
-#include <rocksdb/rate_limiter.h>
-#include <rocksdb/slice_transform.h>
-#include <rocksdb/table.h>
-#include <rocksdb/table_properties.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <cuda_runtime.h>
-
 #include <torch/nn/init.h>
 #include <iostream>
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "kv_db_table_batched_embeddings.h"
 
 namespace ssd {
 
 using namespace at;
-
-void hostAsynchronousThreadPoolExecutor(void (*f)(void*), void* userData) {
-  static folly::CPUThreadPoolExecutor g(1);
-  g.add([f, userData]() { f(userData); });
-}
 
 // TODO: does this need to be different from the cache slot hashing function?
 // Probably not right?
@@ -133,7 +99,7 @@ class Initializer {
   std::unique_ptr<std::thread> producer_;
 };
 
-class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
+class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
  public:
   EmbeddingRocksDB(
       std::string path,
@@ -281,7 +247,8 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
     }
   }
 
-  void set(Tensor indices, Tensor weights, Tensor count) {
+  void set(const Tensor& indices, const Tensor& weights, const Tensor& count)
+      override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::set");
     std::vector<folly::Future<folly::Unit>> futures;
     auto count_ = count.item().toLong();
@@ -324,18 +291,8 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
     folly::collect(futures).wait();
   }
 
-  void compact() {
-    for (auto& db : dbs_) {
-      db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
-    }
-  }
-  void flush() {
-    for (auto& db : dbs_) {
-      db->Flush(rocksdb::FlushOptions());
-    }
-  }
-
-  void get(Tensor indices, Tensor weights, Tensor count) {
+  void get(const Tensor& indices, const Tensor& weights, const Tensor& count)
+      override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::get");
     std::vector<folly::Future<folly::Unit>> futures;
     auto count_ = count.item().toLong();
@@ -451,70 +408,35 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
     }
     folly::collect(futures).wait();
   }
-  void get_cuda(Tensor indices, Tensor weights, Tensor count) {
-    // take reference to self to avoid lifetime issues.
-    auto self = shared_from_this();
-    std::function<void()>* functor = new std::function<void()>(
-        [=]() { self->get(indices, weights, count); });
-    auto callFunctor =
-        [](cudaStream_t stream, cudaError_t status, void* userData) -> void {
-      AT_CUDA_CHECK(status);
-      auto* f = reinterpret_cast<std::function<void()>*>(userData);
-      AT_CUDA_CHECK(cudaGetLastError());
-      (*f)();
-      // delete f; // unfortunately, this invoke destructors that call CUDA
-      // API functions (e.g. caching host allocators issue cudaGetDevice(..),
-      // etc)
-      hostAsynchronousThreadPoolExecutor(
-          [](void* userData) {
-            auto* f = reinterpret_cast<std::function<void()>*>(userData);
-            delete f;
-          },
-          userData);
-    };
-    AT_CUDA_CHECK(cudaStreamAddCallback(
-        at::cuda::getCurrentCUDAStream(), callFunctor, functor, 0));
+
+  void compact() override {
+    for (auto& db : dbs_) {
+      db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+    }
   }
 
-  void
-  set_cuda(Tensor indices, Tensor weights, Tensor count, int64_t timestep) {
-    // take reference to self to avoid lifetime issues.
-    auto self = shared_from_this();
-    std::function<void()>* functor = new std::function<void()>([=]() {
-      self->set(indices, weights, count);
-      // Only do manual Flush/Compactions if enabled
-      if (memtable_flush_period_ > 0) {
-        {
-          RECORD_USER_SCOPE("FlushCompactIfNecessary");
-          if (!done_staggered_flushes_) {
-            self->flush_if_necessary(timestep);
-          } else {
-            self->compact_if_necessary(timestep);
-          }
+  void flush() override {
+    for (auto& db : dbs_) {
+      db->Flush(rocksdb::FlushOptions());
+    }
+  }
+
+ private:
+  void flush_or_compact(const int64_t timestep) override {
+    // Only do manual Flush/Compactions if enabled
+    if (memtable_flush_period_ > 0) {
+      {
+        RECORD_USER_SCOPE("FlushCompactIfNecessary");
+        if (!done_staggered_flushes_) {
+          flush_if_necessary(timestep);
+        } else {
+          compact_if_necessary(timestep);
         }
       }
-    });
-    auto callFunctor =
-        [](cudaStream_t stream, cudaError_t status, void* userData) -> void {
-      AT_CUDA_CHECK(status);
-      auto* f = reinterpret_cast<std::function<void()>*>(userData);
-      AT_CUDA_CHECK(cudaGetLastError());
-      (*f)();
-      // delete f; // unfortunately, this invoke destructors that call CUDA
-      // API functions (e.g. caching host allocators issue cudaGetDevice(..),
-      // etc)
-      hostAsynchronousThreadPoolExecutor(
-          [](void* userData) {
-            auto* f = reinterpret_cast<std::function<void()>*>(userData);
-            delete f;
-          },
-          userData);
-    };
-    AT_CUDA_CHECK(cudaStreamAddCallback(
-        at::cuda::getCurrentCUDAStream(), callFunctor, functor, 0));
+    }
   }
 
-  void flush_if_necessary(int64_t timestep) {
+  void flush_if_necessary(const int64_t timestep) {
     for (int64_t i = 0; i < dbs_.size(); i++) {
       if (shard_flush_compaction_deadlines_[i] == timestep) {
         rocksdb::FlushOptions fo;
@@ -534,7 +456,7 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
     }
   }
 
-  void compact_if_necessary(int64_t timestep) {
+  void compact_if_necessary(const int64_t timestep) {
     for (int64_t i = 0; i < dbs_.size(); i++) {
       if (shard_flush_compaction_deadlines_[i] == timestep) {
         rocksdb::ColumnFamilyMetaData meta;
@@ -549,7 +471,6 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
     }
   }
 
- private:
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
   std::vector<std::unique_ptr<Initializer>> initializers_;
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
