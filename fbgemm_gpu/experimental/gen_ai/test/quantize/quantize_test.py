@@ -52,22 +52,28 @@ def int4_row_quantize(
     x: torch.Tensor,
     group_size: int = 128,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    N = x.shape[0]
-    K = x.shape[1]
-    assert K >= group_size and K % group_size == 0
-    num_groups = K // group_size
-    x = x.view(N, group_size, num_groups).to(torch.float)
-    # Zero point should be values in each row closest to zero.
-    zp_ind = torch.argmin(torch.abs(x), dim=1, keepdim=True)
-    zero_point = torch.gather(x, 1, zp_ind)  # + (.5 / scale)
-    x_centered = x - zero_point
-    scale = 7.5 / torch.max(torch.abs(x_centered), dim=1, keepdim=True).values
-    xq = torch.clamp(torch.round((x_centered * scale) - 0.5), min=-8, max=7)
-    return (
-        xq.to(torch.int8).view(N, -1).contiguous(),
-        scale.reciprocal().view(N, -1).contiguous(),  # pyre-ignore
-        (zero_point + (0.5 / scale)).view(N, -1).contiguous(),
-    )
+    n_bit = 4  # Number of target bits.
+    to_quant = x.reshape(-1, group_size).to(torch.float)
+
+    max_val = to_quant.amax(dim=1, keepdim=True)
+    min_val = to_quant.amin(dim=1, keepdim=True)
+    max_int = 2**n_bit - 1
+    min_int = 0
+    scales = (max_val - min_val).clamp(min=1e-6) / max_int
+
+    zeros = min_val + scales * (2 ** (n_bit - 1))
+
+    out = to_quant.sub(min_val).div(scales).round().clamp_(min_int, max_int)
+
+    # Recenter output and move to int8.
+    out = (out - 2 ** (n_bit - 1)).to(dtype=torch.int8).reshape(x.shape)
+
+    # Cutlass expects column major layout for scale and zero point,
+    # so we transpose here and make them contiguous.
+    scales = scales.view(x.shape[0], -1).t().contiguous()
+    zeros = zeros.view(x.shape[0], -1).t().contiguous()
+
+    return out, scales, zeros
 
 
 def pack_int4(x: torch.Tensor) -> torch.Tensor:
