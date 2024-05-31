@@ -93,6 +93,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ssd_uniform_init_lower: float = -0.01,
         ssd_uniform_init_upper: float = 0.01,
         ssd_block_cache_size: int = 0,
+        weights_precision: SparseType = SparseType.FP32,
+        output_dtype: SparseType = SparseType.FP32,
         optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
         # General Optimizer args
         stochastic_rounding: bool = True,
@@ -187,11 +189,22 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             EmbeddingLocation.MANAGED,
             EmbeddingLocation.DEVICE,
         )
+
+        assert weights_precision in (SparseType.FP32, SparseType.FP16)
+        assert output_dtype in (SparseType.FP32, SparseType.FP16)
+        self.weights_precision = weights_precision
+        self.output_dtype: int = output_dtype.as_int()
+
+        cache_dtype = weights_precision.as_dtype()
         if ssd_cache_location == EmbeddingLocation.MANAGED:
             self.register_buffer(
                 "lxu_cache_weights",
                 torch.ops.fbgemm.new_managed_tensor(
-                    torch.zeros(1, device=self.current_device, dtype=torch.float32),
+                    torch.zeros(
+                        1,
+                        device=self.current_device,
+                        dtype=cache_dtype,
+                    ),
                     [cache_sets * ASSOC, self.max_D],
                 ),
             )
@@ -202,7 +215,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     cache_sets * ASSOC,
                     self.max_D,
                     device=self.current_device,
-                    dtype=torch.float32,
+                    dtype=cache_dtype,
                 ),
             )
 
@@ -234,7 +247,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ssd_max_write_buffer_num,
             ssd_uniform_init_lower,
             ssd_uniform_init_upper,
-            32,  # row_storage_bitwidth
+            weights_precision.bit_rate(),  # row_storage_bitwidth
             ssd_block_cache_size,
         )
         # pyre-fixme[20]: Argument `self` expected.
@@ -286,12 +299,18 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             lower_bound=cowclip_regularization.lower_bound,
             regularization_mode=weight_decay_mode.value,
         )
+
+        table_embedding_dtype = weights_precision.as_dtype()
         self.weights_dev = nn.Parameter(
-            torch.empty((0,), device=self.current_device, dtype=torch.float32)
+            torch.empty(
+                (0,),
+                device=self.current_device,
+                dtype=table_embedding_dtype,
+            )
         )
         self.register_buffer(
             "weights_uvm",
-            torch.tensor((0,), device=self.current_device, dtype=torch.float32),
+            torch.tensor((0,), device=self.current_device, dtype=table_embedding_dtype),
         )
         self.register_buffer(
             "weights_host",
@@ -542,7 +561,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         common_args = invokers.lookup_args_ssd.CommonArgs(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
-            output_dtype=SparseType.FP32.as_int(),
+            output_dtype=self.output_dtype,
             dev_weights=self.weights_dev,
             host_weights=self.weights_host,
             uvm_weights=self.weights_uvm,
@@ -635,7 +654,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         rows_cumsum = [0] + list(itertools.accumulate(rows))
         splits = []
         for t, (row, dim) in enumerate(self.embedding_specs):
-            weights = torch.empty((row, dim), dtype=torch.float32)
+            weights = torch.empty((row, dim), dtype=self.weights_precision.as_dtype())
             self.ssd_db.get_cuda(
                 torch.arange(rows_cumsum[t], rows_cumsum[t + 1]).to(torch.int64),
                 weights,
@@ -903,6 +922,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             ssd_uniform_init_lower,
             ssd_uniform_init_upper,
             8,  # row_storage_bitwidth
+            0,  # ssd_block_cache_size
         )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()

@@ -37,6 +37,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
+#include <torch/nn/init.h>
+#include <iostream>
 #include "fbgemm_gpu/dispatch_macros.h"
 
 namespace ssd {
@@ -82,39 +84,14 @@ class Initializer {
       row_storage_ = at::empty(
           {kRowInitBufferSize, max_D}, at::TensorOptions().dtype(at::kByte));
     }
+    // Sanity check
+    CHECK_EQ(row_storage_.element_size(), row_storage_bitwidth / 8);
     producer_ = std::make_unique<std::thread>([=] {
-#if defined(__x86_64__) || defined(__i386__) || \
-    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
-      VSLStreamStatePtr stream;
-      CHECK_EQ(
-          VSL_ERROR_OK, vslNewStream(&stream, VSL_BRNG_SFMT19937, random_seed));
-      auto rng_uniform = [&](size_t n, float* ptr) {
-        CHECK_EQ(
-            VSL_ERROR_OK,
-            vsRngUniform(
-                VSL_RNG_METHOD_UNIFORM_STD,
-                stream,
-                n,
-                ptr,
-                uniform_init_lower,
-                uniform_init_upper));
-      };
-      SCOPE_EXIT {
-        vslDeleteStream(&stream);
-      };
-
-#else
-      folly::Random::DefaultGenerator gen(random_seed);
-      auto rng_uniform = [&](size_t n, float* ptr) {
-        std::uniform_real_distribution<float> dis(
-            uniform_init_lower, uniform_init_upper);
-        for (auto i = 0; i < n; i++) {
-          ptr[i] = dis(gen);
-        }
-      };
-#endif
-      if (row_storage_bitwidth == 32) {
-        rng_uniform(kRowInitBufferSize * max_D, row_storage_.data_ptr<float>());
+      const auto init = row_storage_.scalar_type() == at::ScalarType::Float ||
+          row_storage_.scalar_type() == at::ScalarType::Half;
+      if (init) {
+        torch::nn::init::uniform_(
+            row_storage_, uniform_init_lower, uniform_init_upper);
       }
       for (auto i = 0; i < kRowInitBufferSize; ++i) {
         producer_queue_.enqueue(i);
@@ -132,9 +109,11 @@ class Initializer {
         if (stop_) {
           return;
         }
-        // dequeued a row. Reinitialize and enqueue it.
-        if (row_storage_bitwidth == 32) {
-          rng_uniform(max_D, row_storage_.data_ptr<float>() + i * max_D);
+
+        if (init) {
+          // dequeued a row. Reinitialize and enqueue it.
+          torch::nn::init::uniform_(
+              row_storage_[i], uniform_init_lower, uniform_init_upper);
         }
         producer_queue_.enqueue(i);
       }
@@ -428,9 +407,18 @@ class EmbeddingRocksDB : public std::enable_shared_from_this<EmbeddingRocksDB> {
                           values.data(),
                           statuses.data(),
                           /*sorted_input=*/true);
+                      const auto& init_storage =
+                          initializers_[shard]->row_storage_;
+                      // Sanity check
+                      TORCH_CHECK(
+                          init_storage.scalar_type() == weights.scalar_type(),
+                          "init_storage (",
+                          toString(init_storage.scalar_type()),
+                          ") and weights scalar (",
+                          toString(weights.scalar_type()),
+                          ") types mismatch");
                       auto row_storage_data_ptr =
-                          initializers_[shard]
-                              ->row_storage_.data_ptr<scalar_t>();
+                          init_storage.data_ptr<scalar_t>();
                       for (auto j = 0; j < keys.size(); ++j) {
                         const auto& s = statuses[j];
                         int64_t i = shard_ids[j];
