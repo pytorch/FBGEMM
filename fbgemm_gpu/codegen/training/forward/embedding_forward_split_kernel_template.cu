@@ -429,7 +429,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     if (placement == PlacementType::DEVICE) {
         weights = &dev_weights[weights_offset];
     } else {
-        weights = &uvm_weights[weights_offset];
+        weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset]" }};
     }
     {%- else %}
     weights = &dev_weights[weights_offset];
