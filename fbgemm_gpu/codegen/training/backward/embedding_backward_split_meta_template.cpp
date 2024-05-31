@@ -49,11 +49,25 @@ using Tensor = at::Tensor;
         ssd=False
     ) else [False])
 %}
-{%- set gwddesc = "_gwd" if is_gwd else "" %}
+
+{%- macro get_desc_suffix(gwd) %}
+{%- set gwddesc = "_gwd" if gwd else "" %}
+{{- wdesc + vdesc + gwddesc }}
+{%- endmacro %}
+
+{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
+    dense,
+    nobag,
+    vbe,
+    is_index_select,
+    has_global_weight_decay_support,
+    ssd) %}
+{%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
+
 {%- if is_index_select %}
 Tensor batch_index_select_dim0_codegen_backward_meta(
 {%- else %}
-Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_meta(
+Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_meta(
 {%- endif %}
     const Tensor& grad_output,
     const Tensor& dev_weights,
@@ -230,11 +244,11 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdes
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     // NB: yes cuda here
     {%- set embedding_codegen_backward_op =
-        "split_embedding{}_backward_codegen_{}_{}_exact{}{}_cuda".format(
-            ndesc, optimizer, wdesc, vdesc, gwddesc
+        "{}_embedding{}_backward_codegen_{}_{}_exact_cuda".format(
+            mdesc, ndesc, optimizer, desc_suffix
         )
     %}
-    m.impl("{{ embedding_codegen_backward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN(split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}{{ gwddesc }}_meta)));
+    m.impl("{{ embedding_codegen_backward_op }}", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_meta)));
     {%- if is_index_select %}
     m.impl("batch_index_select_dim0_codegen_backward_cuda", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN(batch_index_select_dim0_codegen_backward_meta)));
     {%- endif %}
