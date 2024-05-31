@@ -52,6 +52,10 @@ enum SSDTensor {
             "_gwd" if is_gwd else "",
         )
     %}
+    {%- set has_experimental = has_experimental_support(
+            dense, nobag, vbe, is_index_select=False, is_rocm=is_rocm, ssd=ssd
+        ) and not is_gwd
+    %}
     static auto embedding_codegen_forward_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ forward_op }}", "")
@@ -77,14 +81,12 @@ enum SSDTensor {
         offsets,
         {%- if not nobag %}
         pooling_mode,
+        {%- endif %} {# /* if not nobag */ #}
         {%- if weighted %}
         *indice_weights,
         {%- endif %}
-        {%- endif %} {# /* if not nobag */ #}
-        {%- if ssd %}
-        ssd_tensors[SSDTensor::ROW_ADDRS],
-        {%- elif not dense %}
-        lxu_cache_locations,
+        {%- if not dense %}
+        {{ "ssd_tensors[SSDTensor::ROW_ADDRS]" if ssd else "lxu_cache_locations" }},
         uvm_cache_stats_,
         {%- endif %}
         output_dtype,
@@ -97,18 +99,14 @@ enum SSDTensor {
         info_B_mask_int64,
         {%- endif %} {# /* if vbe */ #}
         {%- if is_gwd %}
-        is_experimental,
         hash_size_cumsum,
         prev_iter_dev_,
         learning_rate,
         weight_decay,
-        iter
-        {%- else %}
-        {{ "is_experimental" if not dense else "false" }}
+        iter,
         {%- endif %} {# /* if is_gwd */ #}
-        {%- else %}
-        /*is_experimental=*/false
         {%- endif %} {# /* if not nobag */ #}
+        {{ "is_experimental" if has_experimental else "false" }}
       )
     };
 {%- endmacro %}
@@ -432,10 +430,8 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward{{ desc_suffix }}_cud
     {%- if weighted %}
     const Tensor& indice_weights,
     {%- endif %}
-    {%- if ssd %}
-    const Tensor& ssd_row_addrs,
-    {%- elif not dense %}
-    const Tensor& lxu_cache_locations,
+    {%- if not dense %}
+    const Tensor& {{ "ssd_row_addrs" if ssd else "lxu_cache_locations" }},
     const Tensor& uvm_cache_stats,
     {%- endif %}
     const int64_t output_dtype,
@@ -447,15 +443,13 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward{{ desc_suffix }}_cud
     const int64_t info_B_mask_int64,
     {%- endif %}
     {%- if is_gwd %}
-    const bool is_experimental,
     const Tensor& hash_size_cumsum,
     const Tensor& prev_iter_dev,
     const double learning_rate,
     const double weight_decay,
-    const int64_t iter
-    {%- else %}
-    const bool is_experimental
+    const int64_t iter,
     {%- endif %}
+    const bool is_experimental
 );
 
 Tensor

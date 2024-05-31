@@ -96,15 +96,13 @@ Tensor
     const int64_t info_B_mask_int64, // uint32_t
     {%- endif %}
     {%- if is_gwd %}
-    const bool is_experimental,
     const Tensor& hash_size_cumsum,
     const Tensor& prev_iter_dev,
     const double learning_rate,
     const double weight_decay,
-    const int64_t iter
-    {%- else %}
-    const bool is_experimental
+    const int64_t iter,
     {%- endif %}
+    const bool is_experimental
 ) {
     // NB: omitted the device tests TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL
 
