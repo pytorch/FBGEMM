@@ -90,7 +90,8 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 set(VBE_OPTIMIZERS
     rowwise_adagrad
     rowwise_adagrad_with_counter
-    sgd)
+    sgd
+    dense)
 
 # Optimizers with the GWD support
 set(GWD_OPTIMIZERS
@@ -151,6 +152,8 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_backward_dense_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_ssd_indice_weights_codegen_cuda.cu"
+    "gen_embedding_forward_dense_weighted_vbe_codegen_cuda.cu"
+    "gen_embedding_forward_dense_unweighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_weighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_vbe_codegen_cuda.cu"
     "gen_batch_index_select_dim0_forward_codegen_cuda.cu"
@@ -203,7 +206,9 @@ endforeach()
 foreach(wdesc weighted unweighted)
   list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_forward_split_${wdesc}_vbe_kernel.cu"
-      "gen_embedding_backward_split_${wdesc}_vbe_device_kernel.cuh")
+      "gen_embedding_backward_split_${wdesc}_vbe_device_kernel.cuh"
+      "gen_embedding_forward_dense_${wdesc}_vbe_kernel.cu")
+
 endforeach()
 
 # Generate GWD files
@@ -260,6 +265,9 @@ foreach(optimizer ${ALL_OPTIMIZERS})
     "gen_embedding_split_${optimizer}_pt2_autograd.cpp"
     "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp")
 endforeach()
+
+list(APPEND gen_gpu_host_source_files
+    "gen_embedding_backward_split_dense.cpp")
 
 foreach(optimizer ${CPU_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
@@ -462,7 +470,6 @@ set(fbgemm_gpu_sources_static_cpu
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
     codegen/inference/embedding_forward_quantized_host.cpp
-    codegen/training/backward/embedding_backward_dense_host.cpp
     codegen/utils/embedding_bounds_check_host.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
