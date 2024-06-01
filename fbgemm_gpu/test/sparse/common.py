@@ -127,9 +127,7 @@ def extend_test_class(
         "", os.path.dirname(__file__), "failures_dict.json"
     )
 
-    additional_decorators = {
-        **(additional_decorators or {}),
-    }
+    additional_decorators = {**(additional_decorators or {})}
 
     # Only generate tests for PyTorch 2.2+
     if (
