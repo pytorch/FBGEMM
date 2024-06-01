@@ -76,6 +76,7 @@ class SparseType(enum.Enum):
     INT4 = "int4"
     INT2 = "int2"
     BF16 = "bf16"
+    MX4 = "mx4"
 
     def __str__(self) -> str:
         return self.value
@@ -96,6 +97,8 @@ class SparseType(enum.Enum):
             return SparseType("bf16")
         elif ty == 6:
             return SparseType("fp8")
+        elif ty == 7:
+            return SparseType("mx4")
         else:
             raise ValueError(f"Unsupported sparse type: {ty}")
 
@@ -108,15 +111,16 @@ class SparseType(enum.Enum):
             SparseType.INT2.value: 4,
             SparseType.BF16.value: 5,
             SparseType.FP8.value: 6,
+            SparseType.MX4.value: 7,
         }[self.value]
 
     @staticmethod
-    def from_dtype(dtype: torch.dtype) -> "SparseType":
+    def from_dtype(dtype: torch.dtype, is_mx: bool = False) -> "SparseType":
         if dtype == torch.float32:
             return SparseType("fp32")
         elif dtype == torch.float16:
             return SparseType("fp16")
-        elif dtype == torch.int8 or dtype == torch.uint8:
+        elif (dtype == torch.int8 or dtype == torch.uint8) and not is_mx:
             return SparseType("int8")
         elif dtype == torch.quint4x2:
             return SparseType("int4")
@@ -124,6 +128,8 @@ class SparseType(enum.Enum):
             return SparseType("int2")
         elif dtype == torch.bfloat16:
             return SparseType("bf16")
+        elif dtype == torch.uint8:
+            return SparseType("mx4")
         else:
             raise ValueError(f"Unsupported sparse dtype: {dtype}")
 
@@ -136,6 +142,7 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: torch.quint4x2,
             SparseType.INT2.value: torch.quint2x4,
             SparseType.BF16.value: torch.bfloat16,
+            SparseType.MX4.value: torch.uint8,
         }[self.value]
 
     def bit_rate(self) -> int:
@@ -147,6 +154,7 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: 4,
             SparseType.INT2.value: 2,
             SparseType.BF16.value: 16,
+            SparseType.MX4.value: 4,
         }[self.value]
 
     def align_size(self) -> int:
@@ -158,6 +166,7 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: 8,
             SparseType.INT2.value: 16,
             SparseType.BF16.value: 2,
+            SparseType.MX4.value: 8,
         }[self.value]
 
     def is_float(self) -> bool:
