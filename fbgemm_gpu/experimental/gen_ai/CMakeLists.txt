@@ -35,14 +35,14 @@ set(quantize_ops_sources
     src/quantize/quantize.cu
     src/quantize/quantize.cpp)
 
-# set(comm_ops_sources
-#     src/comm/car.cu
-#     src/comm/car.cpp)
+set(comm_ops_sources
+    src/comm/car.cu
+    src/comm/car.cpp)
 
 set(experimental_gen_ai_cpp_source_files
     ${attention_ops_sources}
-    ${quantize_ops_sources})
-#     ${comm_ops_sources})
+    ${quantize_ops_sources}
+    ${comm_ops_sources})
 
 set_source_files_properties(${experimental_gen_ai_cpp_source_files}
     PROPERTIES INCLUDE_DIRECTORIES
