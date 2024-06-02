@@ -400,6 +400,22 @@ at::Tensor fusednbitrowwise_to_float_or_half_cpu(
     const int64_t bit_rate,
     const int64_t output_dtype);
 
+at::Tensor quantize_mx_cuda(
+    const at::Tensor& input,
+    const std::vector<int64_t>& split_sizes,
+    const int64_t scale_bits,
+    const int64_t elem_ebits,
+    const int64_t elem_mbits,
+    const double elem_max_norm,
+    const int64_t mx_group_size,
+    const bool flush_fp32_subnorms = false,
+    const int64_t rounding_mode = 0);
+
+at::Tensor dequantize_mx_cuda(
+    const at::Tensor& input,
+    const std::vector<int64_t>& split_sizes,
+    const int64_t mx_group_size);
+
 ///@ingroup sparse-data-cuda
 at::Tensor reorder_batched_ad_lengths_gpu(
     const at::Tensor& cat_ad_lengths,
