@@ -69,33 +69,33 @@ class FP8QuantizationConfig(QuantizationConfig):
 
 @enum.unique
 class SparseType(enum.Enum):
-    FP32 = "fp32"
-    FP16 = "fp16"
-    FP8 = "fp8"
-    INT8 = "int8"
-    INT4 = "int4"
-    INT2 = "int2"
-    BF16 = "bf16"
+    FP32 = 1
+    FP16 = 2
+    FP8 = 3
+    INT8 = 4
+    INT4 = 5
+    INT2 = 6
+    BF16 = 7
 
     def __str__(self) -> str:
-        return self.value
+        return self.name.lower()
 
     @staticmethod
     def from_int(ty: int) -> "SparseType":
         if ty == 0:
-            return SparseType("fp32")
+            return SparseType(1)
         elif ty == 1:
-            return SparseType("fp16")
+            return SparseType(2)
         elif ty == 2:
-            return SparseType("int8")
+            return SparseType(3)
         elif ty == 3:
-            return SparseType("int4")
+            return SparseType(4)
         elif ty == 4:
-            return SparseType("int2")
+            return SparseType(5)
         elif ty == 5:
-            return SparseType("bf16")
+            return SparseType(6)
         elif ty == 6:
-            return SparseType("fp8")
+            return SparseType(7)
         else:
             raise ValueError(f"Unsupported sparse type: {ty}")
 
@@ -113,17 +113,17 @@ class SparseType(enum.Enum):
     @staticmethod
     def from_dtype(dtype: torch.dtype) -> "SparseType":
         if dtype == torch.float32:
-            return SparseType("fp32")
+            return SparseType(1)
         elif dtype == torch.float16:
-            return SparseType("fp16")
+            return SparseType(2)
         elif dtype == torch.int8 or dtype == torch.uint8:
-            return SparseType("int8")
+            return SparseType(4)
         elif dtype == torch.quint4x2:
-            return SparseType("int4")
+            return SparseType(5)
         elif dtype == torch.quint2x4:
-            return SparseType("int2")
+            return SparseType(6)
         elif dtype == torch.bfloat16:
-            return SparseType("bf16")
+            return SparseType(7)
         else:
             raise ValueError(f"Unsupported sparse dtype: {dtype}")
 
