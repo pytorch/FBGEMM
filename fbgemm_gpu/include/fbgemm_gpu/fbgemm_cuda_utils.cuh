@@ -813,10 +813,10 @@ struct BitonicSort {
 static DEVICE_INLINE __half
 stochastic_rounding_scalar(float x, uint32_t random_value) {
   uint32_t w_int = __float_as_uint(x);
-  unsigned assmebles = (w_int & 0xff800000) | (random_value >> 19);
+  unsigned assembles = (w_int & 0xff800000) | (random_value >> 19);
   unsigned subtract = (w_int & 0xff800000);
-  float assmeble_float = __uint_as_float(assmebles) - __uint_as_float(subtract);
-  return __float2half_rz(x + assmeble_float);
+  float assemble_float = __uint_as_float(assembles) - __uint_as_float(subtract);
+  return __float2half_rz(x + assemble_float);
 }
 
 static DEVICE_INLINE uint8_t
