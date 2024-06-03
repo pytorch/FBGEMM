@@ -14,18 +14,20 @@ import unittest
 from math import sqrt
 from typing import Callable, List, Tuple
 
+import fbgemm_gpu  # noqa: F401
 import fbgemm_gpu.batched_unary_embeddings_ops as batched_unary_embeddings_ops
+import fbgemm_gpu.sparse_ops  # noqa: F401
 import numpy as np
 import torch
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
-
-except Exception:
+else:
     if torch.version.hip:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
     else:
