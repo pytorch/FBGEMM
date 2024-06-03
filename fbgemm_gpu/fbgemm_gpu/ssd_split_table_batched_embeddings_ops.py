@@ -48,14 +48,18 @@ try:
             "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
         )
     else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-        )
-except OSError:
-    # Keep for BC: will be deprecated soon.
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/fb:ssd_split_table_batched_embeddings"
-    )
+        try:
+            torch.ops.load_library(
+                "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
+            )
+        except OSError:
+            # Keep for BC: will be deprecated soon.
+            torch.ops.load_library(
+                "//deeplearning/fbgemm/fbgemm_gpu/fb:ssd_split_table_batched_embeddings"
+            )
+except Exception:
+    pass
+
 
 ASSOC = 32
 
