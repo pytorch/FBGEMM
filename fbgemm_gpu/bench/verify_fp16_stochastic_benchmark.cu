@@ -58,11 +58,11 @@ __device__ half float_to_sto_half_shortrand(float w, uint8_t rand) {
 
 __device__ half float_to_sto_half_assemblefloat(float w, uint8_t rand) {
   const unsigned w_int = __float_as_uint(w);
-  const unsigned assmebles = (w_int & 0xff800000) | (rand << 5);
+  const unsigned assembles = (w_int & 0xff800000) | (rand << 5);
   const unsigned subtract = (w_int & 0xff800000);
-  const float assmeble_float =
-      __uint_as_float(assmebles) - __uint_as_float(subtract);
-  return __float2half_rz(w + assmeble_float);
+  const float assemble_float =
+      __uint_as_float(assembles) - __uint_as_float(subtract);
+  return __float2half_rz(w + assemble_float);
 }
 
 __global__ void convert_float_to_half_direct(half* dst, float* src, int size) {
