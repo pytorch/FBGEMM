@@ -175,7 +175,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const Tensor& indices,
       const c10::SymInt _batch_size,
       const std::optional<Tensor>& weights,
-      const std::optional<c10::SymInt>& selected_lengths_sum) {
+      const std::optional<c10::SymInt> selected_lengths_sum) {
     at::cuda::OptionalCUDAGuard device_guard;
     device_guard.set_index(values.get_device());
 
@@ -249,9 +249,9 @@ class KeyedJaggedIndexSelectDim1GPUOp
               });
         });
 
-    // TODO: Try to not do D->H transfer
-    const int64_t num_outputs =
-        output_offsets[output_offsets.numel() - 1].item<int64_t>();
+    const int64_t num_outputs = (selected_lengths_sum.has_value())
+        ? selected_lengths_sum.value().guard_int(__FILE__, __LINE__)
+        : output_offsets[output_offsets.numel() - 1].item<int64_t>();
     Tensor output = at::empty({num_outputs}, values.options());
     Tensor output_weights;
     if (weights.has_value()) {
