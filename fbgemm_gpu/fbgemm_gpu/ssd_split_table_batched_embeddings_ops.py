@@ -419,7 +419,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
                 linear_cache_indices,
                 self.lxu_cache_state,
-                self.hash_size_cumsum[-1].item(),
+                self.total_hash_size,
             )
 
         with record_function("## ssd_generate_row_addrs ##"):
@@ -441,7 +441,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.ssd_scratch_pads.append(
                 (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
             )
-            assert lxu_cache_ptrs[lxu_cache_ptrs == 0].numel() == 0
         return (
             lxu_cache_ptrs,
             inserted_rows_gpu,
@@ -1092,7 +1091,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
             linear_cache_indices,
             self.lxu_cache_state,
-            self.hash_size_cumsum[-1].item(),
+            self.total_hash_size,
         )
 
         self.timestep_prefetch_size.decrement()
