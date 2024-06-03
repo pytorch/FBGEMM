@@ -532,7 +532,17 @@ cat_dim_2d_output_shape(
   for (const auto& t : tensors) {
     TORCH_CHECK(t.dim() == 2);
     // only support two-dimension tensors.
-    TORCH_CHECK(t.size(1 - cat_dim) == uncat_dim_size);
+    TORCH_CHECK(
+        t.size(1 - cat_dim) == uncat_dim_size,
+        "cat dim does not match, ",
+        "compare tensor dim = ",
+        1 - cat_dim,
+        ", expect size = ",
+        uncat_dim_size,
+        ", but got size = ",
+        t.size(1 - cat_dim),
+        " on device ",
+        t.get_device());
     total_cat_dim += t.size(cat_dim);
     cumulative_dims.push_back(total_cat_dim);
   }
