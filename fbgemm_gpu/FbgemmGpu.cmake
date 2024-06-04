@@ -543,6 +543,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/quantize_ops/quantize_hfp8.cu
       src/quantize_ops/quantize_msfp.cu
       src/quantize_ops/quantize_padded_fp8_rowwise.cu
+      src/quantize_ops/quantize_mx.cu
       src/sparse_ops/sparse_async_cumsum.cu
       src/sparse_ops/sparse_block_bucketize_features.cu
       src/sparse_ops/sparse_bucketize_features.cu
