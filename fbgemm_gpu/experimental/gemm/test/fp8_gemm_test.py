@@ -131,15 +131,20 @@ class TestFp8Matmul(unittest.TestCase):
             shape: Tuple[int, int, int],
             block_shape: Tuple[int, int, int],
             fp8_fast_accum: bool,
+            device: str = "cuda",
         ) -> None:
             M, N, K = shape
             BLOCK_M, BLOCK_N, BLOCK_K = block_shape
-            a = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
-            b = torch.randn(N, K, dtype=torch.bfloat16, device="cuda")
+            a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+            b = torch.randn(N, K, dtype=torch.bfloat16, device=device)
 
             # Quantize inputs.
-            a_fp8, a_scale = quantize_fp8_block(a, BLOCK_M, BLOCK_K)
-            b_fp8, b_scale = quantize_fp8_block(b, BLOCK_N, BLOCK_K)
+            a_fp8, a_scale = quantize_fp8_block(
+                a, BLOCK_M, BLOCK_K, output_device=torch.device("cuda")
+            )
+            b_fp8, b_scale = quantize_fp8_block(
+                b, BLOCK_N, BLOCK_K, output_device=torch.device("cuda")
+            )
 
             result = matmul_fp8_block(
                 a_fp8,
@@ -153,7 +158,7 @@ class TestFp8Matmul(unittest.TestCase):
             )
             self.assertTrue(result.shape == (M, N))
 
-            expected_result = a @ b.T
+            expected_result = (a @ b.T).to("cuda")
 
             self.assertTrue(
                 torch.allclose(result, expected_result, atol=1e2, rtol=5e-2)
@@ -163,3 +168,5 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), True)
         _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), False)
         _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), False)
+        _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), True, "cpu")
+        _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), True, "cpu")
