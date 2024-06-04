@@ -211,7 +211,7 @@ std::tuple<KernelMode, bool> get_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
   auto K = XQ.size(1);
   auto N = WQ.size(0);
   // Use small kernel when input matrices are small.
-  bool use_small_kernel = (M <= 512 && N <= 512);
+  bool use_small_kernel = (M <= 512 && N <= 512) || (M <= 128) || (N <= 128);
   // For larger workloads, specialize to large gemm.
   bool use_large_kernel =
       ((M >= 4096 && N >= 4096) || (M >= 8192 && N >= 2048) ||
@@ -268,7 +268,8 @@ template <
     int KBLOCK,
     int MPER_WAVE,
     int NPER_WAVE,
-    bool PADDING = false>
+    bool PADDING = false,
+    bool TINY = false>
 at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -317,8 +318,16 @@ at::Tensor f8f8bf16_rowwise_impl(
 
   // Define derivative constants based on template parameters.
   static constexpr int BLOCK_CLUSTER = BLOCK_SIZE / 4;
-  static constexpr int CBLOCK_N = NBLOCK / 16;
-  static constexpr int CBLOCK_M = BLOCK_SIZE / CBLOCK_N;
+  static constexpr int CBLOCK_N = TINY ? 4 : NBLOCK / 16;
+  static constexpr int CBLOCK_M = TINY ? 16 : BLOCK_SIZE / CBLOCK_N;
+
+  // A few modes change for tiny kernels.
+  static constexpr int MPER_XDL = TINY ? 16 : 32;
+  static constexpr int NPER_XDL = TINY ? 16 : 32;
+  static constexpr auto LOOP_SCHED = TINY ? ck::BlockGemmPipelineScheduler::Intrawave : ck::BlockGemmPipelineScheduler::Interwave;
+  using ABLOCK_TRANSFER = std::conditional_t<TINY, S<BLOCK_CLUSTER, 4, 1>, S<4, BLOCK_CLUSTER, 1>>;
+  using BBLOCK_TRANSFER = std::conditional_t<TINY, S<BLOCK_CLUSTER, 4, 1>, S<4, BLOCK_CLUSTER, 1>>;
+  using CBLOCK_TRANSFER = std::conditional_t<TINY, S<4, 4, 1>, S<8, 8, 1>>;
 
   using DeviceGemmInstance =
       ck::tensor_operation::device::DeviceGemmMultiD_Xdl_CShuffle_V3<
@@ -342,18 +351,18 @@ at::Tensor f8f8bf16_rowwise_impl(
           KBLOCK, // K per Block
           16, // AK1
           16, // BK1
-          32, // M per Xdl
-          32, // N per Xdl
+          MPER_XDL, // M per Xdl
+          NPER_XDL, // N per Xdl
           MPER_WAVE, // Mxdl per Wave
           NPER_WAVE, // Nxdl per Wave
-          S<4, 64, 1>,
+          ABLOCK_TRANSFER,
           S<1, 0, 2>,
           S<1, 0, 2>,
           2,
           16,
           16,
           0,
-          S<4, 64, 1>,
+          BBLOCK_TRANSFER,
           S<1, 0, 2>,
           S<1, 0, 2>,
           2,
@@ -363,8 +372,8 @@ at::Tensor f8f8bf16_rowwise_impl(
           1,
           1,
           S<1, CBLOCK_M, 1, CBLOCK_N>,
-          S<8, 8, 1>,
-          ck::BlockGemmPipelineScheduler::Interwave,
+          CBLOCK_TRANSFER,
+          LOOP_SCHED,
           ck::BlockGemmPipelineVersion::v1,
           ComputeType>;
 
@@ -404,6 +413,43 @@ at::Tensor f8f8bf16_rowwise_impl(
   return Y;
 }
 
+enum class RowKernelMode { Tiny, Small, Large, Default };
+
+std::tuple<RowKernelMode, bool> get_row_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
+  auto M = XQ.size(0);
+  auto K = XQ.size(1);
+  auto N = WQ.size(0);
+  // Tiny kernels should be used when M and N are so small we need to load mostly from K.
+  // We also find this kernel is good for many shapes with small M up until a certain N.
+  bool use_tiny_kernel = (M <= 32 || N <= 32) || (M <= 128 && N <= 8192);
+  // For other cases where M is small but N is large, we have a specialized kernel.
+  bool use_small_kernel = (M <= 128);
+  // Larger workloads can load big chunks.
+  bool use_large_kernel =
+      ((M >= 4096 && N >= 4096) || (M >= 8192 && N >= 2048) ||
+       (N >= 8192 && M >= 2048) || (K >= 8192 && M >= 2048 && N >= 2048));
+  // Set padding based on the selected mode.
+  bool use_pad;
+  if (use_tiny_kernel) {
+    // Tiny kernels use chunks of 16 in M and N and 256 in K.
+    // If any dimension cant be divided into proper chunks, we pad.
+    use_pad = (M % 16 != 0) || (N % 16 != 0) || (K % 256 != 0);
+    return {RowKernelMode::Tiny, use_pad};
+  } else if (use_small_kernel) {
+    // Small kernels load chunks of 32 in M, 128 in N and 128 in K.
+    use_pad = (M % 32 != 0) || (N % 128 != 0) || (K % 128 != 0);
+    return {RowKernelMode::Small, use_pad};
+  } else if (use_large_kernel) {
+    // Large kernels load chunks of 256 in M, 128 in K and 64 in K.
+    use_pad = (M % 256 != 0) || (N % 128 != 0) || (K % 64 != 0);
+    return {RowKernelMode::Large, use_pad};
+  } else {
+    // Default kernel loads chunks of 128 in M and N and 64 in K.
+    use_pad = (M % 128 != 0) || (N % 128 != 0) || (K % 64 != 0);
+    return {RowKernelMode::Default, use_pad};
+  }
+}
+
 at::Tensor f8f8bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -419,18 +465,26 @@ at::Tensor f8f8bf16_rowwise(
   TORCH_CHECK((x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat), "Scales must be float32.");
   TORCH_CHECK(use_fast_accum, "AMD does not support disabling use_fast_accum.");
   TORCH_CHECK(!(bias.has_value()), "AMD does not yet support bias.");
-  auto [kernel, pad] = get_kernel_mode(XQ, WQ);
+  auto [kernel, pad] = get_row_kernel_mode(XQ, WQ);
   if (pad) {
-    if (kernel == KernelMode::Large) {
-      return f8f8bf16_rowwise_impl<256, 256, 128, 64, 4, 2, true>(XQ, WQ, x_scale, w_scale);
+    if (kernel == RowKernelMode::Tiny) {
+      return f8f8bf16_rowwise_impl<64, 16, 16, 256, 1, 1, true, true>(XQ, WQ, x_scale, w_scale);
+    } else if (kernel == RowKernelMode::Small) {
+      return f8f8bf16_rowwise_impl<128, 32, 128, 128, 1, 2, true, false>(XQ, WQ, x_scale, w_scale);
+    } else if (kernel == RowKernelMode::Large) {
+      return f8f8bf16_rowwise_impl<256, 256, 128, 64, 4, 2, true, false>(XQ, WQ, x_scale, w_scale);
     } else {
-      return f8f8bf16_rowwise_impl<256, 128, 128, 64, 2, 2, true>(XQ, WQ, x_scale, w_scale);
+      return f8f8bf16_rowwise_impl<256, 128, 128, 64, 2, 2, true, false>(XQ, WQ, x_scale, w_scale);
     }
   } else {
-    if (kernel == KernelMode::Large) {
-      return f8f8bf16_rowwise_impl<256, 256, 128, 64, 4, 2, false>(XQ, WQ, x_scale, w_scale);
+    if (kernel == RowKernelMode::Tiny) {
+      return f8f8bf16_rowwise_impl<64, 16, 16, 256, 1, 1, false, true>(XQ, WQ, x_scale, w_scale);
+    } else if (kernel == RowKernelMode::Small) {
+      return f8f8bf16_rowwise_impl<128, 32, 128, 128, 1, 2, true, false>(XQ, WQ, x_scale, w_scale);
+    } else if (kernel == RowKernelMode::Large) {
+      return f8f8bf16_rowwise_impl<256, 256, 128, 64, 4, 2, false, false>(XQ, WQ, x_scale, w_scale);
     } else {
-      return f8f8bf16_rowwise_impl<256, 128, 128, 64, 2, 2, false>(XQ, WQ, x_scale, w_scale);
+      return f8f8bf16_rowwise_impl<256, 128, 128, 64, 2, 2, false, false>(XQ, WQ, x_scale, w_scale);
     }
   }
 }
