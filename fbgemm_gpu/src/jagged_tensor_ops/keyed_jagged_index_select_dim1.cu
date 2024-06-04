@@ -356,7 +356,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
       const Tensor& indices, // select same indices for all batches
       const c10::SymInt batch_size,
       const std::optional<Tensor>& weights,
-      const std::optional<c10::SymInt>& selected_lengths_sum) {
+      const std::optional<c10::SymInt> selected_lengths_sum) {
     at::AutoDispatchBelowADInplaceOrView guard;
     // TODO: Add weights support
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, offsets, values, indices);
