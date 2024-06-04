@@ -15,6 +15,28 @@
 # ROCm Setup Functions
 ################################################################################
 
+install_rocm_amdsmi_ubuntu () {
+  # Manually install AMD SMI to work around missing package error
+  # https://github.com/pytorch/pytorch/pull/119182/
+  local env_name="$1"
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  echo "[INSTALL] Installing roctracer-dev and amd-smi-lib ..."
+  (apt-get install -y --allow-unauthenticated \
+      roctracer-dev \
+      amd-smi-lib) || return 1
+
+  echo "[INSTALL] Installing amd-smi ..."
+  cd /opt/rocm/share/amd_smi || return 1
+  # shellcheck disable=SC2086
+  (conda run ${env_prefix} pip install .) || return 1
+
+  echo "[INSTALL] Checking Python imports for amd-smi ..."
+  (test_python_import_package "${env_name}" amdsmi) || return 1
+}
+
 install_rocm_ubuntu () {
   # shellcheck disable=SC2034
   local env_name="$1"
@@ -59,17 +81,20 @@ install_rocm_ubuntu () {
   print_exec wget -q "${rocm_download_url}" -O "${package_name}"
 
   echo "[INSTALL] Installing the ROCm installer script ..."
-  install_system_packages "./${package_name}"
+  (install_system_packages "./${package_name}") || return 1
 
   # Skip installation of kernel driver when run in Docker mode with --no-dkms
   echo "[INSTALL] Installing ROCm ..."
-  (exec_with_retries 3 amdgpu-install -y --usecase=hiplibsdk,rocm --no-dkms) || return 1
+  (exec_with_retries 3 amdgpu-install -y --usecase=hiplibsdk,rocm,rocmdevtools --no-dkms) || return 1
 
   echo "[INSTALL] Installing HIP-relevant packages ..."
-  install_system_packages hipify-clang miopen-hip miopen-hip-dev
+  (install_system_packages hipify-clang miopen-hip miopen-hip-dev) || return 1
 
   # There is no need to install these packages for ROCm
   # install_system_packages mesa-common-dev clang comgr libopenblas-dev jp intel-mkl-full locales libnuma-dev
+
+  # Fix known issue of amdsmi error  https://github.com/pytorch/pytorch/pull/119182/
+  install_rocm_amdsmi_ubuntu "$env_name" || return 1
 
   echo "[INSTALL] Cleaning up ..."
   print_exec rm -f "${package_name}"
