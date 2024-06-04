@@ -419,29 +419,33 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         inserted_indices: torch.Tensor,
         actions_count_cpu: torch.Tensor,
     ) -> torch.Tensor:
-        lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-            linear_cache_indices,
-            self.lxu_cache_state,
-            self.hash_size_cumsum[-1].item(),
-        )
-        lxu_cache_ptrs, post_bwd_evicted_indices = (
-            torch.ops.fbgemm.ssd_generate_row_addrs(
-                lxu_cache_locations,
-                assigned_cache_slots,
-                linear_index_inverse_indices,
-                unique_indices_count_cumsum,
-                cache_set_inverse_indices,
-                self.lxu_cache_weights,
-                inserted_rows_gpu,
-                unique_indices_length,
-                inserted_indices,
+        with record_function("## ssd_tbe_lxu_cache_lookup ##"):
+            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.hash_size_cumsum[-1].item(),
             )
-        )
-        # Store scratch pad info for post backward eviction
-        self.ssd_scratch_pads.append(
-            (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
-        )
-        assert lxu_cache_ptrs[lxu_cache_ptrs == 0].numel() == 0
+
+        with record_function("## ssd_generate_row_addrs ##"):
+            lxu_cache_ptrs, post_bwd_evicted_indices = (
+                torch.ops.fbgemm.ssd_generate_row_addrs(
+                    lxu_cache_locations,
+                    assigned_cache_slots,
+                    linear_index_inverse_indices,
+                    unique_indices_count_cumsum,
+                    cache_set_inverse_indices,
+                    self.lxu_cache_weights,
+                    inserted_rows_gpu,
+                    unique_indices_length,
+                    inserted_indices,
+                )
+            )
+        with record_function("## ssd_scratch_pads ##"):
+            # Store scratch pad info for post backward eviction
+            self.ssd_scratch_pads.append(
+                (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
+            )
+            assert lxu_cache_ptrs[lxu_cache_ptrs == 0].numel() == 0
         return (
             lxu_cache_ptrs,
             inserted_rows_gpu,
