@@ -20,7 +20,9 @@
 
 #include <ATen/cuda/CUDAEvent.h>
 #include <folly/experimental/symbolizer/SignalHandler.h>
+
 #include <sys/stat.h>
+#include <torch/csrc/cuda/nccl.h>
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -130,6 +132,19 @@ void nccl_allgather(at::Tensor y_allgather, at::Tensor y, int64_t comm_idx) {
       "ncclAllGather");
 }
 
+void nccl_alltoall(
+    at::Tensor y_all2all,
+    at::Tensor y,
+    int64_t world_size,
+    int64_t comm_idx) {
+  TORCH_CHECK(y.is_contiguous());
+  TORCH_CHECK(y_all2all.is_contiguous());
+
+  auto stream = at::cuda::getCurrentCUDAStream();
+  torch::cuda::nccl::all2all_single_equal_split(
+      y, y_all2all, world_size, *get_nccl_comm(comm_idx), stream);
+}
+
 void nccl_reducescatter(
     at::Tensor y_reducescatter,
     at::Tensor y,
@@ -232,6 +247,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
   m.def("nccl_allgather(Tensor y_allgather, Tensor y, int comm_idx=0) -> ()");
   m.impl("nccl_allgather", nccl_allgather);
+
+  m.def(
+      "nccl_alltoall(Tensor y_all2all, Tensor y, int world_size, int comm_idx=0) -> ()");
+  m.impl("nccl_alltoall", nccl_alltoall);
 
   m.def(
       "nccl_reducescatter(Tensor y_reducescatter, Tensor y, int comm_idx=0) -> ()");
