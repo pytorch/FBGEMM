@@ -847,6 +847,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 hash_size_cumsum, device=self.current_device, dtype=torch.int64
             ),
         )
+        assert cache_sets > 0
         element_size = 1
         cache_size = cache_sets * ASSOC * element_size * self.max_D_cache
         logging.info(
