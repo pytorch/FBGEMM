@@ -39,7 +39,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     WeightDecayMode,
 )
 
-from torch import nn, Tensor  # usort:skip
+from torch import distributed as dist, nn, Tensor  # usort:skip
 from torch.autograd.profiler import record_function
 
 try:
@@ -80,6 +80,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     weights_host: Tensor
     weights_placements: Tensor
     weights_offsets: Tensor
+    _local_instance_index: int = -1
 
     def __init__(
         self,
@@ -123,6 +124,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             CowClipDefinition
         ] = None,  # used by Rowwise Adagrad
         pooling_mode: PoolingMode = PoolingMode.SUM,
+        ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
+        tbe_unique_id: int = -1,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -240,26 +243,45 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ssd_directory = tempfile.mkdtemp(
             prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
         )
-        # pyre-fixme[4]: Attribute must be annotated.
-        # pyre-ignore[16]
-        self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
-            ssd_directory,
-            ssd_shards,
-            ssd_shards,
-            ssd_memtable_flush_period,
-            ssd_memtable_flush_offset,
-            ssd_l0_files_per_compact,
-            self.max_D,
-            ssd_rate_limit_mbps,
-            ssd_size_ratio,
-            ssd_compaction_trigger,
-            ssd_write_buffer_size,
-            ssd_max_write_buffer_num,
-            ssd_uniform_init_lower,
-            ssd_uniform_init_upper,
-            weights_precision.bit_rate(),  # row_storage_bitwidth
-            ssd_block_cache_size,
-        )
+        # logging.info("DEBUG: weights_precision {}".format(weights_precision))
+        if not ps_hosts:
+            # pyre-fixme[4]: Attribute must be annotated.
+            # pyre-ignore[16]
+            self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                ssd_shards,
+                ssd_shards,
+                ssd_memtable_flush_period,
+                ssd_memtable_flush_offset,
+                ssd_l0_files_per_compact,
+                self.max_D,
+                ssd_rate_limit_mbps,
+                ssd_size_ratio,
+                ssd_compaction_trigger,
+                ssd_write_buffer_size,
+                ssd_max_write_buffer_num,
+                ssd_uniform_init_lower,
+                ssd_uniform_init_upper,
+                weights_precision.bit_rate(),  # row_storage_bitwidth
+                ssd_block_cache_size,
+            )
+        else:
+            # create tbe unique id using rank index | pooling mode
+            if tbe_unique_id == -1:
+                self._local_instance_index += 1
+                assert (
+                    self._local_instance_index < 8
+                ), "More than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
+                tbe_unique_id = dist.get_rank() << 3 | self._local_instance_index
+            # pyre-fixme[4]: Attribute must be annotated.
+            # pyre-ignore[16]
+            self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
+                [host[0] for host in ps_hosts],
+                [host[1] for host in ps_hosts],
+                tbe_unique_id,
+                54,
+                32,
+            )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
         self.ssd_stream = torch.cuda.Stream(priority=low_priority)
@@ -705,6 +727,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType]]
+    _local_instance_index: int = -1
 
     def __init__(
         self,
@@ -733,6 +756,8 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ssd_cache_location: EmbeddingLocation = EmbeddingLocation.MANAGED,
         ssd_uniform_init_lower: float = -0.01,
         ssd_uniform_init_upper: float = 0.01,
+        ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
+        tbe_unique_id: int = -1,  # unique id for this embedding, if not set, will derive based on current rank and tbe index id
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(SSDIntNBitTableBatchedEmbeddingBags, self).__init__()
 
@@ -905,26 +930,45 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ssd_directory = tempfile.mkdtemp(
             prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
         )
-        # pyre-fixme[4]: Attribute must be annotated.
-        # pyre-ignore[16]
-        self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
-            ssd_directory,
-            ssd_shards,
-            ssd_shards,
-            ssd_memtable_flush_period,
-            ssd_memtable_flush_offset,
-            ssd_l0_files_per_compact,
-            self.max_D_cache,
-            ssd_rate_limit_mbps,
-            ssd_size_ratio,
-            ssd_compaction_trigger,
-            ssd_write_buffer_size,
-            ssd_max_write_buffer_num,
-            ssd_uniform_init_lower,
-            ssd_uniform_init_upper,
-            8,  # row_storage_bitwidth
-            0,  # ssd_block_cache_size
-        )
+        if not ps_hosts:
+            # pyre-fixme[4]: Attribute must be annotated.
+            # pyre-ignore[16]
+            self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                ssd_shards,
+                ssd_shards,
+                ssd_memtable_flush_period,
+                ssd_memtable_flush_offset,
+                ssd_l0_files_per_compact,
+                self.max_D_cache,
+                ssd_rate_limit_mbps,
+                ssd_size_ratio,
+                ssd_compaction_trigger,
+                ssd_write_buffer_size,
+                ssd_max_write_buffer_num,
+                ssd_uniform_init_lower,
+                ssd_uniform_init_upper,
+                8,  # row_storage_bitwidth
+                0,  # ssd_block_cache_size
+            )
+        else:
+            # create tbe unique id using rank index | pooling mode
+            if tbe_unique_id == -1:
+                self._local_instance_index += 1
+                assert (
+                    self._local_instance_index < 8
+                ), "More than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
+                tbe_unique_id = dist.get_rank() << 3 | self._local_instance_index
+            # pyre-fixme[4]: Attribute must be annotated.
+            # pyre-ignore[16]
+            self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
+                [host[0] for host in ps_hosts],
+                [host[1] for host in ps_hosts],
+                tbe_unique_id,
+                54,
+                32,
+            )
+
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
         self.ssd_stream = torch.cuda.Stream(priority=low_priority)
