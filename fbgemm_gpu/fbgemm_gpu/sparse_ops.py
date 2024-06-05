@@ -71,7 +71,6 @@ else:
         return wrapper
 
 
-@impl_abstract("fbgemm::permute_2D_sparse_data")
 def permute_2D_sparse_data_meta(
     permute: Tensor,
     lengths: Tensor,
@@ -101,7 +100,6 @@ def permute_2D_sparse_data_meta(
     return permuted_lengths, permuted_indices, permuted_weights
 
 
-@impl_abstract("fbgemm::invert_permute")
 def invert_permute_abstract(permute: Tensor) -> Tensor:
     return torch.empty_like(permute)
 
@@ -131,14 +129,6 @@ def permute_2D_sparse_data_backward(ctx, grad_lengths, grad_values, grad_weights
     )
 
 
-torch.library.register_autograd(
-    "fbgemm::permute_2D_sparse_data",
-    permute_2D_sparse_data_backward,
-    setup_context=permute_2D_sparse_data_setup_context,
-)
-
-
-@impl_abstract("fbgemm::permute_1D_sparse_data")
 def permute_1D_sparse_data_meta(
     permute: Tensor,
     lengths: Tensor,
@@ -164,7 +154,6 @@ def permute_1D_sparse_data_meta(
     return permuted_lengths, permuted_indices, permuted_weights
 
 
-@impl_abstract("fbgemm::masked_select_jagged_1d")
 def masked_select_jagged_1d(
     values: Tensor, lengths: Tensor, mask: Tensor
 ) -> Tuple[Tensor, Tensor]:
@@ -179,7 +168,6 @@ def masked_select_jagged_1d(
     return masked_values, masked_lengths
 
 
-@impl_abstract("fbgemm::tbe_input_combine")
 def tbe_input_combine_abstract(
     indices_list: List[Tensor],
     offsets_list: List[Tensor],
@@ -217,7 +205,6 @@ def tbe_input_combine_abstract(
     return combined_indices, combined_offsets, combined_weights
 
 
-@impl_abstract("fbgemm::tbe_input_combine_with_length")
 def tbe_input_combine_with_length_abstract(
     indices_list: List[Tensor],
     offsets_list: List[Tensor],
@@ -254,7 +241,6 @@ def tbe_input_combine_with_length_abstract(
     return combined_indices, combined_offsets, combined_weights
 
 
-@impl_abstract("fbgemm::jagged_index_select_2d_forward_v2")
 def jagged_index_select_2d_forward_v2_abstract(
     values: Tensor,
     indices: Tensor,
@@ -271,7 +257,6 @@ def jagged_index_select_2d_forward_v2_abstract(
     return values.new_empty([dynamic_num_dense_output_rows, num_cols])
 
 
-@impl_abstract("fbgemm::jagged_index_add_2d_forward_v2")
 def jagged_index_add_2d_forward_v2_abstract(
     values: Tensor,
     indices: Tensor,
@@ -288,7 +273,6 @@ def jagged_index_add_2d_forward_v2_abstract(
     return values.new_empty([num_output_rows, num_cols])
 
 
-@impl_abstract("fbgemm::expand_into_jagged_permute")
 def expand_into_jagged_permute_meta(
     permute: Tensor,
     input_offsets: Tensor,
@@ -324,7 +308,6 @@ def check_all_same_device(*tensors: Optional[Tensor]) -> None:
         torch._check(tensor.device == first_tensor.device)
 
 
-@impl_abstract("fbgemm::pruned_array_lookup")
 def pruned_array_lookup_meta(
     indices: Tensor,
     offsets: Tensor,
@@ -335,7 +318,6 @@ def pruned_array_lookup_meta(
     return indices.new_empty(indices.shape)
 
 
-@impl_abstract("fbgemm::int_nbit_split_embedding_codegen_lookup_function")
 def int_nbit_split_embedding_codegen_lookup_function_meta(
     dev_weights: torch.Tensor,
     uvm_weights: torch.Tensor,
@@ -406,7 +388,6 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
     return output
 
 
-@impl_abstract("fbgemm::block_bucketize_sparse_features")
 def block_bucketize_sparse_features_meta(
     lengths: torch.Tensor,
     indices: torch.Tensor,
@@ -437,7 +418,6 @@ def block_bucketize_sparse_features_meta(
     )
 
 
-@impl_abstract("fbgemm::merge_pooled_embeddings")
 def merge_pooled_embeddings(
     pooled_embeddings: List[torch.Tensor],
     uncat_dim_size: int,
@@ -468,7 +448,6 @@ def merge_pooled_embeddings(
     )
 
 
-@impl_abstract("fbgemm::permute_sparse_features")
 def permute_sparse_features_abstract(
     permute: Tensor, lengths: Tensor, indices: Tensor, weights: Optional[Tensor] = None
 ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
@@ -492,7 +471,6 @@ def permute_sparse_features_abstract(
     return (permuted_lengths, permuted_indices, permuted_weights)
 
 
-@impl_abstract("fbgemm::segment_sum_csr")
 def segment_sum_csr_abstract(
     batch_size: int, csr_seg: Tensor, values: Tensor
 ) -> Tensor:
@@ -501,7 +479,6 @@ def segment_sum_csr_abstract(
     return output
 
 
-@impl_abstract("fbgemm::dense_to_jagged_forward")
 def dense_to_jagged_forward(
     dense: torch.Tensor,
     offsets: List[torch.Tensor],
@@ -517,7 +494,6 @@ def dense_to_jagged_forward(
     )
 
 
-@impl_abstract("fbgemm::dense_to_jagged")
 def dense_to_jagged(
     dense: torch.Tensor,
     offsets: List[torch.Tensor],
@@ -528,7 +504,6 @@ def dense_to_jagged(
     return (dense_to_jagged_forward(dense, offsets, total_L), offsets)
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0")
 def batch_index_select_dim0_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -559,7 +534,6 @@ def batch_index_select_dim0_abstract(
     return inputs.new_empty([output_numel])
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_tensor")
 def batch_index_select_dim0_tensor_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -574,7 +548,6 @@ def batch_index_select_dim0_tensor_abstract(
     return inputs.new_empty([output_numel])
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_forward_cuda_impl")
 def batch_index_select_dim0_forward_cuda_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -612,7 +585,6 @@ def batch_index_select_dim0_forward_cuda_impl_abstract(
     ]
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl")
 def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -641,7 +613,6 @@ def batch_index_select_dim0_tensor_forward_cuda_impl_abstract(
     ]
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl")
 def batch_index_select_dim0_tensor_backward_cuda_impl_abstract(
     grad_output: torch.Tensor,
     dev_weights: torch.Tensor,
@@ -658,7 +629,6 @@ def batch_index_select_dim0_tensor_backward_cuda_impl_abstract(
     return grad_output.new_empty(dev_weights.shape)
 
 
-@impl_abstract("fbgemm::keyed_jagged_index_select_dim1")
 def keyed_jagged_index_select_dim1_abstract(
     values: torch.Tensor,
     lengths: torch.Tensor,
@@ -705,7 +675,6 @@ def keyed_jagged_index_select_dim1_abstract(
     return ret
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_backward_cuda_impl")
 def batch_index_select_dim0_backward_cuda_impl_abstract(
     grad_output: torch.Tensor,
     dev_weights: torch.Tensor,
@@ -722,7 +691,6 @@ def batch_index_select_dim0_backward_cuda_impl_abstract(
     return grad_output.new_empty(dev_weights.shape)
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_forward_cpu_impl")
 def batch_index_select_dim0_forward_cpu_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -753,7 +721,6 @@ def batch_index_select_dim0_forward_cpu_impl_abstract(
     ]
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_tensor_forward_cpu_impl")
 def batch_index_select_dim0_tensor_forward_cpu_impl_abstract(
     inputs: torch.Tensor,
     indices: torch.Tensor,
@@ -775,7 +742,6 @@ def batch_index_select_dim0_tensor_forward_cpu_impl_abstract(
     ]
 
 
-@impl_abstract("fbgemm::batch_index_select_dim0_backward_cpu_impl")
 def batch_index_select_dim0_backward_cpu_impl_abstract(
     grad_output: torch.Tensor,
     indices: torch.Tensor,
@@ -789,7 +755,6 @@ def batch_index_select_dim0_backward_cpu_impl_abstract(
     return grad_output.new_empty([torch.library.get_ctx().new_dynamic_size()])
 
 
-@impl_abstract("fbgemm::bounds_check_indices")
 def bounds_check_indices_abstract(
     rows_per_table: torch.Tensor,
     indices: torch.Tensor,
@@ -807,7 +772,6 @@ def bounds_check_indices_abstract(
     return
 
 
-@impl_abstract("fbgemm::group_index_select_dim0_gpu_impl")
 def group_index_select_dim0_gpu_impl_abstract(
     inputs: List[torch.Tensor], group_size: int
 ) -> List[torch.Tensor]:
@@ -839,7 +803,6 @@ def group_index_select_dim0_gpu_impl_abstract(
     return ret
 
 
-@impl_abstract("fbgemm::group_index_select_dim0_gpu_backward")
 def group_index_select_dim0_gpu_backward_abstract(
     all_inputs: List[torch.Tensor], output_shape_group_ref: List[torch.SymInt]
 ) -> List[torch.Tensor]:
@@ -867,7 +830,6 @@ def group_index_select_dim0_gpu_backward_abstract(
     return ret
 
 
-@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_forward")
 def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
     values: torch.Tensor,
     lengths: torch.Tensor,
@@ -903,7 +865,6 @@ def keyed_jagged_index_select_dim1_forward_cuda_impl_abstract(
     ]
 
 
-@impl_abstract("fbgemm::keyed_jagged_index_select_dim1_backward")
 def keyed_jagged_index_select_dim1_backward_cuda_impl_abstract(
     grad: torch.Tensor,
     indices: torch.Tensor,
@@ -914,7 +875,6 @@ def keyed_jagged_index_select_dim1_backward_cuda_impl_abstract(
     return grad.new_empty([torch.library.get_ctx().new_dynamic_size()])
 
 
-@impl_abstract("fbgemm::permute_pooled_embs_split")
 def permute_pooled_embs_split_abstract(
     pooled_embs: Tensor,
     offset_dim_list: Tensor,
@@ -925,7 +885,6 @@ def permute_pooled_embs_split_abstract(
     return torch.empty_like(pooled_embs)
 
 
-@impl_abstract("fbgemm::permute_duplicate_pooled_embs_split")
 def permute_duplicate_pooled_embs_split_abstract(
     pooled_embs: Tensor,
     offset_dim_list: Tensor,
@@ -934,3 +893,132 @@ def permute_duplicate_pooled_embs_split_abstract(
     inv_permute_list: Tensor,
 ) -> Tensor:
     return torch.empty_like(pooled_embs)
+
+
+def _setup() -> None:
+    # pyre-ignore[16]
+    _setup.done = getattr(_setup, "done", False)
+
+    # pyre-ignore[2]
+    def impl_abstract(op_name, fn) -> None:
+        if not torch._C._dispatch_has_kernel_for_dispatch_key(op_name, "Meta"):
+            torch.library.register_fake(op_name, fn)
+
+    # pyre-ignore[2,24]
+    def impl_autograd(op_name, fn, setup_context: Optional[Callable] = None) -> None:
+        name_split = op_name.split("::")
+        key = f"{name_split[0]}/{name_split[-1]}/Autograd"
+        if key not in torch.library._impls:
+            torch.library.register_autograd(op_name, fn, setup_context=setup_context)
+
+    if not _setup.done:
+        impl_autograd(
+            "fbgemm::permute_2D_sparse_data",
+            permute_2D_sparse_data_backward,
+            setup_context=permute_2D_sparse_data_setup_context,
+        )
+
+        impl_abstract("fbgemm::permute_2D_sparse_data", permute_2D_sparse_data_meta)
+        impl_abstract("fbgemm::invert_permute", invert_permute_abstract)
+        impl_abstract("fbgemm::permute_1D_sparse_data", permute_1D_sparse_data_meta)
+        impl_abstract("fbgemm::masked_select_jagged_1d", masked_select_jagged_1d)
+        impl_abstract("fbgemm::tbe_input_combine", tbe_input_combine_abstract)
+        impl_abstract(
+            "fbgemm::tbe_input_combine_with_length",
+            tbe_input_combine_with_length_abstract,
+        )
+        impl_abstract(
+            "fbgemm::jagged_index_select_2d_forward_v2",
+            jagged_index_select_2d_forward_v2_abstract,
+        )
+        impl_abstract(
+            "fbgemm::jagged_index_add_2d_forward_v2",
+            jagged_index_add_2d_forward_v2_abstract,
+        )
+        impl_abstract(
+            "fbgemm::expand_into_jagged_permute", expand_into_jagged_permute_meta
+        )
+        impl_abstract("fbgemm::pruned_array_lookup", pruned_array_lookup_meta)
+        impl_abstract(
+            "fbgemm::int_nbit_split_embedding_codegen_lookup_function",
+            int_nbit_split_embedding_codegen_lookup_function_meta,
+        )
+        impl_abstract(
+            "fbgemm::block_bucketize_sparse_features",
+            block_bucketize_sparse_features_meta,
+        )
+        impl_abstract("fbgemm::merge_pooled_embeddings", merge_pooled_embeddings)
+        impl_abstract(
+            "fbgemm::permute_sparse_features", permute_sparse_features_abstract
+        )
+        impl_abstract("fbgemm::segment_sum_csr", segment_sum_csr_abstract)
+        impl_abstract("fbgemm::dense_to_jagged_forward", dense_to_jagged_forward)
+        impl_abstract("fbgemm::dense_to_jagged", dense_to_jagged)
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0", batch_index_select_dim0_abstract
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_tensor",
+            batch_index_select_dim0_tensor_abstract,
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_forward_cuda_impl",
+            batch_index_select_dim0_forward_cuda_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl",
+            batch_index_select_dim0_tensor_forward_cuda_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl",
+            batch_index_select_dim0_tensor_backward_cuda_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::keyed_jagged_index_select_dim1",
+            keyed_jagged_index_select_dim1_abstract,
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_backward_cuda_impl",
+            batch_index_select_dim0_backward_cuda_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_forward_cpu_impl",
+            batch_index_select_dim0_forward_cpu_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_tensor_forward_cpu_impl",
+            batch_index_select_dim0_tensor_forward_cpu_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::batch_index_select_dim0_backward_cpu_impl",
+            batch_index_select_dim0_backward_cpu_impl_abstract,
+        )
+        impl_abstract("fbgemm::bounds_check_indices", bounds_check_indices_abstract)
+        impl_abstract(
+            "fbgemm::group_index_select_dim0_gpu_impl",
+            group_index_select_dim0_gpu_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::group_index_select_dim0_gpu_backward",
+            group_index_select_dim0_gpu_backward_abstract,
+        )
+        impl_abstract(
+            "fbgemm::keyed_jagged_index_select_dim1_forward",
+            keyed_jagged_index_select_dim1_forward_cuda_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::keyed_jagged_index_select_dim1_backward",
+            keyed_jagged_index_select_dim1_backward_cuda_impl_abstract,
+        )
+        impl_abstract(
+            "fbgemm::permute_pooled_embs_split", permute_pooled_embs_split_abstract
+        )
+        impl_abstract(
+            "fbgemm::permute_duplicate_pooled_embs_split",
+            permute_duplicate_pooled_embs_split_abstract,
+        )
+
+        _setup.done = True
+
+
+_setup()
