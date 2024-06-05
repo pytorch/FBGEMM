@@ -150,6 +150,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.def(
       "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None) -> Tensor[]");
+  m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
 
 #if CUDART_VERSION >= 12000
   m.def(
