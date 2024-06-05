@@ -720,6 +720,126 @@
         <span class="p">)</span>
 
 
+<span class="k">def</span> <span class="nf">generate_vbe_metadata</span><span class="p">(</span>
+    <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]],</span>
+    <span class="n">optimizer</span><span class="p">:</span> <span class="n">OptimType</span><span class="p">,</span>
+    <span class="n">pooling_mode</span><span class="p">:</span> <span class="n">PoolingMode</span><span class="p">,</span>
+    <span class="n">feature_dims</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Generate VBE metadata based on batch_size_per_feature_per_rank.</span>
+<span class="sd">    Metadata includes:</span>
+<span class="sd">        1) B_offsets - A tensor that contains batch size offsets for each</span>
+<span class="sd">                        feature</span>
+<span class="sd">        2) output_offsets_feature_rank - A tensor that contains output</span>
+<span class="sd">                                            offsets for each feature</span>
+<span class="sd">        3) B_offsets_per_rank_per_feature - A tensor that contains batch</span>
+<span class="sd">                                            size offsets for each feature</span>
+<span class="sd">                                            and rank</span>
+<span class="sd">        4) max_B - The maximum batch size for all features</span>
+<span class="sd">        5) max_B_feature_rank - The maximum batch size for all ranks and</span>
+<span class="sd">                                features</span>
+<span class="sd">        6) output_size - The output size (number of elements)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">batch_size_per_feature_per_rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
+            <span class="ow">or</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span>
+            <span class="ow">or</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span>
+        <span class="p">),</span> <span class="s2">&quot;Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD only&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">pooling_mode</span> <span class="o">!=</span> <span class="n">PoolingMode</span><span class="o">.</span><span class="n">NONE</span>
+        <span class="p">),</span> <span class="s2">&quot;Variable batch size TBE support is not enabled for PoolingMode.NONE&quot;</span>
+        <span class="c1"># TODO: Add input check</span>
+        <span class="n">zero_tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+
+        <span class="c1"># Create B offsets</span>
+        <span class="n">total_batch_size_per_feature</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+            <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">max_B</span> <span class="o">=</span> <span class="n">total_batch_size_per_feature</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">max_B</span><span class="p">)</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B</span> <span class="o">&lt;</span> <span class="n">offsets</span><span class="o">.</span><span class="n">numel</span><span class="p">())</span>
+
+        <span class="n">Bs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">zero_tensor</span><span class="p">,</span> <span class="n">total_batch_size_per_feature</span><span class="p">])</span>
+        <span class="n">B_offsets</span> <span class="o">=</span> <span class="n">Bs</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">)</span>
+
+        <span class="c1"># Create output offsets</span>
+        <span class="n">B_feature_rank</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+            <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">max_B_feature_rank</span> <span class="o">=</span> <span class="n">B_feature_rank</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">max_B_feature_rank</span><span class="p">)</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B_feature_rank</span> <span class="o">&lt;=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+        <span class="c1"># D-&gt;H only once</span>
+        <span class="n">feature_dims</span> <span class="o">=</span> <span class="n">feature_dims</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+        <span class="n">output_sizes_feature_rank</span> <span class="o">=</span> <span class="n">B_feature_rank</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">feature_dims</span><span class="o">.</span><span class="n">view</span><span class="p">(</span>
+            <span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="p">)</span>
+        <span class="n">output_offsets_feature_rank</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="n">zero_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
+                <span class="n">output_sizes_feature_rank</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">output_size</span> <span class="o">=</span> <span class="n">output_offsets_feature_rank</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">output_size</span><span class="p">)</span>
+
+        <span class="c1"># TODO: Support INT8 output</span>
+        <span class="c1"># B_offsets_rank_per_feature is for rank and (b, t) mapping</span>
+        <span class="n">B_offsets_rank_per_feature</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">batch_size_per_feature</span>
+                    <span class="k">for</span> <span class="n">batch_size_per_feature</span> <span class="ow">in</span> <span class="n">batch_size_per_feature_per_rank</span>
+                <span class="p">],</span>
+                <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">B_offsets</span> <span class="o">=</span> <span class="n">B_offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">output_offsets_feature_rank</span> <span class="o">=</span> <span class="n">output_offsets_feature_rank</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="n">B_offsets_rank_per_feature</span> <span class="o">=</span> <span class="n">B_offsets_rank_per_feature</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+
+        <span class="c1"># TODO: Use int32 for B_offsets and int64 for output_offsets_feature_rank</span>
+        <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">(</span>
+            <span class="n">B_offsets</span><span class="o">=</span><span class="n">B_offsets</span><span class="p">,</span>
+            <span class="n">output_offsets_feature_rank</span><span class="o">=</span><span class="n">output_offsets_feature_rank</span><span class="p">,</span>
+            <span class="n">B_offsets_rank_per_feature</span><span class="o">=</span><span class="n">B_offsets_rank_per_feature</span><span class="p">,</span>
+            <span class="c1"># pyre-ignore</span>
+            <span class="n">max_B</span><span class="o">=</span><span class="n">max_B</span><span class="p">,</span>
+            <span class="c1"># pyre-ignore</span>
+            <span class="n">max_B_feature_rank</span><span class="o">=</span><span class="n">max_B_feature_rank</span><span class="p">,</span>
+            <span class="c1"># pyre-ignore</span>
+            <span class="n">output_size</span><span class="o">=</span><span class="n">output_size</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">(</span>
+            <span class="n">B_offsets</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">output_offsets_feature_rank</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">B_offsets_rank_per_feature</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">max_B</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">max_B_feature_rank</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">output_size</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">vbe_metadata</span>
+
+
 <span class="c1"># pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.</span>
 <span class="c1"># pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.</span>
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span> <span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
@@ -1505,120 +1625,20 @@
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">data</span>
 
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]],</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Generate VBE metadata based on batch_size_per_feature_per_rank.</span>
-<span class="sd">        Metadata includes:</span>
-<span class="sd">            1) B_offsets - A tensor that contains batch size offsets for each</span>
-<span class="sd">                           feature</span>
-<span class="sd">            2) output_offsets_feature_rank - A tensor that contains output</span>
-<span class="sd">                                             offsets for each feature</span>
-<span class="sd">            3) B_offsets_per_rank_per_feature - A tensor that contains batch</span>
-<span class="sd">                                                size offsets for each feature</span>
-<span class="sd">                                                and rank</span>
-<span class="sd">            4) max_B - The maximum batch size for all features</span>
-<span class="sd">            5) max_B_feature_rank - The maximum batch size for all ranks and</span>
-<span class="sd">                                    features</span>
-<span class="sd">            6) output_size - The output size (number of elements)</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">if</span> <span class="n">batch_size_per_feature_per_rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
-                <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span>
-            <span class="p">),</span> <span class="s2">&quot;Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD only&quot;</span>
-            <span class="k">assert</span> <span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">!=</span> <span class="n">PoolingMode</span><span class="o">.</span><span class="n">NONE</span><span class="o">.</span><span class="n">value</span>
-            <span class="p">),</span> <span class="s2">&quot;Variable batch size TBE support is not enabled for PoolingMode.NONE&quot;</span>
-            <span class="c1"># TODO: Add input check</span>
-            <span class="n">zero_tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
-
-            <span class="c1"># Create B offsets</span>
-            <span class="n">total_batch_size_per_feature</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
-                <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span>
-            <span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-
-            <span class="n">max_B</span> <span class="o">=</span> <span class="n">total_batch_size_per_feature</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">max_B</span><span class="p">)</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B</span> <span class="o">&lt;</span> <span class="n">offsets</span><span class="o">.</span><span class="n">numel</span><span class="p">())</span>
-
-            <span class="n">Bs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">zero_tensor</span><span class="p">,</span> <span class="n">total_batch_size_per_feature</span><span class="p">])</span>
-            <span class="n">B_offsets</span> <span class="o">=</span> <span class="n">Bs</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">)</span>
-
-            <span class="c1"># Create output offsets</span>
-            <span class="n">B_feature_rank</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
-                <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
-                <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
-                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
-            <span class="p">)</span>
-            <span class="n">max_B_feature_rank</span> <span class="o">=</span> <span class="n">B_feature_rank</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">max_B_feature_rank</span><span class="p">)</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">_check</span><span class="p">(</span><span class="n">max_B_feature_rank</span> <span class="o">&lt;=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
-            <span class="c1"># D-&gt;H only once</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
-            <span class="n">output_sizes_feature_rank</span> <span class="o">=</span> <span class="n">B_feature_rank</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span>
-                <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span>
-            <span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
-            <span class="n">output_offsets_feature_rank</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span>
-                <span class="p">[</span>
-                    <span class="n">zero_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
-                    <span class="n">output_sizes_feature_rank</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
-                <span class="p">]</span>
-            <span class="p">)</span>
-            <span class="n">output_size</span> <span class="o">=</span> <span class="n">output_offsets_feature_rank</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">()</span> <span class="ow">and</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">_check_is_size</span><span class="p">(</span><span class="n">output_size</span><span class="p">)</span>
-
-            <span class="c1"># TODO: Support INT8 output</span>
-            <span class="c1"># B_offsets_rank_per_feature is for rank and (b, t) mapping</span>
-            <span class="n">B_offsets_rank_per_feature</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
-                    <span class="p">[</span>
-                        <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">batch_size_per_feature</span>
-                        <span class="k">for</span> <span class="n">batch_size_per_feature</span> <span class="ow">in</span> <span class="n">batch_size_per_feature_per_rank</span>
-                    <span class="p">],</span>
-                    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
-                    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>
-                <span class="p">)</span>
-                <span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-                <span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">)</span>
-            <span class="p">)</span>
-
-            <span class="n">B_offsets</span> <span class="o">=</span> <span class="n">B_offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-            <span class="n">output_offsets_feature_rank</span> <span class="o">=</span> <span class="n">output_offsets_feature_rank</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span>
-            <span class="p">)</span>
-            <span class="n">B_offsets_rank_per_feature</span> <span class="o">=</span> <span class="n">B_offsets_rank_per_feature</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span>
-            <span class="p">)</span>
-
-            <span class="c1"># TODO: Use int32 for B_offsets and int64 for output_offsets_feature_rank</span>
-            <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">(</span>
-                <span class="n">B_offsets</span><span class="o">=</span><span class="n">B_offsets</span><span class="p">,</span>
-                <span class="n">output_offsets_feature_rank</span><span class="o">=</span><span class="n">output_offsets_feature_rank</span><span class="p">,</span>
-                <span class="n">B_offsets_rank_per_feature</span><span class="o">=</span><span class="n">B_offsets_rank_per_feature</span><span class="p">,</span>
-                <span class="c1"># pyre-ignore</span>
-                <span class="n">max_B</span><span class="o">=</span><span class="n">max_B</span><span class="p">,</span>
-                <span class="c1"># pyre-ignore</span>
-                <span class="n">max_B_feature_rank</span><span class="o">=</span><span class="n">max_B_feature_rank</span><span class="p">,</span>
-                <span class="c1"># pyre-ignore</span>
-                <span class="n">output_size</span><span class="o">=</span><span class="n">output_size</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">(</span>
-                <span class="n">B_offsets</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                <span class="n">output_offsets_feature_rank</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                <span class="n">B_offsets_rank_per_feature</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                <span class="n">max_B</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
-                <span class="n">max_B_feature_rank</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
-                <span class="n">output_size</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">return</span> <span class="n">vbe_metadata</span>
+        <span class="k">return</span> <span class="n">generate_vbe_metadata</span><span class="p">(</span>
+            <span class="n">offsets</span><span class="p">,</span>
+            <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
+        <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1984,8 +2004,7 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span> <span class="o">!=</span> <span class="n">forward_stream</span>
             <span class="p">),</span> <span class="s2">&quot;prefetch_stream and forward_stream should not be the same stream&quot;</span>
         <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_vbe_metadata</span><span class="p">(</span>
-            <span class="n">offsets</span><span class="p">,</span>
-            <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
+            <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span>
             <span class="n">indices</span><span class="p">,</span>
@@ -2886,8 +2905,9 @@
         <span class="p">)</span>
         <span class="n">T</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">feature_table_map</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">T_</span> <span class="o">&lt;=</span> <span class="n">T</span>
-        <span class="n">D_offsets</span> <span class="o">=</span> <span class="p">[</span><span class="n">dims</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">feature_table_map</span><span class="p">]</span>
-        <span class="n">D_offsets</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">accumulate</span><span class="p">(</span><span class="n">D_offsets</span><span class="p">))</span>
+
+        <span class="n">feature_dims</span> <span class="o">=</span> <span class="p">[</span><span class="n">dims</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">feature_table_map</span><span class="p">]</span>
+        <span class="n">D_offsets</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">accumulate</span><span class="p">(</span><span class="n">feature_dims</span><span class="p">))</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">total_D</span> <span class="o">=</span> <span class="n">D_offsets</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">max_D</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">dims</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
@@ -2895,6 +2915,11 @@
             <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">D_offsets</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">),</span>
         <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="n">T</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="c1"># Required for VBE</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+            <span class="s2">&quot;feature_dims&quot;</span><span class="p">,</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">feature_dims</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
+        <span class="p">)</span>
 
         <span class="n">hash_size_cumsum</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">accumulate</span><span class="p">(</span><span class="n">rows</span><span class="p">))</span>
         <span class="k">if</span> <span class="n">hash_size_cumsum</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
@@ -2949,13 +2974,34 @@
             <span class="p">),</span>
         <span class="p">)</span>
 
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="k">def</span> <span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">generate_vbe_metadata</span><span class="p">(</span>
+            <span class="n">offsets</span><span class="p">,</span>
+            <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
+            <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
+        <span class="p">)</span>
+
     <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">feature_requires_grad</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># Generate VBE metadata</span>
+        <span class="n">vbe_metadata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_vbe_metadata</span><span class="p">(</span>
+            <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
+        <span class="p">)</span>
+
         <span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">offsets</span><span class="o">.</span><span class="n">long</span><span class="p">()</span>
         <span class="c1"># Force casting per_sample_weights to float</span>
         <span class="k">if</span> <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -2975,6 +3021,12 @@
             <span class="n">indice_weights</span><span class="o">=</span><span class="n">per_sample_weights</span><span class="p">,</span>
             <span class="n">feature_requires_grad</span><span class="o">=</span><span class="n">feature_requires_grad</span><span class="p">,</span>
             <span class="n">output_dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">,</span>
+            <span class="n">B_offsets</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span><span class="p">,</span>
+            <span class="n">vbe_output_offsets_feature_rank</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">output_offsets_feature_rank</span><span class="p">,</span>
+            <span class="n">vbe_B_offsets_rank_per_feature</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets_rank_per_feature</span><span class="p">,</span>
+            <span class="n">max_B</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
+            <span class="n">max_B_feature_rank</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B_feature_rank</span><span class="p">,</span>
+            <span class="n">vbe_output_size</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">output_size</span><span class="p">,</span>
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
