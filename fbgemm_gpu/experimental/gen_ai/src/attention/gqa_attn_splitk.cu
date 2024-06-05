@@ -275,17 +275,20 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
 
 #if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 DEVICE_INLINE bfx4 dequantize_packed_fp8(uint32_t vs, __half2 shift_scale_0) {
-  uint32_t v = vs;
-  __nv_fp8_e4m3* fp8_k = reinterpret_cast<__nv_fp8_e4m3*>(&v); // 4 element
+  const __nv_fp8x2_storage_t slo = static_cast<__nv_fp8x2_storage_t>(vs);
+  const __nv_fp8x2_storage_t shi = static_cast<__nv_fp8x2_storage_t>(vs >> 16U);
 
-  auto shift_0 = float(__high2half(shift_scale_0));
-  auto scale_0 = float(__low2half(shift_scale_0));
+  __half2 h0 = static_cast<__half2>(__nv_cvt_fp8x2_to_halfraw2(slo, __NV_E4M3));
+  __half2 h1 = static_cast<__half2>(__nv_cvt_fp8x2_to_halfraw2(shi, __NV_E4M3));
+
+  auto shift_0 = __high2half(shift_scale_0);
+  auto scale_0 = __low2half(shift_scale_0);
+  __half2 scales = __half2(scale_0, scale_0);
+  __half2 shifts = __half2(shift_0, shift_0);
 
   // now, dequantize
-  auto r0 = make_float2(
-      float(fp8_k[0]) * scale_0 + shift_0, float(fp8_k[1]) * scale_0 + shift_0);
-  auto r1 = make_float2(
-      float(fp8_k[2]) * scale_0 + shift_0, float(fp8_k[3]) * scale_0 + shift_0);
+  auto r0 = __half22float2(__hfma2(h0, scales, shifts));
+  auto r1 = __half22float2(__hfma2(h1, scales, shifts));
 
   bfx4 result;
   result.vals[0] = __floats2bfloat162_rn(r0.x, r0.y);
