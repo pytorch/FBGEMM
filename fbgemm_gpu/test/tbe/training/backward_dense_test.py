@@ -14,6 +14,10 @@ import unittest
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from deeplearning.fbgemm.fbgemm_gpu.test.tbe.common import (
+    format_ref_tensors_in_mixed_B_layout,
+    gen_mixed_B_batch_sizes,
+)
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_embedding_utils import (
     b_indices,
@@ -51,6 +55,7 @@ class BackwardDenseTest(unittest.TestCase):
         weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
         weighted=st.booleans(),
         mixed=st.booleans(),
+        mixed_B=st.booleans(),
         long_segments=st.booleans(),
         pooling_mode=st.sampled_from(
             [
@@ -80,6 +85,7 @@ class BackwardDenseTest(unittest.TestCase):
         weights_precision: SparseType,
         weighted: bool,
         mixed: bool,
+        mixed_B: bool,
         long_segments: bool,
         pooling_mode: PoolingMode,
         use_cpu: bool,
@@ -94,6 +100,7 @@ class BackwardDenseTest(unittest.TestCase):
         assume(not use_cpu or pooling_mode != PoolingMode.NONE)
         assume(not mixed or pooling_mode != PoolingMode.NONE)
         assume(not weighted or pooling_mode != PoolingMode.NONE)
+        assume(not mixed_B or (not use_cpu and pooling_mode != PoolingMode.NONE))
 
         emb_op = DenseTableBatchedEmbeddingBagsCodegen
         if pooling_mode == PoolingMode.SUM:
@@ -139,22 +146,30 @@ class BackwardDenseTest(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             bs = [b.half() for b in bs]
 
+        feature_table_map = list(range(T))
+        num_features = len(feature_table_map)
+        if not mixed_B:
+            Bs = [B] * num_features
+            Bs_rank_feature = [[0]]
+        else:
+            Bs_rank_feature, Bs = gen_mixed_B_batch_sizes(B, num_features)
+
         xs = [
             to_device(
                 torch.from_numpy(
-                    np.random.choice(range(e), size=(B, L), replace=True).astype(
+                    np.random.choice(range(Es[t]), size=(b, L), replace=True).astype(
                         np.int64
                     )
                 ),
                 use_cpu,
             )
-            for e in Es
+            for t, b in zip(feature_table_map, Bs)
         ]
         if long_segments and L > 0 and weights_precision != SparseType.FP16:
             for x in xs:
                 x[:, 0] = 0
 
-        xws = [to_device(torch.randn(size=(B, L)), use_cpu) for _ in range(T)]
+        xws = [to_device(torch.randn(size=(b, L)), use_cpu) for b in Bs]
 
         if weights_precision == SparseType.FP16:
             xws = [xw.half() for xw in xws]
@@ -196,25 +211,41 @@ class BackwardDenseTest(unittest.TestCase):
             weights_precision=weights_precision,
             output_dtype=output_dtype,
         )
-        if do_pooling:
+        if do_pooling and not mixed_B:
             # NOTE: test TorchScript-compatible!
             cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
-        x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
-        xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
+        x = torch.cat([x.contiguous().flatten() for x in xs], dim=0)
+        xw = torch.cat([xw.contiguous().flatten() for xw in xws], dim=0)
 
-        (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=use_cpu)
+        (indices, offsets) = get_table_batched_offsets_from_dense(
+            x, L, sum(Bs), use_cpu=use_cpu
+        )
+        batch_size_per_feature_per_rank = Bs_rank_feature if mixed_B else None
+
         fc2 = (
-            cc(indices, offsets)
+            cc(
+                indices,
+                offsets,
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
             if not weighted
-            else cc(indices, offsets, to_device(xw.contiguous().view(-1), use_cpu))
+            else cc(
+                indices,
+                offsets,
+                to_device(xw.contiguous().view(-1), use_cpu),
+                batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            )
         )
 
         if do_pooling:
-            f = torch.cat([f.view(B, -1) for f in fs], dim=1)
+            if mixed_B:
+                f = format_ref_tensors_in_mixed_B_layout(fs, Bs_rank_feature)
+            else:
+                f = torch.cat([f.view(B, -1) for f in fs], dim=1)
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
 
@@ -231,7 +262,10 @@ class BackwardDenseTest(unittest.TestCase):
             rtol=tol,
         )
         if do_pooling:
-            goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
+            if mixed_B:
+                goc = format_ref_tensors_in_mixed_B_layout(gos, Bs_rank_feature)
+            else:
+                goc = torch.cat([go.view(B, -1) for go in gos], dim=1)
         else:
             goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
@@ -256,7 +290,12 @@ class BackwardDenseTest(unittest.TestCase):
         offsets.requires_grad = False
         for param in cc.parameters():
             param.requires_grad = False
-        y = cc(indices, offsets, per_sample_weights)
+        y = cc(
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
         y.sum().backward()
         # pyre-fixme[16]: `Optional` has no attribute `clone`.
         indice_weight_grad_all = per_sample_weights.grad.clone().cpu()
@@ -272,10 +311,12 @@ class BackwardDenseTest(unittest.TestCase):
             offsets,
             per_sample_weights,
             feature_requires_grad=feature_requires_grad,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
         y.sum().backward()
         indice_weight_grad_mask = per_sample_weights.grad.clone().cpu()
         for t in range(T_):
+            B = Bs[t]
             if feature_requires_grad[t]:
                 torch.testing.assert_close(
                     indice_weight_grad_mask.view(T_, B, L)[t],
@@ -296,7 +337,17 @@ class BackwardDenseTest(unittest.TestCase):
         for param in cc.parameters():
             param.requires_grad = False
         gradcheck(
-            cc, (indices, offsets, per_sample_weights), eps=1e-2, atol=1e-3, rtol=1e-3
+            cc,
+            (
+                indices,
+                offsets,
+                per_sample_weights,
+                None,
+                batch_size_per_feature_per_rank,
+            ),
+            eps=1e-2,
+            atol=1e-3,
+            rtol=1e-3,
         )
 
 
