@@ -177,6 +177,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ),
         )
 
+        assert cache_sets > 0
         element_size = 4
         cache_size = cache_sets * ASSOC * element_size * self.max_D
         logging.info(
@@ -885,10 +886,12 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         logging.info(
             f"Using cache for SSD with admission algorithm "
             f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_shards} shards, "
+            f"SSD storage directory: {ssd_storage_directory}, "
             f"Memtable Flush Period: {ssd_memtable_flush_period}, "
             f"Memtable Flush Offset: {ssd_memtable_flush_offset}, "
             f"Desired L0 files per compaction: {ssd_l0_files_per_compact}, "
-            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB"
+            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
+            f"output dtype: {output_dtype}"
         )
         self.register_buffer(
             "lxu_cache_state",
