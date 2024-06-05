@@ -24,6 +24,10 @@
 #include <hip/hip_fp16.h>
 #endif
 
+#if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+#include <cuda_fp8.h>
+#endif
+
 #ifndef USE_ROCM
 #include <mma.h>
 #endif
@@ -269,6 +273,30 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
 // DEVICE_INLINE bfx8
 // dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale);
 
+#if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+DEVICE_INLINE bfx4 dequantize_packed_fp8(uint32_t vs, __half2 shift_scale_0) {
+  const __nv_fp8x2_storage_t slo = static_cast<__nv_fp8x2_storage_t>(vs);
+  const __nv_fp8x2_storage_t shi = static_cast<__nv_fp8x2_storage_t>(vs >> 16U);
+
+  __half2 h0 = static_cast<__half2>(__nv_cvt_fp8x2_to_halfraw2(slo, __NV_E4M3));
+  __half2 h1 = static_cast<__half2>(__nv_cvt_fp8x2_to_halfraw2(shi, __NV_E4M3));
+
+  auto shift_0 = __high2half(shift_scale_0);
+  auto scale_0 = __low2half(shift_scale_0);
+  __half2 scales = __half2(scale_0, scale_0);
+  __half2 shifts = __half2(shift_0, shift_0);
+
+  // now, dequantize
+  auto r0 = __half22float2(__hfma2(h0, scales, shifts));
+  auto r1 = __half22float2(__hfma2(h1, scales, shifts));
+
+  bfx4 result;
+  result.vals[0] = __floats2bfloat162_rn(r0.x, r0.y);
+  result.vals[1] = __floats2bfloat162_rn(r1.x, r1.y);
+  return result;
+}
+#endif
+
 DEVICE_INLINE bfx4 dequantize_packed_int4(uint16_t vs, __half2 shift_scale_0) {
   uint32_t v = vs;
   // move 2nd byte to 3rd byte, so our bits are in 0x00FF00FF positions.
@@ -453,10 +481,12 @@ DEVICE_INLINE T warpReduceMax(T val, uint32_t warp_mask = FINAL_MASK) {
   return val;
 }
 
+enum class CacheLogicalDtype { BF16, FP8, INT4 };
 template <
     typename kv_t,
     int KVQuantNumGroups = 1,
-    typename kv_load_t = uint32_t>
+    typename kv_load_t = uint32_t,
+    CacheLogicalDtype KVDataType>
 __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
     gqa_attn_splitk_wmma_kernel(
         const at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits>
@@ -496,12 +526,15 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   // Assume cache_K/cache_V is contiguous
   const auto* cache_K_base = &cache_K[b][0][0][0];
   const auto* cache_V_base = &cache_V[b][0][0][0];
-  constexpr bool USE_INT4 = std::is_same<kv_t, uint8_t>::value;
+  constexpr bool USE_QUANTIZE =
+      std::is_same<kv_t, uint8_t>::value; // TODO: CHANGE TO USE_QUANTIZE
+  constexpr bool USE_FP8 = (KVDataType == CacheLogicalDtype::FP8);
 
-  // Only used for int4
-  constexpr int32_t INT4_PARAM_BYTES = 4 * KVQuantNumGroups;
-  constexpr int32_t D_H_bytes = D_H / 2 + INT4_PARAM_BYTES;
-  constexpr int32_t INT4_GROUP_SIZE = D_H / KVQuantNumGroups;
+  // Only used for int4/fp8
+  constexpr int32_t PARAM_BYTES = 4 * KVQuantNumGroups;
+  constexpr int32_t KV_DTYPE_SZ_BITS = (USE_FP8) ? 8 : 4;
+  constexpr int32_t D_H_bytes = (D_H * KV_DTYPE_SZ_BITS) / 8 + PARAM_BYTES;
+  constexpr int32_t GROUP_SIZE = D_H / KVQuantNumGroups;
 
   // Compute S[MAX_T] = for i in range(T): S[t] = sum(Q[d] * K[t, d])
   // Split T across warps in a block.
@@ -522,12 +555,13 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   }
 
   using namespace nvcuda;
-  // Number of vectors for K and V (vector type in this case is uint32_t)
-  constexpr int KV_NUM_VECS = 2;
+  // Number of elements returned from the dequantization step
+  constexpr int KV_NUM_ELS_PER_DEQ = (USE_FP8) ? 4 : 8;
+  constexpr int KV_NUM_VECS = F_K / KV_NUM_ELS_PER_DEQ;
   // Number of elements to load when using the kv_load_t type (kv_load_t is 32
   // bits for KVQuantNumGroups = 1 and 64 bits for KVQuantNumGroups = 4)
-  constexpr int KV_LD_NUM_ELS =
-      (KV_NUM_VECS * sizeof(uint32_t)) / sizeof(kv_load_t);
+  constexpr int KV_NUM_ELS_PER_LD = (sizeof(kv_load_t) * 8) / KV_DTYPE_SZ_BITS;
+  constexpr int KV_LD_NUM_ELS = F_K / KV_NUM_ELS_PER_LD;
 
   wmma::fragment<wmma::matrix_a, F_M, F_N, F_K, __nv_bfloat16, wmma::row_major>
       q_frag;
@@ -572,13 +606,13 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 
     // Intra-warp reduction within across D_H
     for (auto d_start = 0; d_start < D_H; d_start += F_K) {
-      if (USE_INT4 && d_start % INT4_GROUP_SIZE == 0) {
+      if (USE_QUANTIZE && d_start % GROUP_SIZE == 0) {
         // Load K scales for INT4 K
         // Each thread operates on a single row (T dim). Columns are split into
         // KVQuantNumGroups groups and each group has the same K scales
         if (t_start + threadIdx.x < min(t_start + F_N, t_per_block_end)) {
           auto* k_ = cache_K_base + (t_start + threadIdx.x) * D_H_bytes;
-          const int group_id = d_start / INT4_GROUP_SIZE;
+          const int group_id = d_start / GROUP_SIZE;
           k_scales = reinterpret_cast<const __half2*>(k_)[group_id];
         }
       }
@@ -591,8 +625,8 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
           D_H);
 
       // Load K fragment
-      if (USE_INT4) {
-        // Load and dequantize INT4 K
+      if (USE_QUANTIZE) {
+        // Load and dequantize K
         // Each thread loads 16 columns (D dim) from one row (T dim).
         // Each row is handled by one thread.
         const auto t = t_start + threadIdx.x;
@@ -603,20 +637,18 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
           // Since F_N = 32, each thread handles only one row (T dim). Thus a
           // for-loop is not required
           if (t < t_scope) {
-            // Ratio between the INT4 bytes and kv_load_t bytes
-            constexpr int KV_LOAD_T_INT4_RATIO = 2 * sizeof(kv_load_t);
-            const auto k_offset =
-                t * D_H_bytes + INT4_PARAM_BYTES + d_start / 2;
-            const auto* cache_k_ =
-                reinterpret_cast<const kv_load_t*>(cache_K_base + k_offset);
+            const auto k_offset_bytes =
+                t * D_H_bytes + PARAM_BYTES + (d_start * KV_DTYPE_SZ_BITS) / 8;
+            const auto* cache_k_ = reinterpret_cast<const kv_load_t*>(
+                cache_K_base + k_offset_bytes);
 #pragma unroll K_UNROLLS
             for (int k_unroll = 0; k_unroll < K_UNROLLS; k_unroll++) {
               auto* k_vals_ = k_vals + k_unroll * KV_LD_NUM_ELS;
               const auto* k_ =
-                  cache_k_ + ((k_unroll * F_K) / KV_LOAD_T_INT4_RATIO);
+                  cache_k_ + ((k_unroll * F_K) / KV_NUM_ELS_PER_LD);
 #pragma unroll KV_LD_NUM_ELS
               for (auto k_i = 0; k_i < KV_LD_NUM_ELS; k_i++) {
-                k_vals_[k_i] = k_[(k_i * 8) / KV_LOAD_T_INT4_RATIO];
+                k_vals_[k_i] = k_[k_i];
               }
             }
           }
@@ -630,16 +662,25 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
               (warp_idx * F_N + t - t_start) * SMEM_K_STRIDE;
           const auto* k_vals_ = reinterpret_cast<uint32_t*>(k_vals) + k_offset;
           auto* smem_staging_ = smem_staging + smem_offset;
+          // Dequantize 16 elements to 16 BF16s and store results in shared
+          // memory
 #pragma unroll KV_NUM_VECS
           for (int vec = 0; vec < KV_NUM_VECS; ++vec) {
-            // Dequantize 8 INT4s to 8 BF16s and store the results in shared
-            // memory
-            const auto k_deq = dequantize_permuted_int4(k_vals_[vec], k_scales);
-            auto* smem_s =
-                reinterpret_cast<__nv_bfloat162*>(smem_staging_ + vec * 8);
+            auto* smem_s = reinterpret_cast<__nv_bfloat162*>(
+                smem_staging_ + vec * KV_NUM_ELS_PER_DEQ);
+            if (USE_FP8) {
+              const auto k_deq = dequantize_packed_fp8(k_vals_[vec], k_scales);
 #pragma unroll
-            for (int i = 0; i < 4; i++) {
-              smem_s[i] = k_deq.vals[i];
+              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+                smem_s[i] = k_deq.vals[i];
+              }
+            } else {
+              const auto k_deq =
+                  dequantize_permuted_int4(k_vals_[vec], k_scales);
+#pragma unroll
+              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+                smem_s[i] = k_deq.vals[i];
+              }
             }
           }
         }
@@ -839,19 +880,19 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   __half2 v_scales;
 
   // Prefetch V
-  if (USE_INT4) {
+  if (USE_QUANTIZE) {
     const auto d_start = warp_idx * F_N;
     const int t_chunk_id = threadIdx.x % 2;
-    const int group_id = d_start / INT4_GROUP_SIZE;
+    const int group_id = d_start / GROUP_SIZE;
     int t = t_per_block_start + threadIdx.x / 2;
     if (t < min(t_per_block_start + F_K, t_per_block_end)) {
       const auto* v_ = cache_V_base + t * D_H_bytes;
       v_scales = reinterpret_cast<const __half2*>(v_)[group_id];
 #pragma unroll KV_LD_NUM_ELS
       for (int vec = 0; vec < KV_LD_NUM_ELS; vec++) {
-        int d = d_start + (vec + t_chunk_id * KV_NUM_VECS) * 8;
-        v_vals[vec] =
-            *reinterpret_cast<const kv_load_t*>(&v_[d / 2 + INT4_PARAM_BYTES]);
+        int d = d_start + vec * KV_NUM_ELS_PER_LD + t_chunk_id * F_K;
+        int t_offset_bytes = PARAM_BYTES + d * KV_DTYPE_SZ_BITS / 8;
+        v_vals[vec] = *reinterpret_cast<const kv_load_t*>(&v_[t_offset_bytes]);
       }
     }
   }
@@ -991,7 +1032,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 #endif
 
       // Load V fragment
-      if (USE_INT4) {
+      if (USE_QUANTIZE) {
         // Load and dequantize INT4 V
         // Each thread loads 16 columns (D dim) from one row (T dim).
         // Each row is handled by two threads
@@ -1005,15 +1046,22 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 #pragma unroll KV_NUM_VECS
           for (int vec = 0; vec < KV_NUM_VECS; ++vec) {
             const int smem_d = vec + t_chunk_id * KV_NUM_VECS;
-            // Dequantize 8 INT4s to 8 BF16s and store the results in shared
-            // memory
+            // Dequantize KV_NUM_ELS_PER_LD INT4s to BF16s and store the results
+            // in shared memory
             const auto v_vals_ = reinterpret_cast<uint32_t*>(v_vals)[vec];
-            const auto v_deq = dequantize_permuted_int4(v_vals_, v_scales);
-            auto* smem_s =
-                reinterpret_cast<__nv_bfloat162*>(smem_staging_ + smem_d * 8);
+            auto* smem_s = reinterpret_cast<__nv_bfloat162*>(
+                smem_staging_ + smem_d * KV_NUM_ELS_PER_DEQ);
+            if (USE_FP8) {
+              const auto v_deq = dequantize_packed_fp8(v_vals_, v_scales);
 #pragma unroll
-            for (int i = 0; i < 4; i++) {
-              smem_s[i] = v_deq.vals[i];
+              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+                smem_s[i] = v_deq.vals[i];
+              }
+            } else {
+              const auto v_deq = dequantize_permuted_int4(v_vals_, v_scales);
+              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+                smem_s[i] = v_deq.vals[i];
+              }
             }
           }
         } else {
@@ -1025,10 +1073,10 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 #pragma unroll KV_NUM_VECS
             for (int vec = 0; vec < KV_NUM_VECS; ++vec) {
               const int smem_d = vec + t_chunk_id * KV_NUM_VECS;
-              auto* smem_s =
-                  reinterpret_cast<uint32_t*>(smem_staging_ + smem_d * 8);
+              auto* smem_s = reinterpret_cast<uint32_t*>(
+                  smem_staging_ + smem_d * KV_NUM_ELS_PER_DEQ);
 #pragma unroll
-              for (int i = 0; i < 4; i++) {
+              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
                 smem_s[i] = 0;
               }
             }
@@ -1046,13 +1094,15 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
         if (t_next < min(t_start_next + F_K, t_per_block_end) &&
             d_start_next < D_H) {
           auto* v_ = cache_V_base + t_next * D_H_bytes;
-          const auto group_id = d_start_next / INT4_GROUP_SIZE;
+          const auto group_id = d_start_next / GROUP_SIZE;
           v_scales = reinterpret_cast<const __half2*>(v_)[group_id];
 #pragma unroll KV_LD_NUM_ELS
           for (int vec = 0; vec < KV_LD_NUM_ELS; vec++) {
-            const int d = d_start_next + (vec + t_chunk_id * KV_NUM_VECS) * 8;
-            v_vals[vec] = *reinterpret_cast<const kv_load_t*>(
-                &v_[d / 2 + INT4_PARAM_BYTES]);
+            const int d =
+                d_start_next + vec * KV_NUM_ELS_PER_LD + t_chunk_id * F_K;
+            const int t_offset_bytes = PARAM_BYTES + d * KV_DTYPE_SZ_BITS / 8;
+            v_vals[vec] =
+                *reinterpret_cast<const kv_load_t*>(&v_[t_offset_bytes]);
           }
         }
         // Load BF16 values to V fragment
@@ -1715,7 +1765,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
     const at::Tensor& seq_positions,
     const double qk_scale,
     const int64_t num_split_ks,
-    const int64_t num_int4_kv_groups) {
+    const int64_t kv_cache_quant_num_groups,
+    const CacheLogicalDtype kv_data_type) {
   auto dprops = at::cuda::getCurrentDeviceProperties();
 #ifdef USE_ROCM
   TORCH_CHECK(
@@ -1749,12 +1800,20 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
   if (cache_K.dtype() == at::kBFloat16) {
     TORCH_CHECK(cache_K.size(3) == D_H);
   } else {
-    TORCH_CHECK(
-        num_int4_kv_groups == 1 || num_int4_kv_groups == 4,
-        "Invalid num_int4_kv_groups ",
-        num_int4_kv_groups);
-    auto qparam_offset = 4 * num_int4_kv_groups;
-    TORCH_CHECK(cache_K.size(3) == D_H / 2 + qparam_offset);
+    auto qparam_offset = 4 * kv_cache_quant_num_groups;
+    if (kv_data_type == CacheLogicalDtype::FP8) {
+      TORCH_CHECK(
+          kv_cache_quant_num_groups == 1,
+          "Invalid kv_cache_quant_num_groups for FP8",
+          kv_cache_quant_num_groups);
+      TORCH_CHECK(cache_K.size(3) == D_H + qparam_offset);
+    } else {
+      TORCH_CHECK(
+          kv_cache_quant_num_groups == 1 || kv_cache_quant_num_groups == 4,
+          "Invalid kv_cache_quant_num_groups for INT4",
+          kv_cache_quant_num_groups);
+      TORCH_CHECK(cache_K.size(3) == D_H / 2 + qparam_offset);
+    }
   }
 
   const auto B = XQ.size(0);
@@ -1788,9 +1847,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
           (t_per_block_round_up + kSplitKWarpsPerBlock + D_H) * sizeof(float) +
       smem_staging_size;
 
-#define CALL_GQA_ATTN_SPLITK_WMMA(CACHE_TYPE, NUM_GROUPS, KV_LOAD_T)        \
-  const auto gqa_fn =                                                       \
-      gqa_attn_splitk_wmma_kernel<CACHE_TYPE, NUM_GROUPS, KV_LOAD_T>;       \
+#define CALL_GQA_ATTN_SPLITK_WMMA(                                          \
+    CACHE_TYPE, NUM_GROUPS, KV_LOAD_T, KV_DATA_TYPE)                        \
+  const auto gqa_fn = gqa_attn_splitk_wmma_kernel<                          \
+      CACHE_TYPE,                                                           \
+      NUM_GROUPS,                                                           \
+      KV_LOAD_T,                                                            \
+      KV_DATA_TYPE>;                                                        \
   if (smem > SMEM_ADJUST_THRESHOLD) {                                       \
     set_gpu_max_dynamic_shared_memory(gqa_fn, smem, XQ.get_device());       \
   }                                                                         \
@@ -1805,12 +1868,20 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
   C10_CUDA_KERNEL_LAUNCH_CHECK()
 
   if (cache_K.dtype() == at::kBFloat16) {
-    CALL_GQA_ATTN_SPLITK_WMMA(at::BFloat16, 1, uint32_t);
+    CALL_GQA_ATTN_SPLITK_WMMA(
+        at::BFloat16, 1, uint32_t, CacheLogicalDtype::BF16);
   } else {
-    if (num_int4_kv_groups == 1) {
-      CALL_GQA_ATTN_SPLITK_WMMA(uint8_t, 1, uint32_t);
+    if (kv_data_type == CacheLogicalDtype::FP8) {
+      TORCH_CHECK(kv_cache_quant_num_groups == 1, "fp8 only supports 1 group");
+      CALL_GQA_ATTN_SPLITK_WMMA(uint8_t, 1, uint32_t, CacheLogicalDtype::FP8);
     } else {
-      CALL_GQA_ATTN_SPLITK_WMMA(uint8_t, 4, uint2);
+      // Default quantization is INT4. Change this?
+      if (kv_cache_quant_num_groups == 1) {
+        CALL_GQA_ATTN_SPLITK_WMMA(
+            uint8_t, 1, uint32_t, CacheLogicalDtype::INT4);
+      } else {
+        CALL_GQA_ATTN_SPLITK_WMMA(uint8_t, 4, uint2, CacheLogicalDtype::INT4);
+      }
     }
   }
 
@@ -2003,10 +2074,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_impl(
 /// @param num_split_ks The number of split Ks (controlling the
 ///                     amount of parallelism in the context length
 ///                     dimension (MAX_T))
-/// @param num_int4_kv_groups The number of groups for group-wise INT4
-///                           quantization for each KV token (each
+/// @param kv_cache_quant_num_groups The number of groups for group-wise INT4
+///                           and FP8 quantization for each KV token (each
 ///                           group uses the same scale and bias for
-///                           quantization)
+///                           quantization). FP8 supports a single group for
+///                           now.
 ///
 /// @param use_tensor_cores Whether to use tensor core wmma instructions
 ///                           for fast implementations
@@ -2021,8 +2093,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
     const at::Tensor& seq_positions,
     const double qk_scale,
     const int64_t num_split_ks,
-    const int64_t num_int4_kv_groups,
-    const bool use_tensor_cores) {
+    const int64_t kv_cache_quant_num_groups,
+    const bool use_tensor_cores,
+    const int64_t cache_logical_dtype_int) {
+  CacheLogicalDtype kv_data_type =
+      static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
+
   if (use_tensor_cores) {
     const auto dprops = at::cuda::getCurrentDeviceProperties();
 #ifdef USE_ROCM
@@ -2044,8 +2120,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
         seq_positions,
         qk_scale,
         num_split_ks,
-        num_int4_kv_groups);
+        kv_cache_quant_num_groups,
+        kv_data_type);
   }
+  TORCH_CHECK(
+      kv_data_type != CacheLogicalDtype::FP8,
+      "gqa_attn_splitk with use_tensor_cores=False does not support FP8 quantized KV Cache");
   return gqa_attn_splitk_impl(
       XQ,
       cache_K,
@@ -2053,7 +2133,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
       seq_positions,
       qk_scale,
       num_split_ks,
-      num_int4_kv_groups);
+      kv_cache_quant_num_groups);
 }
 
 } // namespace fbgemm_gpu::gen_ai::attention
