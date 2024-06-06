@@ -784,6 +784,9 @@ class {{ autograd_func }} :
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
+    // backward impl does mutation of weights, which are allowed in aot autograd only in no_grad mode
+    at::AutoGradMode m(false);
+
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
     auto dev_weights = *savedItr++;

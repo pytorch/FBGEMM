@@ -556,9 +556,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     %}
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
-        "    Tensor host_weights, "
-        "    Tensor dev_weights, "
-        "    Tensor uvm_weights, "
+        "    Tensor(a!) host_weights, "
+        "    Tensor(b!) dev_weights, "
+        "    Tensor(c!) uvm_weights, "
         "    Tensor lxu_cache_weights, "
         "    Tensor weights_placements, "
         "    Tensor weights_offsets, "
