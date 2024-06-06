@@ -103,12 +103,12 @@ void nccl_comm_init_rank(
       "ncclCommInitRank");
 }
 
-void nccl_allgather(at::Tensor y_allgather, at::Tensor y, int64_t comm_idx) {
+void nccl_allgather(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
-  TORCH_CHECK(y.is_contiguous());
-  TORCH_CHECK(y_allgather.is_contiguous());
+  TORCH_CHECK(src.is_contiguous());
+  TORCH_CHECK(dst.is_contiguous());
   ncclDataType_t type;
-  switch (y.scalar_type()) {
+  switch (src.scalar_type()) {
     case at::kFloat:
       type = ncclDataType_t::ncclFloat;
       break;
@@ -119,13 +119,13 @@ void nccl_allgather(at::Tensor y_allgather, at::Tensor y, int64_t comm_idx) {
       type = ncclDataType_t::ncclBfloat16;
       break;
     default:
-      TORCH_CHECK(false, "unsupported type: ", y.scalar_type());
+      TORCH_CHECK(false, "unsupported type: ", src.scalar_type());
   }
   C10D_NCCL_CHECK(
       ncclAllGather(
-          y.data_ptr(),
-          y_allgather.data_ptr(),
-          y.numel(),
+          src.data_ptr(),
+          dst.data_ptr(),
+          src.numel(),
           type,
           *get_nccl_comm(comm_idx),
           at::cuda::getCurrentCUDAStream()),
@@ -133,33 +133,30 @@ void nccl_allgather(at::Tensor y_allgather, at::Tensor y, int64_t comm_idx) {
 }
 
 void nccl_alltoall(
-    at::Tensor y_all2all,
-    at::Tensor y,
+    at::Tensor dst,
+    at::Tensor src,
     int64_t world_size,
     int64_t comm_idx) {
-  TORCH_CHECK(y.is_contiguous());
-  TORCH_CHECK(y_all2all.is_contiguous());
+  TORCH_CHECK(src.is_contiguous());
+  TORCH_CHECK(dst.is_contiguous());
 
   auto stream = at::cuda::getCurrentCUDAStream();
   torch::cuda::nccl::all2all_single_equal_split(
-      y, y_all2all, world_size, *get_nccl_comm(comm_idx), stream);
+      src, dst, world_size, *get_nccl_comm(comm_idx), stream);
 }
 
-void nccl_reducescatter(
-    at::Tensor y_reducescatter,
-    at::Tensor y,
-    int64_t comm_idx) {
+void nccl_reducescatter(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
-  TORCH_CHECK(y.is_contiguous());
-  TORCH_CHECK(y_reducescatter.is_contiguous());
-  TORCH_CHECK(y.dtype() == at::ScalarType::BFloat16);
-  TORCH_CHECK(y_reducescatter.dtype() == at::ScalarType::BFloat16);
+  TORCH_CHECK(src.is_contiguous());
+  TORCH_CHECK(dst.is_contiguous());
+  TORCH_CHECK(src.dtype() == at::ScalarType::BFloat16);
+  TORCH_CHECK(dst.dtype() == at::ScalarType::BFloat16);
 
   C10D_NCCL_CHECK(
       ncclReduceScatter(
-          y.data_ptr(),
-          y_reducescatter.data_ptr(),
-          y_reducescatter.numel(),
+          src.data_ptr(),
+          dst.data_ptr(),
+          dst.numel(),
           ncclDataType_t::ncclBfloat16,
           ncclSum,
           *get_nccl_comm(comm_idx),
@@ -168,16 +165,16 @@ void nccl_reducescatter(
 }
 
 void nccl_allreduce(
-    at::Tensor y_allreduce,
-    at::Tensor y,
-    std::optional<at::Tensor> z,
+    at::Tensor dst,
+    at::Tensor src,
+    std::optional<at::Tensor> bias,
     int64_t comm_idx) {
   using namespace c10d;
-  TORCH_CHECK(y.is_contiguous());
-  TORCH_CHECK(y_allreduce.is_contiguous());
-  TORCH_CHECK(y_allreduce.dtype() == y.dtype());
+  TORCH_CHECK(src.is_contiguous());
+  TORCH_CHECK(dst.is_contiguous());
+  TORCH_CHECK(dst.dtype() == src.dtype());
   ncclDataType_t type;
-  switch (y.scalar_type()) {
+  switch (src.scalar_type()) {
     case at::kFloat:
       type = ncclDataType_t::ncclFloat;
       break;
@@ -193,20 +190,20 @@ void nccl_allreduce(
       type = ncclDataType_t::ncclBfloat16;
       break;
     default:
-      TORCH_CHECK(false, "unsupported type: ", y.scalar_type());
+      TORCH_CHECK(false, "unsupported type: ", src.scalar_type());
   }
   C10D_NCCL_CHECK(
       ncclAllReduce(
-          y.data_ptr(),
-          y_allreduce.data_ptr(),
-          y.numel(),
+          src.data_ptr(),
+          dst.data_ptr(),
+          src.numel(),
           type,
           ncclSum,
           *get_nccl_comm(comm_idx),
           at::cuda::getCurrentCUDAStream()),
       "ncclAllReduce");
-  if (z) {
-    y_allreduce.add_(*z);
+  if (bias) {
+    dst.add_(*bias);
   }
 }
 
@@ -221,14 +218,14 @@ void car_init(
     at::Tensor local_buffer,
     std::vector<at::Tensor> all_buffer_handles);
 void one_shot_car_allreduce(
-    at::Tensor y_allreduce,
-    at::Tensor y,
-    std::optional<at::Tensor> z,
+    at::Tensor dst,
+    at::Tensor src,
+    std::optional<at::Tensor> bias,
     int64_t comm_idx);
 void two_shot_car_allreduce(
-    at::Tensor y_allreduce,
-    at::Tensor y,
-    std::optional<at::Tensor> z,
+    at::Tensor dst,
+    at::Tensor src,
+    std::optional<at::Tensor> bias,
     int64_t comm_idx);
 
 at::Tensor car_tensor();
@@ -245,19 +242,18 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "nccl_comm_init_rank(int world_size, int rank, Tensor id_, int comm_idx=0) -> ()");
   m.impl("nccl_comm_init_rank", nccl_comm_init_rank);
 
-  m.def("nccl_allgather(Tensor y_allgather, Tensor y, int comm_idx=0) -> ()");
+  m.def("nccl_allgather(Tensor dst, Tensor src, int comm_idx=0) -> ()");
   m.impl("nccl_allgather", nccl_allgather);
 
   m.def(
-      "nccl_alltoall(Tensor y_all2all, Tensor y, int world_size, int comm_idx=0) -> ()");
+      "nccl_alltoall(Tensor dst, Tensor src, int world_size, int comm_idx=0) -> ()");
   m.impl("nccl_alltoall", nccl_alltoall);
 
-  m.def(
-      "nccl_reducescatter(Tensor y_reducescatter, Tensor y, int comm_idx=0) -> ()");
+  m.def("nccl_reducescatter(Tensor dst, Tensor src, int comm_idx=0) -> ()");
   m.impl("nccl_reducescatter", nccl_reducescatter);
 
   m.def(
-      "nccl_allreduce(Tensor y_allreduce, Tensor y, Tensor? z=None, int comm_idx=0) -> ()");
+      "nccl_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
   m.impl("nccl_allreduce", nccl_allreduce);
 
   // car: customized all reduce
@@ -272,11 +268,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("car_init", car_init);
 
   m.def(
-      "one_shot_car_allreduce(Tensor y_allreduce, Tensor y, Tensor? z=None, int comm_idx=0) -> ()");
+      "one_shot_car_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
 
   m.def(
-      "two_shot_car_allreduce(Tensor y_allreduce, Tensor y, Tensor? z=None, int comm_idx=0) -> ()");
+      "two_shot_car_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
 }
 
