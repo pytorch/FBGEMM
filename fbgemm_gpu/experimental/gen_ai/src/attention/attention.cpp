@@ -19,9 +19,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
     const at::Tensor& seq_positions,
     const double qk_scale,
     const int64_t num_split_ks,
-    const int64_t kv_cache_quant_num_groups,
-    const bool use_tensor_cores,
-    const int64_t cache_logical_dtype_int);
+    const int64_t num_int4_kv_groups,
+    const bool use_tensor_cores);
 } // namespace fbgemm_gpu::gen_ai::attention
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -33,9 +32,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor seq_positions, "
       "    float qk_scale, "
       "    int num_split_ks, "
-      "    int kv_cache_quant_num_groups=1, "
-      "    bool use_tensor_cores=True,"
-      "    int cache_logical_dtype_int=0"
+      "    int num_int4_kv_groups=1, "
+      "    bool use_tensor_cores=True"
       ") -> (Tensor, Tensor, Tensor)");
 }
 
