@@ -6,13 +6,16 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <ATen/ATen.h>
+#include <ATen/core/TensorAccessor.h>
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "mx/common.cuh"
 
 //-----------------------------------------------------------------------
 // MX4-Float mapping
 //-----------------------------------------------------------------------
 
-__device__ const float MX4_values[16] = {
+__constant__ float MX4_values[16] = {
     0.0f,
     0.5f,
     1.0f,
