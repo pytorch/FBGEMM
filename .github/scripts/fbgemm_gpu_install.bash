@@ -48,6 +48,22 @@ __fbgemm_gpu_post_install_checks () {
   (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
   (test_python_import_symbol "${env_name}" fbgemm_gpu __version__) || return 1
 
+  echo "[INSTALL] Checking operator registrations ..."
+  local test_operator="torch.ops.fbgemm.asynchronous_inclusive_cumsum"
+  # shellcheck disable=SC2086
+  if conda run ${env_prefix} python -c "import torch; import fbgemm_gpu; print($test_operator)"; then
+    echo "[CHECK] FBGEMM_GPU operators appear to be correctly registered on torch.ops.load()."
+  else
+    echo "################################################################################"
+    echo "[CHECK] FBGEMM_GPU operators haven't registered themselves on torch.ops.load()!"
+    echo "[CHECK]"
+    echo "[CHECK] Please check that all operators defined with m.def() have an appropriate"
+    echo "[CHECK] m.impl() defined, AND that the definition sources are included in the "
+    echo "[CHECK] CMake build configuration!"
+    echo "################################################################################"
+    return 1
+  fi
+
   echo "[CHECK] Printing out the FBGEMM-GPU version ..."
   # shellcheck disable=SC2086,SC2155
   local installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
