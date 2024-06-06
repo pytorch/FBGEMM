@@ -18,7 +18,6 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     quantize_fp8_row,
 )
 from torch._tensor import Tensor
-from triton.runtime.jit import TensorWrapper
 
 
 def bench() -> None:
@@ -95,8 +94,8 @@ def bf16_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
 def scale_row_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
     # Benchmark quantize(x) + gemm for inference.
     def run_gemm() -> Tensor:
-        x_fp8: TensorWrapper
-        w_fp8: TensorWrapper
+        x_fp8: Tensor
+        w_fp8: Tensor
         x_scale: Tensor
         w_scale: Tensor
         x_fp8, x_scale = quantize_fp8_row(x)
@@ -116,8 +115,8 @@ def scale_row_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
 
 def row_gemm_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
     # Benchmark only row-wise gemm, caching scaling.
-    x_fp8: TensorWrapper
-    w_fp8: TensorWrapper
+    x_fp8: Tensor
+    w_fp8: Tensor
     x_scale: Tensor
     w_scale: Tensor
     x_fp8, x_scale = quantize_fp8_row(x)
@@ -139,8 +138,8 @@ def row_gemm_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
 
 def row_gemm_bench_no_fast_acc(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
     # Benchmark only row-wise gemm, caching scaling.
-    x_fp8: TensorWrapper
-    w_fp8: TensorWrapper
+    x_fp8: Tensor
+    w_fp8: Tensor
     x_scale: Tensor
     w_scale: Tensor
     x_fp8, x_scale = quantize_fp8_row(x)
@@ -162,8 +161,8 @@ def row_gemm_bench_no_fast_acc(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
 
 def row_gemm_bench_imprecise_acc(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
     # Benchmark only row-wise gemm, caching scaling.
-    x_fp8: TensorWrapper
-    w_fp8: TensorWrapper
+    x_fp8: Tensor
+    w_fp8: Tensor
     x_scale: Tensor
     w_scale: Tensor
     x_fp8, x_scale = quantize_fp8_row(x)
@@ -186,8 +185,8 @@ def row_gemm_bench_imprecise_acc(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
 
 def scale_block_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
     def run_gemm() -> Tensor:
-        x_fp8: TensorWrapper
-        w_fp8: TensorWrapper
+        x_fp8: Tensor
+        w_fp8: Tensor
         x_scale: Tensor
         w_scale: Tensor
         x_fp8, x_scale = quantize_fp8_block(x)
@@ -207,8 +206,8 @@ def scale_block_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
 
 def block_gemm_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
     # Benchmark only block-wise gemm, caching scaling.
-    x_fp8: TensorWrapper
-    w_fp8: TensorWrapper
+    x_fp8: Tensor
+    w_fp8: Tensor
     x_scale: Tensor
     w_scale: Tensor
     x_fp8, x_scale = quantize_fp8_block(x)
