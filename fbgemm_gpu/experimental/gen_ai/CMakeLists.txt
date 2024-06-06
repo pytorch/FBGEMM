@@ -31,9 +31,13 @@ set(attention_ops_sources
     src/attention/gqa_attn_splitk.cu)
 
 set(quantize_ops_sources
-    src/quantize/cutlass_extensions.cu
     src/quantize/quantize.cu
     src/quantize/quantize.cpp)
+if(USE_ROCM)
+    list(APPEND quantize_ops_sources src/quantize/ck_extensions.hip)
+else()
+    list(APPEND quantize_ops_sources src/quantize/cutlass_extensions.cu)
+endif()
 
 # set(comm_ops_sources
 #     src/comm/car.cu
