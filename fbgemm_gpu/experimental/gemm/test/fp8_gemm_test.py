@@ -50,7 +50,7 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
             # Undo scaling.
-            a_torch = a_fp8.base.to(torch.bfloat16)
+            a_torch = a_fp8.to(torch.bfloat16)
             a_torch *= a_scale[:, None]
 
             self.assertTrue(
@@ -110,7 +110,7 @@ class TestFp8Matmul(unittest.TestCase):
 
             a_fp8, a_scale = quantize_fp8_block(a, BLOCK_M, BLOCK_K, scale_ub=scale_ub)
 
-            a_torch = a_fp8.base.to(torch.bfloat16)
+            a_torch = a_fp8.to(torch.bfloat16)
 
             # Undo scaling.
             for i in range(0, M, BLOCK_M):

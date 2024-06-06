@@ -21,31 +21,40 @@ from triton.ops.matmul_perf_model import (  # @manual
 )
 from triton.runtime.jit import reinterpret as tl_reinterpret, TensorWrapper  # @manual
 
-# NVidia and AMD use different FP8 types, define them here for use throughout.
-if torch.version.hip is not None:
-    PT_FP8_DTYPE = torch.float8_e4m3fnuz
-    TL_FP8_DTYPE = tl.float8e4b8
-else:
-    PT_FP8_DTYPE = torch.float8_e4m3fn
-    TL_FP8_DTYPE = tl.float8e4nv
-
-EPS = 1e-12
-MAX_FP8 = torch.finfo(PT_FP8_DTYPE).max
-
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-def convert_fp8_type(tensor) -> triton.TensorWrapper:
+def get_fp8_constants() -> Tuple[torch.dtype, tl.dtype, float, float]:
+    """
+    Helper function to get constant values for the current platform.
+
+    Returns:
+        pt_dtype (torch.dtype): The correct torch fp8 datatype.
+        tl_dtype (tl.dtype): The correct triton fp8 datatype.
+        max_fp8 (float): The maximum reprsentable value for the fp8 datatype.
+        eps (float): Minimum clip value to prevent divide by zero.
+    """
+    if torch.version.hip is not None:
+        pt_fp8_dtype = torch.float8_e4m3fnuz
+        tl_fp8_dtype = tl.float8e4b8
+    else:
+        pt_fp8_dtype = torch.float8_e4m3fn
+        tl_fp8_dtype = tl.float8e4nv
+    return pt_fp8_dtype, tl_fp8_dtype, torch.finfo(pt_fp8_dtype).max, 1e-12
+
+
+def convert_fp8_type(tensor, dtype) -> triton.TensorWrapper:
     """
     Converts tensor to triton fp8 type.
 
     Args:
         tensor (torch.Tensor): input tensor.
+        dtype (tl.dtype): target triton dtype.
 
     Returns:
         triton.TensorWrapper: fp8 tensor.
     """
-    return tl_reinterpret(tensor, dtype=TL_FP8_DTYPE)
+    return tl_reinterpret(tensor, dtype=dtype)
 
 
 def init_to_zero(name):
@@ -388,8 +397,8 @@ def _kernel_matmul_fp8_row_no_fast_acc(
         m_key (int): Autotuning key for M dimension of input tensor.
         n_key (int): Autotuning key for N dimension of input tensor.
         k_key (int): Autotuning key for K dimension of input tensor.
-        A_scale (TensorWrapper): [M] scale tensor per row. A / A_scale = original A
-        B_scale (TensorWrapper): [N] scale tensor per row. B / B_scale = original B
+        A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A
+        B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B
         stride_am (int): Stride of M dimension of A.
         stride_ak (int): Stride of K dimension of A.
         stride_bn (int): Stride of N dimension of B.
@@ -454,11 +463,8 @@ def _kernel_matmul_fp8_row_no_fast_acc(
     # Invert scaling.
     a_scale = tl.load(A_scale + rm, mask=rm < M)
     b_scale = tl.load(B_scale + rn, mask=rn < N)
-    # Invert vector, then multiply on matrix for speed.
-    inv_a_scale = 1.0 / a_scale
-    inv_b_scale = 1.0 / b_scale
     # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
-    scale = inv_a_scale[:, None] * inv_b_scale[None, :]
+    scale = a_scale[:, None] * b_scale[None, :]
     acc *= scale
 
     acc = acc.to(C.dtype.element_ty)
@@ -528,8 +534,8 @@ def _kernel_matmul_fp8_row_imprecise_acc(
         m_key (int): Autotuning key for M dimension of input tensor.
         n_key (int): Autotuning key for N dimension of input tensor.
         k_key (int): Autotuning key for K dimension of input tensor.
-        A_scale (TensorWrapper): [M] scale tensor per row. A / A_scale = original A
-        B_scale (TensorWrapper): [N] scale tensor per row. B / B_scale = original B
+        A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A
+        B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B
         stride_am (int): Stride of M dimension of A.
         stride_ak (int): Stride of K dimension of A.
         stride_bn (int): Stride of N dimension of B.
@@ -603,11 +609,8 @@ def _kernel_matmul_fp8_row_imprecise_acc(
     # Invert scaling.
     a_scale = tl.load(A_scale + rm, mask=rm < M)
     b_scale = tl.load(B_scale + rn, mask=rn < N)
-    # Invert vector, then multiply on matrix for speed.
-    inv_a_scale = 1.0 / a_scale
-    inv_b_scale = 1.0 / b_scale
     # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
-    scale = inv_a_scale[:, None] * inv_b_scale[None, :]
+    scale = a_scale[:, None] * b_scale[None, :]
     acc *= scale
 
     acc = acc.to(C.dtype.element_ty)
@@ -621,8 +624,8 @@ def _kernel_matmul_fp8_row_imprecise_acc(
 
 
 def matmul_fp8_row(
-    a: TensorWrapper,
-    b: TensorWrapper,
+    a: torch.Tensor,
+    b: torch.Tensor,
     a_scale: torch.Tensor,
     b_scale: torch.Tensor,
     dot_out_dtype: Optional[torch.dtype] = None,
@@ -634,8 +637,8 @@ def matmul_fp8_row(
     Performs matmul on [M, K] and [N, K] fp8 matrices with row-wise scalings [M], [N].
 
     Args:
-        a (TensorWrapper): [M, K] input tensor.
-        b (TensorWrapper): [N, K] input tensor.
+        a (torch.Tensor): [M, K] input tensor.
+        b (torch.Tensor): [N, K] input tensor.
         a_scale (torch.Tensor): [M] reciprocal scale tensor per row. A * a_scale = original A
         b_scale (torch.Tensor): [N] reciprocal scale tensor per row. B * b_scale = original B
         dot_out_dtype (torch.dtype): Output type of tensor core.
@@ -645,8 +648,13 @@ def matmul_fp8_row(
     Returns:
         torch.Tensor: [M, N] Output tensor a @ b / (a_scale[:, None] * b_scale[None, :])
     """
+    # Get datatypes and constants to use.
+    _, tl_dtype, _, _ = get_fp8_constants()
+    # Reinterpret inputs into proper triton fp8 dtype.
+    a_tl = convert_fp8_type(a, tl_dtype)
+    b_tl = convert_fp8_type(b, tl_dtype)
     M, N, K, m_key, n_key, k_key, c, dot_out_dtype_triton, device = prep_matmul(
-        a, b, dot_out_dtype
+        a_tl, b_tl, dot_out_dtype
     )
     # launch kernel
     if a.device == torch.device("cpu"):
@@ -654,7 +662,7 @@ def matmul_fp8_row(
             "FP8 Row-wise Triton kernel not supported on cpu, fallback to torch"
         )
         return (
-            torch.matmul(a.base.to(torch.bfloat16), b.base.to(torch.bfloat16).T)
+            torch.matmul(a.to(torch.bfloat16), b.to(torch.bfloat16).T)
             * (a_scale[:, None] * b_scale[None, :])
         ).to(dtype=c.dtype)
 
@@ -666,8 +674,8 @@ def matmul_fp8_row(
 
     if imprecise_acc:
         _kernel_matmul_fp8_row_imprecise_acc[grid](
-            a,
-            b,
+            a_tl,
+            b_tl,
             c,
             M,
             N,
@@ -691,8 +699,8 @@ def matmul_fp8_row(
         )
     elif fp8_fast_accum:
         _kernel_matmul_fp8_row[grid](
-            a,
-            b,
+            a_tl,
+            b_tl,
             c,
             M,
             N,
@@ -716,8 +724,8 @@ def matmul_fp8_row(
         )
     else:
         _kernel_matmul_fp8_row_no_fast_acc[grid](
-            a,
-            b,
+            a_tl,
+            b_tl,
             c,
             M,
             N,
@@ -940,8 +948,8 @@ def _kernel_matmul_fp8_block(
 
 
 def matmul_fp8_block(
-    a: TensorWrapper,
-    b: TensorWrapper,
+    a: torch.Tensor,
+    b: torch.Tensor,
     a_scale: torch.Tensor,
     b_scale: torch.Tensor,
     scale_block_m: int = 256,
@@ -954,8 +962,8 @@ def matmul_fp8_block(
     """Performs matmul on [M, K] and [N, K] fp8 matrices with block-wise scalings.
 
     Args:
-        a (TensorWrapper): [M, K] input tensor.
-        b (TensorWrapper): [N, K] input tensor.
+        a (torch.Tensor): [M, K] input tensor.
+        b (torch.Tensor): [N, K] input tensor.
         a_scale (torch.Tensor): [cdiv(M, scale_block_m), cdiv(K, scale_block_k)] reciprocal scale tensor per scale block. A * A_scale = original A
         b_scale (torch.Tensor): [cdiv(N, scale_block_n), cdiv(K, scale_block_k)] reciprocal scale tensor per scale block. B * B_scale = original B
         scale_block_m (int): Block size for M dimension of A_scale.
@@ -968,8 +976,14 @@ def matmul_fp8_block(
     Returns:
         Tensor: [M, N] output tensor, (a / a_scale) @ (b / b_scale)
     """
+    # Get datatypes and constants to use.
+    _, tl_dtype, _, _ = get_fp8_constants()
+    # Reinterpret inputs into proper triton fp8 dtype.
+    a_tl = convert_fp8_type(a, tl_dtype)
+    b_tl = convert_fp8_type(b, tl_dtype)
+
     M, N, K, m_key, n_key, k_key, c, dot_out_dtype_triton, device = prep_matmul(
-        a, b, dot_out_dtype
+        a_tl, b_tl, dot_out_dtype
     )
 
     # launch kernel
@@ -985,8 +999,8 @@ def matmul_fp8_block(
         )
 
     _kernel_matmul_fp8_block[grid](
-        a,
-        b,
+        a_tl,
+        b_tl,
         c,
         M,
         N,
@@ -1126,6 +1140,9 @@ def _kernel_quantize_fp8_row(
     N,
     stride_am,
     stride_an,
+    TL_FP8_DTYPE: tl.constexpr,
+    MAX_FP8: tl.constexpr,
+    EPS: tl.constexpr,
     CLAMP_MAX: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ) -> None:
@@ -1148,6 +1165,9 @@ def _kernel_quantize_fp8_row(
         N (int): Number of columns.
         stride_am (int): Stride of m dimension of A.
         stride_an (int): Stride of n dimension of A.
+        TL_FP8_DTYPE (tl.dtype): Target fp8 datatype.
+        MAX_FP8 (float): Maxmimum expressible value for FP8.
+        EPS (float): Epsilon value for numerical stability.
         CLAMP_MAX (bool): Whethar to apply scale_ub.
         BLOCK_SIZE (int): Block size for reduction.
     """
@@ -1189,7 +1209,7 @@ def _kernel_quantize_fp8_row(
 
 def triton_quantize_fp8_row(
     a: Tensor, scale_ub: Optional[Tensor] = None
-) -> Tuple[TensorWrapper, Tensor]:
+) -> Tuple[Tensor, Tensor]:
     """
     Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
 
@@ -1198,14 +1218,15 @@ def triton_quantize_fp8_row(
         scale_ub (Tensor): Maximum allowed value for scale.
 
     Returns:
-        TensorWrapper: fp8 scaled tensor.
+        torch.Tensor: fp8 scaled tensor.
         torch.Tensor: reciprocal scale tensor per row.
     """
+    # Get constant values.
+    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     num_rows = a.shape[0]
     a_scale = torch.empty((num_rows), dtype=torch.float32, device=a.device)
-    a_fp8 = torch.empty((a.shape[0], a.shape[1]), device=a.device, dtype=PT_FP8_DTYPE)
+    a_fp8 = torch.empty((a.shape[0], a.shape[1]), device=a.device, dtype=pt_dtype)
 
-    a_fp8 = convert_fp8_type(a_fp8)
     grid = (num_rows,)
     _kernel_quantize_fp8_row[grid](
         a,
@@ -1216,6 +1237,9 @@ def triton_quantize_fp8_row(
         a.shape[1],
         a.stride(0),
         a.stride(1),
+        TL_FP8_DTYPE=tl_dtype,
+        MAX_FP8=max_fp8,
+        EPS=eps,
         CLAMP_MAX=scale_ub is not None,
     )
 
@@ -1227,7 +1251,7 @@ def quantize_fp8_row(
     scale_ub: Optional[Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
-) -> Tuple[TensorWrapper, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a to fp8 with row-wise scalings and optionally move to output device.
 
@@ -1238,7 +1262,7 @@ def quantize_fp8_row(
         output_device (torch.device): Device to optionally move the scaled tensors to.
 
     Returns:
-        TensorWrapper: fp8 scaled tensor.
+        torch.Tensor: fp8 scaled tensor.
         torch.Tensor: The reciprocal scale tensor per row.
     """
     if a.device == torch.device("cpu"):
@@ -1250,19 +1274,21 @@ def quantize_fp8_row(
     if not output_device:
         output_device = a.device
 
+    # Get constants.
+    pt_dtype, _, max_fp8, eps = get_fp8_constants()
     row_max: torch.Tensor = torch.max(torch.abs(a), dim=1)[0]
     # Apply clamping.
     if scale_ub is not None:
-        row_max = torch.clamp(row_max, min=EPS, max=scale_ub.item())
+        row_max = torch.clamp(row_max, min=eps, max=scale_ub.item())
     else:
         # pyre-ignore[6]: Incompatible parameter type [6]
-        row_max = torch.clamp(row_max, min=EPS)
+        row_max = torch.clamp(row_max, min=eps)
     a_scale = torch.empty((a.shape[0]), dtype=torch.float32, device=output_device)
-    a_scale = MAX_FP8 / row_max.to(torch.float32)  # pyre-ignore
+    a_scale = max_fp8 / row_max.to(torch.float32)  # pyre-ignore
     a_scale[a_scale == float("inf")] = 1.0  # pyre-ignore
     a_fp8 = a * a_scale[:, None]  # pyre-ignore
     # Cast and move data to output device (for cpu weight loading).
-    a_fp8 = convert_fp8_type(a_fp8.to(device=output_device, dtype=PT_FP8_DTYPE))
+    a_fp8 = a_fp8.to(device=output_device, dtype=pt_dtype)
     a_scale = a_scale.to(output_device)  # pyre-ignore
     del a
     return a_fp8, 1 / a_scale  # pyre-ignore
@@ -1280,6 +1306,9 @@ def _kernel_quantize_fp8_block(
     stride_ak,
     stride_a_scale_m,
     stride_a_scale_k,
+    TL_FP8_DTYPE: tl.constexpr,
+    MAX_FP8: tl.constexpr,
+    EPS: tl.constexpr,
     CLAMP_MAX: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_K: tl.constexpr,
@@ -1304,6 +1333,9 @@ def _kernel_quantize_fp8_block(
         stride_ak (int): Stride of k dimension of A.
         stride_a_scale_m (int): Stride of m dimension of A_scale.
         stride_a_scale_k (int): Stride of k dimension of A_scale.
+        TL_FP8_DTYPE (tl.dtype): Target fp8 datatype.
+        MAX_FP8 (float): Maxmimum expressible value for FP8.
+        EPS (float): Epsilon value for numerical stability.
         CLAMP_MAX (bool): Whether to apply scale_ub.
         BLOCK_M (int): Block size for M dimension of A_scale and kernel.
         BLOCK_K (int): Block size for K dimension of A_scale and kernel.
@@ -1340,31 +1372,32 @@ def triton_quantize_fp8_block(
     block_m: int = 256,
     block_k: int = 256,
     scale_ub: Optional[torch.Tensor] = None,
-) -> Tuple[TensorWrapper, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings.
 
     Scale per block i, j is computed as 1 / (MAX_FP8 / max(abs(x[i:i+block_m, j:j+block_k])))
 
     Args:
-        x (Tensor): [M, K] higher precision input tensor.
+        x (torch.Tensor): [M, K] higher precision input tensor.
         block_m (int): Block size for M dimension of scale.
         block_k (int): Block size for K dimension of scale.
         scale_ub: Maximum allowed value for scale.
 
     Returns:
-        TensorWrapper: [M, K] fp8 scaled tensor.
+        torch.Tensor : [M, K] fp8 scaled tensor.
         torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block.
     """
     assert x.device != torch.device(
         "cpu"
     ), "Blockwise quantization not support on cpu, please use row-wise quantization instead."
+    # Get constant values.
+    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     M, K = x.shape
     grid_m = triton.cdiv(M, block_m)
     grid_k = triton.cdiv(K, block_k)
     x_scale = torch.ones((grid_m, grid_k), device=x.device, dtype=torch.float32)
-    x_fp8 = torch.empty((M, K), device=x.device, dtype=PT_FP8_DTYPE)
-    x_fp8 = convert_fp8_type(x_fp8)
+    x_fp8 = torch.empty((M, K), device=x.device, dtype=pt_dtype)
 
     _kernel_quantize_fp8_block[(grid_m * grid_k,)](
         x,
@@ -1377,6 +1410,12 @@ def triton_quantize_fp8_block(
         x.stride(1),
         x_scale.stride(0),
         x_scale.stride(1),
+        # pyre-ignore[6]: Incompatible parameter type [6]
+        TL_FP8_DTYPE=tl_dtype,
+        # pyre-ignore[6]: Incompatible parameter type [6]
+        MAX_FP8=max_fp8,
+        # pyre-ignore[6]: Incompatible parameter type [6]
+        EPS=eps,
         # pyre-ignore[6]: Incompatible parameter type [6]
         CLAMP_MAX=scale_ub is not None,
         # pyre-ignore[6]: Incompatible parameter type [6]
@@ -1395,7 +1434,7 @@ def quantize_fp8_block(
     scale_ub: Optional[torch.Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
-) -> Tuple[TensorWrapper, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings and optionally move to output device.
 
@@ -1410,7 +1449,7 @@ def quantize_fp8_block(
         output_device (torch.device): Device to optionally move the scaled tensors to.
 
     Returns:
-        TensorWrapper: [M, K] fp8 scaled tensor.
+        torch.Tensor: [M, K] fp8 scaled tensor.
         torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block.
     """
     if x.device == torch.device("cpu"):
@@ -1421,6 +1460,9 @@ def quantize_fp8_block(
     # else use pytorch implementation.
     if not output_device:
         output_device = x.device
+
+    # Get constants.
+    pt_dtype, _, max_fp8, eps = get_fp8_constants()
 
     M, K = x.shape
     grid_m = triton.cdiv(M, block_m)
@@ -1439,20 +1481,22 @@ def quantize_fp8_block(
 
     # Apply clamping.
     if scale_ub is not None:
-        block_max = torch.clamp(block_max, min=EPS, max=scale_ub.item())
+        block_max = torch.clamp(block_max, min=eps, max=scale_ub.item())
     else:
         # pyre-ignore[6]: Incompatible parameter type [6]
-        block_max = torch.clamp(block_max, min=EPS)
+        block_max = torch.clamp(block_max, min=eps)
     x_scale = torch.empty((grid_m, grid_k), dtype=torch.float32, device=output_device)
-    x_scale = MAX_FP8 / block_max.to(torch.float32)  # pyre-ignore
+    x_scale = max_fp8 / block_max.to(torch.float32)  # pyre-ignore
+    # pyre-ignore[16]: Undefined attribute [16]
     x_scale[x_scale == float("inf")] = 1.0
     x_fp8 = (
         x_padded
+        # pyre-ignore[16]: Undefined attribute [16]
         * x_scale.repeat_interleave(block_m, dim=0).repeat_interleave(block_k, dim=1)
     )[:M, :K]
 
     # Cast and move data to output device (for cpu weight loading).
-    x_fp8 = convert_fp8_type(x_fp8.to(device=output_device, dtype=PT_FP8_DTYPE))
+    x_fp8 = x_fp8.to(device=output_device, dtype=pt_dtype)
     x_scale = x_scale.to(output_device)  # pyre-ignore
     del x, x_padded
     return x_fp8, 1 / x_scale  # pyre-ignore
