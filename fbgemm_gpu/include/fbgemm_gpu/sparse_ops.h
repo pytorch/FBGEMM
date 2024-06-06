@@ -402,7 +402,6 @@ at::Tensor fusednbitrowwise_to_float_or_half_cpu(
 
 at::Tensor quantize_mx_cuda(
     const at::Tensor& input,
-    const std::vector<int64_t>& split_sizes,
     const int64_t scale_bits,
     const int64_t elem_ebits,
     const int64_t elem_mbits,
@@ -413,7 +412,6 @@ at::Tensor quantize_mx_cuda(
 
 at::Tensor dequantize_mx_cuda(
     const at::Tensor& input,
-    const std::vector<int64_t>& split_sizes,
     const int64_t mx_group_size);
 
 ///@ingroup sparse-data-cuda
