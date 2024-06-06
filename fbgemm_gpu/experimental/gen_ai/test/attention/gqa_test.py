@@ -191,7 +191,7 @@ class Int4GQATest(unittest.TestCase):
                 seq_positions,
                 qk_scale=qk_scale,
                 num_split_ks=split_k,
-                num_int4_kv_groups=num_groups,
+                kv_cache_quant_num_groups=num_groups,
             )
             torch.testing.assert_close(
                 z.cpu().bfloat16(),
