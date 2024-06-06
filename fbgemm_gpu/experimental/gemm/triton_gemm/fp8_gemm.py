@@ -332,7 +332,14 @@ def _kernel_matmul_fp8_row(
 
 
 @triton.autotune(
-    configs=MATMUL_CONFIGS,
+    configs=MATMUL_CONFIGS
+    + [
+        Config(
+            {"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
+            num_stages=3,
+            num_warps=8,
+        ),
+    ],
     key=[
         "m_key",
         "n_key",
