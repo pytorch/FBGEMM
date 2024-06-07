@@ -33,7 +33,7 @@ class FbgemmGpuBuild:
 
     @classmethod
     def from_args(cls, argv: List[str]):
-        parser = argparse.ArgumentParser(description="fbgemm_gpu setup")
+        parser = argparse.ArgumentParser(description="FBGEMM_GPU Build Setup")
         parser.add_argument(
             "--verbose",
             action="store_true",
@@ -389,8 +389,10 @@ class FbgemmGpuInstall(PipInstall):
     """FBGEMM_GPU PIP Install Routines"""
 
     @classmethod
-    def generate_version_file(cls, package_version: str) -> None:
+    def generate_version_file(cls, build: FbgemmGpuBuild) -> None:
         with open("fbgemm_gpu/docs/version.py", "w") as file:
+            package_version = build.package_version()
+
             print(
                 f"[SETUP.PY] Generating version file at: {os.path.realpath(file.name)}"
             )
@@ -404,6 +406,7 @@ class FbgemmGpuInstall(PipInstall):
                 # LICENSE file in the root directory of this source tree.
 
                 __version__: str = "{package_version}"
+                __variant__: str = "{build.args.package_variant}"
                 """
             )
             file.write(text)
@@ -474,7 +477,8 @@ def main(argv: List[str]) -> None:
 
     # Extract the package name
     package_name = build.package_name()
-    # Generate the full package version string
+
+    # Extract the package version
     package_version = build.package_version()
 
     if build.args.dryrun:
@@ -485,7 +489,7 @@ def main(argv: List[str]) -> None:
         sys.exit(0)
 
     # Generate the version file
-    FbgemmGpuInstall.generate_version_file(package_version)
+    FbgemmGpuInstall.generate_version_file(build)
 
     setup(
         name=package_name,
