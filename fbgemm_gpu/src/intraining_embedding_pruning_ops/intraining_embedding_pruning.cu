@@ -15,7 +15,6 @@
 #include <cuda_runtime.h>
 #include <curand.h>
 #include <curand_kernel.h>
-#include <glog/logging.h>
 #include <thrust/execution_policy.h>
 #include <thrust/reduce.h>
 #include <thrust/sort.h>

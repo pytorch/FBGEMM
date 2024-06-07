@@ -136,6 +136,9 @@ exclude_patterns = [
     "pytorch-sphinx-theme/docs/*",
 ]
 
+# Ignore false-negative broken links
+linkcheck_ignore = [r"https://gcc.gnu.org/bugzilla/show_bug.cgi\?id=105593"]
+
 # -- Breathe configuration ---------------------------------------------------
 
 # This should be a dictionary in which the keys are project names and the values
