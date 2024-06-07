@@ -115,7 +115,7 @@ install_fbgemm_gpu_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env 0.5.0 cpu                  # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env release cuda 12.4.1        # Install the CUDA variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env test/0.6.0rc0 cuda 12.4.1  # Install the CUDA 12.4 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env test/0.7.0rc0 cuda 12.4.1  # Install the CUDA 12.4 variant, specific version from test channel"
     echo "    ${FUNCNAME[0]} build_env nightly rocm 5.3           # Install the ROCM 5.3 variant, latest version from nightly channel"
     return 1
   else

@@ -47,7 +47,7 @@ class FbgemmGpuBuild:
         parser.add_argument(
             "--package_variant",
             type=str,
-            choices=["cpu", "cuda", "rocm"],
+            choices=["cpu", "cuda", "rocm", "genai"],
             default="cuda",
             help="The FBGEMM_GPU variant to build.",
         )
@@ -62,8 +62,14 @@ class FbgemmGpuBuild:
             "--nvml_lib_path",
             type=str,
             default=None,
-            help="Certain operations require the nvml lib (libnvidia-ml.so). If you installed"
+            help="Certain build targets require NVML (libnvidia-ml.so). If you installed"
             " this in a custom location (through cudatoolkit-dev), provide the path here.",
+        )
+        parser.add_argument(
+            "--nccl_lib_path",
+            type=str,
+            default=None,
+            help="NCCL (libnccl.so.2) filepath. This is required for building certain targets.",
         )
         parser.add_argument(
             "--cxxprefix",
@@ -231,6 +237,8 @@ class FbgemmGpuBuild:
             _get_cxx11_abi(),
         ]
 
+        cxx_args = []
+
         if self.args.verbose:
             print("[SETUP.PY] Building in VERBOSE mode ...")
             cmake_args.extend(
@@ -248,17 +256,40 @@ class FbgemmGpuBuild:
         if self.args.nvml_lib_path:
             cmake_args.append(f"-DNVML_LIB_PATH={self.args.nvml_lib_path}")
 
+        if self.args.nccl_lib_path:
+            nccl_root = os.path.dirname(os.path.dirname(self.args.nccl_lib_path))
+            cxx_args.extend([f"-L{nccl_root}/lib"])
+            cmake_args.extend(
+                [
+                    f"-DNCCL_INCLUDE_DIRS={nccl_root}/include",
+                    f"-DNCCL_LIBRARIES={self.args.nccl_lib_path}",
+                ]
+            )
+
         if self.args.cxxprefix:
             print("[SETUP.PY] Setting CMake flags ...")
             path = self.args.cxxprefix
+
+            cxx_args.extend(
+                [
+                    "-fopenmp=libgomp",
+                    "-stdlib=libstdc++",
+                    f"-I{path}/include",
+                ]
+            )
             cmake_args.extend(
                 [
                     f"-DCMAKE_C_COMPILER={path}/bin/cc",
                     f"-DCMAKE_CXX_COMPILER={path}/bin/c++",
-                    f"-DCMAKE_C_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
-                    f"-DCMAKE_CXX_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
                 ]
             )
+
+        cmake_args.extend(
+            [
+                f"-DCMAKE_C_FLAGS='{' '.join(cxx_args)}'",
+                f"-DCMAKE_CXX_FLAGS='{' '.join(cxx_args)}'",
+            ]
+        )
 
         # Pass CMake args attached to the setup.py call over to the CMake invocation
         for arg in self.other_args:

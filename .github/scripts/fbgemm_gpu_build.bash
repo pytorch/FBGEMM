@@ -85,14 +85,6 @@ __configure_fbgemm_gpu_build_nvcc () {
   # shellcheck disable=SC2206
   local cuda_version_arr=(${cuda_version//./ })
 
-  echo "[BUILD] Looking up NCCL path ..."
-  # shellcheck disable=SC2155,SC2086
-  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-  # shellcheck disable=SC2155,SC2086
-  local nccl_lib=$(conda run ${env_prefix} find ${conda_prefix} -name "libnccl.so*")
-  # shellcheck disable=SC2155,SC2086
-  local nccl_path=$(dirname "$(dirname ${nccl_lib})")
-
   # Only NVCC 12+ supports C++20
   if [[ ${cuda_version_arr[0]} -lt 12 ]]; then
     local cppstd_ver=17
@@ -123,8 +115,6 @@ __configure_fbgemm_gpu_build_nvcc () {
   build_args+=(
     # Override CMake configuration
     -DCMAKE_CXX_STANDARD="${cppstd_ver}"
-    -DNCCL_INCLUDE_DIR=${nccl_path}/include
-    -DNCCL_LIB_DIR=${nccl_path}/lib
   )
 }
 
@@ -203,6 +193,7 @@ __configure_fbgemm_gpu_build_cuda () {
     local arch_list="${TORCH_CUDA_ARCH_LIST}"
 
   else
+    # Build only CUDA 7.0, 8.0, and 9.0 (i.e. V100, A100, H100) because of 100 MB binary size limits from PyPI.
     echo "[BUILD] Using the default CUDA targets ..."
     # For cuda version 12.1, enable sm 9.0
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
@@ -213,26 +204,44 @@ __configure_fbgemm_gpu_build_cuda () {
       local arch_list="7.0;8.0"
     fi
   fi
+  echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
 
   # Unset the environment-supplied TORCH_CUDA_ARCH_LIST because it will take
   # precedence over cmake -DTORCH_CUDA_ARCH_LIST
   unset TORCH_CUDA_ARCH_LIST
 
-  echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
-
-  # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
-  echo "[BUILD] Setting CUDA build args ..."
+  echo "[BUILD] Looking up NVML filepath ..."
   # shellcheck disable=SC2155,SC2086
   local nvml_lib_path=$(conda run --no-capture-output ${env_prefix} printenv NVML_LIB_PATH)
+
+  echo "[BUILD] Looking up NCCL filepath ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155,SC2086
+  local nccl_lib_path=$(conda run ${env_prefix} find ${conda_prefix} -name "libnccl.so*")
+
+  echo "[BUILD] Setting CUDA build args ..."
   build_args=(
     --package_variant=cuda
     --nvml_lib_path="${nvml_lib_path}"
+    --nccl_lib_path="${nccl_lib_path}"
     # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
 
   # Set NVCC flags
   __configure_fbgemm_gpu_build_nvcc
+}
+
+__configure_fbgemm_gpu_build_genai () {
+  local fbgemm_variant_targets="$1"
+
+  __configure_fbgemm_gpu_build_cuda "$fbgemm_variant_targets" || return 1
+
+  # Replace the package_variant flag, since GenAI is also a CUDA-type build
+  for i in "${!build_args[@]}"; do
+    build_args[i]="${build_args[i]/--package_variant=cuda/--package_variant=genai}"
+  done
 }
 
 __configure_fbgemm_gpu_build () {
@@ -266,6 +275,10 @@ __configure_fbgemm_gpu_build () {
   elif [ "$fbgemm_variant" == "rocm" ]; then
     echo "[BUILD] Configuring build as ROCm variant ..."
     __configure_fbgemm_gpu_build_rocm "${fbgemm_variant_targets}"
+
+  elif [ "$fbgemm_variant" == "genai" ]; then
+    echo "[BUILD] Configuring build as GenAI variant ..."
+    __configure_fbgemm_gpu_build_genai "${fbgemm_variant_targets}"
 
   else
     echo "[BUILD] Configuring build as CUDA variant (this is the default behavior) ..."
@@ -347,7 +360,13 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" g++) || return 1
 
   # Set the default the FBGEMM_GPU variant to be CUDA
-  if [ "$fbgemm_variant" != "cpu" ] && [ "$fbgemm_variant" != "rocm" ]; then
+  if [ "$fbgemm_variant" != "cpu" ] &&
+     [ "$fbgemm_variant" != "rocm" ] &&
+     [ "$fbgemm_variant" != "genai" ]; then
+    echo "################################################################################"
+    echo "[BUILD] Unknown FBGEMM_GPU variant: $fbgemm_variant"
+    echo "[BUILD] Defaulting to CUDA"
+    echo "################################################################################"
     export fbgemm_variant="cuda"
   fi
 
@@ -371,66 +390,113 @@ __build_fbgemm_gpu_common_pre_steps () {
   print_exec git diff
 }
 
+__print_library_infos () {
+  # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
+  local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
+  readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
+
+  for library in "${fbgemm_gpu_so_files[@]}"; do
+    echo "################################################################################"
+    echo "[CHECK] BUILT LIBRARY: ${library}"
+
+    echo "[CHECK] Listing out library size:"
+    print_exec "du -h --block-size=1M ${library}"
+
+    echo "[CHECK] Listing out the GLIBCXX versions referenced:"
+    print_glibc_info "${library}"
+
+    echo "[CHECK] Listing out undefined symbols:"
+    print_exec "nm -gDCu ${library} | sort"
+
+    echo "[CHECK] Listing out external shared libraries linked:"
+    print_exec ldd "${library}"
+    echo "################################################################################"
+    echo ""
+    echo ""
+  done
+}
+
+__verify_library_symbols () {
+  __test_one_symbol () {
+    local symbol="$1"
+    if [ "$symbol" == "" ]; then
+      echo "Usage: ${FUNCNAME[0]} SYMBOL"
+      echo "Example(s):"
+      echo "    ${FUNCNAME[0]} fbgemm_gpu::asynchronous_inclusive_cumsum_cpu"
+      return 1
+    fi
+
+    # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
+    local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
+    readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
+
+    # Iterate through the built .SO files to check for the symbol's existence
+    for library in "${fbgemm_gpu_so_files[@]}"; do
+      if test_library_symbol "${library}" "${symbol}"; then
+        return 0
+      fi
+    done
+
+    return 1
+  }
+
+  # Prepare a sample set of symbols whose existence in the built library should be checked
+  # This is by no means an exhaustive set, and should be updated accordingly
+  if [ "${fbgemm_variant}" == "cpu" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+      fbgemm_gpu::jagged_2d_to_dense
+    )
+  elif [ "${fbgemm_variant}" == "cuda" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+      fbgemm_gpu::jagged_2d_to_dense
+      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
+      fbgemm_gpu::merge_pooled_embeddings
+    )
+  elif [ "${fbgemm_variant}" == "rocm" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+      fbgemm_gpu::jagged_2d_to_dense
+      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
+      fbgemm_gpu::merge_pooled_embeddings
+    )
+  elif [ "${fbgemm_variant}" == "genai" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::car_init
+      fbgemm_gpu::per_tensor_quantize_i8
+    )
+  fi
+
+  echo "[CHECK] Verifying sample subset of symbols in the built libraries ..."
+  for symbol in "${lib_symbols_to_check[@]}"; do
+    (__test_one_symbol "${symbol}") || return 1
+  done
+}
+
 run_fbgemm_gpu_postbuild_checks () {
-  local fbgemm_variant="$1"
+  fbgemm_variant="$1"
   if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} cpu"
     echo "    ${FUNCNAME[0]} cuda"
     echo "    ${FUNCNAME[0]} rocm"
+    echo "    ${FUNCNAME[0]} genai"
     return 1
   fi
 
   # Find the .SO file
-  # shellcheck disable=SC2155
-  local fbgemm_gpu_so_files=$(find . -name fbgemm_gpu_py.so)
+  # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
+  local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
   readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
   if [ "${#fbgemm_gpu_so_files[@]}" -le 0 ]; then
-    echo "[CHECK] .SO library fbgemm_gpu_py.so is missing from the build path!"
+    echo "[CHECK] .SO library is missing from the build path!"
     return 1
   fi
 
-  # Prepare a sample set of symbols whose existence in the built library should be checked
-  # This is by no means an exhaustive set, and should be updated accordingly
-  local lib_symbols_to_check=(
-    fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
-    fbgemm_gpu::jagged_2d_to_dense
-  )
-
-  # Add more symbols to check for if it's a non-CPU variant
-  if [ "${fbgemm_variant}" == "cuda" ]; then
-    lib_symbols_to_check+=(
-      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
-      fbgemm_gpu::merge_pooled_embeddings
-    )
-  elif [ "${fbgemm_variant}" == "rocm" ]; then
-    # merge_pooled_embeddings is missing in ROCm builds bc it requires NVML
-    lib_symbols_to_check+=(
-      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
-      fbgemm_gpu::merge_pooled_embeddings
-    )
-  fi
-
-  # Print info for only the first instance of the .SO file, since the build makes multiple copies
-  local library="${fbgemm_gpu_so_files[0]}"
-
-  echo "[CHECK] Listing out library size: ${library}"
-  print_exec "du -h --block-size=1M ${library}"
-
-  echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
-  print_glibc_info "${library}"
-
-  echo "[CHECK] Listing out undefined symbols in the library: ${library}"
-  print_exec "nm -gDCu ${library} | sort"
-
-  echo "[CHECK] Listing out external shared libraries required by the library: ${library}"
-  print_exec ldd "${library}"
-
-  echo "[CHECK] Verifying sample subset of symbols in the library ..."
-  for symbol in "${lib_symbols_to_check[@]}"; do
-    (test_library_symbol "${library}" "${symbol}") || return 1
-  done
+  __print_library_infos
+  __verify_library_symbols
 }
 
 ################################################################################
