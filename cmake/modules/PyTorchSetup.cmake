@@ -13,6 +13,14 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
 
 find_package(Torch REQUIRED)
 
+BLOCK_PRINT(
+  "PyTorch Flags"
+  ""
+  "TORCH_INCLUDE_DIRS=${TORCH_INCLUDE_DIRS}"
+  ""
+  "TORCH_LIBRARIES=${TORCH_LIBRARIES}"
+)
+
 #
 # PyTorch CUDA Extensions are normally compiled with the flags below. However we
 # disabled -D__CUDA_NO_HALF_CONVERSIONS__ here as it caused "error: no suitable
