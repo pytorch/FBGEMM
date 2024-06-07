@@ -260,8 +260,26 @@ class FP8Tests(unittest.TestCase):
         elif Mode == "blockwise":
             block_m = block_n = block_k = 256
             output_device = torch.device("cuda")
-            # TODO: Fix triton blockwise + cudagraph issue and re-enable this test in CI
-            if False:
+            if CudaGraph:
+                #  Need a warmup to compile the Triton kernel before cuda graph
+
+                wq, w_scale = quantize_fp8_block(
+                    w, block_n, block_k, output_device=output_device
+                )
+                xq, x_scale = quantize_fp8_block(x, block_m, block_k)
+                zq = matmul_fp8_block(
+                    xq,
+                    wq,
+                    x_scale,
+                    w_scale,
+                    block_m,
+                    block_n,
+                    block_k,
+                    fp8_fast_accum=True,
+                )
+                if bias is not None:
+                    zq += bias
+
                 g = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(g):
                     wq, w_scale = quantize_fp8_block(
