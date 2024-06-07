@@ -1068,8 +1068,8 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
     {%- if not dense %}
     m.def("{{ op_name }}("
           "    Tensor placeholder_autograd_tensor, "
-          "    Tensor dev_weights, "
-          "    Tensor uvm_weights, "
+          "    Tensor(a!) dev_weights, "
+          "    Tensor(b!) uvm_weights, "
           "    Tensor lxu_cache_weights, "
           "    Tensor weights_placements, "
           "    Tensor weights_offsets, "
