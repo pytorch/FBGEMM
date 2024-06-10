@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Installation Instructions &mdash; FBGEMM 0.7.0 documentation</title>
+  <title>Installation Instructions &mdash; FBGEMM 0.6.0 documentation</title>
   
 
   
@@ -269,7 +269,7 @@
               
               
                 <div class="version">
-                  0.7
+                  0.6
                 </div>
               
             
@@ -552,26 +552,6 @@ Conda. Follow the instructions for setting up the Conda environment at
 <p>Follow the instructions in <a class="reference internal" href="BuildInstructions.html#fbgemm-gpu-build-setup-pytorch-install"><span class="std std-ref">Install PyTorch</span></a>
 for installing PyTorch inside a Conda environment.</p>
 </section>
-<section id="install-triton">
-<h2>Install Triton<a class="headerlink" href="#install-triton" title="Permalink to this heading">¶</a></h2>
-<p>This section is only applicable to working the experimental FBGEMM_GPU GenAI
-module.  Triton should already come packaged with the PyTOrch installation.
-This can be verified with:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import triton&quot;</span>
-</pre></div>
-</div>
-<p>If Triton is not available, it can be installed through PyTorch PIP:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Most recent version used can be found in the build scripts</span>
-<span class="nv">TRITON_VERSION</span><span class="o">=</span><span class="m">3</span>.0.0+45fff310c8
-
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--pre<span class="w"> </span>pytorch-triton<span class="o">==</span><span class="si">${</span><span class="nv">TRITON_VERSION</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/
-</pre></div>
-</div>
-<p>Information about PyTorch-Triton release can be found
-<a class="reference external" href="https://github.com/pytorch/pytorch/blob/main/RELEASE.md">here</a>.</p>
-</section>
 <section id="install-the-fbgemm-gpu-package">
 <h2>Install the FBGEMM_GPU Package<a class="headerlink" href="#install-the-fbgemm-gpu-package" title="Permalink to this heading">¶</a></h2>
 <section id="install-through-pytorch-pip">
@@ -732,7 +712,6 @@ be reported to the FBGEMM developers.</p>
 </li>
 <li><a class="reference internal" href="#install-python-libraries">Install Python Libraries</a></li>
 <li><a class="reference internal" href="#install-pytorch">Install PyTorch</a></li>
-<li><a class="reference internal" href="#install-triton">Install Triton</a></li>
 <li><a class="reference internal" href="#install-the-fbgemm-gpu-package">Install the FBGEMM_GPU Package</a><ul>
 <li><a class="reference internal" href="#install-through-pytorch-pip">Install through PyTorch PIP</a></li>
 <li><a class="reference internal" href="#install-through-public-pypi">Install through Public PyPI</a></li>

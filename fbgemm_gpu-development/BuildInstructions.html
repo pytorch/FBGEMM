@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Build Instructions &mdash; FBGEMM 0.7.0 documentation</title>
+  <title>Build Instructions &mdash; FBGEMM 0.6.0 documentation</title>
   
 
   
@@ -269,7 +269,7 @@
               
               
                 <div class="version">
-                  0.7
+                  0.6
                 </div>
               
             
@@ -507,13 +507,11 @@ reproducible build environment.</p>
 conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span>cuda<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;nvidia/label/cuda-</span><span class="si">${</span><span class="nv">cuda_version</span><span class="si">}</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
-<p>Verify that <code class="docutils literal notranslate"><span class="pre">cuda_runtime.h</span></code>, <code class="docutils literal notranslate"><span class="pre">libnvidia-ml.so</span></code>, and <code class="docutils literal notranslate"><span class="pre">libnccl.so*</span></code> are
-found:</p>
+<p>Verify that <code class="docutils literal notranslate"><span class="pre">cuda_runtime.h</span></code> and <code class="docutils literal notranslate"><span class="pre">libnvidia-ml.so</span></code> are found:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">conda_prefix</span><span class="o">=</span><span class="k">$(</span>conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>printenv<span class="w"> </span>CONDA_PREFIX<span class="k">)</span>
 
 find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>cuda_runtime.h
 find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>libnvidia-ml.so
-find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">conda_prefix</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>-name<span class="w"> </span>libnccl.so*
 </pre></div>
 </div>
 </section>
@@ -531,13 +529,6 @@ wget<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;</s
 tar<span class="w"> </span>-xvf<span class="w"> </span>cudnn.tar.xz
 </pre></div>
 </div>
-</section>
-<section id="install-cutlass">
-<h3>Install CUTLASS<a class="headerlink" href="#install-cutlass" title="Permalink to this heading">¶</a></h3>
-<p>This section is only applicable to building the experimental FBGEMM_GPU GenAI
-module.  CUTLASS should be already be available in the repository as a git
-submodule (see <a class="reference internal" href="#fbgemm-gpu-build-prepare"><span class="std std-ref">Preparing the Build</span></a>).  The following include paths
-are already added to the CMake configuration:</p>
 </section>
 </section>
 <section id="set-up-for-rocm-build">
@@ -757,13 +748,13 @@ find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</s
 <section id="build-the-fbgemm-gpu-package">
 <h2>Build the FBGEMM_GPU Package<a class="headerlink" href="#build-the-fbgemm-gpu-package" title="Permalink to this heading">¶</a></h2>
 <section id="preparing-the-build">
-<span id="fbgemm-gpu-build-prepare"></span><h3>Preparing the Build<a class="headerlink" href="#preparing-the-build" title="Permalink to this heading">¶</a></h3>
+<h3>Preparing the Build<a class="headerlink" href="#preparing-the-build" title="Permalink to this heading">¶</a></h3>
 <p>Clone the repo along with its submodules, and install the
 <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
 <span class="c1"># Select a version tag</span>
-<span class="nv">FBGEMM_VERSION</span><span class="o">=</span>v0.7.0
+<span class="nv">FBGEMM_VERSION</span><span class="o">=</span>v0.6.0
 
 <span class="c1"># Clone the repo along with its submodules</span>
 git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="w"> </span>-b<span class="w"> </span><span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span><span class="w"> </span>https://github.com/pytorch/FBGEMM.git<span class="w"> </span>fbgemm_<span class="si">${</span><span class="nv">FBGEMM_VERSION</span><span class="si">}</span>
@@ -873,11 +864,8 @@ toolchains have been properly installed.</p>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUDNN_INCLUDE_DIR</span><span class="o">=</span>/path/to/cudnn/include
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUDNN_LIBRARY</span><span class="o">=</span>/path/to/cudnn/lib
 
-<span class="c1"># Specify NVML filepath</span>
+<span class="c1"># Specify NVML path</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">NVML_LIB_PATH</span><span class="o">=</span>/path/to/libnvidia-ml.so
-
-<span class="c1"># Specify NCCL filepath</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">NCCL_LIB_PATH</span><span class="o">=</span>/path/to/libnccl.so.2
 
 <span class="c1"># Build for SM70/80 (V100/A100 GPU); update as needed</span>
 <span class="c1"># If not specified, only the CUDA architecture supported by current system will be targeted</span>
@@ -895,14 +883,12 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Build and install the library into the Conda environment</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cuda<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
@@ -1038,7 +1024,6 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 <li><a class="reference internal" href="#cuda-docker-image">CUDA Docker Image</a></li>
 <li><a class="reference internal" href="#install-cuda">Install CUDA</a></li>
 <li><a class="reference internal" href="#install-cudnn">Install cuDNN</a></li>
-<li><a class="reference internal" href="#install-cutlass">Install CUTLASS</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#set-up-for-rocm-build">Set Up for ROCm Build</a><ul>
