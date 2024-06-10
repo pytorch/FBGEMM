@@ -60,7 +60,7 @@ except Exception:
 
 
 try:
-    from torch._dynamo import is_compiling as is_torchdynamo_compiling
+    from torch.compiler import is_compiling as is_torchdynamo_compiling
 except Exception:
 
     def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
