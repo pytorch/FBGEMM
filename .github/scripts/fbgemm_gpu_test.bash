@@ -70,12 +70,16 @@ __configure_fbgemm_gpu_test_cpu () {
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
+    # require multiple GPUs
+    ./comm/multi_gpu_car_test.py
   )
 }
 
 __configure_fbgemm_gpu_test_cuda () {
   ignored_tests=(
     ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
+    # require multiple GPUs
+    ./comm/multi_gpu_car_test.py
   )
 }
 
@@ -101,6 +105,8 @@ __configure_fbgemm_gpu_test_rocm () {
     ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
     # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
+    # require multiple GPUs
+    ./comm/multi_gpu_car_test.py
   )
 }
 
@@ -278,7 +284,7 @@ test_setup_conda_environment () {
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_CHANNEL[/VERSION] PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env clang 3.12 pip test/0.7.0 cuda 12.1.0       # Setup environment with pytorch-test 0.7.0 for Clang + Python 3.12 + CUDA 12.1.0"
+    echo "    ${FUNCNAME[0]} build_env clang 3.12 pip test/0.6.0 cuda 12.1.0       # Setup environment with pytorch-test 0.6.0 for Clang + Python 3.12 + CUDA 12.1.0"
     return 1
   else
     echo "################################################################################"
@@ -348,13 +354,6 @@ test_fbgemm_gpu_build_and_install () {
 
   cd ~/FBGEMM/                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
-}
-
-test_fbgemm_gpu_build_and_install_and_run () {
-  local env_name="$1"
-  local pytorch_variant_type="$2"
-
-  test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}"   || return 1
 
   cd ~/FBGEMM/                                                                || return 1
   test_all_fbgemm_gpu_modules "${env_name}" "${pytorch_variant_type}"         || return 1
@@ -367,7 +366,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
   if [ "$fbgemm_gpu_channel_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_CHANNEL[/VERSION] FBGEMM_GPU_CHANNEL[/VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} test_env cpu test/2.2.0 test/0.7.0     # Run tests against all Python versions with PyTorch test/2.2.0 and FBGEMM_GPU test/0.7.0 (CPU-only)"
+    echo "    ${FUNCNAME[0]} test_env cpu test/2.2.0 test/0.6.0     # Run tests against all Python versions with PyTorch test/2.2.0 and FBGEMM_GPU test/0.6.0 (CPU-only)"
     echo "    ${FUNCNAME[0]} test_env cuda test/2.3.0 test/0.7.0    # Run tests against all Python versions with PyTorch test/2.3.0 and FBGEMM_GPU test/0.7.0 (all CUDA versions)"
     return 1
   else

@@ -250,10 +250,14 @@ def _run_oneshot_car_stress_inner(path: str) -> None:
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
-    "Skip when CUDA is not available or when there are not enough GPUs; these tests require at least two GPUs",
+    not torch.cuda.is_available(),
+    "Skip when CUDA is not available",
 )
 class LLamaMultiGpuTests(unittest.TestCase):
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Not enough GPUs, this test requires at least two GPUs",
+    )
     def test_allgather(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
@@ -272,6 +276,10 @@ class LLamaMultiGpuTests(unittest.TestCase):
                 os.path.join(path, "rdvz")
             )
 
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2,
+        "Not enough GPUs, this test requires at least two GPUs",
+    )
     def test_allreduce(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
