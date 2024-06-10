@@ -48,9 +48,10 @@ def none_throws(
 
 
 class QuantizationContext:
-    def __init__(self, row_dim: int = ROW_DIM_DEFAULT) -> None:
+    def __init__(self, row_dim: int = ROW_DIM_DEFAULT, mx_group_size: int = 32) -> None:
         self.row_dim = row_dim
         self.row_dim_quant: int = -1
+        self.mx_group_size = mx_group_size
 
 
 def _quantize_tensor(
@@ -202,6 +203,13 @@ class QuantizedCommCodec:
             nrows = input_len // ctx.row_dim
             ncols = (ctx.row_dim + 3) // 4 * 4 + 2 * 4
             return nrows * ncols
+        elif self._comm_precision == SparseType.MX4:
+            assert (
+                input_len % 32 == 0
+            ), f"input_len {input_len} needs to be multiple of group_size 32"
+            # quantized output size = half input size + number of groups (shared exp)
+            ctx = none_throws(ctx)
+            return (input_len // 2) + (input_len // ctx.mx_group_size)
         else:
             return input_len
 

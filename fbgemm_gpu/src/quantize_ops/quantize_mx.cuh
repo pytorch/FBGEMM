@@ -6,10 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-/*
- * Microsoft Confidential
- */
-
 #ifndef PYT_MX_MX_CUH
 #define PYT_MX_MX_CUH
 
@@ -213,14 +209,12 @@ __global__ void quantize_float_to_mx4_kernel(
   }
   __syncthreads();
 
-  const uint32_t data_size_per_group = half_group_size + 1;
-
   // Let each thread write 1 byte of output data
   if (threadIdx.x < half_group_size) {
     // write data output using uint8_t (1 bytes)
 
     uint8_t* smem_ptr = reinterpret_cast<uint8_t*>(smem_base);
-    const uint32_t start_output_idx = (data_size_per_group)*linear_group_id;
+    const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
     uint8_t* output_base = &output[start_output_idx];
 
     output_base[threadIdx.x] = smem_ptr[threadIdx.x];
@@ -250,9 +244,8 @@ __global__ void dequantize_mx4_to_float_kernel(
     return;
 
   const uint32_t half_group_size = group_size / 2;
-  const uint32_t data_size_per_group = half_group_size + 1;
 
-  const uint32_t start_output_idx = (data_size_per_group)*linear_group_id;
+  const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
   uint8_t elem = input[start_output_idx + (threadIdx.x / 2)];
   const uint32_t shared_exp_idx = start_output_idx + half_group_size;
   const uint8_t shared_exp = input[shared_exp_idx];
