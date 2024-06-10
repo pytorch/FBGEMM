@@ -31,7 +31,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
-  ${NCCL_INCLUDE_DIRS})
+  ${NCCL_INCLUDE_DIR})
 
 
 ################################################################################
@@ -675,7 +675,7 @@ endif()
 # Add PyTorch include/
 target_include_directories(fbgemm_gpu_py PRIVATE
   ${TORCH_INCLUDE_DIRS}
-  ${NCCL_INCLUDE_DIRS})
+  ${NCCL_INCLUDE_DIR})
 
 # Remove `lib` from the output artifact name `libfbgemm_gpu_py.so`
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
@@ -683,7 +683,7 @@ set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 # Link to PyTorch
 target_link_libraries(fbgemm_gpu_py
   ${TORCH_LIBRARIES}
-  ${NCCL_LIBRARIES})
+  ${NCCL_LIB_DIR})
 
 # Link to NVML
 if(NVML_LIB_PATH)

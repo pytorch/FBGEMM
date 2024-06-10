@@ -12,10 +12,10 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
 ################################################################################
 
 BLOCK_PRINT(
-  "NCCL Flags"
+  "NCCL flags"
   ""
-  "NCCL_INCLUDE_DIRS=${NCCL_INCLUDE_DIRS}"
-  "NCCL_LIBRARIES=${NCCL_LIBRARIES}"
+  "NCCL_INCLUDE_DIR=${NCCL_INCLUDE_DIR}"
+  "NCCL_LIB_DIR=${NCCL_LIB_DIR}"
 )
 
 # Set NVML_LIB_PATH if provided, or detect the default lib path

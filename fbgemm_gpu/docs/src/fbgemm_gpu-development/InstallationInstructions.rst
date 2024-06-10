@@ -163,32 +163,6 @@ Follow the instructions in :ref:`fbgemm-gpu.build.setup.pytorch.install`
 for installing PyTorch inside a Conda environment.
 
 
-Install Triton
---------------
-
-This section is only applicable to working the experimental FBGEMM_GPU GenAI
-module.  Triton should already come packaged with the PyTOrch installation.
-This can be verified with:
-
-.. code:: sh
-
-  conda run -n ${env_name} python -c "import triton"
-
-If Triton is not available, it can be installed through PyTorch PIP:
-
-.. code:: sh
-
-  # Most recent version used can be found in the build scripts
-  TRITON_VERSION=3.0.0+45fff310c8
-
-  conda run -n ${env_name} pip install \
-    --pre pytorch-triton==${TRITON_VERSION} \
-    --index-url https://download.pytorch.org/whl/nightly/
-
-Information about PyTorch-Triton release can be found
-`here <https://github.com/pytorch/pytorch/blob/main/RELEASE.md>`__.
-
-
 Install the FBGEMM_GPU Package
 ------------------------------
 

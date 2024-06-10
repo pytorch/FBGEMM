@@ -10,21 +10,28 @@ include(${CMAKEMODULES}/Utilities.cmake)
 # Target Sources
 ################################################################################
 
-set(fbgemm_sources_include_directories
-  # FBGEMM
-  ${FBGEMM}/include
-  # FBGEMM_GPU
-  ${CMAKE_CURRENT_SOURCE_DIR}../..
-  ${CMAKE_CURRENT_SOURCE_DIR}../../include
-  ${CMAKE_CURRENT_SOURCE_DIR}../../../include
-  # PyTorch
-  ${TORCH_INCLUDE_DIRS}
-  # Third-party
-  ${THIRDPARTY}/asmjit/src
-  ${THIRDPARTY}/cpuinfo/include
-  ${THIRDPARTY}/cutlass/include
-  ${THIRDPARTY}/cutlass/tools/util/include
-  ${NCCL_INCLUDE_DIRS})
+if(FBGEMM_GENAI_ONLY)
+  set(fbgemm_sources_include_directories
+    # FBGEMM
+    ${FBGEMM}/include
+    # FBGEMM_GPU
+    ${CMAKE_CURRENT_SOURCE_DIR}../..
+    ${CMAKE_CURRENT_SOURCE_DIR}../../include
+    ${CMAKE_CURRENT_SOURCE_DIR}../../../include
+    # PyTorch
+    ${TORCH_INCLUDE_DIRS}
+    # Third-party
+    ${THIRDPARTY}/asmjit/src
+    ${THIRDPARTY}/cpuinfo/include
+    ${THIRDPARTY}/cutlass/include
+    ${THIRDPARTY}/cutlass/tools/util/include
+    ${NCCL_INCLUDE_DIR})
+
+  set(third_party_include_directories
+    ${THIRDPARTY}/asmjit/src
+    ${THIRDPARTY}/cpuinfo/include
+    ${THIRDPARTY}/cutlass/include)
+endif()
 
 set(experimental_example_cpp_source_files
     src/cutlass_sgemm_nn.cu
@@ -49,11 +56,11 @@ add_library(fbgemm_gpu_experimental_example_py MODULE
 
 target_include_directories(fbgemm_gpu_experimental_example_py PRIVATE
     ${TORCH_INCLUDE_DIRS}
-    ${NCCL_INCLUDE_DIRS})
+    ${NCCL_INCLUDE_DIR})
 
 target_link_libraries(fbgemm_gpu_experimental_example_py
     ${TORCH_LIBRARIES}
-    ${NCCL_LIBRARIES})
+    ${NCCL_LIB_DIR})
 
 # Remove `lib` from the output artifact name
 set_target_properties(fbgemm_gpu_experimental_example_py PROPERTIES PREFIX "")
