@@ -40,6 +40,9 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 )
 
 from torch import distributed as dist, nn, Tensor  # usort:skip
+import os
+import tempfile
+
 from torch.autograd.profiler import record_function
 
 try:
@@ -178,7 +181,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         assert cache_sets > 0
-        element_size = 4
+        element_size = weights_precision.bit_rate() // 8
+        assert (
+            element_size == 4 or element_size == 2
+        ), f"Invalid element size {element_size}"
         cache_size = cache_sets * ASSOC * element_size * self.max_D
         logging.info(
             f"Using cache for SSD with admission algorithm "
@@ -232,14 +238,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     dtype=cache_dtype,
                 ),
             )
+            assert (
+                cache_size
+                == self.lxu_cache_weights.numel()
+                * self.lxu_cache_weights.element_size()
+            ), "The precomputed cache_size does not match the actual cache size"
 
         self.timestep = 0
 
-        import os
-
         os.makedirs(ssd_storage_directory, exist_ok=True)
-
-        import tempfile
 
         ssd_directory = tempfile.mkdtemp(
             prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
@@ -947,11 +954,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 ),
             )
 
-        import os
+            assert (
+                cache_size
+                == self.lxu_cache_weights.numel()
+                * self.lxu_cache_weights.element_size()
+            ), "The precomputed cache_size does not match the actual cache size"
 
         os.makedirs(ssd_storage_directory, exist_ok=True)
-
-        import tempfile
 
         ssd_directory = tempfile.mkdtemp(
             prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
