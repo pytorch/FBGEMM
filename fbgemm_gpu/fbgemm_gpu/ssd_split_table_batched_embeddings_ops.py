@@ -669,15 +669,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         rows_cumsum = [0] + list(itertools.accumulate(rows))
         splits = []
+        get_event = torch.cuda.Event()
+
         for t, (row, dim) in enumerate(self.embedding_specs):
-            weights = torch.empty((row, dim), dtype=self.weights_precision.as_dtype())
+            weights = torch.empty(
+                (row, self.max_D), dtype=self.weights_precision.as_dtype()
+            )
             self.ssd_db.get_cuda(
                 torch.arange(rows_cumsum[t], rows_cumsum[t + 1]).to(torch.int64),
                 weights,
                 torch.as_tensor([row]),
             )
             splits.append(weights)
-        torch.cuda.synchronize(self.current_device)
+
+        # Record the event to create a dependency between get_cuda's callback
+        # function and the kernel on the GPU default stream (the intention is
+        # actually to synchronize between the callback CPU thread and the
+        # Python CPU thread but we do not have a mechanism to explicitly sync
+        # between them)
+        get_event.record()
+
+        # Synchronize to make sure that the callback function in get_cuda
+        # completes (here the CPU thread is blocked until get_event is done)
+        get_event.synchronize()
+
+        # Reshape the weight tensors (this can be expensive, however, this
+        # function is for debugging only)
+        for t, (row, dim) in enumerate(self.embedding_specs):
+            weight = splits[t]
+            weight = weight[:, :dim].contiguous()
+            assert weight.shape == (row, dim), "Shapes mismatch"
+            splits[t] = weight
+
         return splits
 
     @torch.jit.export
