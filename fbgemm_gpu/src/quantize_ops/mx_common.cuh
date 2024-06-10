@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/core/TensorAccessor.h>
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "mx/common.cuh"
 
@@ -32,19 +33,6 @@ __constant__ float MX4_values[16] = {
     -3.0f,
     -4.0f,
     -6.0f};
-
-//-----------------------------------------------------------------------
-// Misc. helper functions
-//-----------------------------------------------------------------------
-
-inline uint32_t align(int a, int b) {
-  return (a + b - 1) / b * b;
-}
-
-// Refactor to use FBGEMM's
-__host__ __device__ __forceinline__ uint32_t round_up(uint32_t a, uint32_t b) {
-  return ((a + b - 1) / b);
-}
 
 //---------------------------------------------------------
 // Helper functions for quantization
