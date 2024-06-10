@@ -269,11 +269,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         else:
             # create tbe unique id using rank index | pooling mode
             if tbe_unique_id == -1:
-                self._local_instance_index += 1
+                SSDTableBatchedEmbeddingBags._local_instance_index += 1
                 assert (
-                    self._local_instance_index < 8
-                ), "More than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
-                tbe_unique_id = dist.get_rank() << 3 | self._local_instance_index
+                    SSDTableBatchedEmbeddingBags._local_instance_index < 8
+                ), f"{SSDTableBatchedEmbeddingBags._local_instance_index}, more than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
+                tbe_unique_id = (
+                    dist.get_rank() << 3
+                    | SSDTableBatchedEmbeddingBags._local_instance_index
+                )
+            logging.info(f"tbe_unique_id: {tbe_unique_id}")
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
@@ -957,11 +961,15 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         else:
             # create tbe unique id using rank index | pooling mode
             if tbe_unique_id == -1:
-                self._local_instance_index += 1
+                SSDIntNBitTableBatchedEmbeddingBags._local_instance_index += 1
                 assert (
-                    self._local_instance_index < 8
-                ), "More than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
-                tbe_unique_id = dist.get_rank() << 3 | self._local_instance_index
+                    SSDIntNBitTableBatchedEmbeddingBags._local_instance_index < 8
+                ), f"{SSDIntNBitTableBatchedEmbeddingBags._local_instance_index}, more than 8 TBE instance  is created in one rank, the tbe unique id won't be unique in this case."
+                tbe_unique_id = (
+                    dist.get_rank() << 3
+                    | SSDIntNBitTableBatchedEmbeddingBags._local_instance_index
+                )
+            logging.info(f"tbe_unique_id: {tbe_unique_id}")
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
