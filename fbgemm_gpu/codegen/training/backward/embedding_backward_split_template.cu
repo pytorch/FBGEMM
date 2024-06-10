@@ -1285,7 +1285,7 @@ Tensor {{ embedding_cuda_op }}(
                     opt_karg.p_momentum = momentum1_dev.packed_accessor64<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>().data();
                     opt_karg.eps = eps;
                     opt_karg.learning_rate = learning_rate;
-                    // TODO: is weight_decay removed?
+                    // TODO: weight_decay is passed as args.split_function_args_no_defaults, in the name of weight_decay_mode
                     // opt_karg.weight_decay = weight_decay;
                     opt_karg.weight_decay = 0;
                     {%- endif %}
