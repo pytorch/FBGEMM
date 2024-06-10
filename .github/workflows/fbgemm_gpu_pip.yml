@@ -31,7 +31,7 @@ on:
         required: true
         default: "nightly"
       fbgemm_gpu_channel_version:
-        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.6.0r0')
+        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.7.0r0')
         type: string
         required: true
         default: "nightly"
