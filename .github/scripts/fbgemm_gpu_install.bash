@@ -45,8 +45,22 @@ __fbgemm_gpu_post_install_checks () {
 
   echo "[INSTALL] Checking imports and symbols ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
   (test_python_import_symbol "${env_name}" fbgemm_gpu __version__) || return 1
+  (test_python_import_symbol "${env_name}" fbgemm_gpu __variant__) || return 1
+
+  echo "[CHECK] Printing out the FBGEMM-GPU version ..."
+  # shellcheck disable=SC2086,SC2155
+  local installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
+  # shellcheck disable=SC2086,SC2155
+  local installed_fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
+  echo "################################################################################"
+  echo "[CHECK] The installed VERSION of FBGEMM_GPU is: ${installed_fbgemm_gpu_version}"
+  echo "[CHECK] The installed VARIANT of FBGEMM_GPU is: ${installed_fbgemm_gpu_variant}"
+  echo "################################################################################"
+
+  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
+    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  fi
 
   echo "[INSTALL] Checking operator registrations ..."
   local test_operator="torch.ops.fbgemm.asynchronous_inclusive_cumsum"
@@ -63,13 +77,6 @@ __fbgemm_gpu_post_install_checks () {
     echo "################################################################################"
     return 1
   fi
-
-  echo "[CHECK] Printing out the FBGEMM-GPU version ..."
-  # shellcheck disable=SC2086,SC2155
-  local installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
-  echo "################################################################################"
-  echo "[CHECK] The installed version of FBGEMM_GPU is: ${installed_fbgemm_gpu_version}"
-  echo "################################################################################"
 }
 
 install_fbgemm_gpu_wheel () {
