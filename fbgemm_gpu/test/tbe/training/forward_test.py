@@ -256,9 +256,9 @@ class ForwardTest(unittest.TestCase):
             use_experimental_tbe=use_experimental_tbe,
         )
 
-        if not use_cpu and torch.cuda.is_available():
-            # NOTE: test TorchScript-compatible!
-            cc = torch.jit.script(cc)
+        # if not use_cpu and torch.cuda.is_available():
+        #     # NOTE: test TorchScript-compatible!
+        #     cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(

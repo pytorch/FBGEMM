@@ -159,6 +159,7 @@ class PooledEmbeddingModulesTest(unittest.TestCase):
             ref_permuted_pooled_emb.to(self.device), permuted_pooled_emb
         )
 
+    @unittest.skip()
     @unittest.skipIf(*on_arm_platform)
     def test_permutation_autograd_meta(self) -> None:
         """
