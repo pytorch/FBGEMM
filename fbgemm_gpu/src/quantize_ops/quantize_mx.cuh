@@ -119,12 +119,13 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
 // quantize float to mx4 kernel
 //-----------------------------------------------------------------------
 
+// TO DO: make flush_fp32_subnorms template argument
 template <typename T>
 __global__ void quantize_float_to_mx4_kernel(
     const pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> input,
     const int group_size, // can change to Blockdim.x
     const uint32_t total_elems,
-    const bool flush_fp32_subnorms,
+    // const bool flush_fp32_subnorms,
     const RoundingMode rounding_mode,
     pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output) {
   const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
@@ -170,11 +171,15 @@ __global__ void quantize_float_to_mx4_kernel(
   // Clamp to scale_bits range
   const uint8_t clamped_shared_exp = clamp_shared_exp(shared_exp, scale_bits);
 
-  const bool flush_tile = (shared_exp == 0 && flush_fp32_subnorms);
+  // TODO: Update flush_fp32_subnorms to be template argument
+  // const bool flush_tile = (shared_exp == 0 && flush_fp32_subnorms);
 
   // Divided by 2^shared_exp
+  // const T scaled_in = flush_tile
+  //     ? 0
+  //     : scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
   const T scaled_in =
-      flush_tile ? 0 : elem / pow(2.0f, clamped_shared_exp - FLOAT32_EXP_BIAS);
+      scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
 
   // convert to FP4 -> there is 16 possible values
   // bit pattern of the uint8 result is `0000 xxxx`
@@ -263,7 +268,7 @@ __global__ void dequantize_mx4_to_float_kernel(
   }
   CUDA_KERNEL_ASSERT(elem < 16);
 
-  output[linear_tid] = MX4_values[elem] * pow(2, shared_exp - FLOAT32_EXP_BIAS);
+  output[linear_tid] = scalbn(MX4_values[elem], shared_exp - FLOAT32_EXP_BIAS);
 }
 
 #endif
