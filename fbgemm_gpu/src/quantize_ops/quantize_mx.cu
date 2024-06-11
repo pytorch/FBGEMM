@@ -94,6 +94,7 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
     const bool flush_fp32_subnorms = false,
     const int64_t rounding_mode = 0) {
   TORCH_CHECK((mx_group_size % 32 == 0), "Group size needs to be power of 2");
+  TORCH_CHECK(!flush_fp32_subnorms, "flush_fp32_subnorms is not yet supported");
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input);
   // Currently we only support MX4 E2M1, for other MX types, we will dispatch
   // different kernels
@@ -139,7 +140,7 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
         MAKE_PTA_WITH_NAME(func_name, input, float, 1, 64),
         mx_group_size,
         total_elems,
-        flush_fp32_subnorms,
+        // flush_fp32_subnorms, // TODO: Update as template argument
         rd,
         MAKE_PTA_WITH_NAME(func_name, output, uint8_t, 1, 64));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
