@@ -420,6 +420,13 @@
 <p><strong>Note:</strong> The most up-to-date build instructions are embedded in a set of
 scripts bundled in the FBGEMM repo under
 <a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/.github/scripts/setup_env.bash">setup_env.bash</a>.</p>
+<p>The currently available FBGEMM_GPU build variants are:</p>
+<ul class="simple">
+<li><p>CPU-only</p></li>
+<li><p>CUDA</p></li>
+<li><p>GenAI (experimental)</p></li>
+<li><p>ROCm</p></li>
+</ul>
 <p>The general steps for building FBGEMM_GPU are as follows:</p>
 <ol class="arabic simple">
 <li><p>Set up an isolated build environment.</p></li>
@@ -907,6 +914,32 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 </pre></div>
 </div>
 </section>
+<section id="experimental-only-genai-build">
+<span id="fbgemm-gpu-build-process-genai"></span><h3>Experimental-Only (GenAI) Build<a class="headerlink" href="#experimental-only-genai-build" title="Permalink to this heading">¶</a></h3>
+<p>By default, the CUDA build of FBGEMM_GPU includes all experimental modules that
+are used for GenAI applications.  The instructions for building just the
+experimental modules are the same as those for a CUDA build, but with specifying
+<code class="docutils literal notranslate"><span class="pre">--package_variant=genai</span></code> in the build invocation:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Build the wheel artifact only</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>genai<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="c1"># Build and install the library into the Conda environment</span>
+python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>genai<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>Note that currently, only CUDA is supported for the experimental modules.</p>
+</section>
 <section id="rocm-build">
 <span id="fbgemm-gpu-build-process-rocm"></span><h3>ROCm Build<a class="headerlink" href="#rocm-build" title="Permalink to this heading">¶</a></h3>
 <p>For ROCm builds, <code class="docutils literal notranslate"><span class="pre">ROCM_PATH</span></code> and <code class="docutils literal notranslate"><span class="pre">PYTORCH_ROCM_ARCH</span></code> need to be specified.
@@ -1066,6 +1099,7 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 <li><a class="reference internal" href="#set-wheel-build-variables">Set Wheel Build Variables</a></li>
 <li><a class="reference internal" href="#cpu-only-build">CPU-Only Build</a></li>
 <li><a class="reference internal" href="#cuda-build">CUDA Build</a></li>
+<li><a class="reference internal" href="#experimental-only-genai-build">Experimental-Only (GenAI) Build</a></li>
 <li><a class="reference internal" href="#rocm-build">ROCm Build</a></li>
 <li><a class="reference internal" href="#post-build-checks-for-developers">Post-Build Checks (For Developers)</a><ul>
 <li><a class="reference internal" href="#undefined-symbols-check">Undefined Symbols Check</a></li>
