@@ -60,12 +60,12 @@ endif()
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
   project(
     fbgemm_gpu
-    VERSION 0.7.0
+    VERSION 0.8.0
     LANGUAGES CXX C)
 else()
   project(
     fbgemm_gpu
-    VERSION 0.7.0
+    VERSION 0.8.0
     LANGUAGES CXX C CUDA)
 endif()
 
