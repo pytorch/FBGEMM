@@ -1207,6 +1207,8 @@ def _kernel_quantize_fp8_row(
             A + pid * stride_am + n_offset * stride_an, mask=n_offset < N, other=0.0
         )
         a_fp8 = a * a_scale
+        # Clamp A to fp8 range to make sure there's no overflow.
+        a_fp8 = tl.clamp(a_fp8, -MAX_FP8, MAX_FP8)
         a_fp8.to(TL_FP8_DTYPE)
         tl.store(
             A_fp8 + pid * stride_am + n_offset * stride_an, a_fp8, mask=n_offset < N

@@ -14,6 +14,7 @@ import pandas as pd
 
 import torch
 import triton  # @manual=//triton:triton
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
 
 E4M3_MAX_POS: float = torch.finfo(torch.float8_e4m3fnuz).max
 EPS = 1e-12
@@ -116,8 +117,8 @@ def evaluate_impl(
     QA, a_scale = fp8_quantize(A)
     B = torch.randn(N, K).to(dtype=torch.bfloat16, device="cuda")
     QB, b_scale = fp8_quantize(B)
-    QA_row, a_scale_row = fp8_row_quantize(A)
-    QB_row, b_scale_row = fp8_row_quantize(B)
+    QA_row, a_scale_row = quantize_fp8_row(A)
+    QB_row, b_scale_row = quantize_fp8_row(B)
 
     # Check accuracy.
     out_ref = fp_func(A.to(torch.float32), B.t().to(torch.float32))
