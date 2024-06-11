@@ -21,6 +21,8 @@ using torch::autograd::variable_list;
 class PermutePooledEmbsFunction
     : public torch::autograd::Function<PermutePooledEmbsFunction> {
  public:
+  static constexpr bool is_traceable = true;
+
   static Variable forward(
       AutogradContext* ctx,
       const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
