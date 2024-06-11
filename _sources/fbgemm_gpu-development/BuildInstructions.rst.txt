@@ -430,7 +430,7 @@ Clone the repo along with its submodules, and install the
   # !! Run inside the Conda environment !!
 
   # Select a version tag
-  FBGEMM_VERSION=v0.7.0
+  FBGEMM_VERSION=v0.8.0
 
   # Clone the repo along with its submodules
   git clone --recursive -b ${FBGEMM_VERSION} https://github.com/pytorch/FBGEMM.git fbgemm_${FBGEMM_VERSION}
