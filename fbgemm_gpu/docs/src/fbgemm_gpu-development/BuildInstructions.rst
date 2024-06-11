@@ -115,7 +115,8 @@ Install the full CUDA package through Conda, which includes
   # Install the full CUDA package
   conda install -n ${env_name} -y cuda -c "nvidia/label/cuda-${cuda_version}"
 
-Verify that ``cuda_runtime.h`` and ``libnvidia-ml.so`` are found:
+Verify that ``cuda_runtime.h``, ``libnvidia-ml.so``, and ``libnccl.so*`` are
+found:
 
 .. code:: sh
 
@@ -123,6 +124,7 @@ Verify that ``cuda_runtime.h`` and ``libnvidia-ml.so`` are found:
 
   find "${conda_prefix}" -name cuda_runtime.h
   find "${conda_prefix}" -name libnvidia-ml.so
+  find "${conda_prefix}" -name libnccl.so*
 
 Install cuDNN
 ~~~~~~~~~~~~~
@@ -140,6 +142,14 @@ cuDNN package for the given CUDA version:
   # Download and unpack cuDNN
   wget -q "${cudnn_url}" -O cudnn.tar.xz
   tar -xvf cudnn.tar.xz
+
+Install CUTLASS
+~~~~~~~~~~~~~~~
+
+This section is only applicable to building the experimental FBGEMM_GPU GenAI
+module.  CUTLASS should be already be available in the repository as a git
+submodule (see :ref:`fbgemm-gpu.build.prepare`).  The following include paths
+are already added to the CMake configuration:
 
 
 Set Up for ROCm Build
@@ -407,6 +417,8 @@ For the CUDA variant of PyTorch, verify that at the minimum ``cuda_cmake_macros.
 Build the FBGEMM_GPU Package
 ----------------------------
 
+.. _fbgemm-gpu.build.prepare:
+
 Preparing the Build
 ~~~~~~~~~~~~~~~~~~~
 
@@ -418,7 +430,7 @@ Clone the repo along with its submodules, and install the
   # !! Run inside the Conda environment !!
 
   # Select a version tag
-  FBGEMM_VERSION=v0.6.0
+  FBGEMM_VERSION=v0.7.0
 
   # Clone the repo along with its submodules
   git clone --recursive -b ${FBGEMM_VERSION} https://github.com/pytorch/FBGEMM.git fbgemm_${FBGEMM_VERSION}
@@ -544,8 +556,11 @@ toolchains have been properly installed.
   export CUDNN_INCLUDE_DIR=/path/to/cudnn/include
   export CUDNN_LIBRARY=/path/to/cudnn/lib
 
-  # Specify NVML path
+  # Specify NVML filepath
   export NVML_LIB_PATH=/path/to/libnvidia-ml.so
+
+  # Specify NCCL filepath
+  export NCCL_LIB_PATH=/path/to/libnccl.so.2
 
   # Build for SM70/80 (V100/A100 GPU); update as needed
   # If not specified, only the CUDA architecture supported by current system will be targeted
@@ -563,12 +578,14 @@ toolchains have been properly installed.
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --nvml_lib_path=${NVML_LIB_PATH} \
+      --nccl_lib_path=${NCCL_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
   # Build and install the library into the Conda environment
   python setup.py install \
       --package_variant=cuda \
       --nvml_lib_path=${NVML_LIB_PATH} \
+      --nccl_lib_path=${NCCL_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
 .. _fbgemm-gpu.build.process.rocm:

@@ -16,13 +16,11 @@
 #include "c10/cuda/CUDAFunctions.h"
 #include "c10/cuda/CUDAStream.h"
 #include "c10/util/Optional.h"
-#include "folly/futures/Future.h"
 
 #include <ATen/cuda/CUDAEvent.h>
-#include <folly/experimental/symbolizer/SignalHandler.h>
-
 #include <sys/stat.h>
 #include <torch/csrc/cuda/nccl.h>
+#include <unistd.h>
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -42,8 +40,8 @@ constexpr size_t kMaxNumNcclComms = 3;
 static ncclComm_t* get_nccl_comm(int64_t comm_idx) {
   static ncclComm_t comms[kMaxNumNcclComms];
 
-  CHECK_GE(comm_idx, 0);
-  CHECK_LT(comm_idx, kMaxNumNcclComms);
+  TORCH_CHECK_GE(comm_idx, 0);
+  TORCH_CHECK_LT(comm_idx, kMaxNumNcclComms);
   return &comms[comm_idx];
 }
 
