@@ -32,6 +32,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
   ${THIRDPARTY}/json/include
+  ${THIRDPARTY}/cudnn-frontend/include
   ${NCCL_INCLUDE_DIRS})
 
 
@@ -41,6 +42,12 @@ set(fbgemm_sources_include_directories
 
 file(GLOB_RECURSE asmjit_sources
   "${CMAKE_CURRENT_SOURCE_DIR}/../external/asmjit/src/asmjit/*/*.cpp")
+
+set(third_party_include_directories
+  ${THIRDPARTY}/asmjit/src
+  ${THIRDPARTY}/cpuinfo/include
+  ${THIRDPARTY}/cutlass/include
+  ${THIRDPARTY}/cudnn-frontend/include)
 
 
 ################################################################################

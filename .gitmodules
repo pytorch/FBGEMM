@@ -16,3 +16,9 @@
 [submodule "external/json"]
 	path = external/json
 	url = https://github.com/nlohmann/json.git
+[submodule "external/cudnn-frontend"]
+	path = external/cudnn-frontend
+	url = https://github.com/NVIDIA/cudnn-frontend.git
+[submodule "external/triton"]
+	path = external/triton
+	url = https://github.com/openai/triton.git
