@@ -196,4 +196,4 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: 20
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV rocm
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV

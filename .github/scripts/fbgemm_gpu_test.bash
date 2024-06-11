@@ -246,6 +246,7 @@ test_all_fbgemm_gpu_modules () {
     # shellcheck disable=SC2086
     fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
     echo "[TEST] Determined FBGEMM_GPU variant from installation: ${fbgemm_gpu_variant}"
+    echo "[TEST] Will be running tests specific to this variant ..."
   fi
 
   # Determine the test directories to include for testing
@@ -357,7 +358,7 @@ test_fbgemm_gpu_build_and_install_and_run () {
   test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}"   || return 1
 
   cd ~/FBGEMM/                                                                || return 1
-  test_all_fbgemm_gpu_modules "${env_name}" "${pytorch_variant_type}"         || return 1
+  test_all_fbgemm_gpu_modules "${env_name}"                                   || return 1
 }
 
 test_fbgemm_gpu_setup_and_pip_install () {
@@ -390,7 +391,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
     install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                                    || return 1
     cd ~/FBGEMM                                                                                                                                         || return 1
 
-    test_all_fbgemm_gpu_modules "${env_name}" "${variant_type}";
+    test_all_fbgemm_gpu_modules "${env_name}"
     local retcode=$?
 
     echo "################################################################################"
@@ -417,7 +418,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
     3.12
   )
 
-  if [ "$variant_type" == "cuda" ]; then
+  if [ "$variant_type" == "cuda" ] || [ "$variant_type" == "genai" ]; then
     local variant_versions=(
       11.8.0
       12.1.1

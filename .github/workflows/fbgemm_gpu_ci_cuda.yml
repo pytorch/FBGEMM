@@ -205,7 +205,7 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: 20
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV cuda
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Push Wheel to PyPI
       if: ${{ (github.event_name == 'schedule' && matrix.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == matrix.cuda-version-publish) }}
