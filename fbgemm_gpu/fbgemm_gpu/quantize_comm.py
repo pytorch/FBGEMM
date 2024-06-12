@@ -27,6 +27,7 @@ from fbgemm_gpu.quantize_utils import (
 )
 from fbgemm_gpu.split_embedding_configs import SparseType
 from torch.autograd.profiler import record_function  # usort:skip
+from dataclasses import dataclass
 
 
 logger: logging.Logger = logging.getLogger()
@@ -38,6 +39,10 @@ max_pos: float = (2 ** ((1 << ebits) - 2 - bias)) * (2 - 2 ** (-mbits))
 # INT8 configurations
 ROW_DIM_DEFAULT = 32
 
+# MX4 configurations
+MX_GROUP_SIZE_DEFAULT = 32
+scale_bits, elem_ebits, elem_mbits, elem_max_norm = 8, 2, 3, 6.0
+
 
 def none_throws(
     optional: Optional[TypeVar("_T")], message: str = "Unexpected `None`"
@@ -47,11 +52,11 @@ def none_throws(
     return optional
 
 
+@dataclass
 class QuantizationContext:
-    def __init__(self, row_dim: int = ROW_DIM_DEFAULT, mx_group_size: int = 32) -> None:
-        self.row_dim = row_dim
-        self.row_dim_quant: int = -1
-        self.mx_group_size = mx_group_size
+    row_dim: int = ROW_DIM_DEFAULT
+    row_dim_quant: int = -1
+    mx_group_size: int = MX_GROUP_SIZE_DEFAULT
 
 
 def _quantize_tensor(
@@ -92,6 +97,17 @@ def _quantize_tensor(
         input_quant_all2all = input_2d_quant.view((-1))
         ctx.row_dim_quant = row_dim_quant
         return input_quant_all2all
+    elif comm_precision == SparseType.MX4:
+        mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
+        quantized_output = torch.ops.fbgemm.quantize_mx_cuda(
+            input=input_tensor,
+            scale_bits=scale_bits,
+            elem_ebits=elem_ebits,
+            elem_mbits=elem_mbits,
+            elem_max_norm=elem_max_norm,
+            mx_group_size=mx_group_size,
+        )
+        return quantized_output
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -128,6 +144,13 @@ def _dequantize_tensor(
         quantized_tensor_2d = quantized_tensor.view((-1, row_dim_quant))
         dequant_tensor = torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
             quantized_tensor_2d
+        )
+        return dequant_tensor.view(-1)
+    elif comm_precision == SparseType.MX4:
+        mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
+        dequant_tensor = torch.ops.fbgemm.dequantize_mx_cuda(
+            input=quantized_tensor,
+            mx_group_size=mx_group_size,
         )
         return dequant_tensor.view(-1)
     else:
