@@ -2460,7 +2460,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         use_cpu: bool = False,
         output_dtype: SparseType = SparseType.FP32,
-        use_mtia: bool = False,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -2469,10 +2468,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.output_dtype: int = output_dtype.as_int()
         table_embedding_dtype = weights_precision.as_dtype()
 
-        self.use_cpu: bool = use_cpu
-        self.use_mtia: bool = use_mtia
-
-        assert not (use_cpu and use_mtia), "Cannot use CPU and MTIA at the same time"
+        self.use_cpu = use_cpu
 
         if self.use_cpu or self.pooling_mode == PoolingMode.NONE:
             assert output_dtype in [
@@ -2483,13 +2479,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # pyre-fixme[8]: Attribute has type `device`; used as `Union[int, device]`.
         self.current_device: torch.device = (
-            torch.device("cpu")
-            if self.use_cpu
-            else (
-                torch.device(f"mtia:{torch.mtia.current_device()}")
-                if self.use_mtia
-                else torch.cuda.current_device()
-            )
+            torch.device("cpu") if self.use_cpu else torch.cuda.current_device()
         )
 
         self.embedding_specs = embedding_specs
