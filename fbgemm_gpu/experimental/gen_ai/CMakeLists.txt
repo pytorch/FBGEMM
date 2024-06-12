@@ -22,11 +22,13 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/cudnn-frontend/include
   ${NCCL_INCLUDE_DIRS})
 
 set(attention_ops_sources
     src/attention/attention.cpp
-    src/attention/gqa_attn_splitk.cu)
+    src/attention/gqa_attn_splitk.cu
+    src/attention/fmha.cpp)
 
 set(quantize_ops_sources
     src/quantize/cutlass_extensions.cu

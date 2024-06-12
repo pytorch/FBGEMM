@@ -20,7 +20,7 @@
 
 namespace fe = cudnn_frontend;
 
-namespace fbgemm {
+namespace fbgemm_gpu::gen_ai::attention {
 
 using graph_and_tensors =
     std::tuple<std::shared_ptr<fe::graph::Graph>,
