@@ -116,6 +116,38 @@ std::tuple<Tensor, Tensor, Tensor> fmha_cudnn_backward(
 } // namespace fbgemm
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "fmha_fwd("
+      "    Tensor query, "
+      "    Tensor key, "
+      "    Tensor value, "
+      "    Tensor seq_len_q, "
+      "    Tensor seq_len_kv, "
+      "	   float dropout, "
+      "    bool is_casual, "
+      "    bool training, "
+      "    float scale, "
+      ") -> (Tensor, Tensor, Tensor, Tensor, int, int, Tensor, Tensor, Tensor)");
   DISPATCH_TO_CUDA("fmha_fwd", fbgemm_gpu::fmha_cudnn_forward);
+  m.def(
+      "fmha_bwd("
+      "    Tensor grad_out, "
+      "    Tensor query, "
+      "    Tensor key, "
+      "    Tensor value, "
+      "    Tensor seq_len_q, "
+      "    Tensor seq_len_kv, "
+      "    Tensor out, "
+      "    Tensor logsumexp, "
+      "    Tensor seq_len_q, "
+      "    Tensor seq_len_kv, "
+      "	   int max_seq_len_q, "
+      "    int max_seq_len_kv, "
+      "	   float dropout, "
+      "    bool is_casual, "
+      "    Tensor seed, "
+      "    Tensor seed_offset, "
+      "    float scale, "
+      ") -> (Tensor, Tensor, Tensor)");
   DISPATCH_TO_CUDA("fmha_bwd", fbgemm_gpu::fmha_cudnn_backward);
 }
