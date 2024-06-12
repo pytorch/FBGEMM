@@ -5,7 +5,7 @@
 
 using at::Tensor;
 
-namespace fbgemm {
+namespace fbgemm_gpu::gen_ai::attention {
 
 void run_cudnn_sdpa_fprop(int64_t b, int64_t h, int64_t s_q, int64_t s_kv,
                           int64_t d, float scaling_factor, bool isTraining,
