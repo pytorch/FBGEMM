@@ -150,6 +150,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
              TORCH_FN(fbgemm_gpu::gen_ai::attention::gqa_attn_splitk)));
 }
 
+#ifndef USE_ROCM
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("fmha_fwd("
         "    Tensor query, "
@@ -157,22 +158,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor value, "
         "    Tensor seq_len_q, "
         "    Tensor seq_len_kv, "
-        "	   float dropout, "
+        "    float dropout, "
         "    bool is_casual, "
         "    bool training, "
-        "    float scale, "
+        "    float? scale, "
         ") -> (Tensor, Tensor, Tensor, Tensor, int, int, Tensor, Tensor, "
         "Tensor)");
-}
-
-TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  m.impl("fmha_fwd",
-         torch::dispatch(
-             c10::DispatchKey::CUDA,
-             TORCH_FN(fbgemm_gpu::gen_ai::attention::fmha_cudnn_forward)));
-}
-
-TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("fmha_bwd("
         "    Tensor grad_out, "
         "    Tensor query, "
@@ -184,19 +175,18 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor logsumexp, "
         "    Tensor seq_len_q, "
         "    Tensor seq_len_kv, "
-        "	   int max_seq_len_q, "
+        "    int max_seq_len_q, "
         "    int max_seq_len_kv, "
-        "	   float dropout, "
+        "    float dropout, "
         "    bool is_casual, "
         "    Tensor seed, "
         "    Tensor seed_offset, "
-        "    float scale, "
+        "    float? scale, "
         ") -> (Tensor, Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-  m.impl("fmha_bwd",
-         torch::dispatch(
-             c10::DispatchKey::CUDA,
-             TORCH_FN(fbgemm_gpu::gen_ai::attention::fmha_cudnn_backward)));
+  m.impl("fmha_fwd", fbgemm_gpu::gen_ai::attention::fmha_cudnn_forward);
+  m.impl("fmha_bwd", fbgemm_gpu::gen_ai::attention::fmha_cudnn_backward);
 }
+#endif
