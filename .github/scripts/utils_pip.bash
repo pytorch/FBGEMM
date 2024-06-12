@@ -208,7 +208,7 @@ install_from_pytorch_pip () {
     # Ensure that the package build is of the correct variant
     # This test usually applies to the nightly builds
     # shellcheck disable=SC2086
-    if conda run ${env_prefix} pip list "${package_name}" | grep "${package_name}" | grep "${package_variant}"; then
+    if conda run ${env_prefix} pip list | grep "${package_name}" | grep "${package_variant}"; then
       echo "[CHECK] The installed package [${package_name}, ${package_channel}/${package_version:-LATEST}] is the correct variant (${package_variant})"
     else
       echo "[CHECK] The installed package [${package_name}, ${package_channel}/${package_version:-LATEST}] appears to be an incorrect variant as it is missing references to ${package_variant}!"

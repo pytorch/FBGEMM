@@ -216,6 +216,7 @@ __determine_test_directories () {
   for test_dir in "${target_directories[@]}"; do
     echo "$test_dir"
   done
+  echo ""
 }
 
 test_all_fbgemm_gpu_modules () {
