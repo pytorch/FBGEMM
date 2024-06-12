@@ -177,6 +177,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ),
         )
 
+        assert cache_sets > 0
         element_size = 4
         cache_size = cache_sets * ASSOC * element_size * self.max_D
         logging.info(
@@ -268,11 +269,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         else:
             # create tbe unique id using rank index | pooling mode
             if tbe_unique_id == -1:
-                self._local_instance_index += 1
+                SSDTableBatchedEmbeddingBags._local_instance_index += 1
                 assert (
-                    self._local_instance_index < 8
-                ), "More than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
-                tbe_unique_id = dist.get_rank() << 3 | self._local_instance_index
+                    SSDTableBatchedEmbeddingBags._local_instance_index < 8
+                ), f"{SSDTableBatchedEmbeddingBags._local_instance_index}, more than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
+                tbe_unique_id = (
+                    dist.get_rank() << 3
+                    | SSDTableBatchedEmbeddingBags._local_instance_index
+                )
+            logging.info(f"tbe_unique_id: {tbe_unique_id}")
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
@@ -668,15 +673,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         rows_cumsum = [0] + list(itertools.accumulate(rows))
         splits = []
+        get_event = torch.cuda.Event()
+
         for t, (row, dim) in enumerate(self.embedding_specs):
-            weights = torch.empty((row, dim), dtype=self.weights_precision.as_dtype())
+            weights = torch.empty(
+                (row, self.max_D), dtype=self.weights_precision.as_dtype()
+            )
             self.ssd_db.get_cuda(
                 torch.arange(rows_cumsum[t], rows_cumsum[t + 1]).to(torch.int64),
                 weights,
                 torch.as_tensor([row]),
             )
             splits.append(weights)
-        torch.cuda.synchronize(self.current_device)
+
+        # Record the event to create a dependency between get_cuda's callback
+        # function and the kernel on the GPU default stream (the intention is
+        # actually to synchronize between the callback CPU thread and the
+        # Python CPU thread but we do not have a mechanism to explicitly sync
+        # between them)
+        get_event.record()
+
+        # Synchronize to make sure that the callback function in get_cuda
+        # completes (here the CPU thread is blocked until get_event is done)
+        get_event.synchronize()
+
+        # Reshape the weight tensors (this can be expensive, however, this
+        # function is for debugging only)
+        for t, (row, dim) in enumerate(self.embedding_specs):
+            weight = splits[t]
+            weight = weight[:, :dim].contiguous()
+            assert weight.shape == (row, dim), "Shapes mismatch"
+            splits[t] = weight
+
         return splits
 
     @torch.jit.export
@@ -885,10 +913,12 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         logging.info(
             f"Using cache for SSD with admission algorithm "
             f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_shards} shards, "
+            f"SSD storage directory: {ssd_storage_directory}, "
             f"Memtable Flush Period: {ssd_memtable_flush_period}, "
             f"Memtable Flush Offset: {ssd_memtable_flush_offset}, "
             f"Desired L0 files per compaction: {ssd_l0_files_per_compact}, "
-            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB"
+            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
+            f"output dtype: {output_dtype}"
         )
         self.register_buffer(
             "lxu_cache_state",
@@ -954,11 +984,15 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         else:
             # create tbe unique id using rank index | pooling mode
             if tbe_unique_id == -1:
-                self._local_instance_index += 1
+                SSDIntNBitTableBatchedEmbeddingBags._local_instance_index += 1
                 assert (
-                    self._local_instance_index < 8
-                ), "More than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
-                tbe_unique_id = dist.get_rank() << 3 | self._local_instance_index
+                    SSDIntNBitTableBatchedEmbeddingBags._local_instance_index < 8
+                ), f"{SSDIntNBitTableBatchedEmbeddingBags._local_instance_index}, more than 8 TBE instance  is created in one rank, the tbe unique id won't be unique in this case."
+                tbe_unique_id = (
+                    dist.get_rank() << 3
+                    | SSDIntNBitTableBatchedEmbeddingBags._local_instance_index
+                )
+            logging.info(f"tbe_unique_id: {tbe_unique_id}")
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(

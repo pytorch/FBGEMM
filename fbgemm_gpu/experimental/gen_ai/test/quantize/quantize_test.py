@@ -15,6 +15,11 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import torch
 
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+    matmul_fp8_block,
+    quantize_fp8_block,
+)
+
 from hypothesis import given, settings, strategies as st
 
 # Supported FP8 format is different on NV and AMD.
@@ -175,7 +180,9 @@ class FP8Tests(unittest.TestCase):
         B_T=st.sampled_from([2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
-        Mode=st.sampled_from(["tensorwise", "tensorwise_broadcast", "rowwise"]),
+        Mode=st.sampled_from(
+            ["tensorwise", "tensorwise_broadcast", "rowwise", "blockwise"]
+        ),
         QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
         Bias=st.sampled_from([True, False]),
         CudaGraph=st.sampled_from([True, False]),
@@ -250,6 +257,65 @@ class FP8Tests(unittest.TestCase):
                 zq = torch.ops.fbgemm.f8f8bf16_rowwise(
                     xq, wq, x_scale, w_scale, bias=bias
                 )
+        elif Mode == "blockwise":
+            block_m = block_n = block_k = 256
+            output_device = torch.device("cuda")
+            if CudaGraph:
+                #  Need a warmup to compile the Triton kernel before cuda graph
+
+                wq, w_scale = quantize_fp8_block(
+                    w, block_n, block_k, output_device=output_device
+                )
+                xq, x_scale = quantize_fp8_block(x, block_m, block_k)
+                zq = matmul_fp8_block(
+                    xq,
+                    wq,
+                    x_scale,
+                    w_scale,
+                    block_m,
+                    block_n,
+                    block_k,
+                    fp8_fast_accum=True,
+                )
+                if bias is not None:
+                    zq += bias
+
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    wq, w_scale = quantize_fp8_block(
+                        w, block_n, block_k, output_device=output_device
+                    )
+                    xq, x_scale = quantize_fp8_block(x, block_m, block_k)
+                    zq = matmul_fp8_block(
+                        xq,
+                        wq,
+                        x_scale,
+                        w_scale,
+                        block_m,
+                        block_n,
+                        block_k,
+                        fp8_fast_accum=True,
+                    )
+                    if bias is not None:
+                        zq += bias
+                g.replay()
+            else:
+                wq, w_scale = quantize_fp8_block(
+                    w, block_n, block_k, output_device=output_device
+                )
+                xq, x_scale = quantize_fp8_block(x, block_m, block_k)
+                zq = matmul_fp8_block(
+                    xq,
+                    wq,
+                    x_scale,
+                    w_scale,
+                    block_m,
+                    block_n,
+                    block_k,
+                    fp8_fast_accum=True,
+                )
+                if bias is not None:
+                    zq += bias
         else:
             raise ValueError(f"Invalid mode {Mode}")
 

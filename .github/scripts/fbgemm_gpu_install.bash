@@ -15,11 +15,7 @@
 # FBGEMM_GPU Install Functions
 ################################################################################
 
-__fbgemm_gpu_post_install_checks () {
-  local env_name="$1"
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
+__install_print_dependencies_info () {
   # shellcheck disable=SC2086,SC2155
   local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   # shellcheck disable=SC2086,SC2155
@@ -32,7 +28,10 @@ __fbgemm_gpu_post_install_checks () {
   echo "[CHECK] NOTE: If the PyTorch package channel is different from the FBGEMM_GPU"
   echo "[CHECK]       package channel; the package may be broken at runtime!!!"
   echo "################################################################################"
+  echo ""
+}
 
+__install_list_subpackages_info () {
   # shellcheck disable=SC2086,SC2155
   local fbgemm_gpu_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(dir(fbgemm_gpu))")
   # shellcheck disable=SC2086,SC2155
@@ -42,18 +41,80 @@ __fbgemm_gpu_post_install_checks () {
   echo "[CHECK] fbgemm_gpu: ${fbgemm_gpu_packages}"
   echo "[CHECK] fbgemm_gpu.experimental: ${experimental_packages}"
   echo "################################################################################"
+  echo ""
+}
 
+__install_fetch_version_and_variant_info () {
   echo "[INSTALL] Checking imports and symbols ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
   (test_python_import_symbol "${env_name}" fbgemm_gpu __version__) || return 1
+  (test_python_import_symbol "${env_name}" fbgemm_gpu __variant__) || return 1
 
   echo "[CHECK] Printing out the FBGEMM-GPU version ..."
   # shellcheck disable=SC2086,SC2155
-  local installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
+  installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
+  # shellcheck disable=SC2086,SC2155
+  installed_fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
   echo "################################################################################"
-  echo "[CHECK] The installed version of FBGEMM_GPU is: ${installed_fbgemm_gpu_version}"
+  echo "[CHECK] The installed VERSION of FBGEMM_GPU is: ${installed_fbgemm_gpu_version}"
+  echo "[CHECK] The installed VARIANT of FBGEMM_GPU is: ${installed_fbgemm_gpu_variant}"
   echo "################################################################################"
+  echo ""
+}
+
+__install_check_operator_registrations () {
+  echo "[INSTALL] Check for operator registrations ..."
+  if [ "$installed_fbgemm_gpu_variant" == "genai" ]; then
+    local test_operators=(
+      "torch.ops.fbgemm.nccl_init"
+      "torch.ops.fbgemm.gqa_attn_splitk"
+    )
+  else
+    local test_operators=(
+      "torch.ops.fbgemm.asynchronous_inclusive_cumsum"
+    )
+  fi
+
+  for operator in "${test_operators[@]}"; do
+    # shellcheck disable=SC2086
+    if conda run ${env_prefix} python -c "import torch; import fbgemm_gpu; print($operator)"; then
+      echo "[CHECK] FBGEMM_GPU operator appears to be correctly registered: $operator"
+    else
+      echo "################################################################################"
+      echo "[CHECK] FBGEMM_GPU operator hasn't been registered on torch.ops.load():"
+      echo "[CHECK]"
+      echo "[CHECK] $operator"
+      echo "[CHECK]"
+      echo "[CHECK] Please check that all operators defined with m.def() have an appropriate"
+      echo "[CHECK] m.impl() defined, AND that the definition sources are included in the "
+      echo "[CHECK] CMake build configuration!"
+      echo "################################################################################"
+      echo ""
+      return 1
+    fi
+  done
+}
+
+__fbgemm_gpu_post_install_checks () {
+  local env_name="$1"
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # Print PyTorch and CUDA versions for sanity check
+  __install_print_dependencies_info
+
+  # List out FBGEMM_GPU subpackages
+  __install_list_subpackages_info
+
+  # Fetch the version and variant info from the package
+  __install_fetch_version_and_variant_info
+
+  echo "[INSTALL] Check for installation of Python sources ..."
+  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
+    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  fi
+
+  __install_check_operator_registrations
 }
 
 install_fbgemm_gpu_wheel () {
@@ -99,7 +160,7 @@ install_fbgemm_gpu_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env 0.5.0 cpu                  # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env release cuda 12.4.1        # Install the CUDA variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env test/0.6.0rc0 cuda 12.4.1  # Install the CUDA 12.4 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env test/0.8.0rc0 cuda 12.4.1  # Install the CUDA 12.4 variant, specific version from test channel"
     echo "    ${FUNCNAME[0]} build_env nightly rocm 5.3           # Install the ROCM 5.3 variant, latest version from nightly channel"
     return 1
   else

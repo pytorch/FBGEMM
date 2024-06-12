@@ -664,13 +664,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
           for (int vec = 0; vec < KV_NUM_VECS; ++vec) {
             auto* smem_s = reinterpret_cast<__nv_bfloat162*>(
                 smem_staging_ + vec * KV_NUM_ELS_PER_DEQ);
-            if (USE_FP8) {
-              const auto k_deq = dequantize_packed_fp8(k_vals_[vec], k_scales);
-#pragma unroll
-              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
-                smem_s[i] = k_deq.vals[i];
-              }
-            } else {
+            if (!USE_FP8) {
               const auto k_deq =
                   dequantize_permuted_int4(k_vals_[vec], k_scales);
 #pragma unroll
@@ -678,6 +672,15 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
                 smem_s[i] = k_deq.vals[i];
               }
             }
+#if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+            else {
+              const auto k_deq = dequantize_packed_fp8(k_vals_[vec], k_scales);
+#pragma unroll
+              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+                smem_s[i] = k_deq.vals[i];
+              }
+            }
+#endif
           }
         }
         // Load BF16 values to K fragment
@@ -1047,18 +1050,22 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
             const auto v_vals_ = reinterpret_cast<uint32_t*>(v_vals)[vec];
             auto* smem_s = reinterpret_cast<__nv_bfloat162*>(
                 smem_staging_ + smem_d * KV_NUM_ELS_PER_DEQ);
-            if (USE_FP8) {
+            if (!USE_FP8) {
+              const auto v_deq = dequantize_permuted_int4(v_vals_, v_scales);
+#pragma unroll
+              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
+                smem_s[i] = v_deq.vals[i];
+              }
+            }
+#if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+            else {
               const auto v_deq = dequantize_packed_fp8(v_vals_, v_scales);
 #pragma unroll
               for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
                 smem_s[i] = v_deq.vals[i];
               }
-            } else {
-              const auto v_deq = dequantize_permuted_int4(v_vals_, v_scales);
-              for (int i = 0; i < KV_NUM_ELS_PER_DEQ / 2; i++) {
-                smem_s[i] = v_deq.vals[i];
-              }
             }
+#endif
           }
         } else {
           // Need to fill zeros to avoid nan

@@ -70,16 +70,12 @@ __configure_fbgemm_gpu_test_cpu () {
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
-    # require multiple GPUs
-    ./comm/multi_gpu_car_test.py
   )
 }
 
 __configure_fbgemm_gpu_test_cuda () {
   ignored_tests=(
     ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
-    # require multiple GPUs
-    ./comm/multi_gpu_car_test.py
   )
 }
 
@@ -105,8 +101,6 @@ __configure_fbgemm_gpu_test_rocm () {
     ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
     # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
-    # require multiple GPUs
-    ./comm/multi_gpu_car_test.py
   )
 }
 
@@ -116,16 +110,16 @@ __setup_fbgemm_gpu_test () {
 
   # Configure the environment for ignored test suites for each FBGEMM_GPU
   # variant
-  if [ "$fbgemm_variant" == "cpu" ]; then
+  if [ "$fbgemm_gpu_variant" == "cpu" ]; then
     echo "[TEST] Configuring for CPU-based testing ..."
     __configure_fbgemm_gpu_test_cpu
 
-  elif [ "$fbgemm_variant" == "rocm" ]; then
+  elif [ "$fbgemm_gpu_variant" == "rocm" ]; then
     echo "[TEST] Configuring for ROCm-based testing ..."
     __configure_fbgemm_gpu_test_rocm
 
   else
-    echo "[TEST] Configuring for CUDA-based testing ..."
+    echo "[TEST] FBGEMM_GPU variant is ${fbgemm_gpu_variant}; configuring for CUDA-based testing ..."
     __configure_fbgemm_gpu_test_cuda
   fi
 
@@ -145,7 +139,9 @@ __setup_fbgemm_gpu_test () {
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
-  (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  if [ "$fbgemm_gpu_variant" != "genai" ]; then
+    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  fi
 
   # Configure the PyTest args
   pytest_args=(
@@ -159,33 +155,21 @@ __setup_fbgemm_gpu_test () {
   echo "[TEST] PyTest args:  ${pytest_args[@]}"
 }
 
-
 ################################################################################
 # FBGEMM_GPU Test Functions
 ################################################################################
 
-run_fbgemm_gpu_tests () {
-  env_name="$1"
-  fbgemm_variant="$2"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME [FBGEMM_VARIANT]"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env cpu    # Run all tests applicable to CPU"
-    echo "    ${FUNCNAME[0]} build_env cuda   # Run all tests applicable to CUDA"
-    echo "    ${FUNCNAME[0]} build_env rocm   # Run all tests applicable to ROCm"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Run FBGEMM-GPU Tests"
-    echo "#"
-    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
-    echo "################################################################################"
-    echo ""
-  fi
+__run_fbgemm_gpu_tests_in_directory () {
+  echo "################################################################################"
+  # shellcheck disable=SC2154
+  echo "# Run FBGEMM-GPU Tests: ${pwd}"
+  echo "#"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+  echo "################################################################################"
+  echo ""
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
-  __setup_fbgemm_gpu_test
 
   echo "[TEST] Enumerating ALL test files ..."
   # shellcheck disable=SC2155
@@ -211,15 +195,16 @@ run_fbgemm_gpu_tests () {
   done
 }
 
-test_all_fbgemm_gpu_modules () {
-  local env_name="$1"
-  local fbgemm_variant="$2"
+__determine_test_directories () {
+  target_directories=()
 
-  local target_directories=(
-    fbgemm_gpu/test
-  )
+  if [ "$fbgemm_gpu_variant" != "genai" ]; then
+    target_directories+=(
+      fbgemm_gpu/test
+    )
+  fi
 
-  if [ "$fbgemm_variant" == "cuda" ]; then
+  if [ "$fbgemm_gpu_variant" == "cuda" ] || [ "$fbgemm_gpu_variant" == "genai" ]; then
     target_directories+=(
       fbgemm_gpu/experimental/example/test
       fbgemm_gpu/experimental/gemm/test
@@ -227,10 +212,54 @@ test_all_fbgemm_gpu_modules () {
     )
   fi
 
+  echo "[TEST] Determined the testing directories:"
   for test_dir in "${target_directories[@]}"; do
-    cd "${test_dir}"                                        || return 1
-    run_fbgemm_gpu_tests "${env_name}" "${fbgemm_variant}"  || return 1
-    cd -                                                    || return 1
+    echo "$test_dir"
+  done
+}
+
+test_all_fbgemm_gpu_modules () {
+  env_name="$1"
+  fbgemm_gpu_variant="$2"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME [FBGEMM_GPU_VARIANT]"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env        # Test all FBGEMM_GPU modules applicable to to the installed variant"
+    echo "    ${FUNCNAME[0]} build_env cpu    # Test all FBGEMM_GPU modules applicable to CPU"
+    echo "    ${FUNCNAME[0]} build_env cuda   # Test all FBGEMM_GPU modules applicable to CUDA"
+    echo "    ${FUNCNAME[0]} build_env rocm   # Test all FBGEMM_GPU modules applicable to ROCm"
+    return 1
+  else
+    echo "################################################################################"
+    echo "# Test All FBGEMM-GPU Modules"
+    echo "#"
+    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+    echo "################################################################################"
+    echo ""
+  fi
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # Determine the FBGEMM_GPU varaiant if needed
+  if [ "$fbgemm_gpu_variant" == "" ]; then
+    # shellcheck disable=SC2086
+    fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
+    echo "[TEST] Determined FBGEMM_GPU variant from installation: ${fbgemm_gpu_variant}"
+    echo "[TEST] Will be running tests specific to this variant ..."
+  fi
+
+  # Determine the test directories to include for testing
+  __determine_test_directories
+
+  # Set the ignored tests and PyTest args
+  __setup_fbgemm_gpu_test
+
+  # Iterate through the test directories and run bulk tests
+  for test_dir in "${target_directories[@]}"; do
+    cd "${test_dir}"                                                          || return 1
+    __run_fbgemm_gpu_tests_in_directory "${env_name}" "${fbgemm_gpu_variant}" || return 1
+    cd -                                                                      || return 1
   done
 }
 
@@ -250,7 +279,7 @@ test_setup_conda_environment () {
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_CHANNEL[/VERSION] PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env clang 3.12 pip test/0.6.0 cuda 12.1.0       # Setup environment with pytorch-test 0.6.0 for Clang + Python 3.12 + CUDA 12.1.0"
+    echo "    ${FUNCNAME[0]} build_env clang 3.12 pip test/0.8.0 cuda 12.1.0       # Setup environment with pytorch-test 0.8.0 for Clang + Python 3.12 + CUDA 12.1.0"
     return 1
   else
     echo "################################################################################"
@@ -320,9 +349,16 @@ test_fbgemm_gpu_build_and_install () {
 
   cd ~/FBGEMM/                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
+}
+
+test_fbgemm_gpu_build_and_install_and_run () {
+  local env_name="$1"
+  local pytorch_variant_type="$2"
+
+  test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}"   || return 1
 
   cd ~/FBGEMM/                                                                || return 1
-  test_all_fbgemm_gpu_modules "${env_name}" "${pytorch_variant_type}"         || return 1
+  test_all_fbgemm_gpu_modules "${env_name}"                                   || return 1
 }
 
 test_fbgemm_gpu_setup_and_pip_install () {
@@ -332,8 +368,8 @@ test_fbgemm_gpu_setup_and_pip_install () {
   if [ "$fbgemm_gpu_channel_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_CHANNEL[/VERSION] FBGEMM_GPU_CHANNEL[/VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} test_env cpu test/2.2.0 test/0.6.0     # Run tests against all Python versions with PyTorch test/2.2.0 and FBGEMM_GPU test/0.6.0 (CPU-only)"
-    echo "    ${FUNCNAME[0]} test_env cuda test/2.3.0 test/0.7.0    # Run tests against all Python versions with PyTorch test/2.3.0 and FBGEMM_GPU test/0.7.0 (all CUDA versions)"
+    echo "    ${FUNCNAME[0]} test_env cpu test/2.2.0 test/0.8.0     # Run tests against all Python versions with PyTorch test/2.2.0 and FBGEMM_GPU test/0.8.0 (CPU-only)"
+    echo "    ${FUNCNAME[0]} test_env cuda test/2.3.0 test/0.8.0    # Run tests against all Python versions with PyTorch test/2.3.0 and FBGEMM_GPU test/0.8.0 (all CUDA versions)"
     return 1
   else
     echo "################################################################################"
@@ -355,7 +391,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
     install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                                    || return 1
     cd ~/FBGEMM                                                                                                                                         || return 1
 
-    test_all_fbgemm_gpu_modules "${env_name}" "${variant_type}";
+    test_all_fbgemm_gpu_modules "${env_name}"
     local retcode=$?
 
     echo "################################################################################"
@@ -382,7 +418,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
     3.12
   )
 
-  if [ "$variant_type" == "cuda" ]; then
+  if [ "$variant_type" == "cuda" ] || [ "$variant_type" == "genai" ]; then
     local variant_versions=(
       11.8.0
       12.1.1

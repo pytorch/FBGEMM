@@ -6,10 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-/*
- * Microsoft Confidential
- */
-
 #ifndef PYT_MX_MX_CUH
 #define PYT_MX_MX_CUH
 
@@ -123,30 +119,19 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
 // quantize float to mx4 kernel
 //-----------------------------------------------------------------------
 
+// TO DO: make flush_fp32_subnorms template argument
 template <typename T>
 __global__ void quantize_float_to_mx4_kernel(
-    const T* __restrict__ input,
+    const pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> input,
     const int group_size, // can change to Blockdim.x
-    const uint32_t* __restrict__ group_ids,
-    const uint32_t* __restrict__ start_output_cumsum,
-    const uint32_t* __restrict__ num_groups_cumsum,
     const uint32_t total_elems,
-    const bool flush_fp32_subnorms,
+    // const bool flush_fp32_subnorms,
     const RoundingMode rounding_mode,
-    uint8_t* __restrict__ output) {
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output) {
   const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
   const auto linear_tid = linear_group_id * group_size + threadIdx.x;
   if (linear_tid >= total_elems)
     return;
-
-  const uint32_t rank_id = group_ids[linear_group_id];
-  const uint32_t accum_num_groups = num_groups_cumsum[rank_id];
-  const uint32_t num_elems_per_rank =
-      (num_groups_cumsum[rank_id + 1] - accum_num_groups) * group_size;
-  const uint32_t start_output_idx = start_output_cumsum[rank_id];
-
-  // offsets for within rank to write quantized data and shared_exponent
-  const uint32_t group_id_in_rank = linear_group_id - accum_num_groups;
 
   // MX4 values
   constexpr int scale_bits = 8;
@@ -186,11 +171,15 @@ __global__ void quantize_float_to_mx4_kernel(
   // Clamp to scale_bits range
   const uint8_t clamped_shared_exp = clamp_shared_exp(shared_exp, scale_bits);
 
-  const bool flush_tile = (shared_exp == 0 && flush_fp32_subnorms);
+  // TODO: Update flush_fp32_subnorms to be template argument
+  // const bool flush_tile = (shared_exp == 0 && flush_fp32_subnorms);
 
   // Divided by 2^shared_exp
+  // const T scaled_in = flush_tile
+  //     ? 0
+  //     : scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
   const T scaled_in =
-      flush_tile ? 0 : elem / pow(2.0f, clamped_shared_exp - FLOAT32_EXP_BIAS);
+      scalbn(elem, (clamped_shared_exp - FLOAT32_EXP_BIAS) * -1);
 
   // convert to FP4 -> there is 16 possible values
   // bit pattern of the uint8 result is `0000 xxxx`
@@ -225,27 +214,22 @@ __global__ void quantize_float_to_mx4_kernel(
   }
   __syncthreads();
 
-  // Let only thread0 write output data and shared exponent
-  if (threadIdx.x == 0) {
-    // write data output using float4 (16 bytes)
-    // 1 output is 1 byte, we write 16 outputs in 1 float4
-    // group_size needs to be multiple of 32 so that the output
-    // will be multiple of 16 bytes
-    const int num_vecs = group_size / 32;
-    // smem is float, move every 4 bytes
-    // need to move half_group_size / 4
-    float4* smem_ptr = reinterpret_cast<float4*>(smem_base);
+  // Let each thread write 1 byte of output data
+  if (threadIdx.x < half_group_size) {
+    // write data output using uint8_t (1 bytes)
+
+    uint8_t* smem_ptr = reinterpret_cast<uint8_t*>(smem_base);
+    const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
     uint8_t* output_base = &output[start_output_idx];
-    float4* output_ptr = reinterpret_cast<float4*>(
-        output_base + group_id_in_rank * half_group_size);
-    for (int i = 0; i < num_vecs; i++) {
-      output_ptr[i] = smem_ptr[i];
+
+    output_base[threadIdx.x] = smem_ptr[threadIdx.x];
+
+    // write share exp
+    if (threadIdx.x == 0) {
+      // shared_exp_idx is stored after data
+      // need to offset with start_output + output data
+      output_base[half_group_size] = clamped_shared_exp;
     }
-    // shared_exp_idx is stored after data
-    // need to offset with start_output + output data
-    const uint32_t shared_exp_offset =
-        (num_elems_per_rank / 2) + group_id_in_rank;
-    output_base[shared_exp_offset] = clamped_shared_exp;
   }
 }
 
@@ -255,33 +239,21 @@ __global__ void quantize_float_to_mx4_kernel(
 
 template <typename T>
 __global__ void dequantize_mx4_to_float_kernel(
-    const uint8_t* __restrict__ input,
+    const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> input,
     const int group_size,
     const int64_t total_elems,
-    const uint32_t* __restrict__ group_ids,
-    const uint32_t* __restrict__ start_output_cumsum,
-    const uint32_t* __restrict__ num_groups_cumsum,
-    T* __restrict__ output) {
+    pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> output) {
   const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
   const auto linear_tid = linear_group_id * group_size + threadIdx.x;
   if (linear_tid >= total_elems)
     return;
 
-  const uint32_t rank_id = group_ids[linear_group_id];
-  const uint32_t accum_num_groups = num_groups_cumsum[rank_id];
-  const uint32_t num_groups_per_rank =
-      num_groups_cumsum[rank_id + 1] - accum_num_groups;
-  const uint32_t num_elems_per_rank = num_groups_per_rank * group_size;
-  const uint32_t start_output_idx = start_output_cumsum[rank_id];
+  const uint32_t half_group_size = group_size / 2;
 
-  const uint32_t tid_in_rank = linear_tid - (accum_num_groups * group_size);
-  const uint32_t group_id_in_rank = linear_group_id - accum_num_groups;
-
-  const uint32_t shared_exp_idx =
-      start_output_idx + (num_elems_per_rank / 2) + group_id_in_rank;
-  const uint32_t output_idx = start_output_idx + round_up(tid_in_rank - 1, 2);
-
-  uint8_t elem = input[output_idx];
+  const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
+  uint8_t elem = input[start_output_idx + (threadIdx.x / 2)];
+  const uint32_t shared_exp_idx = start_output_idx + half_group_size;
+  const uint8_t shared_exp = input[shared_exp_idx];
 
   constexpr uint8_t upper_4bit_mask = 0xF0;
   constexpr uint8_t lower_4bit_mask = 0x0F;
@@ -296,8 +268,7 @@ __global__ void dequantize_mx4_to_float_kernel(
   }
   CUDA_KERNEL_ASSERT(elem < 16);
 
-  const uint8_t shared_exp = input[shared_exp_idx];
-  output[linear_tid] = MX4_values[elem] * pow(2, shared_exp - FLOAT32_EXP_BIAS);
+  output[linear_tid] = scalbn(MX4_values[elem], shared_exp - FLOAT32_EXP_BIAS);
 }
 
 #endif

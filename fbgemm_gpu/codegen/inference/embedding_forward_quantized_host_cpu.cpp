@@ -447,6 +447,11 @@ class AtomicCounter : public torch::jit::CustomClassHolder {
     counter_ = val;
   }
 
+  std::tuple<std::tuple<std::string, int64_t>> __obj_flatten__() {
+    return std::make_tuple(
+        std::make_tuple(std::string("counter_"), counter_.load()));
+  }
+
   std::string serialize() const {
     std::ostringstream oss;
     oss << counter_;
@@ -465,6 +470,7 @@ static auto AtomicCounterRegistry =
         .def("reset", &AtomicCounter::reset)
         .def("get", &AtomicCounter::get)
         .def("set", &AtomicCounter::set)
+        .def("__obj_flatten__", &AtomicCounter::__obj_flatten__)
         .def_pickle(
             // __getstate__
             [](const c10::intrusive_ptr<AtomicCounter>& self) -> std::string {

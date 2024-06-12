@@ -176,7 +176,7 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: ${{ matrix.host-machine.timeout }}
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV cpu
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Push FBGEMM_GPU (CPU version) Binary to PYPI
       if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' }}

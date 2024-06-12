@@ -31,7 +31,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
-  ${NCCL_INCLUDE_DIR})
+  ${NCCL_INCLUDE_DIRS})
 
 
 ################################################################################
@@ -471,10 +471,11 @@ if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_static_cpu
     codegen/inference/embedding_forward_quantized_host.cpp
     codegen/utils/embedding_bounds_check_host.cpp
+    src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
+    src/layout_transform_ops/layout_transform_ops_gpu.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
     src/memory_utils/memory_utils_ops_cpu.cpp
-    src/layout_transform_ops/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
     src/quantize_ops/quantize_ops_gpu.cpp
@@ -510,11 +511,12 @@ if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu
       codegen/utils/embedding_bounds_check.cu
       codegen/inference/embedding_forward_quantized_split_lookup.cu
-      src/memory_utils/memory_utils.cu
-      src/memory_utils/memory_utils_ops.cu
       src/embedding_inplace_ops/embedding_inplace_update.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
+      src/intraining_embedding_pruning_ops/intraining_embedding_pruning.cu
+      src/memory_utils/memory_utils.cu
+      src/memory_utils/memory_utils_ops.cu
       src/jagged_tensor_ops/batched_dense_vec_jagged_2d_mul_backward.cu
       src/jagged_tensor_ops/batched_dense_vec_jagged_2d_mul_forward.cu
       src/jagged_tensor_ops/dense_to_jagged_forward.cu
@@ -673,7 +675,7 @@ endif()
 # Add PyTorch include/
 target_include_directories(fbgemm_gpu_py PRIVATE
   ${TORCH_INCLUDE_DIRS}
-  ${NCCL_INCLUDE_DIR})
+  ${NCCL_INCLUDE_DIRS})
 
 # Remove `lib` from the output artifact name `libfbgemm_gpu_py.so`
 set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
@@ -681,7 +683,7 @@ set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 # Link to PyTorch
 target_link_libraries(fbgemm_gpu_py
   ${TORCH_LIBRARIES}
-  ${NCCL_LIB_DIR})
+  ${NCCL_LIBRARIES})
 
 # Link to NVML
 if(NVML_LIB_PATH)

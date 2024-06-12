@@ -18,16 +18,75 @@
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 
+#include <ATen/core/TensorAccessor.h>
+#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "quantize_mx.cuh"
 
 namespace fbgemm_gpu {
+
+// from codegen/training/backward/embedding_backward_split_template.cu
+template <typename func_t>
+int32_t compute_num_groups_and_dynamic_smem_bytes(
+    uint32_t* num_groups_per_block,
+    const int64_t mx_group_size,
+    const int device,
+    const func_t kernel_func_name) {
+  int32_t smem_bytes = 0;
+
+  // V100: 96 KB; A100: 160 KB; H100: 228 KB.
+  int max_shared_bytes = 0;
+#ifndef USE_ROCM
+  cudaDeviceGetAttribute(
+      &max_shared_bytes, cudaDevAttrMaxSharedMemoryPerBlockOptin, device);
+#else
+  // MI100 has 64 KB local memory (shared memory) per workgroup
+  max_shared_bytes = 64 << 10;
+#endif
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  int shared_kb = max_shared_bytes >> 10;
+  // V100: 64 KB; A100: 96 KB; H100: 144 KB
+#ifndef USE_ROCM
+  // Use 2/3 of the available GPU shared mem; leave rooms for L1$.
+  int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
+  TORCH_CHECK_GT(used_shared_kb, 0);
+#else
+  // MI100 has independent shared mem and L1
+  int used_shared_kb = shared_kb;
+#endif
+  const int used_shared_bytes = used_shared_kb << 10;
+  // Stay under used_shared_kb of shared memory (V100: 64 KB;
+  // A100: 96 KB; H100: 144 KB), num_groups must be a power
+  // of two.
+  // max(num_elem_in_block * sizeof(int), num_elem_in_block /2 * sizeof(uint8))
+  while ((smem_bytes = *num_groups_per_block * mx_group_size * (sizeof(int))) >=
+         used_shared_bytes) {
+    *num_groups_per_block /= 2;
+  }
+  TORCH_CHECK_GE(*num_groups_per_block, 1);
+
+  // Check
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
+  // "Compute capability 7.x devices allow a single thread block to
+  // address the full capacity of shared memory: 96 KB on Volta,
+  // 64 KB on Turing. Kernels relying on shared memory allocations
+  // over 48 KB per block are architecture-specific, as such they
+  // must use dynamic shared memory (rather than statically sized
+  // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
+#ifndef USE_ROCM
+  cudaFuncSetAttribute(
+      kernel_func_name,
+      cudaFuncAttributeMaxDynamicSharedMemorySize,
+      used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+#endif
+  return smem_bytes;
+}
 
 //-----------------------------------------------------------------------
 // quantize_mx_cuda
 //-----------------------------------------------------------------------
 DLL_PUBLIC at::Tensor quantize_mx_cuda(
     const at::Tensor& input,
-    const std::vector<int64_t>& split_sizes,
     const int64_t scale_bits,
     const int64_t elem_ebits,
     const int64_t elem_mbits,
@@ -35,153 +94,173 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
     const int64_t mx_group_size,
     const bool flush_fp32_subnorms = false,
     const int64_t rounding_mode = 0) {
-  TORCH_CHECK((split_sizes.size() > 0), "Input split sizes cannot be empty");
-  TORCH_CHECK((mx_group_size % 32 == 0), "Group size needs to be power of 2");
+  TORCH_CHECK(mx_group_size > 0, "Group size needs to be > 0");
+  TORCH_CHECK(
+      mx_group_size % 32 == 0,
+      "Group size needs to be multiply of 32 but is found to be ",
+      mx_group_size);
+  TORCH_CHECK(!flush_fp32_subnorms, "flush_fp32_subnorms is not yet supported");
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input);
+
+  const uint32_t total_elems = input.numel();
+  if (total_elems == 0) {
+    return at::empty(0, input.options().dtype(at::kByte));
+  }
+  TORCH_CHECK(
+      total_elems > mx_group_size,
+      "Input needs to be > mx_group_size of ",
+      mx_group_size,
+      " but is found to be ",
+      total_elems);
+  TORCH_CHECK(
+      total_elems % mx_group_size == 0,
+      "Input needs to be multiply of ",
+      mx_group_size,
+      "but is found to be ",
+      total_elems);
+
+  // Currently we only support MX4 E2M1, for other MX types, we will dispatch
+  // different kernels
+  TORCH_CHECK(
+      scale_bits == 8 && elem_ebits == 2 && elem_mbits == 3 &&
+          elem_max_norm == 6.0,
+      "FBGEMM currently only supports MX4 E2M1.");
 
   at::Device device = input.device();
   const at::cuda::CUDAGuard device_guard{device};
-  const uint32_t total_elems = input.numel();
   const uint32_t total_num_groups = input.numel() / mx_group_size;
-
-  // Compute offsets to be passed to kernel
-  auto start_output_cumsum =
-      at::empty(split_sizes.size() + 1, at::TensorOptions().dtype(at::kUInt32));
-  auto group_ids =
-      at::empty(total_num_groups, at::TensorOptions().dtype(at::kUInt32));
-  auto num_groups_cumsum =
-      at::empty(split_sizes.size() + 1, at::TensorOptions().dtype(at::kUInt32));
-  uint32_t offset = 0;
-  start_output_cumsum[0] = 0;
-  num_groups_cumsum[0] = 0;
-  uint32_t num_groups_cumsum_ = 0;
-  int64_t start_idx = 0;
-  int64_t end_idx = 0;
-  for (int i = 0; i < split_sizes.size(); i++) {
-    const uint32_t split_size = split_sizes[i];
-
-    TORCH_CHECK(
-        split_size % mx_group_size == 0,
-        " Number of inputs needs to be a multiple of group size");
-    const uint32_t num_groups = split_size / mx_group_size;
-    end_idx += num_groups;
-    offset += align((split_size / 2) + num_groups, 16);
-    start_output_cumsum[i + 1] = offset;
-    num_groups_cumsum_ += num_groups;
-    num_groups_cumsum[i + 1] = num_groups_cumsum_;
-    group_ids.index_put_({at::indexing::Slice(start_idx, end_idx)}, i);
-    start_idx = end_idx;
-  }
-
-  // TODO: Search in the kernel
-  start_output_cumsum = start_output_cumsum.to(device, /*non_blocking=*/true);
-  group_ids = group_ids.to(device, /*non_blocking=*/true);
-  num_groups_cumsum = num_groups_cumsum.to(device, /*non_blocking=*/true);
 
   RoundingMode rd = static_cast<RoundingMode>(rounding_mode);
 
-  const int num_groups_per_block = MAX_THREADS / mx_group_size;
-  const auto gridDim_x = round_up(total_num_groups, num_groups_per_block);
+  uint32_t num_groups_per_block = MAX_THREADS / mx_group_size;
+  const auto kernel_func = quantize_float_to_mx4_kernel<float>;
+
+  int device_id = input.get_device();
+
+  // Use shmem to find max exponent (int) and temporarily store output (unint8)
+  const int32_t smem_size = compute_num_groups_and_dynamic_smem_bytes(
+      &num_groups_per_block, mx_group_size, device_id, kernel_func);
+
+  const auto gridDim_x =
+      max(1, div_round_up(total_num_groups, num_groups_per_block));
 
   const dim3 gridDim(gridDim_x);
   const dim3 blockDim(mx_group_size, num_groups_per_block);
 
-  // Use shmem to find max exponent (int) and temporarily store output (unint8)
-  // max(num_elem_in_block * sizeof(int), num_elem_in_block /2 * sizeof(uint8))
-  const int smem_size = num_groups_per_block * mx_group_size * (sizeof(int));
   auto output = at::empty(
-      offset, // 4 = sizeof(float)
-      input.options().dtype(at::kByte));
+      (total_elems / 2) + total_num_groups, input.options().dtype(at::kByte));
+
+  int max_grid_size = 0;
+  cudaDeviceGetAttribute(&max_grid_size, cudaDevAttrMaxGridDimX, device_id);
+
+  TORCH_CHECK(
+      gridDim_x > 0 && gridDim_x <= max_grid_size,
+      "gridDim_x is of bound with value ",
+      gridDim_x,
+      ". MaxGridDimX is ",
+      max_grid_size);
+  TORCH_CHECK(
+      smem_size >= 0,
+      "shared memory size needs to be >= 0 but found to be ",
+      smem_size);
+
   // Call CUDA kernel
   if (input.dtype() == torch::ScalarType::Half) {
-    AT_ASSERTM(0, " fp16 not supported for MX");
+    TORCH_CHECK(0, " fp16 not supported for MX");
   } else {
-    quantize_float_to_mx4_kernel<<<gridDim, blockDim, smem_size>>>(
-        input.data_ptr<float>(),
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name = "quantize_float_to_mx4_kernel";
+#endif
+    kernel_func<<<
+        gridDim,
+        blockDim,
+        smem_size,
+        at::cuda::getCurrentCUDAStream()>>>(
+        MAKE_PTA_WITH_NAME(func_name, input, float, 1, 64),
         mx_group_size,
-        group_ids.data_ptr<uint32_t>(),
-        start_output_cumsum.data_ptr<uint32_t>(),
-        num_groups_cumsum.data_ptr<uint32_t>(),
         total_elems,
-        flush_fp32_subnorms,
+        // flush_fp32_subnorms, // TODO: Update as template argument
         rd,
-        output.data_ptr<uint8_t>());
+        MAKE_PTA_WITH_NAME(func_name, output, uint8_t, 1, 64));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
-
-  gpuErrchk(cudaPeekAtLastError());
   return output;
 }
 
 DLL_PUBLIC at::Tensor dequantize_mx_cuda(
     const at::Tensor& input,
-    const std::vector<int64_t>& split_sizes,
     const int64_t mx_group_size) {
-  TORCH_CHECK((split_sizes.size() > 0), "Input sizes cannot be empty");
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(input);
+  TORCH_CHECK(mx_group_size > 0, "Group size needs to be > 0");
+  TORCH_CHECK(
+      mx_group_size % 32 == 0,
+      "Group size needs to be multiply of 32 but is found to be ",
+      mx_group_size);
+  if (input.numel() == 0) {
+    return at::empty(0, input.options().dtype(at::kFloat));
+  }
+
   at::Device device = input.device();
   const at::cuda::CUDAGuard device_guard{device};
+  // num quantized elems = half of the total float elms + total number of groups
+  // so, quantized input size = (total_num_elems/2)+(total_num_elems/group_size)
+  // Note that this formula won't work if there's padding to quantized output
+  // and total_elems need to be passed.
   const int64_t total_elems =
-      std::accumulate(split_sizes.begin(), split_sizes.end(), 0);
+      (2 * mx_group_size * input.numel()) / (mx_group_size + 2);
+  TORCH_CHECK(
+      total_elems > mx_group_size,
+      "Input needs to be > mx_group_size of ",
+      mx_group_size,
+      " but is found to be ",
+      total_elems);
+  TORCH_CHECK(
+      total_elems % mx_group_size == 0,
+      "Input needs to be multiply of ",
+      mx_group_size,
+      " but is found to be ",
+      total_elems);
   const uint32_t total_num_groups = total_elems / mx_group_size;
-
-  auto start_output_cumsum =
-      at::empty(split_sizes.size() + 1, at::TensorOptions().dtype(at::kUInt32));
-  auto group_ids =
-      at::empty(total_num_groups, at::TensorOptions().dtype(at::kUInt32));
-  auto num_groups_cumsum =
-      at::empty(split_sizes.size() + 1, at::TensorOptions().dtype(at::kUInt32));
-  uint32_t offset = 0;
-  start_output_cumsum[0] = 0;
-  num_groups_cumsum[0] = 0;
-  uint32_t num_groups_cumsum_ = 0;
-  int64_t start_idx = 0;
-  int64_t end_idx = 0;
-
-  for (int i = 0; i < split_sizes.size(); i++) {
-    const uint32_t split_size = split_sizes[i];
-
-    TORCH_CHECK(
-        split_size % mx_group_size == 0,
-        " Number of inputs needs to be a multiple of group size");
-    const uint32_t num_groups = split_size / mx_group_size;
-    end_idx += num_groups;
-    offset += align((split_size / 2) + num_groups, 16);
-    start_output_cumsum[i + 1] = offset;
-    num_groups_cumsum_ += num_groups;
-    num_groups_cumsum[i + 1] = num_groups_cumsum_;
-    group_ids.index_put_({at::indexing::Slice(start_idx, end_idx)}, i);
-    start_idx = end_idx;
-  }
-  start_output_cumsum = start_output_cumsum.to(device, /*non_blocking=*/true);
-  group_ids = group_ids.to(device, /*non_blocking=*/true);
-  num_groups_cumsum = num_groups_cumsum.to(device, /*non_blocking=*/true);
 
   auto output = at::empty(
       total_elems, // 4 = sizeof(float)
       input.options().dtype(at::kFloat));
   const int num_groups_per_block = MAX_THREADS / mx_group_size;
-  const auto gridDim_x = round_up(total_num_groups, num_groups_per_block);
+  const auto gridDim_x = div_round_up(total_num_groups, num_groups_per_block);
 
   const dim3 gridDim(gridDim_x);
   const dim3 blockDim(mx_group_size, num_groups_per_block);
 
+  int max_grid_size = 0;
+  cudaDeviceGetAttribute(
+      &max_grid_size, cudaDevAttrMaxGridDimX, input.get_device());
+
+  TORCH_CHECK(
+      gridDim_x > 0 && gridDim_x <= max_grid_size,
+      "gridDim_x is of bound with value ",
+      gridDim_x,
+      ". MaxGridDimX is ",
+      max_grid_size);
+
   // Call CUDA kernel
   if (input.dtype() == torch::ScalarType::Half) {
-    AT_ASSERTM(0, " fp16 not supported for MX");
+    TORCH_CHECK(0, " fp16 not supported for MX");
   } else {
-    dequantize_mx4_to_float_kernel<<<gridDim, blockDim>>>(
-        input.data_ptr<uint8_t>(),
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name = "dequantize_mx4_to_float_kernel";
+#endif
+    dequantize_mx4_to_float_kernel<<<
+        gridDim,
+        blockDim,
+        0,
+        at::cuda::getCurrentCUDAStream()>>>(
+        MAKE_PTA_WITH_NAME(func_name, input, uint8_t, 1, 64),
         mx_group_size,
         total_elems,
-        group_ids.data_ptr<uint32_t>(),
-        start_output_cumsum.data_ptr<uint32_t>(),
-        num_groups_cumsum.data_ptr<uint32_t>(),
-        output.data_ptr<float>());
+        MAKE_PTA_WITH_NAME(func_name, output, float, 1, 64));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
-  gpuErrchk(cudaPeekAtLastError());
   return output;
 }
 

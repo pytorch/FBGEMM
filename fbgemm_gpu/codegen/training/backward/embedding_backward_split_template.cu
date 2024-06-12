@@ -1205,9 +1205,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     %}
     m.def("{{ embedding_codegen_backward_op }}("
           "    Tensor grad_output, "
-          "    Tensor dev_weights, "
+          "    Tensor(a!) dev_weights, "
           {%- if not dense %}
-          "    Tensor uvm_weights, "
+          "    Tensor(b!) uvm_weights, "
           "    Tensor lxu_cache_weights, "
           "    Tensor weights_placements, "
           {%- endif %}

@@ -472,9 +472,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "PaddedFP8RowwiseQuantizedToFloat(Tensor input, bool forward, int row_dim, int output_last_dim=-1, int output_dtype=0) -> Tensor");
   m.def(
-      "quantize_mx_cuda(Tensor input, int[] split_sizes, int scale_bits, int elem_ebits, int elem_mbits, float elem_max_norm, int mx_group_size, bool flush_fp32_subnorms=False, int rounding_mode=0) -> Tensor");
-  m.def(
-      "dequantize_mx_cuda(Tensor input, int[] split_sizes, int mx_group_size) -> Tensor");
+      "quantize_mx_cuda(Tensor input, int scale_bits, int elem_ebits, int elem_mbits, float elem_max_norm, int mx_group_size, bool flush_fp32_subnorms=False, int rounding_mode=0) -> Tensor");
+  m.def("dequantize_mx_cuda(Tensor input, int mx_group_size) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

@@ -33,7 +33,7 @@ class FbgemmGpuBuild:
 
     @classmethod
     def from_args(cls, argv: List[str]):
-        parser = argparse.ArgumentParser(description="fbgemm_gpu setup")
+        parser = argparse.ArgumentParser(description="FBGEMM_GPU Build Setup")
         parser.add_argument(
             "--verbose",
             action="store_true",
@@ -47,7 +47,7 @@ class FbgemmGpuBuild:
         parser.add_argument(
             "--package_variant",
             type=str,
-            choices=["cpu", "cuda", "rocm"],
+            choices=["cpu", "cuda", "rocm", "genai"],
             default="cuda",
             help="The FBGEMM_GPU variant to build.",
         )
@@ -62,8 +62,14 @@ class FbgemmGpuBuild:
             "--nvml_lib_path",
             type=str,
             default=None,
-            help="Certain operations require the nvml lib (libnvidia-ml.so). If you installed"
+            help="Certain build targets require NVML (libnvidia-ml.so). If you installed"
             " this in a custom location (through cudatoolkit-dev), provide the path here.",
+        )
+        parser.add_argument(
+            "--nccl_lib_path",
+            type=str,
+            default=None,
+            help="NCCL (libnccl.so.2) filepath. This is required for building certain targets.",
         )
         parser.add_argument(
             "--cxxprefix",
@@ -231,6 +237,8 @@ class FbgemmGpuBuild:
             _get_cxx11_abi(),
         ]
 
+        cxx_args = []
+
         if self.args.verbose:
             print("[SETUP.PY] Building in VERBOSE mode ...")
             cmake_args.extend(
@@ -248,17 +256,40 @@ class FbgemmGpuBuild:
         if self.args.nvml_lib_path:
             cmake_args.append(f"-DNVML_LIB_PATH={self.args.nvml_lib_path}")
 
+        if self.args.nccl_lib_path:
+            nccl_root = os.path.dirname(os.path.dirname(self.args.nccl_lib_path))
+            cxx_args.extend([f"-L{nccl_root}/lib"])
+            cmake_args.extend(
+                [
+                    f"-DNCCL_INCLUDE_DIRS={nccl_root}/include",
+                    f"-DNCCL_LIBRARIES={self.args.nccl_lib_path}",
+                ]
+            )
+
         if self.args.cxxprefix:
             print("[SETUP.PY] Setting CMake flags ...")
             path = self.args.cxxprefix
+
+            cxx_args.extend(
+                [
+                    "-fopenmp=libgomp",
+                    "-stdlib=libstdc++",
+                    f"-I{path}/include",
+                ]
+            )
             cmake_args.extend(
                 [
                     f"-DCMAKE_C_COMPILER={path}/bin/cc",
                     f"-DCMAKE_CXX_COMPILER={path}/bin/c++",
-                    f"-DCMAKE_C_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
-                    f"-DCMAKE_CXX_FLAGS='-fopenmp=libgomp -stdlib=libstdc++ -I{path}/include'",
                 ]
             )
+
+        cmake_args.extend(
+            [
+                f"-DCMAKE_C_FLAGS='{' '.join(cxx_args)}'",
+                f"-DCMAKE_CXX_FLAGS='{' '.join(cxx_args)}'",
+            ]
+        )
 
         # Pass CMake args attached to the setup.py call over to the CMake invocation
         for arg in self.other_args:
@@ -358,8 +389,10 @@ class FbgemmGpuInstall(PipInstall):
     """FBGEMM_GPU PIP Install Routines"""
 
     @classmethod
-    def generate_version_file(cls, package_version: str) -> None:
+    def generate_version_file(cls, build: FbgemmGpuBuild) -> None:
         with open("fbgemm_gpu/docs/version.py", "w") as file:
+            package_version = build.package_version()
+
             print(
                 f"[SETUP.PY] Generating version file at: {os.path.realpath(file.name)}"
             )
@@ -373,6 +406,7 @@ class FbgemmGpuInstall(PipInstall):
                 # LICENSE file in the root directory of this source tree.
 
                 __version__: str = "{package_version}"
+                __variant__: str = "{build.args.package_variant}"
                 """
             )
             file.write(text)
@@ -443,7 +477,8 @@ def main(argv: List[str]) -> None:
 
     # Extract the package name
     package_name = build.package_name()
-    # Generate the full package version string
+
+    # Extract the package version
     package_version = build.package_version()
 
     if build.args.dryrun:
@@ -454,7 +489,7 @@ def main(argv: List[str]) -> None:
         sys.exit(0)
 
     # Generate the version file
-    FbgemmGpuInstall.generate_version_file(package_version)
+    FbgemmGpuInstall.generate_version_file(build)
 
     setup(
         name=package_name,

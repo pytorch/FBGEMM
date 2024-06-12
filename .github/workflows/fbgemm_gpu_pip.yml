@@ -31,7 +31,7 @@ on:
         required: true
         default: "nightly"
       fbgemm_gpu_channel_version:
-        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.6.0r0')
+        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.8.0r0')
         type: string
         required: true
         default: "nightly"
@@ -100,7 +100,7 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: ${{ matrix.host-machine.timeout }}
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV cpu
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
 
   test_pypi_install_cuda:
@@ -161,7 +161,7 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: 20
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV cuda
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
 
   test_pypi_install_rocm:
@@ -228,4 +228,4 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: 20
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV rocm
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
