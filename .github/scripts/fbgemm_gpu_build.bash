@@ -193,13 +193,20 @@ __configure_fbgemm_gpu_build_cuda () {
     local arch_list="${TORCH_CUDA_ARCH_LIST}"
 
   else
-    # Build only CUDA 7.0, 8.0, and 9.0 (i.e. V100, A100, H100) because of 100 MB binary size limits from PyPI.
-    echo "[BUILD] Using the default CUDA targets ..."
-    # For cuda version 12.1, enable sm 9.0
+    # To keep binary sizes to minimum, build only against the CUDA architectures
+    # that the latest PyTorch supports:
+    #   7.0 (V100), 8.0 (A100), and 9.0,9.0a (H100)
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
-    echo "$cuda_version_nvcc"
-    if [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="7.0;8.0;9.0"
+    echo "[BUILD] Using the default architectures for CUDA $cuda_version_nvcc ..."
+
+    if [[ $cuda_version_nvcc == *"V12.1"* ]] || [[ $cuda_version_nvcc == *"V12.4"* ]]; then
+      # sm_90 and sm_90a are only available for CUDA 12.1+
+      # NOTE: CUTLASS kernels for Hopper require sm_90a to be enabled
+      # See:
+      #   https://github.com/NVIDIA/nvbench/discussions/129
+      #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
+      #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
+      local arch_list="7.0;8.0;9.0;9.0a"
     else
       local arch_list="7.0;8.0"
     fi

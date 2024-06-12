@@ -16,5 +16,5 @@ export BUILD_FROM_NOVA=1
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
 if [[ "$CU_VERSION" == "cu118" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0' && echo "$TORCH_CUDA_ARCH_LIST"; fi
-if [[ "$CU_VERSION" == "cu121" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0;9.0' && echo "$TORCH_CUDA_ARCH_LIST"; fi
-if [[ "$CU_VERSION" == "cu124" ]]; then export TORCH_CUDA_ARCH_LIST='8.0;9.0' && echo "$TORCH_CUDA_ARCH_LIST"; fi
+if [[ "$CU_VERSION" == "cu121" ]]; then export TORCH_CUDA_ARCH_LIST='7.0;8.0;9.0;9.0a' && echo "$TORCH_CUDA_ARCH_LIST"; fi
+if [[ "$CU_VERSION" == "cu124" ]]; then export TORCH_CUDA_ARCH_LIST='8.0;9.0;9.0a' && echo "$TORCH_CUDA_ARCH_LIST"; fi
