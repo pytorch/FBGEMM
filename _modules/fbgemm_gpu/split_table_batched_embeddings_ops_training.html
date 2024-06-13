@@ -473,7 +473,16 @@
 
 
 <span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="nn">torch._dynamo</span> <span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">is_torchdynamo_compiling</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span> <span class="nn">torch.compiler</span> <span class="kn">import</span> <span class="n">is_compiling</span>
+
+        <span class="k">def</span> <span class="nf">is_torchdynamo_compiling</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>  <span class="c1"># type: ignore[misc]</span>
+            <span class="c1"># at least one test fails if we import is_compiling as a different name</span>
+            <span class="k">return</span> <span class="n">is_compiling</span><span class="p">()</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="c1"># torch.compiler.is_compiling is not available in torch 1.10</span>
+        <span class="kn">from</span> <span class="nn">torch._dynamo</span> <span class="kn">import</span> <span class="n">is_compiling</span> <span class="k">as</span> <span class="n">is_torchdynamo_compiling</span>
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
 
     <span class="k">def</span> <span class="nf">is_torchdynamo_compiling</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>  <span class="c1"># type: ignore[misc]</span>
