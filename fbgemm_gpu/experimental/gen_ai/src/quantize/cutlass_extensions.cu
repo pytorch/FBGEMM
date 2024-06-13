@@ -1314,7 +1314,7 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ, // FP8
     at::Tensor x_scale, // FP32
     at::Tensor w_scale, // FP32
-    std::optional<at::Tensor> bias = c10::nullopt, // BF16
+    std::optional<at::Tensor> bias = std::nullopt, // BF16
     bool use_fast_accum = true) {
   // Check datatypes.
   TORCH_CHECK(
@@ -1994,7 +1994,7 @@ at::Tensor f8f8bf16_cublas(
     at::Tensor Ainvs,
     at::Tensor Binvs,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = std::nullopt) {
   auto m = A.size(0);
   auto n = B.size(0);
   auto k = A.size(1);
@@ -2179,7 +2179,7 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias = c10::nullopt,
+    std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12

@@ -186,7 +186,7 @@ lru_cache_find_uncached_cuda(
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
   Tensor cache_sets_positions;
-  std::optional<Tensor> cache_set_inverse_indices = c10::nullopt;
+  std::optional<Tensor> cache_set_inverse_indices = std::nullopt;
   if (compute_inverse_indices) {
     TORCH_CHECK(
         cache_sets.numel() <=

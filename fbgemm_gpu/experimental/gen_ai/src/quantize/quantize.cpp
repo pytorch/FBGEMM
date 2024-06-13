@@ -48,7 +48,7 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias = c10::nullopt,
+    std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true);
 at::Tensor f8f8bf16_cublas(
     at::Tensor A,
@@ -198,7 +198,7 @@ at::Tensor f8f8bf16_rowwise_meta(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias = c10::nullopt,
+    std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true) {
   int M = XQ.size(0);
   int N = WQ.size(0);
@@ -221,7 +221,7 @@ at::Tensor f8f8bf16_cublas_meta(
     at::Tensor x_scale,
     at::Tensor w_scale,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = std::nullopt) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));

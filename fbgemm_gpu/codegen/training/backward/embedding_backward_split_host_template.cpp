@@ -11,6 +11,7 @@
 #include <ATen/TypeDefault.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
+#include <optional>
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
@@ -557,8 +558,8 @@ class {{ autograd_func }} :
     {%- if not nobag and dense and not vbe %}
     const Tensor& offsets,
     const int64_t pooling_mode,
-    const c10::optional<Tensor>& indice_weights,
-    const c10::optional<Tensor>& feature_requires_grad
+    const std::optional<Tensor>& indice_weights,
+    const std::optional<Tensor>& feature_requires_grad
     {%- elif not nobag %}
     const Tensor& offsets,
     const int64_t pooling_mode,
@@ -602,9 +603,9 @@ class {{ autograd_func }} :
     {{ args.split_function_args | join(", ") }}
     {%- else %}
     {%- if vbe %}
-    const c10::optional<Tensor>& B_offsets,
-    const c10::optional<Tensor>& vbe_output_offsets_feature_rank,
-    const c10::optional<Tensor>& vbe_B_offsets_rank_per_feature,
+    const std::optional<Tensor>& B_offsets,
+    const std::optional<Tensor>& vbe_output_offsets_feature_rank,
+    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature,
     const c10::SymInt max_B,
     const c10::SymInt max_B_feature_rank,
     const c10::SymInt vbe_output_size
@@ -993,9 +994,9 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {{ args.split_function_args | join(", ") }},
     {%- endif %}
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
-    const std::optional<Tensor>& B_offsets = c10::nullopt,
-    const std::optional<Tensor>& vbe_output_offsets_feature_rank = c10::nullopt,
-    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature = c10::nullopt,
+    const std::optional<Tensor>& B_offsets = std::nullopt,
+    const std::optional<Tensor>& vbe_output_offsets_feature_rank = std::nullopt,
+    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature = std::nullopt,
     const c10::SymInt max_B = -1,
     const c10::SymInt max_B_feature_rank = -1,
     {%- if not dense %}
@@ -1003,16 +1004,16 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const bool is_experimental = false,
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
-    const std::optional<Tensor>& uvm_cache_stats = c10::nullopt,
+    const std::optional<Tensor>& uvm_cache_stats = std::nullopt,
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    const std::optional<Tensor>& prev_iter_dev = c10::nullopt,
+    const std::optional<Tensor>& prev_iter_dev = std::nullopt,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter = 0,
     {%- endif %}
     {%- if ssd %}
     const bool apply_global_weight_decay = false,
-    const c10::optional<at::TensorList>& ssd_tensors = c10::nullopt
+    const std::optional<at::TensorList>& ssd_tensors = std::nullopt
     {%- else %}
     const bool apply_global_weight_decay = false
     {%- endif %}
