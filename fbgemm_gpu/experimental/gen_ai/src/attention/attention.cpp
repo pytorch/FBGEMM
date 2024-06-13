@@ -161,8 +161,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    float dropout, "
         "    bool is_casual, "
         "    bool training, "
-        "    float? scale, "
-        ") -> (Tensor, Tensor, Tensor, Tensor, int, int, Tensor, Tensor, "
+        "    float? scale"
+        ") -> (Tensor, Tensor, Tensor, Tensor, SymInt, SymInt, Tensor, Tensor, "
         "Tensor)");
   m.def("fmha_bwd("
         "    Tensor grad_out, "
@@ -181,7 +181,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    bool is_casual, "
         "    Tensor seed, "
         "    Tensor seed_offset, "
-        "    float? scale, "
+        "    float? scale"
         ") -> (Tensor, Tensor, Tensor)");
 }
 
