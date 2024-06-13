@@ -120,8 +120,8 @@ def gqa_reference(
 
 class Int4GQATest(unittest.TestCase):
     @unittest.skipIf(
-        not torch.version.cuda,
-        "Skip when CUDA is not available",
+        not torch.version.cuda or torch.cuda.get_device_capability()[0] < 8,
+        "Skip when CUDA is not available or CUDA compute capability is less than 8",
     )
     @settings(verbosity=VERBOSITY, max_examples=40, deadline=None)
     # pyre-ignore
