@@ -44,6 +44,8 @@ namespace {
 {% if has_cpu_support %}
 class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<SplitLookupFunction_{{ optimizer }}_Op> {
  public:
+  static constexpr bool is_traceable = true;
+
   static torch::autograd::variable_list forward(
     torch::autograd::AutogradContext* ctx,
     Tensor host_weights,
