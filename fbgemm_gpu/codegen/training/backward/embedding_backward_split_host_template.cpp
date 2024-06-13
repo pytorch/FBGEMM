@@ -529,6 +529,8 @@ Tensor
 class {{ autograd_func }} :
     public torch::autograd::Function<{{ autograd_func }}> {
  public:
+  static constexpr bool is_traceable = true;
+
   static torch::autograd::variable_list forward(
     torch::autograd::AutogradContext* ctx,
     {%- if not dense %}
