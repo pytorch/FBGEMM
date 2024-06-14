@@ -53,6 +53,9 @@ additional_decorators: Dict[str, List[Callable]] = {
         # This operator has been grandfathered in. We need to fix this test failure.
         unittest.expectedFailure,
     ],
+    "test_pt2_compliant_tag_fbgemm_jagged_to_padded_dense": [
+        unittest.expectedFailure,
+    ],
 }
 
 
