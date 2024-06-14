@@ -214,8 +214,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
 
 // PR23
 // TODO: support nobag (Notably int64_t sorted_infos)
-{%- if is_rocm and optimizer == "rowwise_adagrad" and not dense and not is_index_select and not nobag %}
-#include "fbgemm_gpu/hip_split_tbe_common.h"
+// avbokovoy: WIP
+{%- if is_rocm and optimizer == "rowwise_adagrad" and not dense and not is_index_select %}
+#include "fbgemm_gpu/hip_kernel_inc/split_tbe_common.h"
 template <
     typename emb_t,
     typename grad_t,
@@ -1252,7 +1253,7 @@ Tensor {{ embedding_cuda_op }}(
                     return true;
                 } ();
 
-                {%- if is_rocm and not is_index_select and not nobag %}
+                {%- if is_rocm and not is_index_select %}
                 bool hip_opt_kernel_supported = false;      // TODO: figure out support range
                 {%- if optimizer == "rowwise_adagrad" and not dense %}
                 if (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) {
@@ -1295,6 +1296,9 @@ Tensor {{ embedding_cuda_op }}(
                         std::cout << "Calling HIP Perf Kernel" << std::endl;
                         return true;
                     } ();
+                    {%- if nobag %}
+                    std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
+                    {%- endif %}
                     if (max_D == 64) {
                         ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64);
                         INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
