@@ -74,6 +74,10 @@ __configure_fbgemm_gpu_test_cpu () {
 }
 
 __configure_fbgemm_gpu_test_cuda () {
+  # Disabled by default; enable for debugging
+  # shellcheck disable=SC2086
+  # print_exec conda env config vars set ${env_prefix} CUDA_LAUNCH_BLOCKING=1
+
   ignored_tests=(
     ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
   )
@@ -406,6 +410,11 @@ test_fbgemm_gpu_setup_and_pip_install () {
     echo "#"
     echo "# Run Result              : $([ $retcode -eq 0 ] && echo "PASSED" || echo "FAILED")"
     echo "################################################################################"
+
+    if [ $retcode -eq 0 ]; then
+      # Clean out environment only if there were no errors
+      conda remove -n "$env_name" -y --all
+    fi
 
     cd - || return 1
     return $retcode

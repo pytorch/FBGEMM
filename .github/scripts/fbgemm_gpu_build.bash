@@ -159,17 +159,10 @@ __configure_fbgemm_gpu_build_rocm () {
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
 
   echo "[BUILD] Setting ROCm build args ..."
-  # shellcheck disable=SC2155
-  local cxx_flags="-DTORCH_USE_HIP_DSA"
-
   build_args=(
     --package_variant=rocm
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
     -DHIP_ROOT_DIR=/opt/rocm
-    # Enable device-side assertions in HIP
-    # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
-    -DCMAKE_C_FLAGS="'${cxx_flags}'"
-    -DCMAKE_CXX_FLAGS="'${cxx_flags}'"
   )
 }
 
@@ -251,26 +244,14 @@ __configure_fbgemm_gpu_build_genai () {
   done
 }
 
+# shellcheck disable=SC2120
 __configure_fbgemm_gpu_build () {
-  local fbgemm_variant="$1"
-  local fbgemm_variant_targets="$2"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} cpu                          # CPU-only variant using Clang"
-    echo "    ${FUNCNAME[0]} cuda                         # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} cuda '7.0;8.0'               # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} rocm                         # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Configure FBGEMM-GPU Build"
-    echo "#"
-    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
-    echo "################################################################################"
-    echo ""
-  fi
+  echo "################################################################################"
+  echo "# Configure FBGEMM-GPU Build"
+  echo "#"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+  echo "################################################################################"
+  echo ""
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
@@ -301,6 +282,13 @@ __configure_fbgemm_gpu_build () {
   build_args+=(
     --verbose
   )
+
+  # Set debugging options
+  if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
+    build_args+=(
+      --debug
+    )
+  fi
 
   # shellcheck disable=SC2145
   echo "[BUILD] FBGEMM_GPU build arguments have been set:  ${build_args[@]}"
@@ -502,8 +490,8 @@ run_fbgemm_gpu_postbuild_checks () {
     return 1
   fi
 
-  __print_library_infos
-  __verify_library_symbols
+  __print_library_infos     || return 1
+  __verify_library_symbols  || return 1
 }
 
 ################################################################################
@@ -531,7 +519,7 @@ build_fbgemm_gpu_package () {
 
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
-  __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
+  __configure_fbgemm_gpu_build        || return 1
 
   echo "################################################################################"
   echo "# Build FBGEMM-GPU Package (Wheel)"
@@ -596,7 +584,7 @@ build_fbgemm_gpu_install () {
 
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
-  __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
+  __configure_fbgemm_gpu_build        || return 1
 
   echo "################################################################################"
   echo "# Build + Install FBGEMM-GPU Package"
