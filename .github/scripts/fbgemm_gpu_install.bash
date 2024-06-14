@@ -31,19 +31,6 @@ __install_print_dependencies_info () {
   echo ""
 }
 
-__install_list_subpackages_info () {
-  # shellcheck disable=SC2086,SC2155
-  local fbgemm_gpu_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(dir(fbgemm_gpu))")
-  # shellcheck disable=SC2086,SC2155
-  local experimental_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu.experimental; print(dir(fbgemm_gpu.experimental))")
-  echo "################################################################################"
-  echo "[CHECK] FBGEMM_GPU Experimental Packages"
-  echo "[CHECK] fbgemm_gpu: ${fbgemm_gpu_packages}"
-  echo "[CHECK] fbgemm_gpu.experimental: ${experimental_packages}"
-  echo "################################################################################"
-  echo ""
-}
-
 __install_fetch_version_and_variant_info () {
   echo "[INSTALL] Checking imports and symbols ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
@@ -58,6 +45,23 @@ __install_fetch_version_and_variant_info () {
   echo "################################################################################"
   echo "[CHECK] The installed VERSION of FBGEMM_GPU is: ${installed_fbgemm_gpu_version}"
   echo "[CHECK] The installed VARIANT of FBGEMM_GPU is: ${installed_fbgemm_gpu_variant}"
+  echo "################################################################################"
+  echo ""
+}
+
+__install_list_subpackages_info () {
+  # shellcheck disable=SC2086,SC2155
+  local fbgemm_gpu_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(dir(fbgemm_gpu))")
+
+  if [ "$installed_fbgemm_gpu_variant" == "cuda" ] || [ "$installed_fbgemm_gpu_variant" == "genai" ]; then
+    # shellcheck disable=SC2086,SC2155
+    local experimental_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu.experimental; print(dir(fbgemm_gpu.experimental))")
+  fi
+
+  echo "################################################################################"
+  echo "[CHECK] FBGEMM_GPU Experimental Packages"
+  echo "[CHECK] fbgemm_gpu: ${fbgemm_gpu_packages}"
+  echo "[CHECK] fbgemm_gpu.experimental: ${experimental_packages}"
   echo "################################################################################"
   echo ""
 }
@@ -103,11 +107,11 @@ __fbgemm_gpu_post_install_checks () {
   # Print PyTorch and CUDA versions for sanity check
   __install_print_dependencies_info
 
-  # List out FBGEMM_GPU subpackages
-  __install_list_subpackages_info
-
   # Fetch the version and variant info from the package
   __install_fetch_version_and_variant_info
+
+  # List out FBGEMM_GPU subpackages
+  __install_list_subpackages_info
 
   echo "[INSTALL] Check for installation of Python sources ..."
   if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
