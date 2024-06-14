@@ -40,6 +40,11 @@ class FbgemmGpuBuild:
             help="Print verbose logs during the build.",
         )
         parser.add_argument(
+            "--debug",
+            action="store_true",
+            help="Enable DEBUG features in compilation such as PyTorch device-side assertions.",
+        )
+        parser.add_argument(
             "--dryrun",
             action="store_true",
             help="Print build information only.",
@@ -237,13 +242,18 @@ class FbgemmGpuBuild:
             _get_cxx11_abi(),
         ]
 
-        cxx_args = []
+        cxx_flags = []
 
         if self.args.verbose:
             print("[SETUP.PY] Building in VERBOSE mode ...")
             cmake_args.extend(
                 ["-DCMAKE_VERBOSE_MAKEFILE=ON", "-DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE"]
             )
+
+        if self.args.debug:
+            # Enable device-side assertions in CUDA and HIP
+            # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
+            cxx_flags.extend(["-DTORCH_USE_CUDA_DSA", "-DTORCH_USE_HIP_DSA"])
 
         if self.args.package_variant == "cpu":
             print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
@@ -258,7 +268,7 @@ class FbgemmGpuBuild:
 
         if self.args.nccl_lib_path:
             nccl_root = os.path.dirname(os.path.dirname(self.args.nccl_lib_path))
-            cxx_args.extend([f"-L{nccl_root}/lib"])
+            cxx_flags.extend([f"-L{nccl_root}/lib"])
             cmake_args.extend(
                 [
                     f"-DNCCL_INCLUDE_DIRS={nccl_root}/include",
@@ -270,7 +280,7 @@ class FbgemmGpuBuild:
             print("[SETUP.PY] Setting CMake flags ...")
             path = self.args.cxxprefix
 
-            cxx_args.extend(
+            cxx_flags.extend(
                 [
                     "-fopenmp=libgomp",
                     "-stdlib=libstdc++",
@@ -286,8 +296,8 @@ class FbgemmGpuBuild:
 
         cmake_args.extend(
             [
-                f"-DCMAKE_C_FLAGS='{' '.join(cxx_args)}'",
-                f"-DCMAKE_CXX_FLAGS='{' '.join(cxx_args)}'",
+                f"-DCMAKE_C_FLAGS='{' '.join(cxx_flags)}'",
+                f"-DCMAKE_CXX_FLAGS='{' '.join(cxx_flags)}'",
             ]
         )
 
