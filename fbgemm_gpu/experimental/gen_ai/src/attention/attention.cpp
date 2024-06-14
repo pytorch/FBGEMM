@@ -46,88 +46,156 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
     const int64_t num_split_ks, const int64_t kv_cache_quant_num_groups,
     const bool use_tensor_cores, const int64_t cache_logical_dtype_int);
 
-std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt, Tensor,
-           Tensor, Tensor>
-fmha_cudnn_forward(const Tensor &query, const Tensor &key, const Tensor &value,
-                   const Tensor &seq_q, const Tensor &seq_kv, double dropout_p,
-                   bool is_causal, bool training, std::optional<double> scale) {
+std::tuple<Tensor, Tensor, Tensor, Tensor> fmha_cudnn_forward(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const Tensor& seq_len_q,
+    const Tensor& seq_len_kv,
+    const Tensor& seq_offset_q,
+    const Tensor& seq_offset_kv,
+    const int64_t max_seq_len_q,
+    const int64_t max_seq_len_kv,
+    double attention_scale,
+    double dropout_p,
+    bool is_causal,
+    bool return_softmax_stats) {
   // Used for tracking usage statistics
-  C10_LOG_API_USAGE_ONCE("cudnn_fmha.fwd");
+  C10_LOG_API_USAGE_ONCE("fbgemm.fmha_fwd");
 
-  // Query (Batch x Num_heads x Q_seq_len  x Dim_per_head)
-  // Key   (Batch x Num_heads x KV_seq_len x Dim_per_head)
-  // Value (Batch x Num_heads x KV_seq_len x Dim_per_head)
-  const int64_t batch_size = query.size(0);
+  // QKV: THD
+  TORCH_CHECK(query.dim() == 3 && key.dim() == 3 && value.dim() == 3);
+
+  const int64_t total_seq_len_q = query.size(0);
+  const int64_t total_seq_len_kv = key.size(0);
+  TORCH_CHECK(total_seq_len_kv == value.size(0));
+
   const int64_t num_heads = query.size(1);
-  const int64_t max_seqlen_batch_q = query.size(2);
-  const int64_t head_dim = query.size(3);
+  TORCH_CHECK(num_heads == value.size(1) && num_heads == key.size(1));
 
-  const int64_t max_seqlen_batch_k = key.size(2);
-  const int64_t max_seqlen_batch_v = value.size(2);
-  TORCH_CHECK(max_seqlen_batch_k == max_seqlen_batch_v,
-              "Key and Value must have the same sequence length");
+  const int64_t head_dim = query.size(2);
+  TORCH_CHECK(head_dim == value.size(2) && head_dim == key.size(2));
 
-  Tensor attention, log_sumexp;
+  TORCH_CHECK(seq_len_q.dim() == 1 && seq_len_kv.dim() == 1);
+  const int64_t batch_size = seq_len_q.size(0);
+  TORCH_CHECK(batch_size == seq_len_kv.size(0));
 
+  TORCH_CHECK(seq_offset_q.dim() == 1 && seq_offset_kv.dim() == 1);
+  TORCH_CHECK(
+      batch_size + 1 == seq_offset_q.size(0) &&
+      seq_offset_q.size(0) == seq_offset_kv.size(0));
+
+  Tensor attention, softmax_stats;
+  attention = at::empty_like(query);
+
+  if (return_softmax_stats) {
+    // TODO(shikaili): verify that this is correct
+    softmax_stats = at::empty(
+        {batch_size, head_dim, max_seq_len_q},
+        query.options().dtype(at::kFloat));
+  }
   auto cudnn_seed = at::zeros({1}, query.options().dtype(at::kLong));
   auto cudnn_offset = at::zeros({1}, query.options().dtype(at::kLong));
-  const auto softmax_scale =
-      sdp::calculate_scale(query, scale).as_float_unchecked();
 
   run_cudnn_sdpa_fprop(
-      batch_size /*int64_t b*/, num_heads /*int64_t h*/,
-      max_seqlen_batch_q /*int64_t s_q*/, max_seqlen_batch_k /*int64_t s_kv*/,
-      head_dim /*int64_t d*/, softmax_scale /*float scaling_factor*/,
-      training /* bool */, is_causal /* bool */,
-      dropout_p /*double dropout_probability*/, query /* Tensor q*/,
-      key /* Tensor k*/, value /* Tensor v*/, seq_q /* Tensor seq_q*/,
-      seq_kv /* Tensor seq_k*/, log_sumexp /*Tensor softmaxstats*/,
-      attention /*Tensor o*/, cudnn_seed /*Tensor dropoutseed*/,
-      cudnn_offset /*Tensor dropoutoffset*/);
+      batch_size /*int64_t b*/,
+      num_heads /*int64_t h*/,
+      max_seq_len_q /*int64_t max_seq_len_q*/,
+      max_seq_len_kv /*int64_t max_seq_len_kv*/,
+      head_dim /*int64_t d*/,
+      attention_scale /*float attention_scale*/,
+      dropout_p /*double dropout_p*/,
+      is_causal /* bool is_causal*/,
+      return_softmax_stats /* bool return_softmax_stats*/,
+      query /* Tensor q*/,
+      key /* Tensor k*/,
+      value /* Tensor v*/,
+      seq_len_q /* Tensor seq_len_q*/,
+      seq_len_kv /* Tensor seq_len_kv*/,
+      seq_offset_q /* Tensor seq_offset_q*/,
+      seq_offset_kv /* Tensor seq_offset_k*/,
+      attention /*Tensor o*/,
+      softmax_stats /*Tensor softmax_stats*/,
+      cudnn_seed /*Tensor dropout_seed*/,
+      cudnn_offset /*Tensor dropout_offset*/);
 
-  return std::make_tuple(attention, log_sumexp, Tensor(), Tensor(),
-                         max_seqlen_batch_q, max_seqlen_batch_k, cudnn_seed,
-                         cudnn_offset, Tensor());
+  return std::make_tuple(attention, softmax_stats, cudnn_seed, cudnn_offset);
 }
 
 std::tuple<Tensor, Tensor, Tensor> fmha_cudnn_backward(
-    const Tensor &grad_out, const Tensor &query, const Tensor &key,
-    const Tensor &value, const Tensor &seq_q, const Tensor &seq_kv,
-    const Tensor &out, const Tensor &logsumexp,
-    const Tensor &cumulative_sequence_length_q,
-    const Tensor &cumulative_sequence_length_k,
-    const int64_t max_seqlen_batch_q, const int64_t max_seqlen_batch_k,
-    double dropout_p, bool is_causal, const Tensor &philox_seed,
-    const Tensor &philox_offset, std::optional<double> scale) {
+    const Tensor& grad_out,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const Tensor& seq_len_q,
+    const Tensor& seq_len_kv,
+    const Tensor& seq_offset_q,
+    const Tensor& seq_offset_kv,
+    const Tensor& out,
+    const Tensor& softmax_stats,
+    const int64_t max_seq_len_q,
+    const int64_t max_seq_len_kv,
+    double attention_scale,
+    double dropout_p,
+    bool is_causal,
+    const Tensor& philox_seed,
+    const Tensor& philox_offset) {
   // Used for tracking usage statistics
-  C10_LOG_API_USAGE_ONCE("cudnn_fmha.bwd");
+  C10_LOG_API_USAGE_ONCE("fbgemm.fmha_bwd");
 
-  const int64_t batch_size = query.size(0);
+  TORCH_CHECK(query.dim() == 3 && key.dim() == 3 && value.dim() == 3);
+
+  const int64_t total_seq_len_q = query.size(0);
+  const int64_t total_seq_len_kv = key.size(0);
+  TORCH_CHECK(total_seq_len_kv == value.size(0));
+
   const int64_t num_heads = query.size(1);
-  const int64_t head_dim = query.size(3);
+  TORCH_CHECK(num_heads == value.size(1) && num_heads == key.size(1));
 
-  const auto softmax_scale =
-      sdp::calculate_scale(query, scale).as_float_unchecked();
+  const int64_t head_dim = query.size(2);
+  TORCH_CHECK(head_dim == value.size(2) && head_dim == key.size(2));
+
+  TORCH_CHECK(seq_len_q.dim() == 1 && seq_len_kv.dim() == 1);
+  const int64_t batch_size = seq_len_q.size(0);
+  TORCH_CHECK(batch_size == seq_len_kv.size(0));
+
+  TORCH_CHECK(seq_offset_q.dim() == 1 && seq_offset_kv.dim() == 1);
+  TORCH_CHECK(
+      batch_size + 1 == seq_offset_q.size(0) &&
+      seq_offset_q.size(0) == seq_offset_kv.size(0));
 
   auto dq = at::empty_like(query);
   auto dk = at::empty_like(key);
   auto dv = at::empty_like(value);
   run_cudnn_sdpa_bprop(
-      batch_size /*int64_t b*/, num_heads /*int64_t h*/,
-      max_seqlen_batch_q /*int64_t s_q*/, max_seqlen_batch_k /*int64_t s_kv*/,
-      head_dim /*int64_t d*/, softmax_scale /*float scaling_factor*/,
-      is_causal /*bool is_causal*/, dropout_p /*float dropout_probability*/,
-      query /*const Tensor& q*/, key /*const Tensor& k*/,
-      value /*const Tensor& v*/, seq_q /* Tensor seq_q*/,
-      seq_kv /* Tensor seq_k*/, out /*const Tensor& o*/,
+      batch_size /*int64_t b*/,
+      num_heads /*int64_t h*/,
+      max_seq_len_q /*int64_t max_seq_len_q*/,
+      max_seq_len_kv /*int64_t max_seq_len_kv*/,
+      head_dim /*int64_t d*/,
+      attention_scale /*float attention_scale*/,
+      dropout_p /*double attention_dropout*/,
+      is_causal /* bool is_causal*/,
+      query /*const Tensor& q*/,
+      key /*const Tensor& k*/,
+      value /*const Tensor& v*/,
+      seq_len_q /* Tensor seq_len_q*/,
+      seq_len_kv /* Tensor seq_len_kv*/,
+      seq_offset_q /* Tensor seq_offset_q*/,
+      seq_offset_kv /* Tensor seq_offset_k*/,
+      out /*const Tensor& o*/,
+      softmax_stats.unsqueeze(-1) /*const Tensor& softmax_stats*/,
       grad_out /*const Tensor& dO*/,
-      logsumexp.unsqueeze(-1) /*const Tensor& softmaxstats*/, dq /*Tensor& dQ*/,
-      dk /*Tensor& dK*/, dv /*Tensor& dV*/, philox_seed /*Tensor& dropoutseed*/,
-      philox_offset /*Tensor& dropoutoffset*/);
+      dq /*Tensor& dQ*/,
+      dk /*Tensor& dK*/,
+      dv /*Tensor& dV*/,
+      philox_seed /*Tensor& dropout_seed*/,
+      philox_offset /*Tensor& dropout_offset*/);
   return std::make_tuple(dq, dk, dv);
 }
 
 } // namespace fbgemm_gpu::gen_ai::attention
+
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("gqa_attn_splitk("
@@ -158,12 +226,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor value, "
         "    Tensor seq_len_q, "
         "    Tensor seq_len_kv, "
-        "    float dropout, "
+        "    Tensor seq_offset_q, "
+        "    Tensor seq_offset_kv, "
+        "    int max_seq_len_q, "
+        "    int max_seq_len_kv, "
+        "    float attention_scale, "
+        "    float dropout_p, "
         "    bool is_casual, "
-        "    bool training, "
-        "    float? scale"
-        ") -> (Tensor, Tensor, Tensor, Tensor, SymInt, SymInt, Tensor, Tensor, "
-        "Tensor)");
+        "    bool return_softmax_stats"
+        ") -> (Tensor, Tensor, Tensor, Tensor)");
   m.def("fmha_bwd("
         "    Tensor grad_out, "
         "    Tensor query, "
@@ -171,17 +242,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor value, "
         "    Tensor seq_len_q, "
         "    Tensor seq_len_kv, "
+        "    Tensor seq_offset_q, "
+        "    Tensor seq_offset_kv, "
         "    Tensor out, "
-        "    Tensor logsumexp, "
-        "    Tensor seq_len_q, "
-        "    Tensor seq_len_kv, "
+        "    Tensor softmax_stats, "
         "    int max_seq_len_q, "
         "    int max_seq_len_kv, "
-        "    float dropout, "
+        "    float attention_scale, "
+        "    float dropout_p, "
         "    bool is_casual, "
-        "    Tensor seed, "
-        "    Tensor seed_offset, "
-        "    float? scale"
+        "    Tensor dropout_seed, "
+        "    Tensor dropout_offset"
         ") -> (Tensor, Tensor, Tensor)");
 }
 

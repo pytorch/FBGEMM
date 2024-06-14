@@ -7,22 +7,51 @@ using at::Tensor;
 
 namespace fbgemm_gpu::gen_ai::attention {
 
-void run_cudnn_sdpa_fprop(int64_t b, int64_t h, int64_t s_q, int64_t s_kv,
-                          int64_t d, float scaling_factor, bool isTraining,
-                          bool is_causal, double dropout_probability,
-                          const Tensor &q, const Tensor &k, const Tensor &v,
-                          const Tensor &seq_q, const Tensor &seq_kv,
-                          Tensor &softmaxstats, Tensor &o, Tensor &dropoutseed,
-                          Tensor &dropoutoffset);
+void run_cudnn_sdpa_fprop(
+    int64_t b,
+    int64_t h,
+    int64_t max_seq_len_q,
+    int64_t max_seq_len_kv,
+    int64_t d,
+    float attention_scale,
+    double dropout_p,
+    bool is_causal,
+    bool return_softmax_stats,
+    const Tensor& q,
+    const Tensor& k,
+    const Tensor& v,
+    const Tensor& seq_len_q,
+    const Tensor& seq_len_kv,
+    const Tensor& seq_offset_q,
+    const Tensor& seq_offset_kv,
+    Tensor& o,
+    Tensor& softmax_stats,
+    Tensor& dropout_seed,
+    Tensor& dropout_offset);
 
-void run_cudnn_sdpa_bprop(int64_t b, int64_t h, int64_t s_q, int64_t s_kv,
-                          int64_t d, float scaling_factor, bool is_causal,
-                          float dropout_probability, const Tensor &q,
-                          const Tensor &k, const Tensor &v, const Tensor &seq_q,
-                          const Tensor &seq_kv, const Tensor &o,
-                          const Tensor &dO, const Tensor &softmaxstats,
-                          Tensor &dQ, Tensor &dK, Tensor &dV,
-                          const Tensor &dropoutseed,
-                          const Tensor &dropoutoffset);
+void run_cudnn_sdpa_bprop(
+    int64_t b,
+    int64_t h,
+    int64_t max_seq_len_q,
+    int64_t max_seq_len_kv,
+    int64_t d,
+    float attention_scale,
+    double dropout_p,
+    bool is_causal,
+    const Tensor& q,
+    const Tensor& k,
+    const Tensor& v,
+    const Tensor& seq_len_q,
+    const Tensor& seq_len_kv,
+    const Tensor& seq_offset_q,
+    const Tensor& seq_offset_kv,
+    const Tensor& o,
+    const Tensor& softmax_stats,
+    const Tensor& dO,
+    Tensor& dQ,
+    Tensor& dK,
+    Tensor& dV,
+    const Tensor& dropout_seed,
+    const Tensor& dropout_offset);
 
-} // namespace fbgemm
+} // namespace fbgemm_gpu::gen_ai::attention
