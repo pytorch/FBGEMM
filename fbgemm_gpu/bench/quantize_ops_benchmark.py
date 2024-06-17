@@ -15,6 +15,7 @@ import fbgemm_gpu
 import hypothesis.strategies as st
 import numpy as np
 import torch
+from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
 from hypothesis import given, settings
 from torch.profiler import profile, ProfilerActivity
 
@@ -366,6 +367,23 @@ def bench_mx4(
                 logging.info(
                     f"input_size={input_size} MX4 dequantized time per iter: {d_average_time * 1.0e6:.0f}us"
                 )
+
+                # Also measure triton runtime.
+                q_average_time, dequant_data = benchmark(
+                    fp32_to_mx4,
+                    (input_data, group_size),
+                )
+                d_average_time, _ = benchmark(
+                    mx4_to_fp32,
+                    (dequant_data, group_size, True),
+                )
+                logging.info(
+                    f"input_size={input_size} Triton MX4 quantized time per iter: {q_average_time * 1.0e6:.0f}us"
+                )
+                logging.info(
+                    f"input_size={input_size} Triton MX4 dequantized time per iter: {d_average_time * 1.0e6:.0f}us"
+                )
+
             if not mx4_only:
                 q_average_time, dequant_data = benchmark(
                     torch.ops.fbgemm.FloatToFP8RowwiseQuantized,

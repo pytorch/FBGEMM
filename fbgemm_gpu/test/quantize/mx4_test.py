@@ -14,6 +14,8 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from deeplearning.fbgemm.fbgemm_gpu.test.quantize.mx.common import check_diff_quantize
+from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
+from fbgemm_gpu.triton_quantize import py_dequantize_mx4, py_quantize_mx4
 
 from hypothesis import given, settings, Verbosity
 
@@ -134,7 +136,6 @@ def _quantize_mx(
         saturate_normals=True,
         custom_cuda=custom_cuda,
     )
-
     A = A * scale
 
     # Undo tile reshaping
@@ -193,9 +194,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
 
         return torch.as_tensor(x, dtype=torch.float32, device=device)
 
-    def _test_mx4(
-        self, x: torch.Tensor, group_size: int
-    ) -> bool:
+    def _test_mx4(self, x: torch.Tensor, group_size: int) -> bool:
         assert x.numel() % group_size == 0
         axes = [-1]
         element_format_str = "fp4_e2m1"
@@ -221,7 +220,19 @@ class TestMXQuantizationConversion(unittest.TestCase):
             group_size=group_size,
         )
 
-        return check_diff_quantize(x, y1, y2)
+        ## Triton Simplified Python
+        py_mx_y3 = py_quantize_mx4(x, group_size)
+        py_y3 = py_dequantize_mx4(py_mx_y3, group_size)
+        mx_y3 = fp32_to_mx4(x, group_size, use_triton=True)
+        y3 = mx4_to_fp32(mx_y3, group_size, use_triton=False)
+        y4 = mx4_to_fp32(mx_y3, group_size, use_triton=True)
+
+        return (
+            check_diff_quantize(x, y1, y2)
+            and check_diff_quantize(x, y2, y3)
+            and check_diff_quantize(x, y3, y4)
+            and check_diff_quantize(x, y4, py_y3)
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
