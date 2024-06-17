@@ -408,26 +408,35 @@ class FP8Tests(unittest.TestCase):
         B_T=st.sampled_from([2048, 4096]),
         D=st.sampled_from([128, 256]),
         Mode=st.sampled_from(["tensorwise", "rowwise", "colwise"]),
+        stochastic_rounding=st.booleans(),
     )
-    def test_quantize_fp8_per_tensor_row_col(self, B_T: int, D: int, Mode: str) -> None:
-        x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
+    def test_quantize_fp8_per_tensor_row_col(
+        self, B_T: int, D: int, Mode: str, stochastic_rounding: bool
+    ) -> None:
+        dtype = torch.bfloat16
+        x = torch.randn(size=(B_T, D), dtype=dtype, device="cuda") * 0.1
         fp8_max = torch.finfo(fp8_e4m3).max
 
         if Mode == "tensorwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-            x = (xq.float() / x_scale).bfloat16()  # Fake quantization
-            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+            x = (xq.float() / x_scale).to(dtype)  # Fake quantization
+            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
+                x,
+                stochastic_rounding=stochastic_rounding,
+            )
             x_max = x.abs().max()
             x_scale_ref = (x_max / fp8_max).float()
             xq_ref = (x * fp8_max / x_max).to(fp8_e4m3)
         elif Mode == "rowwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
-            x = (xq.float() / x_scale.unsqueeze(1)).bfloat16()  # Fake quantization
-            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+            x = (xq.float() / x_scale.unsqueeze(1)).to(dtype)  # Fake quantization
+            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                x, stochastic_rounding=stochastic_rounding
+            )
             xq_ref, x_scale_ref = fp8_row_quantize_ref(x)
         elif Mode == "colwise" and str(torch.version.cuda) >= "12.1":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_col(x)
-            x = (xq.float() / x_scale.unsqueeze(0)).bfloat16()  # Fake quantization
+            x = (xq.float() / x_scale.unsqueeze(0)).to(dtype)  # Fake quantization
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_col(x)
             xq_ref, x_scale_ref = fp8_col_quantize_ref(x)
         elif Mode == "colwise":
@@ -436,7 +445,42 @@ class FP8Tests(unittest.TestCase):
         else:
             raise ValueError(f"Invalid mode {Mode} (on CUDA {torch.version.cuda})")
 
-        torch.testing.assert_close(xq.float(), xq_ref.float(), atol=5.0e-2, rtol=5.0e-2)
+        # For stochastic_rounding, |(fl(x) - x)/x| < \epsilon. (2.4a in https://epubs.siam.org/doi/epdf/10.1137/20M1334796).
+        # Machine epsilon for E4M3 should be 2^{-3} and for E5M2 is 2^{-2}.
+        tol = 0.125 if stochastic_rounding else 5.0e-2
+        torch.testing.assert_close(xq.float(), xq_ref.float(), atol=tol, rtol=tol)
+
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+    )
+    @settings(deadline=None)
+    @given(
+        B_T=st.sampled_from([2048, 4096]),
+        D=st.sampled_from([128, 256]),
+    )
+    def test_quantize_fp8_per_tensor_sr(self, B_T: int, D: int) -> None:
+        import random
+
+        rand_val = random.random()  # [0,1) random values
+        x = torch.full((B_T, D), rand_val, dtype=torch.bfloat16, device="cuda")
+        x[0, 0] = 1.0  # first element = 1 to set up the x_scale
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
+            x,
+            stochastic_rounding=True,
+        )
+        xq_fp32 = xq.float() * x_scale.float()
+        val, cnts = torch.unique(xq_fp32, return_counts=True)
+
+        assert (
+            len(val.tolist()) == 2 + 1
+        ), f"fp8 quantization should have 3 unique values: {len(val.tolist())} unique values"
+
+        mean_val = (torch.sum(xq_fp32) - x[0, 0]) / (x.numel() - 1)
+        tol = 0.125
+        # verify that elementwise the SR is close to the original value
+        torch.testing.assert_close(xq_fp32, x.float(), atol=0, rtol=tol)
+        # verify the mean value of SR of is close to the original value
+        torch.testing.assert_close(mean_val, x[0, -1].float(), atol=0, rtol=tol)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
