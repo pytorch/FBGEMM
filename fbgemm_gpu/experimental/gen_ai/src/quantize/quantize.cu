@@ -376,6 +376,27 @@ __inline__ __device__ float scale(float a, float b) {
   return QUANTIZE ? a / b : a * b;
 }
 
+// Correct for cases where x is not subnormal.
+// Ref:
+// https://github.com/pytorch/FBGEMM/blob/e5d0c9448774e6bc577e7f210ecbec56b7a69f10/fbgemm_gpu/include/fbgemm_gpu/fbgemm_cuda_utils.cuh#L814-L820
+// https://fb.quip.com/zNWAAmYREHhz : AssembleFloat algorithm
+DEVICE_INLINE float stochastic_rounding_scalar_fp8(
+    float x,
+    uint32_t random_value) {
+  uint32_t w_int = __float_as_uint(x);
+  // 1-bit sign + 8-bit exponent
+  constexpr uint32_t sign_exp_mask = ((1U << 9) - 1) << (32 - 9);
+  unsigned subtract = (w_int & sign_exp_mask);
+  // 13 = 32 - (23 - 3) + 1
+  // fp32 has 23-bit mantissa, fp8 e4m3 has 3-bit mantissa
+  unsigned assmebles = subtract | (random_value >> 13);
+  float assemble_float = __uint_as_float(assmebles) - __uint_as_float(subtract);
+  // truncate the last 20 bit (keep 3 bit mantissa) to simulate round to zero
+  uint32_t ret_int = __float_as_uint(x + assemble_float);
+  const uint32_t sign_exp_3bit_mantissa_mask = ((1U << 12) - 1) << (32 - 12);
+  return __uint_as_float(ret_int & sign_exp_3bit_mantissa_mask);
+}
+
 template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
 __global__ void scaleMatrix(
     T_OUT* const output,
@@ -387,6 +408,102 @@ __global__ void scaleMatrix(
        i += (size_t)blockDim.x * gridDim.x) {
     output[i] = T_OUT(scale<QUANTIZE>(
         static_cast<float>(input[i]), static_cast<float>(input_scale[0])));
+  }
+}
+
+template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
+__global__ void scaleMatrix(
+    T_OUT* const output,
+    T_S const* const input_scale,
+    T_IN const* const input,
+    const int64_t numel,
+    const int64_t lda,
+    at::PhiloxCudaState stochastic_rounding_philox_args) {
+  StochasticRoundingRNGState stoc_rounding_state;
+
+  const auto stochastic_rounding_seeds =
+      at::cuda::philox::unpack(stochastic_rounding_philox_args);
+  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
+
+  stochastic_rounding_init(
+      std::get<0>(stochastic_rounding_seeds) ^
+          std::get<1>(stochastic_rounding_seeds),
+      // The salt value should be different for every *run* and every
+      // *thread*.
+      salt_value,
+      &stoc_rounding_state);
+  auto input_scal = static_cast<float>(input_scale[0]);
+
+  auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
+  auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
+  for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
+       d += (size_t)blockDim.x * gridDim.x) {
+    const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+    bfx4 v_in = vec_input[d];
+    float4 v_float;
+    v_float.x = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(static_cast<float>(v_in.vals[0].x), input_scal),
+        random_bits.x);
+    v_float.y = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(static_cast<float>(v_in.vals[0].y), input_scal),
+        random_bits.y);
+    v_float.z = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(static_cast<float>(v_in.vals[1].x), input_scal),
+        random_bits.z);
+    v_float.w = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(static_cast<float>(v_in.vals[1].y), input_scal),
+        random_bits.w);
+    vec_output[d] = __nv_fp8x4_e4m3(v_float);
+  }
+}
+
+template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
+__global__ void scaleMatrixRowwise(
+    T_OUT* const output,
+    T_S const* const input_scale,
+    T_IN const* const input,
+    const int64_t numel,
+    const int64_t lda,
+    at::PhiloxCudaState stochastic_rounding_philox_args) {
+  StochasticRoundingRNGState stoc_rounding_state;
+
+  const auto stochastic_rounding_seeds =
+      at::cuda::philox::unpack(stochastic_rounding_philox_args);
+  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
+  stochastic_rounding_init(
+      std::get<0>(stochastic_rounding_seeds) ^
+          std::get<1>(stochastic_rounding_seeds),
+      // The salt value should be different for every *run* and every
+      // *thread*.
+      salt_value,
+      &stoc_rounding_state);
+
+  auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
+  auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
+  auto vec_scale = reinterpret_cast<const float4*>(&input_scale[0]);
+  for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
+       d += (size_t)blockDim.x * gridDim.x) {
+    const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+    bfx4 v_in = vec_input[d];
+    float4 v_float;
+    float4 v_scale = vec_scale[d / lda];
+    v_float.x = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(
+            static_cast<float>(v_in.vals[0].x), static_cast<float>(v_scale.x)),
+        random_bits.x);
+    v_float.y = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(
+            static_cast<float>(v_in.vals[0].y), static_cast<float>(v_scale.y)),
+        random_bits.y);
+    v_float.z = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(
+            static_cast<float>(v_in.vals[1].x), static_cast<float>(v_scale.z)),
+        random_bits.z);
+    v_float.w = stochastic_rounding_scalar_fp8(
+        scale<QUANTIZE>(
+            static_cast<float>(v_in.vals[1].y), static_cast<float>(v_scale.w)),
+        random_bits.w);
+    vec_output[d] = __nv_fp8x4_e4m3(v_float);
   }
 }
 
@@ -427,12 +544,24 @@ void invokeQuantizeMatrix(
     T_IN const* const input,
     const int64_t numel,
     const int64_t lda,
+    bool stochastic_rounding,
     const cudaStream_t stream) {
   constexpr dim3 grid(1024);
   const dim3 block(CTA_SIZE);
-  scaleMatrix<true>
-      <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (stochastic_rounding) {
+    at::PhiloxCudaState rng_engine_inputs;
+    auto gen = at::cuda::detail::getDefaultCUDAGenerator();
+    std::lock_guard<std::mutex> lock(gen.mutex());
+    rng_engine_inputs =
+        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
+    scaleMatrix<true><<<grid, block, 0, stream>>>(
+        output, input_scale, input, numel, lda, rng_engine_inputs);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  } else {
+    scaleMatrix<true>
+        <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
 }
 
 template <typename T_OUT, typename T_S, typename T_IN>
@@ -442,12 +571,27 @@ void invokeQuantizeMatrixRowwise(
     T_IN const* const input,
     const int64_t numel,
     const int64_t lda,
+    bool stochastic_rounding,
     const cudaStream_t stream) {
   constexpr dim3 grid(1024);
   const dim3 block(CTA_SIZE);
-  scaleMatrixRowwise<true>
-      <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  if (stochastic_rounding) {
+    at::PhiloxCudaState rng_engine_inputs;
+    auto gen = at::cuda::detail::getDefaultCUDAGenerator();
+    std::lock_guard<std::mutex> lock(gen.mutex());
+    rng_engine_inputs =
+        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
+
+    scaleMatrixRowwise<true><<<grid, block, 0, stream>>>(
+        output, input_scale, input, numel, lda, rng_engine_inputs);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  } else {
+    scaleMatrixRowwise<true>
+        <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
 }
 
 template <typename T_OUT, typename T_S, typename T_IN>
@@ -644,8 +788,8 @@ at::Tensor get_fp8_per_tensor_scale(
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
     at::Tensor scale,
-    std::optional<at::Tensor> bs) // batch size
-{
+    std::optional<at::Tensor> bs, // batch size
+    bool stochastic_rounding) {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
@@ -673,6 +817,7 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
       reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
       input.numel(),
       input.size(-1),
+      stochastic_rounding,
       stream);
 
   return quantized_input;
@@ -683,15 +828,21 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
 std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) // scale upperbound)
+    std::optional<at::Tensor> scale_ub, // scale upperbound
+    bool stochastic_rounding) // stochastic rounding
 {
   CUDA_DEVICE_GUARD(input);
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
-  auto _st = input.scalar_type();
-  TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
+  TORCH_CHECK(
+      input.scalar_type() == torch::kBFloat16 ||
+          input.scalar_type() == torch::kFloat,
+      "Invalid datatype. input must be BF16 or FP32");
+  TORCH_CHECK(
+      !stochastic_rounding || input.size(-1) % 4 == 0,
+      "input row dim must be 4's multiple when stochastic_rounding is True");
   std::vector<long int> quantized_input_shape;
   quantized_input_shape.reserve(input.dim());
   for (int i = 0; i < input.dim(); i++) {
@@ -729,13 +880,25 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
             ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
             : nullptr,
         stream);
-    invokeQuantizeMatrix(
-        quantized_input_ptr,
-        reinterpret_cast<float*>(scales.data_ptr()),
-        reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
-        input.numel(),
-        input.size(-1),
-        stream);
+    if (input.scalar_type() == torch::kBFloat16) {
+      invokeQuantizeMatrix(
+          quantized_input_ptr,
+          reinterpret_cast<float*>(scales.data_ptr()),
+          reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
+          input.numel(),
+          input.size(-1),
+          stochastic_rounding,
+          stream);
+    } else {
+      invokeQuantizeMatrix(
+          quantized_input_ptr,
+          reinterpret_cast<float*>(scales.data_ptr()),
+          reinterpret_cast<const float*>(input.data_ptr()),
+          input.numel(),
+          input.size(-1),
+          stochastic_rounding,
+          stream);
+    }
   } else {
     invokeComputeScale(
         reinterpret_cast<float*>(scales.data_ptr()),
@@ -748,13 +911,25 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
             ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
             : nullptr,
         stream);
-    invokeQuantizeMatrix(
-        quantized_input_ptr,
-        reinterpret_cast<float*>(scales.data_ptr()),
-        reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
-        input.numel(),
-        input.size(-1),
-        stream);
+    if (input.scalar_type() == torch::kBFloat16) {
+      invokeQuantizeMatrix(
+          quantized_input_ptr,
+          reinterpret_cast<float*>(scales.data_ptr()),
+          reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
+          input.numel(),
+          input.size(-1),
+          stochastic_rounding,
+          stream);
+    } else {
+      invokeQuantizeMatrix(
+          quantized_input_ptr,
+          reinterpret_cast<float*>(scales.data_ptr()),
+          reinterpret_cast<const float*>(input.data_ptr()),
+          input.numel(),
+          input.size(-1),
+          stochastic_rounding,
+          stream);
+    }
   }
   return std::vector<at::Tensor>{quantized_input, scales};
 }
@@ -812,6 +987,61 @@ __global__ void dynamicQuantizeMatrixRowwise(
   }
 }
 
+template <typename SCALE, typename T_OUT, typename T_S, typename T_IN>
+__global__ void dynamicQuantizeMatrixRowwiseStoc(
+    T_OUT* output,
+    T_S* quant_ptr,
+    T_IN const* input,
+    int64_t numel,
+    int64_t lda,
+    const float* scale_ub,
+    at::PhiloxCudaState stochastic_rounding_philox_args) {
+  StochasticRoundingRNGState stoc_rounding_state;
+
+  const auto stochastic_rounding_seeds =
+      at::cuda::philox::unpack(stochastic_rounding_philox_args);
+  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
+
+  stochastic_rounding_init(
+      std::get<0>(stochastic_rounding_seeds) ^
+          std::get<1>(stochastic_rounding_seeds),
+      // The salt value should be different for every *run* and every
+      // *thread*.
+      salt_value,
+      &stoc_rounding_state);
+
+  const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+
+  extern __shared__ __align__(sizeof(float)) char _shmem[];
+  T_IN* shmem = reinterpret_cast<T_IN*>(_shmem);
+  constexpr float min_scaling_factor = 1.0f / (SCALE::value * 512.f);
+  auto const nrows = numel / lda;
+  for (int64_t row = blockIdx.x; row < nrows; row += gridDim.x) {
+    float max = 0.f;
+    for (int64_t i = threadIdx.x; i < lda; i += blockDim.x) {
+      auto const in = input[row * lda + i];
+      shmem[i] = in;
+      auto val = fabs(static_cast<float>(in));
+      max = max > val ? max : val;
+    }
+    max = blockAllReduceMax<float>(max);
+    auto bounded_max = max;
+    if (scale_ub != nullptr) {
+      bounded_max = std::min(max, *scale_ub);
+    }
+    auto const s =
+        (T_S)std::max(bounded_max / SCALE::value, min_scaling_factor);
+    for (int64_t i = threadIdx.x; i < lda; i += blockDim.x) {
+      output[row * lda + i] = (T_OUT)(stochastic_rounding_scalar_fp8(
+          scale<true>(static_cast<float>(shmem[i]), static_cast<float>(s)),
+          random_bits.x));
+    }
+    if (threadIdx.x == 0) {
+      quant_ptr[row] = s;
+    }
+  }
+}
+
 template <typename SCALE, typename T_S, typename T_W>
 __global__ void computeFP8QuantizeScaleRowwise(
     T_S* quant_ptr,
@@ -848,28 +1078,59 @@ void invokeComputeScalesAndQuantizeMatrix(
     const int64_t numel,
     const int64_t lda,
     const float* scale_ub,
+    bool stochastic_rounding,
     cudaStream_t stream) {
   dim3 grid(numel / lda);
   bool use_shmem = true;
   auto const shmem_size = lda * sizeof(T_IN);
   if (shmem_size >= (48 << 10)) {
-    cudaError_t ret = cudaFuncSetAttribute(
-        dynamicQuantizeMatrixRowwise<SCALE, T_OUT, T_S, T_IN>,
-        cudaFuncAttributeMaxDynamicSharedMemorySize,
-        shmem_size);
+    cudaError_t ret;
+    if (stochastic_rounding) {
+      ret = cudaFuncSetAttribute(
+          dynamicQuantizeMatrixRowwiseStoc<SCALE, T_OUT, T_S, T_IN>,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          shmem_size);
+
+    } else {
+      ret = cudaFuncSetAttribute(
+          dynamicQuantizeMatrixRowwise<SCALE, T_OUT, T_S, T_IN>,
+          cudaFuncAttributeMaxDynamicSharedMemorySize,
+          shmem_size);
+    }
     use_shmem = ret == cudaSuccess;
   }
   if (use_shmem) {
     dim3 block(std::min((lda + 31) / 32 * 32, static_cast<int64_t>(1024)));
-    dynamicQuantizeMatrixRowwise<SCALE><<<grid, block, shmem_size, stream>>>(
-        output, quant_ptr, input, numel, lda, scale_ub);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    if (stochastic_rounding) {
+      at::PhiloxCudaState rng_engine_inputs;
+      auto gen = at::cuda::detail::getDefaultCUDAGenerator();
+      std::lock_guard<std::mutex> lock(gen.mutex());
+      rng_engine_inputs =
+          at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(4);
+
+      dynamicQuantizeMatrixRowwiseStoc<SCALE>
+          <<<grid, block, shmem_size, stream>>>(
+              output,
+              quant_ptr,
+              input,
+              numel,
+              lda,
+              scale_ub,
+              rng_engine_inputs);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    } else {
+      dynamicQuantizeMatrixRowwise<SCALE><<<grid, block, shmem_size, stream>>>(
+          output, quant_ptr, input, numel, lda, scale_ub);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
   } else {
     dim3 block(CTA_SIZE);
     computeFP8QuantizeScaleRowwise<SCALE>
         <<<grid, block, 0, stream>>>(quant_ptr, input, numel, lda, scale_ub);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
-    invokeQuantizeMatrixRowwise(output, quant_ptr, input, numel, lda, stream);
+    invokeQuantizeMatrixRowwise(
+        output, quant_ptr, input, numel, lda, stochastic_rounding, stream);
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
@@ -896,14 +1157,19 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
-    std::optional<c10::ScalarType> output_dtype) // Quantization type
-{
+    std::optional<c10::ScalarType> output_dtype, // Quantization type
+    bool stochastic_rounding) {
   TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
-  auto _st = input.scalar_type();
-  TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
+  TORCH_CHECK(
+      input.scalar_type() == torch::kBFloat16 ||
+          input.scalar_type() == torch::kFloat,
+      "Invalid datatype. input must be BF16 or FP32");
+  TORCH_CHECK(
+      !stochastic_rounding || input.size(-1) % 4 == 0,
+      "input row dim must be 4's multiple when stochastic_rounding is True");
   // Default data type is f8_e4m3fn.
   c10::ScalarType quantization_type = torch::kFloat8_e4m3fn;
   if (output_dtype.has_value()) {
@@ -945,6 +1211,7 @@ std::vector<at::Tensor> quantize_fp8_per_row(
         scale_ub.has_value()
             ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
             : nullptr,
+        stochastic_rounding,
         stream);
 
     return std::vector<at::Tensor>{quantized_input, scales};
@@ -961,6 +1228,7 @@ std::vector<at::Tensor> quantize_fp8_per_row(
         scale_ub.has_value()
             ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
             : nullptr,
+        stochastic_rounding,
         stream);
 
     return std::vector<at::Tensor>{quantized_input, scales};
