@@ -233,6 +233,7 @@ MHAGraph build_mha_graph(
   // TORCH_CHECK(cudnnGetVersion() >= 9000);
 
   const fe::DataType_t dtype = params.dtype;
+
   const int64_t b = params.b;
   const int64_t h = params.h;
   const int64_t max_seq_len_q = params.max_seq_len_q;
@@ -257,23 +258,25 @@ MHAGraph build_mha_graph(
                             .set_uid(SEQ_OFFSET_Q_UID)
                             .set_dim({b + 1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
-                            .set_data_type(fe::DataType_t::INT64));
+                            .set_data_type(fe::DataType_t::INT32));
   auto fe_seq_offset_kv =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("offset_kv")
                             .set_uid(SEQ_OFFSET_KV_UID)
                             .set_dim({b + 1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
-                            .set_data_type(fe::DataType_t::INT64));
+                            .set_data_type(fe::DataType_t::INT32));
 
   auto fe_q = mha_graph->tensor(
       fe::graph::Tensor_attributes().set_name("q").set_uid(Q_UID));
   set_thd_dim_and_stride(
       fe_q, b, max_seq_len_q, params.q_dim, params.q_stride, fe_seq_offset_q);
+
   auto fe_k = mha_graph->tensor(
       fe::graph::Tensor_attributes().set_name("k").set_uid(K_UID));
   set_thd_dim_and_stride(
       fe_k, b, max_seq_len_kv, params.k_dim, params.k_stride, fe_seq_offset_kv);
+
   auto fe_v = mha_graph->tensor(
       fe::graph::Tensor_attributes().set_name("v").set_uid(V_UID));
   set_thd_dim_and_stride(
@@ -294,14 +297,14 @@ MHAGraph build_mha_graph(
                             .set_uid(DROPOUT_SEED_UID)
                             .set_dim({1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
-                            .set_data_type(fe::DataType_t::INT32));
+                            .set_data_type(fe::DataType_t::INT64));
   auto fe_dropout_offset =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("dropout_offset")
                             .set_uid(DROPOUT_OFFSET_UID)
                             .set_dim({1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
-                            .set_data_type(fe::DataType_t::INT32));
+                            .set_data_type(fe::DataType_t::INT64));
 
   auto fe_seq_len_q =
       mha_graph->tensor(fe::graph::Tensor_attributes()
