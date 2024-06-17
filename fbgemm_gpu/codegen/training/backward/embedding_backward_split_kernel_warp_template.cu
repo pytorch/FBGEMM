@@ -637,7 +637,7 @@ __device__ void split_tbe_backward_hip_kernel{{ ndesc }}(
     const uint32_t info_B_mask,
     {%- endif %}
     {%- if not nobag %}
-    const int32_t* p_sorted_infos,  // FIXME: this is for not nobag, TODO support nobag
+    const int32_t* p_sorted_infos,  // FIXME: this is for not nobag, TODO support nobag (avbokovoy: WIP)
     {%- else %}
     const int64_t* p_sorted_infos,
     {%- endif %}
@@ -986,7 +986,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     magic_div_u32_t batch_mdiv, // PR23 extra
     const int32_t batch, // PR23 extra
     const int32_t num_rows, // PR23 extra
-    const int32_t num_tables, // PR23 extra
+    const int32_t num_tables, // PR23 extra (Not needed)
     // {%- if is_index_select %}
     // const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     // const bool permute_output_dim_0_1
@@ -1017,7 +1017,6 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     constexpr int32_t segment_split = 0;    // always 0 in split_bwd.hip
     // avbokovoy: num_rows and num_tables should come from outside
     // num_rows = dev_weights.numel() / T / max_D;
-    num_tables = T;
     split_tbe_backward_hip_kernel{{ndesc}}<
         {{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, /* weight_decay_mode */ 0>,
         {{optimizer}}_kernel_arg_t,
@@ -1047,7 +1046,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
                emb_dim,
                batch,
                num_rows,
-               num_tables,
+               T,
                opt_karg);
 #endif
 }
