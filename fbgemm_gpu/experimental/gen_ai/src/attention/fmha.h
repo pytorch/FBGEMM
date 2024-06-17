@@ -1,7 +1,7 @@
 #pragma once
 
-#include <stdint.h>
 #include <ATen/core/Tensor.h>
+#include <stdint.h>
 
 using at::Tensor;
 
