@@ -141,11 +141,12 @@ __host__ __device__ __forceinline__ void shift_right_round_mantissa(
     const bool allow_overflow = false) {
   // Implied 1
   mantissa = is_subnorm ? mantissa : mantissa + FLOAT32_IMPLIED1;
-  int fp32_sig_bits = is_subnorm ? 23 : 24;
+  const int fp32_sig_bits = is_subnorm ? 23 : 24;
 
   // RNE logic
-  bool tie = false;
-  bool even = false;
+  // bool tie = false;
+  // bool even = false;
+#if 0
   if (rounding_mode == rd_even) {
     // tbits is the no. of bits that will be removed
     int tbits = exp_diff + (fp32_sig_bits - mbits);
@@ -161,7 +162,13 @@ __host__ __device__ __forceinline__ void shift_right_round_mantissa(
         !(mantissa &
           mask); // True if the last bit before truncation location is 0
   }
+#endif
 
+  // Adjust for shared exponent and Shift down to target bit width + 1
+  mantissa = mantissa >> (exp_diff + fp32_sig_bits - mbits - 1);
+  // Rounding using floor(x+1), with overflow check
+  mantissa = mantissa + 1;
+#if 0
   // Adjust for shared exponent
   mantissa = mantissa >> exp_diff;
   // Shift down to target bit width + 1
@@ -172,6 +179,7 @@ __host__ __device__ __forceinline__ void shift_right_round_mantissa(
     if (!(tie && even))
       mantissa = mantissa + 1;
   }
+#endif
   // Shift last bit away
   mantissa = mantissa >> 1;
 }
