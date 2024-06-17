@@ -18,14 +18,15 @@
 // The 4-bit output is mapped to 16 values for dequantization
 //-----------------------------------------------------------------------
 
-__device__ __forceinline__ uint8_t quantize_elemwise_4bit(
-    const float input,
-    const int bits, // bits = mantissa bits + sign bit
-    const int exp_bits, // exp_bits == 0 indicates integer dtype
-    const float max_norm,
-    const RoundingMode rounding_mode = rd_away,
-    const bool saturate_normals = false,
-    const bool allow_denorm = true) {
+__device__ __forceinline__ uint8_t quantize_elemwise_mx4(const float input) {
+  // bits = mantissa bits + sign bit = 3
+  constexpr int exp_bits = 2;
+  constexpr float max_norm = 6.0f;
+  // const RoundingMode rounding_mode = rd_away,
+  // const bool saturate_normals = true;
+  // const bool allow_denorm = true;
+  // input won't be integers => is_int = false => remove any int decisions
+
   u_float_int input_;
   input_.f = input;
 
@@ -35,17 +36,11 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
   int tmant = get_trailing_mantissa(input_);
 
   // Mantissa bits to quantize to (remove sign)
-  const int mbits = bits - 1;
-  const bool is_int = exp_bits == 0;
+  // const int mbits = bits - 1;
+  constexpr int mbits = 2;
 
-  // Integers can be treated has having exp bias of 1
-  const int new_bias = is_int ? 1 : (1 << (exp_bits - 1)) - 1;
+  const int new_bias = (1 << (exp_bits - 1)) - 1;
   int new_biased_exp = biased_exp - FLOAT32_EXP_BIAS + new_bias;
-
-  // Skip denorms
-  if ((!is_int) && (!allow_denorm) && (new_biased_exp < 1)) {
-    return 0.0;
-  }
 
   // Use exp_diff to truncate additional bits for subnorms
   // mbits includes implicit 1, so when new_biased_exp==0
@@ -55,8 +50,7 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
 
   // Shift down and round mantissa, allow overflow except for integers
   // This converts tmant into a full mantissa
-  shift_right_round_mantissa(
-      tmant, biased_exp == 0, mbits, exp_diff, rounding_mode, !is_int);
+  shift_right_round_mantissa_mx4(tmant, biased_exp == 0, exp_diff);
 
   if (tmant == 0) {
     return 0.0;
@@ -99,17 +93,9 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
   // Return Inf if rounded value is out of bounds,
   // unless target format is integer or saturate_normals==True
   if (abs(output) > max_norm) {
-    if (is_int || saturate_normals) {
-      // max norm = 6.0f => bias=3, tmant = 1, sign remains the same
-      new_biased_exp = 3;
-      tmant = 4194304; // bit 10000000000000000000000
-    } else {
-      // TODO: set Inf for 4 bit for other patterns
-      new_biased_exp = 0xFF;
-      tmant = 0;
-      // e2m1 has no inf
-      CUDA_KERNEL_ASSERT(false);
-    }
+    // max norm = 6.0f => bias=3, tmant = 1, sign remains the same
+    new_biased_exp = 3;
+    tmant = 4194304; // bit 10000000000000000000000
   }
   CUDA_KERNEL_ASSERT(new_biased_exp >= 0 && new_biased_exp <= 3);
   return construct_fp4(sign, new_biased_exp, tmant);
@@ -135,9 +121,6 @@ __global__ void quantize_float_to_mx4_kernel(
 
   // MX4 values
   constexpr int scale_bits = 8;
-  constexpr int elem_ebits = 2;
-  constexpr int elem_mbits = 3;
-  constexpr float elem_max_norm = 6.0;
   constexpr int elem_emax = 2;
 
   const T elem = input[linear_tid];
@@ -183,14 +166,7 @@ __global__ void quantize_float_to_mx4_kernel(
 
   // convert to FP4 -> there is 16 possible values
   // bit pattern of the uint8 result is `0000 xxxx`
-  const uint8_t quantized_val = quantize_elemwise_4bit(
-      scaled_in,
-      elem_mbits,
-      elem_ebits,
-      elem_max_norm,
-      rounding_mode,
-      true,
-      true);
+  const uint8_t quantized_val = quantize_elemwise_mx4(scaled_in);
 
   // Store 2 `quantized_val` in one uint8
   // let even threads store their 4-bit quantized_val on the left (position 4-7)

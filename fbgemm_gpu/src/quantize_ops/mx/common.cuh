@@ -132,6 +132,26 @@ construct_float(int sign, int biased_exp, int trailing_mantissa) {
 // If allow_overflow is False, it will floor the result to 1111
 // If allow_overflow is True,  it will round up to 10000, overflowing 4 bits
 //---------------------------------------------------------
+__host__ __device__ __forceinline__ void shift_right_round_mantissa_mx4(
+    int& mantissa, // 23-bit float32 trailing mantissa
+    const bool is_subnorm, // is the input a subnorm?
+    const int exp_diff // extra right shifts
+) {
+  // Implied 1
+  mantissa = is_subnorm ? mantissa : mantissa + FLOAT32_IMPLIED1;
+  const int fp32_sig_bits = is_subnorm ? 23 : 24;
+
+  constexpr int mbits = 2;
+
+  // Adjust for shared exponent and Shift down to target bit width + 1
+  mantissa = mantissa >> (exp_diff + fp32_sig_bits - mbits - 1);
+  // Rounding using floor(x+1), with overflow check
+  mantissa = mantissa + 1;
+
+  // Shift last bit away
+  mantissa = mantissa >> 1;
+}
+
 __host__ __device__ __forceinline__ void shift_right_round_mantissa(
     int& mantissa, // 23-bit float32 trailing mantissa
     const bool is_subnorm, // is the input a subnorm?
