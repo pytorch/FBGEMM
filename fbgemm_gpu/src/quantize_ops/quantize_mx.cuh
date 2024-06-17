@@ -9,7 +9,7 @@
 #ifndef PYT_MX_MX_CUH
 #define PYT_MX_MX_CUH
 
-#include <cstdint>
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "mx_common.cuh"
 
 //-----------------------------------------------------------------------
@@ -139,20 +139,55 @@ __global__ void quantize_float_to_mx4_kernel(
 
   // // allreduce to get the max value in each group size
   int shared_exp = get_biased_exponent(elem);
-  smem_base[threadIdx.x] = shared_exp;
-  __syncthreads();
 
   const uint32_t half_group_size = group_size / 2;
 
-  for (uint32_t s = half_group_size; s > 0; s >>= 1) {
-    if (threadIdx.x < s) {
-      smem_base[threadIdx.x] =
-          max(smem_base[threadIdx.x], smem_base[threadIdx.x + s]);
+  // find max shared_exp for each warp
+  for (uint32_t mask = half_group_size; mask > 0; mask /= 2) {
+    int temp_shared_exp = __shfl_xor_sync(0xFFFFFFFF, shared_exp, mask);
+    shared_exp = max(temp_shared_exp, shared_exp);
+  }
+
+  const uint32_t num_warps_in_group = group_size / 32;
+  CUDA_KERNEL_ASSERT(num_warps_in_group <= 32);
+
+  // find max shared_exp between warps in the group
+  if (num_warps_in_group > 1) {
+    const uint32_t rep_tid = threadIdx.x / 32;
+    const bool is_rep_tid = (threadIdx.x % 32 == 0);
+    // put the max shared exp of each warp in shared memory
+    if (is_rep_tid) {
+      smem_base[rep_tid] = shared_exp;
     }
     __syncthreads();
+
+    // find max shared_exp across warps in the group
+    // let thread `i` store max shared_exp of warp `i`
+    if (threadIdx.x < num_warps_in_group) {
+      shared_exp = smem_base[threadIdx.x];
+    }
+    __syncwarp();
+    // find max shared_exp
+    for (uint32_t s = num_warps_in_group; s > 0; s /= 2) {
+      int temp_shared_exp = __shfl_xor_sync(FULL_WARP_MASK, shared_exp, s);
+      shared_exp = max(temp_shared_exp, shared_exp);
+    }
+
+    // strore shared_exp in shared_mem
+    if (threadIdx.x == 0) {
+      *smem_base = shared_exp;
+    }
+    __syncthreads();
+
+    // representative thread in each warp in the group reads the max
+    // shared_memory
+    if (is_rep_tid) {
+      shared_exp = *smem_base;
+    }
+    // broadcast max shared_exp to every thread
+    shared_exp =
+        fbgemm_gpu::shfl_sync(shared_exp, 0, WARP_SIZE, FULL_WARP_MASK);
   }
-  // get shared_exponent stored at tid = 0
-  shared_exp = smem_base[0];
 
   // Offset shared exponent by elem_emax, preserve NaNs
   shared_exp =
