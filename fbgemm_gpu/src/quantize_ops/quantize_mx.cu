@@ -202,12 +202,16 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
 
   at::Device device = input.device();
   const at::cuda::CUDAGuard device_guard{device};
-  // num quantized elems = half of the total float elms + total number of groups
-  // so, quantized input size = (total_num_elems/2)+(total_num_elems/group_size)
+  // input size = half of the total (float) elms + total number of groups
+  // i.e., input.numel() = (total_num_elems/2)+(total_num_elems/group_size)
+  // so, total_elems = (mx_group_size*input.numel())/(mx_group_size + 2)
   // Note that this formula won't work if there's padding to quantized output
-  // and total_elems need to be passed.
+  // and total_elems need to be passed to the function as an argument.
   const int64_t total_elems =
       (2 * mx_group_size * input.numel()) / (mx_group_size + 2);
+
+  // one thread works on 2 uint8 quantized input (4 mx4).
+  const int64_t total_quant_elems = total_elems / 4;
   TORCH_CHECK(
       total_elems > mx_group_size,
       "Input needs to be > mx_group_size of ",
@@ -220,13 +224,14 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
       mx_group_size,
       " but is found to be ",
       total_elems);
-  const uint32_t total_num_groups = total_elems / mx_group_size;
+  const uint32_t total_num_groups = total_quant_elems / mx_group_size;
 
   auto output = at::empty(
       total_elems, // 4 = sizeof(float)
       input.options().dtype(at::kFloat));
   const int num_groups_per_block = MAX_THREADS / mx_group_size;
-  const auto gridDim_x = div_round_up(total_num_groups, num_groups_per_block);
+  const auto gridDim_x =
+      max(1, div_round_up(total_num_groups, num_groups_per_block));
 
   const dim3 gridDim(gridDim_x);
   const dim3 blockDim(mx_group_size, num_groups_per_block);
@@ -256,7 +261,7 @@ DLL_PUBLIC at::Tensor dequantize_mx_cuda(
         at::cuda::getCurrentCUDAStream()>>>(
         MAKE_PTA_WITH_NAME(func_name, input, uint8_t, 1, 64),
         mx_group_size,
-        total_elems,
+        total_quant_elems,
         MAKE_PTA_WITH_NAME(func_name, output, float, 1, 64));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
