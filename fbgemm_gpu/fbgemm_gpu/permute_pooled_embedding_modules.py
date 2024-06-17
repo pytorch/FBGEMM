@@ -19,9 +19,15 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
     )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_multi_embedding_ops_cpu"
+    )
     try:
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
+        )
+        torch.ops.load_library(
+            "//deeplearning/fbgemm/fbgemm_gpu:permute_multi_embedding_ops_gpu"
         )
     except OSError:
         # This is for forward compatibility (new torch.package + old backend)
