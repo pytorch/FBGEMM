@@ -20,6 +20,23 @@
 
 #define MAX_MHA_DIM 3
 
+#define Q_UID 1
+#define K_UID 2
+#define V_UID 3
+#define O_UID 4
+#define SOFTMAX_STATS_UID 5
+#define D_Q_UID 101
+#define D_K_UID 102
+#define D_V_UID 103
+#define D_O_UID 104
+#define ATTN_SCALE_UID 201
+#define DROPOUT_SEED_UID 202
+#define DROPOUT_OFFSET_UID 203
+#define SEQ_LEN_Q_UID 301
+#define SEQ_LEN_KV_UID 302
+#define SEQ_OFFSET_Q_UID 303
+#define SEQ_OFFSET_KV_UID 304
+
 namespace fe = cudnn_frontend;
 
 namespace fbgemm_gpu::gen_ai::attention {
@@ -36,12 +53,12 @@ struct MHAParams {
   double dropout_p;
   bool is_causal;
   bool return_softmax_stats;
-  std::array<int, MAX_MHA_DIM> q_dim;
-  std::array<int, MAX_MHA_DIM> k_dim;
-  std::array<int, MAX_MHA_DIM> v_dim;
-  std::array<int, MAX_MHA_DIM> q_stride;
-  std::array<int, MAX_MHA_DIM> k_stride;
-  std::array<int, MAX_MHA_DIM> v_stride;
+  std::array<int64_t, MAX_MHA_DIM> q_dim;
+  std::array<int64_t, MAX_MHA_DIM> k_dim;
+  std::array<int64_t, MAX_MHA_DIM> v_dim;
+  std::array<int64_t, MAX_MHA_DIM> q_stride;
+  std::array<int64_t, MAX_MHA_DIM> k_stride;
+  std::array<int64_t, MAX_MHA_DIM> v_stride;
 
   MHAParams(){};
 
@@ -122,7 +139,6 @@ struct MHACacheKeyWrapper : at::native::ParamsWrapper<MHAParams> {
 
 struct MHAFwdGraph {
   std::shared_ptr<fe::graph::Graph> graph;
-  fe::graph::SDPA_attributes options;
   std::shared_ptr<fe::graph::Tensor_attributes> q;
   std::shared_ptr<fe::graph::Tensor_attributes> k;
   std::shared_ptr<fe::graph::Tensor_attributes> v;
@@ -139,7 +155,6 @@ struct MHAFwdGraph {
 
 struct MHABwdGraph {
   std::shared_ptr<fe::graph::Graph> graph;
-  fe::graph::SDPA_backward_attributes options;
   std::shared_ptr<fe::graph::Tensor_attributes> q;
   std::shared_ptr<fe::graph::Tensor_attributes> k;
   std::shared_ptr<fe::graph::Tensor_attributes> v;
@@ -188,8 +203,8 @@ void set_thd_dim_and_stride(
     std::shared_ptr<fe::graph::Tensor_attributes> tensor,
     const int64_t b,
     const int64_t s,
-    const std::array<int, 3>& thd_dim,
-    const std::array<int, 3>& thd_stride,
+    const std::array<int64_t, 3>& thd_dim,
+    const std::array<int64_t, 3>& thd_stride,
     std::shared_ptr<fe::graph::Tensor_attributes> ragged_offset) {
   const int64_t h = thd_dim[1];
   const int64_t d = thd_dim[2];
@@ -204,7 +219,7 @@ void set_thd_dim_and_stride(
       .set_ragged_offset(ragged_offset);
 }
 
-template <typename MHAGraph, typename SPDAAttributes>
+template <typename MHAGraph>
 MHAGraph build_mha_graph(
     /*Inputs*/
     const MHAParams& params,
@@ -239,29 +254,35 @@ MHAGraph build_mha_graph(
   auto fe_seq_offset_q =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("offset_q")
+                            .set_uid(SEQ_OFFSET_Q_UID)
                             .set_dim({b + 1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
-                            .set_data_type(fe::DataType_t::INT32));
+                            .set_data_type(fe::DataType_t::INT64));
   auto fe_seq_offset_kv =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("offset_kv")
+                            .set_uid(SEQ_OFFSET_KV_UID)
                             .set_dim({b + 1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
-                            .set_data_type(fe::DataType_t::INT32));
+                            .set_data_type(fe::DataType_t::INT64));
 
-  auto fe_q = mha_graph->tensor(fe::graph::Tensor_attributes().set_name("q"));
+  auto fe_q = mha_graph->tensor(
+      fe::graph::Tensor_attributes().set_name("q").set_uid(Q_UID));
   set_thd_dim_and_stride(
       fe_q, b, max_seq_len_q, params.q_dim, params.q_stride, fe_seq_offset_q);
-  auto fe_k = mha_graph->tensor(fe::graph::Tensor_attributes().set_name("k"));
+  auto fe_k = mha_graph->tensor(
+      fe::graph::Tensor_attributes().set_name("k").set_uid(K_UID));
   set_thd_dim_and_stride(
       fe_k, b, max_seq_len_kv, params.k_dim, params.k_stride, fe_seq_offset_kv);
-  auto fe_v = mha_graph->tensor(fe::graph::Tensor_attributes().set_name("v"));
+  auto fe_v = mha_graph->tensor(
+      fe::graph::Tensor_attributes().set_name("v").set_uid(V_UID));
   set_thd_dim_and_stride(
       fe_v, b, max_seq_len_kv, params.v_dim, params.v_stride, fe_seq_offset_kv);
 
   auto fe_attention_scale =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("attention_scale")
+                            .set_uid(ATTN_SCALE_UID)
                             .set_dim({1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
                             .set_is_pass_by_value(true)
@@ -270,12 +291,14 @@ MHAGraph build_mha_graph(
   auto fe_dropout_seed =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("dropout_seed")
+                            .set_uid(DROPOUT_SEED_UID)
                             .set_dim({1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
                             .set_data_type(fe::DataType_t::INT32));
   auto fe_dropout_offset =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("dropout_offset")
+                            .set_uid(DROPOUT_OFFSET_UID)
                             .set_dim({1, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
                             .set_data_type(fe::DataType_t::INT32));
@@ -283,6 +306,7 @@ MHAGraph build_mha_graph(
   auto fe_seq_len_q =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("seq_len_q")
+                            .set_uid(SEQ_LEN_Q_UID)
                             .set_dim({b, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
                             .set_data_type(fe::DataType_t::INT32));
@@ -290,25 +314,13 @@ MHAGraph build_mha_graph(
   auto fe_seq_len_kv =
       mha_graph->tensor(fe::graph::Tensor_attributes()
                             .set_name("seq_len_kv")
+                            .set_uid(SEQ_LEN_KV_UID)
                             .set_dim({b, 1, 1, 1})
                             .set_stride({1, 1, 1, 1})
                             .set_data_type(fe::DataType_t::INT32));
 
-  auto sdpa_options = SPDAAttributes()
-                          .set_name("cudnn_spda")
-                          .set_causal_mask(is_causal)
-                          .set_attn_scale(fe_attention_scale)
-                          .set_padding_mask(true)
-                          .set_seq_len_q(fe_seq_len_q)
-                          .set_seq_len_kv(fe_seq_len_kv);
-
-  if (dropout_p != 0.0f) {
-    sdpa_options.set_dropout(dropout_p, fe_dropout_seed, fe_dropout_offset);
-  }
-
   return {
       .graph = std::move(mha_graph),
-      .options = sdpa_options,
       .q = std::move(fe_q),
       .k = std::move(fe_k),
       .v = std::move(fe_v),
@@ -340,7 +352,7 @@ MHAFwdGraph build_mha_fwd_graph(
     cudnnHandle_t& handle) {
   TORCH_CHECK(o.sizes() == q.sizes() && o.strides() == q.strides());
 
-  MHAFwdGraph mha = build_mha_graph<MHAFwdGraph, fe::graph::SDPA_attributes>(
+  MHAFwdGraph mha = build_mha_graph<MHAFwdGraph>(
       params,
       q,
       k,
@@ -349,17 +361,32 @@ MHAFwdGraph build_mha_fwd_graph(
       seq_offset_kv,
       seq_offset_q,
       seq_offset_kv);
-  mha.options.set_is_inference(params.return_softmax_stats == false);
+
+  auto sdpa_options =
+      fe::graph::SDPA_attributes()
+          .set_name("cudnn_spda")
+          .set_is_inference(params.return_softmax_stats == false)
+          .set_causal_mask(params.is_causal)
+          .set_attn_scale(mha.attention_scale)
+          .set_padding_mask(true)
+          .set_seq_len_q(mha.seq_len_q)
+          .set_seq_len_kv(mha.seq_len_kv);
+
+  if (params.dropout_p != 0.0f) {
+    sdpa_options.set_dropout(
+        params.dropout_p, mha.dropout_seed, mha.dropout_offset);
+  }
+
   auto& mha_graph = mha.graph;
   auto [fe_o, fe_softmax_stats] =
-      mha_graph->sdpa(mha.q, mha.k, mha.v, mha.options);
+      mha_graph->sdpa(mha.q, mha.k, mha.v, sdpa_options);
 
   const int64_t b = params.b;
   const int64_t h = params.h;
   const int64_t max_seq_len_q = params.max_seq_len_q;
   const int64_t d = params.d;
 
-  fe_o->set_output(true).set_name("o");
+  fe_o->set_output(true).set_name("o").set_uid(O_UID);
   set_thd_dim_and_stride(
       fe_o, b, max_seq_len_q, params.q_dim, params.q_stride, mha.seq_offset_q);
   mha.o = std::move(fe_o);
@@ -367,6 +394,7 @@ MHAFwdGraph build_mha_fwd_graph(
   if (fe_softmax_stats) {
     fe_softmax_stats->set_output(true)
         .set_name("softmax_stats")
+        .set_uid(SOFTMAX_STATS_UID)
         .set_dim({b, h, max_seq_len_q, 1})
         .set_stride({h * max_seq_len_q, max_seq_len_q, 1, 1})
         .set_data_type(fe::DataType_t::FLOAT);
@@ -409,16 +437,29 @@ MHABwdGraph build_mha_bwd_graph(
   TORCH_CHECK(d_k.sizes() == k.sizes() && d_k.strides() == k.strides());
   TORCH_CHECK(d_v.sizes() == v.sizes() && d_v.strides() == v.strides());
 
-  MHABwdGraph mha =
-      build_mha_graph<MHABwdGraph, fe::graph::SDPA_backward_attributes>(
-          params,
-          q,
-          k,
-          v,
-          seq_offset_q,
-          seq_offset_kv,
-          seq_offset_q,
-          seq_offset_kv);
+  MHABwdGraph mha = build_mha_graph<MHABwdGraph>(
+      params,
+      q,
+      k,
+      v,
+      seq_offset_q,
+      seq_offset_kv,
+      seq_offset_q,
+      seq_offset_kv);
+
+  auto sdpa_options = fe::graph::SDPA_backward_attributes()
+                          .set_name("cudnn_spda")
+                          .set_causal_mask(params.is_causal)
+                          .set_attn_scale(mha.attention_scale)
+                          .set_padding_mask(true)
+                          .set_seq_len_q(mha.seq_len_q)
+                          .set_seq_len_kv(mha.seq_len_kv);
+
+  if (params.dropout_p != 0.0f) {
+    sdpa_options.set_dropout(
+        params.dropout_p, mha.dropout_seed, mha.dropout_offset);
+  }
+
   auto& mha_graph = mha.graph;
 
   const int64_t b = params.b;
@@ -427,18 +468,21 @@ MHABwdGraph build_mha_bwd_graph(
   const int64_t max_seq_len_kv = params.max_seq_len_kv;
   const int64_t d = params.d;
 
-  mha.o = mha_graph->tensor(fe::graph::Tensor_attributes().set_name("o"));
+  mha.o = mha_graph->tensor(
+      fe::graph::Tensor_attributes().set_name("o").set_uid(O_UID));
   set_thd_dim_and_stride(
       mha.o, b, max_seq_len_q, params.q_dim, params.q_stride, mha.seq_offset_q);
 
   mha.softmax_stats = mha_graph->tensor(
       fe::graph::Tensor_attributes()
           .set_name("softmax_stats")
+          .set_uid(SOFTMAX_STATS_UID)
           .set_dim({b, h, max_seq_len_q, 1})
           .set_stride({h * max_seq_len_q, max_seq_len_q, 1, 1})
           .set_data_type(fe::DataType_t::FLOAT));
 
-  mha.d_o = mha_graph->tensor(fe::graph::Tensor_attributes().set_name("d_o"));
+  mha.d_o = mha_graph->tensor(
+      fe::graph::Tensor_attributes().set_name("d_o").set_uid(D_O_UID));
   set_thd_dim_and_stride(
       mha.d_o,
       b,
@@ -448,8 +492,9 @@ MHABwdGraph build_mha_bwd_graph(
       mha.seq_offset_q);
 
   auto [fe_d_q, fe_d_k, fe_d_v] = mha_graph->sdpa_backward(
-      mha.q, mha.k, mha.v, mha.o, mha.d_o, mha.softmax_stats, mha.options);
-  fe_d_q->set_output(true).set_name("d_q");
+      mha.q, mha.k, mha.v, mha.o, mha.d_o, mha.softmax_stats, sdpa_options);
+
+  fe_d_q->set_output(true).set_name("d_q").set_uid(D_Q_UID);
   set_thd_dim_and_stride(
       fe_d_q,
       b,
@@ -459,7 +504,7 @@ MHABwdGraph build_mha_bwd_graph(
       mha.seq_offset_q);
   mha.d_q = std::move(fe_d_q);
 
-  fe_d_k->set_output(true).set_name("d_k");
+  fe_d_k->set_output(true).set_name("d_k").set_uid(D_K_UID);
   set_thd_dim_and_stride(
       fe_d_k,
       b,
@@ -469,7 +514,7 @@ MHABwdGraph build_mha_bwd_graph(
       mha.seq_offset_kv);
   mha.d_k = std::move(fe_d_k);
 
-  fe_d_v->set_output(true).set_name("d_v");
+  fe_d_v->set_output(true).set_name("d_v").set_uid(D_V_UID);
   set_thd_dim_and_stride(
       fe_d_v,
       b,
@@ -566,14 +611,15 @@ void run_cudnn_sdpa_fprop(
   auto workspace_size = mha.graph->get_workspace_size();
   auto workspace_ptr =
       c10::cuda::CUDACachingAllocator::get()->allocate(workspace_size);
-  std::cerr << "Launch!\n";
+  // AT_CUDNN_FRONTEND_CHECK(mha.graph->validate());
   auto status = mha.graph->execute(handle, variant_pack, workspace_ptr.get());
   if (!status.is_good()) {
     std::cerr << "CuDNN Error: " << status.get_message() << std::endl;
   }
-  std::cerr << "Success!\n";
   TORCH_CHECK(status.is_good());
-  mha_fwd_graph_cache.update(key, mha);
+  if (!mha_ptr) {
+    mha_fwd_graph_cache.update(key, mha);
+  }
 }
 
 void run_cudnn_sdpa_bprop(
