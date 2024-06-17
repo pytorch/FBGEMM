@@ -265,6 +265,7 @@ def make_function_schema_arg(ty: ArgType, name: str, default: Union[int, float])
         ArgType.PLACEHOLDER_TENSOR: tensor_arg,
         ArgType.INT: lambda x: int_arg(x, default=int(default)),
         ArgType.FLOAT: lambda x: float_arg(x, default=default),
+        # pyre-fixme[6]: For 2nd argument expected `int` but got `Union[float, int]`.
         ArgType.SYM_INT: lambda x: schema_sym_int_arg(x, default=default),
     }[ty](name)
 
