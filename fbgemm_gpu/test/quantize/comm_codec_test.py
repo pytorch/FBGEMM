@@ -31,6 +31,7 @@ class QuantizedCommCodecTest(unittest.TestCase):
                 (SparseType.FP8, None),
                 (SparseType.FP8, 3.0),
                 (SparseType.INT8, None),
+                (SparseType.MX4, None),
             ]
         ),
         row_size=st.integers(4, 256),
@@ -52,6 +53,10 @@ class QuantizedCommCodecTest(unittest.TestCase):
             if row_dim > 0:
                 assume((col_size * row_size) % row_dim == 0)
             assume(col_size % 4 == 0)
+
+        # MX4 requires tensors with a multiple of 32 elements.
+        if comm_precision == SparseType.MX4:
+            assume((row_size * col_size) % 32 == 0)
 
         torch.manual_seed(rand_seed)
         shape = (row_size, col_size)
@@ -85,13 +90,21 @@ class QuantizedCommCodecTest(unittest.TestCase):
         )
 
         output_tensor = quant_codec.decode(quant_tensor, ctx)
+
+        # MX4 may flatten tensors if they are too small. Thats ok.
+        if comm_precision == SparseType.MX4:
+            output_tensor = output_tensor.view(input_tensor.shape)
         self.assertEqual(output_tensor.shape, input_tensor.shape)
 
         rtol = 0.005
         atol = 0.005
+        # Lower precision datatypes will have some error.
         if comm_precision == SparseType.FP8:
             rtol = 0.05
             atol = 0.05
+        elif comm_precision == SparseType.MX4:
+            rtol = 0.3
+            atol = 0.3
 
         torch.testing.assert_close(
             input_tensor.detach().cpu(),

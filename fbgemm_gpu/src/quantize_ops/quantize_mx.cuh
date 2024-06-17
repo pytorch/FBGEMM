@@ -9,6 +9,7 @@
 #ifndef PYT_MX_MX_CUH
 #define PYT_MX_MX_CUH
 
+#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "mx_common.cuh"
 
 //-----------------------------------------------------------------------
@@ -18,14 +19,15 @@
 // The 4-bit output is mapped to 16 values for dequantization
 //-----------------------------------------------------------------------
 
-__device__ __forceinline__ uint8_t quantize_elemwise_4bit(
-    const float input,
-    const int bits, // bits = mantissa bits + sign bit
-    const int exp_bits, // exp_bits == 0 indicates integer dtype
-    const float max_norm,
-    const RoundingMode rounding_mode = rd_away,
-    const bool saturate_normals = false,
-    const bool allow_denorm = true) {
+__device__ __forceinline__ uint8_t quantize_elemwise_mx4(const float input) {
+  // bits = mantissa bits + sign bit = 3
+  constexpr int exp_bits = 2;
+  constexpr float max_norm = 6.0f;
+  // const RoundingMode rounding_mode = rd_away,
+  // const bool saturate_normals = true;
+  // const bool allow_denorm = true;
+  // input won't be integers => is_int = false => remove any int decisions
+
   u_float_int input_;
   input_.f = input;
 
@@ -35,17 +37,11 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
   int tmant = get_trailing_mantissa(input_);
 
   // Mantissa bits to quantize to (remove sign)
-  const int mbits = bits - 1;
-  const bool is_int = exp_bits == 0;
+  // const int mbits = bits - 1;
+  constexpr int mbits = 2;
 
-  // Integers can be treated has having exp bias of 1
-  const int new_bias = is_int ? 1 : (1 << (exp_bits - 1)) - 1;
+  constexpr int new_bias = (1 << (exp_bits - 1)) - 1;
   int new_biased_exp = biased_exp - FLOAT32_EXP_BIAS + new_bias;
-
-  // Skip denorms
-  if ((!is_int) && (!allow_denorm) && (new_biased_exp < 1)) {
-    return 0.0;
-  }
 
   // Use exp_diff to truncate additional bits for subnorms
   // mbits includes implicit 1, so when new_biased_exp==0
@@ -56,7 +52,12 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
   // Shift down and round mantissa, allow overflow except for integers
   // This converts tmant into a full mantissa
   shift_right_round_mantissa(
-      tmant, biased_exp == 0, mbits, exp_diff, rounding_mode, !is_int);
+      tmant,
+      biased_exp == 0,
+      mbits,
+      exp_diff,
+      rd_away,
+      /*!is_int=*/true);
 
   if (tmant == 0) {
     return 0.0;
@@ -99,17 +100,9 @@ __device__ __forceinline__ uint8_t quantize_elemwise_4bit(
   // Return Inf if rounded value is out of bounds,
   // unless target format is integer or saturate_normals==True
   if (abs(output) > max_norm) {
-    if (is_int || saturate_normals) {
-      // max norm = 6.0f => bias=3, tmant = 1, sign remains the same
-      new_biased_exp = 3;
-      tmant = 4194304; // bit 10000000000000000000000
-    } else {
-      // TODO: set Inf for 4 bit for other patterns
-      new_biased_exp = 0xFF;
-      tmant = 0;
-      // e2m1 has no inf
-      CUDA_KERNEL_ASSERT(false);
-    }
+    // max norm = 6.0f => bias=3, tmant = 1, sign remains the same
+    new_biased_exp = 3;
+    tmant = 4194304; // bit 10000000000000000000000
   }
   CUDA_KERNEL_ASSERT(new_biased_exp >= 0 && new_biased_exp <= 3);
   return construct_fp4(sign, new_biased_exp, tmant);
@@ -135,9 +128,6 @@ __global__ void quantize_float_to_mx4_kernel(
 
   // MX4 values
   constexpr int scale_bits = 8;
-  constexpr int elem_ebits = 2;
-  constexpr int elem_mbits = 3;
-  constexpr float elem_max_norm = 6.0;
   constexpr int elem_emax = 2;
 
   const T elem = input[linear_tid];
@@ -149,20 +139,55 @@ __global__ void quantize_float_to_mx4_kernel(
 
   // // allreduce to get the max value in each group size
   int shared_exp = get_biased_exponent(elem);
-  smem_base[threadIdx.x] = shared_exp;
-  __syncthreads();
 
   const uint32_t half_group_size = group_size / 2;
 
-  for (uint32_t s = half_group_size; s > 0; s >>= 1) {
-    if (threadIdx.x < s) {
-      smem_base[threadIdx.x] =
-          max(smem_base[threadIdx.x], smem_base[threadIdx.x + s]);
+  // find max shared_exp for each warp
+  for (uint32_t mask = half_group_size; mask > 0; mask /= 2) {
+    int temp_shared_exp = __shfl_xor_sync(0xFFFFFFFF, shared_exp, mask);
+    shared_exp = max(temp_shared_exp, shared_exp);
+  }
+
+  const uint32_t num_warps_in_group = group_size / 32;
+  CUDA_KERNEL_ASSERT(num_warps_in_group <= 32);
+
+  // find max shared_exp between warps in the group
+  if (num_warps_in_group > 1) {
+    const uint32_t rep_tid = threadIdx.x / 32;
+    const bool is_rep_tid = (threadIdx.x % 32 == 0);
+    // put the max shared exp of each warp in shared memory
+    if (is_rep_tid) {
+      smem_base[rep_tid] = shared_exp;
     }
     __syncthreads();
+
+    // find max shared_exp across warps in the group
+    // let thread `i` store max shared_exp of warp `i`
+    if (threadIdx.x < num_warps_in_group) {
+      shared_exp = smem_base[threadIdx.x];
+    }
+    __syncwarp();
+    // find max shared_exp
+    for (uint32_t s = num_warps_in_group; s > 0; s /= 2) {
+      int temp_shared_exp = __shfl_xor_sync(FULL_WARP_MASK, shared_exp, s);
+      shared_exp = max(temp_shared_exp, shared_exp);
+    }
+
+    // strore shared_exp in shared_mem
+    if (threadIdx.x == 0) {
+      *smem_base = shared_exp;
+    }
+    __syncthreads();
+
+    // representative thread in each warp in the group reads the max
+    // shared_memory
+    if (is_rep_tid) {
+      shared_exp = *smem_base;
+    }
+    // broadcast max shared_exp to every thread
+    shared_exp =
+        fbgemm_gpu::shfl_sync(shared_exp, 0, WARP_SIZE, FULL_WARP_MASK);
   }
-  // get shared_exponent stored at tid = 0
-  shared_exp = smem_base[0];
 
   // Offset shared exponent by elem_emax, preserve NaNs
   shared_exp =
@@ -183,14 +208,7 @@ __global__ void quantize_float_to_mx4_kernel(
 
   // convert to FP4 -> there is 16 possible values
   // bit pattern of the uint8 result is `0000 xxxx`
-  const uint8_t quantized_val = quantize_elemwise_4bit(
-      scaled_in,
-      elem_mbits,
-      elem_ebits,
-      elem_max_norm,
-      rounding_mode,
-      true,
-      true);
+  const uint8_t quantized_val = quantize_elemwise_mx4(scaled_in);
 
   // Store 2 `quantized_val` in one uint8
   // let even threads store their 4-bit quantized_val on the left (position 4-7)
@@ -241,34 +259,50 @@ template <typename T>
 __global__ void dequantize_mx4_to_float_kernel(
     const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> input,
     const int group_size,
-    const int64_t total_elems,
+    const int64_t total_quant_elems,
     pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> output) {
   const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
   const auto linear_tid = linear_group_id * group_size + threadIdx.x;
-  if (linear_tid >= total_elems)
+  if (linear_tid >= total_quant_elems)
     return;
 
+  const uint32_t sub_group_size = group_size / 4;
   const uint32_t half_group_size = group_size / 2;
+  const uint32_t output_idx = linear_tid * 4;
+  const uint32_t group_id = uint32_t(linear_tid / sub_group_size);
+  const uint32_t start_offset = linear_tid * 2 + group_id;
 
-  const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
-  uint8_t elem = input[start_output_idx + (threadIdx.x / 2)];
-  const uint32_t shared_exp_idx = start_output_idx + half_group_size;
+  const uint8_t elem = input[start_offset];
+  const uint8_t elem2 = input[start_offset + 1];
+  // shared_exp is stored at [half_group_size + offset]
+  // e.g., if group_size=32, data size per group is 16+1=17
+  // shared_exp_indices are 16, 16+17=33, 16+34=50, ...
+  const uint32_t shared_exp_idx =
+      half_group_size + ((half_group_size + 1) * group_id);
   const uint8_t shared_exp = input[shared_exp_idx];
 
   constexpr uint8_t upper_4bit_mask = 0xF0;
   constexpr uint8_t lower_4bit_mask = 0x0F;
-  // even threads take care of 4 bit on the left
-  // odd threads, the right
-  if (uint32_t(threadIdx.x % 2) == 0) {
-    // shift the 4-bit to the end for even threads
-    elem = (elem & upper_4bit_mask);
-    elem = (elem >> 4);
-  } else {
-    elem = (elem & lower_4bit_mask);
-  }
-  CUDA_KERNEL_ASSERT(elem < 16);
 
-  output[linear_tid] = scalbn(MX4_values[elem], shared_exp - FLOAT32_EXP_BIAS);
+  // each threads takes care of 8 bits
+  // first 4 bits
+  const uint8_t high_1 = (elem & lower_4bit_mask);
+  const uint8_t low_1 = (elem & upper_4bit_mask) >> 4;
+  const uint8_t high_2 = (elem2 & lower_4bit_mask);
+  const uint8_t low_2 = (elem2 & upper_4bit_mask) >> 4;
+
+  // last 4 bits
+
+  // CUDA_KERNEL_ASSERT(low < 16 && elem < 16 && low_2 < 16 && elem2 < 16);
+
+  float4* output_ptr = reinterpret_cast<float4*>(&output[output_idx]);
+  const int exp = shared_exp - FLOAT32_EXP_BIAS;
+  float4 deq;
+  deq.x = scalbn(MX4_values[low_1], exp);
+  deq.y = scalbn(MX4_values[high_1], exp);
+  deq.z = scalbn(MX4_values[low_2], exp);
+  deq.w = scalbn(MX4_values[high_2], exp);
+  *output_ptr = deq;
 }
 
 #endif
