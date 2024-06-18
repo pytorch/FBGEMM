@@ -49,7 +49,7 @@ __install_fetch_version_and_variant_info () {
   echo ""
 }
 
-__install_list_subpackages_info () {
+__install_check_subpackages () {
   # shellcheck disable=SC2086,SC2155
   local fbgemm_gpu_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(dir(fbgemm_gpu))")
 
@@ -64,6 +64,22 @@ __install_list_subpackages_info () {
   echo "[CHECK] fbgemm_gpu.experimental: ${experimental_packages}"
   echo "################################################################################"
   echo ""
+
+
+  echo "[INSTALL] Check for installation of Python sources ..."
+  local subpackages=(
+    "fbgemm_gpu.docs"
+    "fbgemm_gpu.tbe.cache"
+    "fbgemm_gpu.tbe.ssd"
+  )
+
+  for package in "${subpackages[@]}"; do
+    (test_python_import_package "${env_name}" "${package}") || return 1
+  done
+
+  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
+    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  fi
 }
 
 __install_check_operator_registrations () {
@@ -105,20 +121,16 @@ __fbgemm_gpu_post_install_checks () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # Print PyTorch and CUDA versions for sanity check
-  __install_print_dependencies_info
+  __install_print_dependencies_info         || return 1
 
   # Fetch the version and variant info from the package
-  __install_fetch_version_and_variant_info
+  __install_fetch_version_and_variant_info  || return 1
 
-  # List out FBGEMM_GPU subpackages
-  __install_list_subpackages_info
+  # Check FBGEMM_GPU subpackages are installed correctly
+  __install_check_subpackages               || return 1
 
-  echo "[INSTALL] Check for installation of Python sources ..."
-  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
-    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
-  fi
-
-  __install_check_operator_registrations
+  # Check operator registrations are working
+  __install_check_operator_registrations    || return 1
 }
 
 install_fbgemm_gpu_wheel () {

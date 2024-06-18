@@ -52,6 +52,10 @@ environment:
   # Enable for debugging failed kernel executions
   export CUDA_LAUNCH_BLOCKING=1
 
+  # For operators involving NCCL, if the rpath is not set up correctly for
+  # libnccl.so.2, LD_LIBRARY_PATH will need to be updated.
+  export LD_LIBRARY_PATH="/path/to/nccl/lib:${LD_LIBRARY_PATH}"
+
   python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning split_table_batched_embeddings_test.py
 
 Testing with the ROCm Variant
