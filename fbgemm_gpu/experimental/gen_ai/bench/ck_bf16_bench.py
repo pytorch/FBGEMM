@@ -6,6 +6,7 @@
 
 import argparse
 import os
+from typing import Optional
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -31,37 +32,52 @@ def set_amd_env_vars():
 
 
 class BaselineMatmul(torch.nn.Module):
-    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-        return torch.matmul(a, b)
+    def forward(
+        self, a: torch.Tensor, b: torch.Tensor, bias: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        out = torch.matmul(a, b)
+        if bias is not None:
+            out += bias
+        return out
 
 
 class CKMatmul(torch.nn.Module):
-    def forward(self, a, b):
-        return torch.ops.fbgemm.bf16_gemm(a, b)
+    def forward(
+        self, a: torch.Tensor, b: torch.Tensor, bias: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        return torch.ops.fbgemm.bf16_gemm(a, b, bias)
 
 
 @torch.no_grad()
-def evaluate_impl(M, N, K, baseline_func, ck_func):
+def evaluate_impl(M, N, K, baseline_func, ck_func, use_bias=False):
     print(f"Evaluating {M=}, {N=}, {K=}")
     A = torch.randn(M, K).to(dtype=torch.bfloat16, device="cuda")
     B = torch.randn(N, K).to(dtype=torch.bfloat16, device="cuda")
 
+    if use_bias:
+        bias = torch.randn(N, dtype=torch.bfloat16, device="cuda")
+    else:
+        bias = None
+
     # Check accuracy.
     out_ref = baseline_func(A.to(torch.float32), B.t().to(torch.float32))
 
-    baseline_out = baseline_func(A, B.t())
+    if bias is not None:
+        out_ref += bias
+
+    baseline_out = baseline_func(A, B.t(), bias)
     baseline_sim = torch.mean(torch.abs(baseline_out - out_ref) ** 2)
     print(f"Baseline accuracy: {baseline_sim}")
 
-    ck_out = ck_func(A, B)
+    ck_out = ck_func(A, B, bias)
     ck_sim = torch.mean(torch.abs(ck_out - out_ref) ** 2)
     print(f"CK accuracy: {ck_sim}")
 
     # Benchmark runtimes.
-    ms_baseline = triton.testing.do_bench(lambda: baseline_func(A, B.t()))
+    ms_baseline = triton.testing.do_bench(lambda: baseline_func(A, B.t(), bias))
     print(f"Baseline runtime: {ms_baseline} ms")
 
-    ms_ck = triton.testing.do_bench(lambda: ck_func(A, B))
+    ms_ck = triton.testing.do_bench(lambda: ck_func(A, B, bias))
     print(f"CK runtime: {ms_ck} ms")
 
     return baseline_sim, ck_sim, ms_baseline, ms_ck
@@ -91,7 +107,7 @@ def main(args):
         benchmark_results = []
 
         # Test over a bunch of shapes.
-        M = [2048, 2304, 13312, 16032, 16384]
+        M = [4, 64, 2048, 2304, 13312, 16032, 16384]
         N = [2304, 4096, 8192, 13312]
         K = [2048, 2304, 6656, 13312, 16384]
 
@@ -99,7 +115,12 @@ def main(args):
             for n in N:
                 for k in K:
                     baseline_sim, ck_sim, ms_baseline, ms_ck = evaluate_impl(
-                        m, n, k, baseline_mod, ck_mod
+                        m,
+                        n,
+                        k,
+                        baseline_mod,
+                        ck_mod,
+                        args.use_bias,
                     )
                     benchmark_results.append(
                         {
@@ -135,6 +156,12 @@ def invoke_main() -> None:
         default=False,
         action="store_true",
         help="Enable a set of environment variables for AMD GPU performance",
+    )
+    parser.add_argument(
+        "--use_bias",
+        default=False,
+        action="store_true",
+        help="If set, perform bias addition after matmul",
     )
 
     args = parser.parse_args()
