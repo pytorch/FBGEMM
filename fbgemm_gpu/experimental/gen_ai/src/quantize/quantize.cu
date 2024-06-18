@@ -1283,7 +1283,8 @@ std::vector<at::Tensor> quantize_fp8_per_col(
 std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size
-    std::optional<at::Tensor> scale_ub) { // scale upperbound
+    std::optional<at::Tensor> scale_ub,
+    bool stochastic_rounding) { // scale upperbound
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -1292,7 +1293,8 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub, // scale upperbound
-    std::optional<c10::ScalarType> output_dtype) { // quantization type
+    std::optional<c10::ScalarType> output_dtype,
+    bool stochastic_rounding) { // quantization type
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -1300,7 +1302,8 @@ std::vector<at::Tensor> quantize_fp8_per_row(
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
     at::Tensor scale,
-    std::optional<at::Tensor> bs) { // batch size
+    std::optional<at::Tensor> bs,
+    bool stochastic_rounding) { // batch size
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

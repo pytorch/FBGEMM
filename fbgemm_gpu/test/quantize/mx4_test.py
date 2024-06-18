@@ -12,7 +12,6 @@ from typing import List
 import hypothesis.strategies as st
 
 import torch
-from deeplearning.fbgemm.fbgemm_gpu.test.quantize.mx.common import check_diff_quantize
 
 from hypothesis import given, settings, Verbosity
 
@@ -25,6 +24,7 @@ from .mx.common import (
     _shared_exponents,
     _undo_reshape_to_blocks,
     all_encodings,
+    check_diff_quantize,
 )
 
 if open_source:

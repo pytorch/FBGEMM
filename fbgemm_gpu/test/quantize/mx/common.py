@@ -10,7 +10,7 @@
 
 import struct
 from enum import Enum, IntEnum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -78,7 +78,7 @@ _FORMAT_CACHE: Dict[ElemFormat, Tuple[int, int, int, float, float]] = {}
 
 
 def _get_format_params(  # noqa
-    fmt: ElemFormat | str | None,
+    fmt: Union[ElemFormat, str, None],
 ) -> Tuple[int, int, int, float, float]:
     """Allowed formats:
     - intX:         2 <= X <= 32, assume sign-magnitude, 1.xxx representation
@@ -546,7 +546,7 @@ def _quantize_elemwise_core(
 
 def _quantize_elemwise(
     A: torch.Tensor,
-    elem_format: ElemFormat | None,
+    elem_format: Union[ElemFormat, None],
     round: str = "nearest",
     custom_cuda: bool = False,
     saturate_normals: bool = False,
