@@ -5,8 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-
-# pyre-ignore-all-errors[56]
+# pyre-ignore-all-errors[3,6,56]
 
 import random
 import unittest
@@ -28,8 +27,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     rounded_row_size_in_bytes,
     unpadded_row_size_in_bytes,
 )
-
-from fbgemm_gpu.ssd_split_table_batched_embeddings_ops import (
+from fbgemm_gpu.tbe.ssd import (
     SSDIntNBitTableBatchedEmbeddingBags,
     SSDTableBatchedEmbeddingBags,
 )
