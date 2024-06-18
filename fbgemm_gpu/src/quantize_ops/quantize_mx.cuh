@@ -9,6 +9,7 @@
 #ifndef PYT_MX_MX_CUH
 #define PYT_MX_MX_CUH
 
+#include <cstdint>
 #include "mx_common.cuh"
 
 //-----------------------------------------------------------------------
@@ -39,7 +40,7 @@ __device__ __forceinline__ uint8_t quantize_elemwise_mx4(const float input) {
   // const int mbits = bits - 1;
   constexpr int mbits = 2;
 
-  const int new_bias = (1 << (exp_bits - 1)) - 1;
+  constexpr int new_bias = (1 << (exp_bits - 1)) - 1;
   int new_biased_exp = biased_exp - FLOAT32_EXP_BIAS + new_bias;
 
   // Use exp_diff to truncate additional bits for subnorms
@@ -217,34 +218,50 @@ template <typename T>
 __global__ void dequantize_mx4_to_float_kernel(
     const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> input,
     const int group_size,
-    const int64_t total_elems,
+    const int64_t total_quant_elems,
     pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> output) {
   const auto linear_group_id = (blockIdx.x * blockDim.y) + threadIdx.y;
   const auto linear_tid = linear_group_id * group_size + threadIdx.x;
-  if (linear_tid >= total_elems)
+  if (linear_tid >= total_quant_elems)
     return;
 
+  const uint32_t sub_group_size = group_size / 4;
   const uint32_t half_group_size = group_size / 2;
+  const uint32_t output_idx = linear_tid * 4;
+  const uint32_t group_id = uint32_t(linear_tid / sub_group_size);
+  const uint32_t start_offset = linear_tid * 2 + group_id;
 
-  const uint32_t start_output_idx = (half_group_size + 1) * linear_group_id;
-  uint8_t elem = input[start_output_idx + (threadIdx.x / 2)];
-  const uint32_t shared_exp_idx = start_output_idx + half_group_size;
+  const uint8_t elem = input[start_offset];
+  const uint8_t elem2 = input[start_offset + 1];
+  // shared_exp is stored at [half_group_size + offset]
+  // e.g., if group_size=32, data size per group is 16+1=17
+  // shared_exp_indices are 16, 16+17=33, 16+34=50, ...
+  const uint32_t shared_exp_idx =
+      half_group_size + ((half_group_size + 1) * group_id);
   const uint8_t shared_exp = input[shared_exp_idx];
 
   constexpr uint8_t upper_4bit_mask = 0xF0;
   constexpr uint8_t lower_4bit_mask = 0x0F;
-  // even threads take care of 4 bit on the left
-  // odd threads, the right
-  if (uint32_t(threadIdx.x % 2) == 0) {
-    // shift the 4-bit to the end for even threads
-    elem = (elem & upper_4bit_mask);
-    elem = (elem >> 4);
-  } else {
-    elem = (elem & lower_4bit_mask);
-  }
-  CUDA_KERNEL_ASSERT(elem < 16);
 
-  output[linear_tid] = scalbn(MX4_values[elem], shared_exp - FLOAT32_EXP_BIAS);
+  // each threads takes care of 8 bits
+  // first 4 bits
+  const uint8_t high_1 = (elem & lower_4bit_mask);
+  const uint8_t low_1 = (elem & upper_4bit_mask) >> 4;
+  const uint8_t high_2 = (elem2 & lower_4bit_mask);
+  const uint8_t low_2 = (elem2 & upper_4bit_mask) >> 4;
+
+  // last 4 bits
+
+  // CUDA_KERNEL_ASSERT(low < 16 && elem < 16 && low_2 < 16 && elem2 < 16);
+
+  float4* output_ptr = reinterpret_cast<float4*>(&output[output_idx]);
+  const int exp = shared_exp - FLOAT32_EXP_BIAS;
+  float4 deq;
+  deq.x = scalbn(MX4_values[low_1], exp);
+  deq.y = scalbn(MX4_values[high_1], exp);
+  deq.z = scalbn(MX4_values[low_2], exp);
+  deq.w = scalbn(MX4_values[high_2], exp);
+  *output_ptr = deq;
 }
 
 #endif
