@@ -286,6 +286,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.timesteps_prefetched: List[int] = []
         self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
         # TODO: add type annotation
+        # pyre-fixme[4]: Attribute must be annotated.
         self.ssd_prefetch_data = []
 
         if weight_decay_mode == WeightDecayMode.COUNTER or counter_based_regularization:
@@ -339,6 +340,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 offsets=[0] * (len(rows)),
             ),
             "weights",
+            # pyre-fixme[6]: For 3rd argument expected `Type[dtype]` but got `dtype`.
             dtype=table_embedding_dtype,
         )
 
@@ -352,6 +354,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 offsets=momentum1_offsets[:-1],
             ),
             "momentum1",
+            # pyre-fixme[6]: For 3rd argument expected `Type[dtype]` but got `dtype`.
             dtype=torch.float32,
         )
 
@@ -465,6 +468,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
             )
 
+        # pyre-fixme[7]: Expected `Tensor` but got `Tuple[typing.Any, Tensor,
+        #  typing.Any, Tensor]`.
         return (
             lxu_cache_ptrs,
             inserted_rows_gpu,
@@ -632,6 +637,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+            # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
             return invokers.lookup_rowwise_adagrad_ssd.invoke(
                 common_args, self.optimizer_args, momentum1
             )
