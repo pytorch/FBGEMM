@@ -143,7 +143,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
-        power=st.integers(min_value=5, max_value=7),
+        power=st.integers(min_value=5, max_value=8),
         sizes=st.integers(min_value=4, max_value=12),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
