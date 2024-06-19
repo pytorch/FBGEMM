@@ -24,13 +24,28 @@
 
 namespace fbgemm_gpu {
 
+int32_t compute_smem_bytes(
+    const uint32_t num_warps_in_group,
+    const uint32_t num_groups_per_block,
+    const int64_t mx_group_size) {
+  const auto smem_size =
+      (num_groups_per_block * mx_group_size) * sizeof(uint8_t);
+
+  if (num_warps_in_group > 1) {
+    return max(
+        num_warps_in_group * (num_groups_per_block) * sizeof(int), smem_size);
+  }
+  return smem_size;
+}
+
 // from codegen/training/backward/embedding_backward_split_template.cu
 template <typename func_t>
 int32_t compute_num_groups_and_dynamic_smem_bytes(
     uint32_t* num_groups_per_block,
     const int64_t mx_group_size,
     const int device,
-    const func_t kernel_func_name) {
+    const func_t kernel_func_name,
+    const uint32_t num_warps_in_group) {
   int32_t smem_bytes = 0;
 
   // V100: 96 KB; A100: 160 KB; H100: 228 KB.
@@ -57,8 +72,10 @@ int32_t compute_num_groups_and_dynamic_smem_bytes(
   // Stay under used_shared_kb of shared memory (V100: 64 KB;
   // A100: 96 KB; H100: 144 KB), num_groups must be a power
   // of two.
-  // max(num_elem_in_block * sizeof(int), num_elem_in_block /2 * sizeof(uint8))
-  while ((smem_bytes = *num_groups_per_block * mx_group_size * (sizeof(int))) >=
+  // max(num_warps_in_group * num_groups_per_block * sizeof(int),
+  // num_elem_in_block * sizeof(uint8))
+  while ((smem_bytes = compute_smem_bytes(
+              num_warps_in_group, *num_groups_per_block, mx_group_size)) >=
          used_shared_bytes) {
     *num_groups_per_block /= 2;
   }
@@ -132,14 +149,23 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
 
   RoundingMode rd = static_cast<RoundingMode>(rounding_mode);
 
+  const uint32_t num_warps_in_group = mx_group_size / WARP_SIZE;
+  CUDA_KERNEL_ASSERT(num_warps_in_group <= WARP_SIZE);
+
   uint32_t num_groups_per_block = MAX_THREADS / mx_group_size;
-  const auto kernel_func = quantize_float_to_mx4_kernel<float>;
+  const auto kernel_func = (num_warps_in_group > 1)
+      ? quantize_float_to_mx4_kernel<float, true>
+      : quantize_float_to_mx4_kernel<float, false>;
 
   int device_id = input.get_device();
 
   // Use shmem to find max exponent (int) and temporarily store output (unint8)
   const int32_t smem_size = compute_num_groups_and_dynamic_smem_bytes(
-      &num_groups_per_block, mx_group_size, device_id, kernel_func);
+      &num_groups_per_block,
+      mx_group_size,
+      device_id,
+      kernel_func,
+      num_warps_in_group);
 
   const auto gridDim_x =
       max(1, div_round_up(total_num_groups, num_groups_per_block));
@@ -181,7 +207,9 @@ DLL_PUBLIC at::Tensor quantize_mx_cuda(
         total_elems,
         // flush_fp32_subnorms, // TODO: Update as template argument
         rd,
-        MAKE_PTA_WITH_NAME(func_name, output, uint8_t, 1, 64));
+        MAKE_PTA_WITH_NAME(func_name, output, uint8_t, 1, 64),
+        num_warps_in_group,
+        max(num_warps_in_group, int(mx_group_size / 4))); // smem_stride
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   return output;
