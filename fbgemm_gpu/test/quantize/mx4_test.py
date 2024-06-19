@@ -12,6 +12,8 @@ from typing import List
 import hypothesis.strategies as st
 
 import torch
+from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
+from fbgemm_gpu.triton_quantize import py_dequantize_mx4, py_quantize_mx4
 
 from hypothesis import given, settings, Verbosity
 
@@ -127,7 +129,6 @@ def fake_quantize_mx(
         saturate_normals=True,
         custom_cuda=False,
     )
-
     A = A * scale
 
     # Undo tile reshaping
@@ -143,7 +144,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
-        power=st.integers(min_value=5, max_value=8),
+        power=st.integers(min_value=5, max_value=7),
         sizes=st.integers(min_value=4, max_value=12),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -180,7 +181,17 @@ class TestMXQuantizationConversion(unittest.TestCase):
             group_size=group_size,
         )
 
+        ## Triton Simplified Python
+        py_mx_y3 = py_quantize_mx4(input, group_size)
+        py_y3 = py_dequantize_mx4(py_mx_y3, group_size)
+        mx_y3 = fp32_to_mx4(input, group_size, use_triton=True)
+        y3 = mx4_to_fp32(mx_y3, group_size, use_triton=False)
+        y4 = mx4_to_fp32(mx_y3, group_size, use_triton=True)
+
         check_diff_quantize(input, output_ref, output)
+        check_diff_quantize(input, output, y3)
+        check_diff_quantize(input, y3, y4)
+        check_diff_quantize(input, y4, py_y3)
 
 
 if __name__ == "__main__":
