@@ -609,8 +609,11 @@ installed:</p>
 <p>Install a version of the GCC toolchain <strong>that supports C++20</strong>.  The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code>
 package will also need to be installed to avoid issues with missing versioned
 symbols with <code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> when compiling FBGEMM_CPU:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Fix GCC to 10.4.0, to keep compatibility with older versions of GLIBCXX</span>
-<span class="nv">gcc_version</span><span class="o">=</span><span class="m">15</span>.0.7
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Set GCC to 10.4.0 to keep compatibility with older versions of GLIBCXX</span>
+<span class="c1">#</span>
+<span class="c1"># A newer versions of GCC also works, but will need to be accompanied by an</span>
+<span class="c1"># appropriate updated version of the sysroot_linux package.</span>
+<span class="nv">gcc_version</span><span class="o">=</span><span class="m">10</span>.4.0
 
 conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="si">${</span><span class="nv">gcc_version</span><span class="si">}</span><span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17
 </pre></div>

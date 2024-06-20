@@ -458,6 +458,10 @@ environment:</p>
 <span class="c1"># Enable for debugging failed kernel executions</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_LAUNCH_BLOCKING</span><span class="o">=</span><span class="m">1</span>
 
+<span class="c1"># For operators involving NCCL, if the rpath is not set up correctly for</span>
+<span class="c1"># libnccl.so.2, LD_LIBRARY_PATH will need to be updated.</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">LD_LIBRARY_PATH</span><span class="o">=</span><span class="s2">&quot;/path/to/nccl/lib:</span><span class="si">${</span><span class="nv">LD_LIBRARY_PATH</span><span class="si">}</span><span class="s2">&quot;</span>
+
 python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
 </pre></div>
 </div>
