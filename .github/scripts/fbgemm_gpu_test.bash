@@ -65,8 +65,15 @@ run_python_test () {
 }
 
 __configure_fbgemm_gpu_test_cpu () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+  echo "[TEST] Set environment variables for CPU-only testing ..."
+
+  # Prevent automatically running CUDA-enabled tests on a GPU-capable machine
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CUDA_VISIBLE_DEVICES=-1
+
   ignored_tests=(
-    ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
@@ -74,20 +81,27 @@ __configure_fbgemm_gpu_test_cpu () {
 }
 
 __configure_fbgemm_gpu_test_cuda () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+  echo "[TEST] Set environment variables for CPU-only testing ..."
+
   # Disabled by default; enable for debugging
   # shellcheck disable=SC2086
   # print_exec conda env config vars set ${env_prefix} CUDA_LAUNCH_BLOCKING=1
 
+  # Remove CUDA device specificity when running CUDA tests
+  # shellcheck disable=SC2086
+  print_exec conda env config vars unset ${env_prefix} CUDA_VISIBLE_DEVICES
+
   ignored_tests=(
-    ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
   )
 }
 
 __configure_fbgemm_gpu_test_rocm () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
-
   echo "[TEST] Set environment variables for ROCm testing ..."
+
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} FBGEMM_TEST_WITH_ROCM=1
   # shellcheck disable=SC2086
@@ -102,7 +116,6 @@ __configure_fbgemm_gpu_test_rocm () {
   fi
 
   ignored_tests=(
-    ./tbe/ssd/ssd_split_table_batched_embeddings_test.py
     # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
   )

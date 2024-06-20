@@ -138,9 +138,9 @@ test_python_import_package () {
 
   # shellcheck disable=SC2086
   if conda run ${env_prefix} python -c "import ${python_import}"; then
-    echo "[CHECK] Python package '${python_import}' found."
+    echo "[CHECK] Python (sub-)package '${python_import}' found ..."
   else
-    echo "[CHECK] Python package '${python_import}' was not found, or the package is broken!"
+    echo "[CHECK] Python (sub-)package '${python_import}' was not found!  Please check if the Python sources have been packaged correctly."
     return 1
   fi
 }
