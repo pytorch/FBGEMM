@@ -36,11 +36,22 @@ from fbgemm_gpu.ssd_split_table_batched_embeddings_ops import (
 
 from hypothesis import assume, given, settings, Verbosity
 
+from .. import common  # noqa E402
+from ..common import open_source
+
+
+if open_source:
+    # pyre-ignore[21]
+    from test_utils import gpu_unavailable, running_on_github
+else:
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_github
+
 
 MAX_EXAMPLES = 40
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+@unittest.skipIf(*running_on_github)
+@unittest.skipIf(*gpu_unavailable)
 class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def get_physical_table_arg_indices_(self, feature_table_map: List[int]):
         """
@@ -767,7 +778,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skip when CUDA is not available")
+@unittest.skipIf(*running_on_github)
+@unittest.skipIf(*gpu_unavailable)
 class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_nbit_ssd(self) -> None:
         import tempfile

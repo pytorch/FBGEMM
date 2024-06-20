@@ -245,8 +245,11 @@ symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
 
 .. code:: sh
 
-  # Fix GCC to 10.4.0, to keep compatibility with older versions of GLIBCXX
-  gcc_version=15.0.7
+  # Set GCC to 10.4.0 to keep compatibility with older versions of GLIBCXX
+  #
+  # A newer versions of GCC also works, but will need to be accompanied by an
+  # appropriate updated version of the sysroot_linux package.
+  gcc_version=10.4.0
 
   conda install -n ${env_name} -c conda-forge -y gxx_linux-64=${gcc_version} sysroot_linux-64=2.17
 
