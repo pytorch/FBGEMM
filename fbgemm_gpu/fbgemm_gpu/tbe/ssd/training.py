@@ -102,9 +102,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Parameter Server Configs
         ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
         tbe_unique_id: int = -1,
-        ps_max_key_per_request: Optional[int] = None,
-        ps_client_thread_num: Optional[int] = None,
-        ps_max_local_index_length: Optional[int] = None,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -261,22 +258,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     | SSDTableBatchedEmbeddingBags._local_instance_index
                 )
             logging.info(f"tbe_unique_id: {tbe_unique_id}")
-            logging.info(f"ps_max_local_index_length: {ps_max_local_index_length}")
-            logging.info(f"ps_client_thread_num: {ps_client_thread_num}")
-            logging.info(f"ps_max_key_per_request: {ps_max_key_per_request}")
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
                 [host[0] for host in ps_hosts],
                 [host[1] for host in ps_hosts],
                 tbe_unique_id,
-                (
-                    ps_max_local_index_length
-                    if ps_max_local_index_length is not None
-                    else 54
-                ),
-                ps_client_thread_num if ps_client_thread_num is not None else 32,
-                ps_max_key_per_request if ps_max_key_per_request is not None else 500,
+                54,
+                32,
             )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
