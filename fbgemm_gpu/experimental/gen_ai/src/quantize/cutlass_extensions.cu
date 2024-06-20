@@ -1024,18 +1024,18 @@ at::Tensor f8f8bf16_rowwise_impl(
 
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
 
-  using ElementInputA = INPUT_DTYPE;
+  using ElementInputA = cutlass::float_e4m3_t;
   using LayoutInputA = cutlass::layout::RowMajor;
   constexpr int AlignmentInputA = 16 / sizeof(ElementInputA);
 
-  using ElementInputB = cutlass::float_e4m3_t;
+  using ElementInputB = INPUT_DTYPE;
   using LayoutInputB = cutlass::layout::ColumnMajor;
   constexpr int AlignmentInputB = 16 / sizeof(ElementInputB);
 
   using ElementBias = BIAS_DTYPE;
 
   using ElementOutput = cutlass::bfloat16_t;
-  using LayoutOutput = cutlass::layout::RowMajor;
+  using LayoutOutput = cutlass::layout::ColumnMajor;
   constexpr int AlignmentOutput = 16 / sizeof(ElementOutput);
 
   using ElementAccumulator = float;
@@ -1062,23 +1062,20 @@ at::Tensor f8f8bf16_rowwise_impl(
                           // the Collective Builder
 
   // Implement rowwise scaling epilogue.
-  using XScale = cutlass::epilogue::fusion::Sm90ColBroadcast<
+  using XScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
+      PONG ? 2 : 1,
+      TileShape,
+      ElementComputeEpilogue>;
+
+  using WScale = cutlass::epilogue::fusion::Sm90ColBroadcast<
       0,
       TileShape,
-      ElementComputeEpilogue,
-      cute::Stride<cute::Int<1>, cute::Int<0>, cute::Int<0>>>;
+      ElementComputeEpilogue>;
 
-  using WScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
+  using Bias = cutlass::epilogue::fusion::Sm90ColBroadcast<
+      0,
       TileShape,
-      ElementComputeEpilogue,
-      cute::Stride<cute::Int<0>, cute::Int<1>, cute::Int<0>>>;
-
-  using Bias = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
-      TileShape,
-      ElementBias,
-      cute::Stride<cute::Int<0>, cute::Int<1>, cute::Int<0>>>;
+      ElementBias>;
 
   using Accum = cutlass::epilogue::fusion::Sm90AccFetch;
 
@@ -1174,18 +1171,18 @@ at::Tensor f8f8bf16_rowwise_impl(
   using StrideOutput = typename Gemm::GemmKernel::StrideC;
 
   StrideInputA stride_a = cutlass::make_cute_packed_stride(
-      StrideInputA{}, cute::make_shape(M, K, cute::Int<1>{}));
+      StrideInputA{}, cute::make_shape(N, K, cute::Int<1>{}));
   StrideInputB stride_b = cutlass::make_cute_packed_stride(
-      StrideInputB{}, cute::make_shape(N, K, cute::Int<1>{}));
+      StrideInputB{}, cute::make_shape(M, K, cute::Int<1>{}));
   StrideOutput stride_output = cutlass::make_cute_packed_stride(
-      StrideOutput{}, cute::make_shape(M, N, cute::Int<1>{}));
+      StrideOutput{}, cute::make_shape(N, M, cute::Int<1>{}));
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
-      {M, N, K},
-      {reinterpret_cast<ElementInputA*>(XQ.data_ptr()),
+      {N, M, K},
+      {reinterpret_cast<ElementInputA*>(WQ.data_ptr()),
        stride_a,
-       reinterpret_cast<ElementInputB*>(WQ.data_ptr()),
+       reinterpret_cast<ElementInputB*>(XQ.data_ptr()),
        stride_b},
       {{}, // Epilogue thread we populate below.
        (ElementOutput*)Y.data_ptr<at::BFloat16>(),
@@ -1233,7 +1230,7 @@ at::Tensor f8f8bf16_rowwise_impl(
   size_t workspace_size = Gemm::get_workspace_size(arguments);
 
   // Allocate workspace memory
-  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+  auto workspace = XQ.new_empty({(int64_t)workspace_size}, at::TensorOptions().dtype(at::kByte));
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm.can_implement(arguments);
@@ -1242,7 +1239,7 @@ at::Tensor f8f8bf16_rowwise_impl(
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.get());
+  status = gemm.initialize(arguments, workspace.data_ptr());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }
