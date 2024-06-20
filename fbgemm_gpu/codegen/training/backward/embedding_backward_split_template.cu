@@ -224,7 +224,8 @@ template <
     int32_t kFixedMaxVecsPerThread,
     int32_t kThreadGroupSize,
     bool kUseVecBlocking,
-    int32_t embedding_dim>
+    int32_t embedding_dim,
+    int32_t weight_decay_mode>
 //__global__ __launch_bounds__(kBackwardMaxThreads) void
 __global__ void
 // {%- if is_index_select %}
@@ -860,7 +861,7 @@ Tensor {{ embedding_cuda_op }}(
             vdesc,
             )
      %}
-#define ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(EDIM)               \
+#define ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(EDIM, DECAY_MODE)   \
                     auto hip_backward_warp_per_row_kernel =     \
                         {{ hip_kernel }}                        \
                             <emb_t,                             \
@@ -869,7 +870,8 @@ Tensor {{ embedding_cuda_op }}(
                              kFixedMaxVecsPerThread,            \
                              kThreadGroupSize,                  \
                              kUseVecBlocking,                   \
-                             EDIM>
+                             EDIM,                              \
+                             DECAY_MODE>
 
 #define INVOKE_BACKWARD_WARP_PER_ROW_KERNEL() do {                                                                              \
                     hip_backward_warp_per_row_kernel                                                                            \
@@ -1281,14 +1283,15 @@ Tensor {{ embedding_cuda_op }}(
                         result.shift = shift;
                         return result;
                     }(B);
+                    // FIXME: The template if-endif below seems redudant. Consider removing it
                     {%- if optimizer == "rowwise_adagrad" and not dense %}
                     rowwise_adagrad_kernel_arg_t opt_karg;
                     opt_karg.p_momentum = momentum1_dev.packed_accessor64<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits>().data();
                     opt_karg.eps = eps;
                     opt_karg.learning_rate = learning_rate;
-                    // TODO: weight_decay is passed as args.split_function_args_no_defaults, in the name of weight_decay_mode
-                    // opt_karg.weight_decay = weight_decay;
-                    opt_karg.weight_decay = 0;
+                    // weight_decay(_mode) is supplied as args.split_function_args_no_defaults
+                    opt_karg.weight_decay_mode = weight_decay_mode;
+                    opt_karg.weight_decay = weight_decay;
                     {%- endif %}
 
                     // DEBUG
@@ -1296,18 +1299,54 @@ Tensor {{ embedding_cuda_op }}(
                         std::cout << "Calling HIP Perf Kernel" << std::endl;
                         return true;
                     } ();
-                    if (max_D == 64) {
-                        ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64);
-                        INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
-                    } else if (max_D == 128) {
-                        ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128);
-                        INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
-                    } else if (max_D == 192) {
-                        ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192);
-                        INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
-                    } else if (max_D == 256) {
-                        ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256);
-                        INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                    {%- if nobag %}
+                    std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
+                    {%- endif %}
+                    if (weight_decay_mode == 1) {
+                      constexpr int32_t WDM = 1;
+                      if (max_D == 64) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 128) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 192) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 256) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      }
+                    } else if (weight_decay_mode == 2) {
+                      constexpr int32_t WDM = 2;
+                      if (max_D == 64) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 128) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 192) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 256) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      }
+                    } else {
+                      constexpr int32_t WDM = 0;
+                      if (max_D == 64) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 128) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 192) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      } else if (max_D == 256) {
+                          ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256, WDM);
+                          INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
+                      }
                     }
                     C10_CUDA_KERNEL_LAUNCH_CHECK();
                     {%- set warp_kernel =
