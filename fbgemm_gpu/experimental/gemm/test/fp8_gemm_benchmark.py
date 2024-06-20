@@ -9,7 +9,7 @@
 from typing import Callable, Tuple
 
 import torch
-import triton
+import triton  # @manual
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
