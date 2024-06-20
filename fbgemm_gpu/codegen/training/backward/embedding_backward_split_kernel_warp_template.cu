@@ -927,7 +927,7 @@ template <
     int32_t kThreadGroupSize,
     bool kUseVecBlocking,
     int32_t embedding_dim,
-    int64_t weight_decay_mode>
+    int32_t weight_decay_mode>
 //__global__ __launch_bounds__(kBackwardMaxThreads) void
 __global__ void
 // {%- if is_index_select %}
