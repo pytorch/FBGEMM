@@ -13,8 +13,10 @@ import random
 import click
 import fbgemm_gpu
 import hypothesis.strategies as st
+import numpy as np
 import torch
 from hypothesis import given, settings
+from torch.profiler import profile, ProfilerActivity
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -186,6 +188,199 @@ def bench_spectrum(
         num_rows=num_rows,
         warmup_runs=warmup_runs,
     )
+
+
+def is_power_of_two(n: int) -> bool:
+    # return true for x == 0
+    return not (n & (n - 1))
+
+
+def all_encodings(
+    _e: int,
+    _m: int,
+    device: torch.device,
+    encodes_infs: bool = True,
+) -> torch.Tensor:
+    _CACHE = {}
+    if (_e, _m, encodes_infs) in _CACHE:
+        x = _CACHE[(_e, _m, encodes_infs)]
+        return torch.as_tensor(x, dtype=torch.float32, device=device)
+
+    # Holds all positive and negative
+    x = np.zeros((2 ** (_e + _m + 1)), dtype=np.float32)
+    for _i in range(2 ** (_e + _m)):
+        if _e > 0:
+            _exp = _i >> _m
+            # Skip exp == all ones
+            if encodes_infs and _exp == 2**_e - 1:
+                continue
+            # Normal or subnormal encoding
+            if _exp == 0:
+                _exp = 1 - (2 ** (_e - 1) - 1)
+                _explicit = 0.0
+            else:
+                _exp -= 2 ** (_e - 1) - 1
+                _explicit = 1.0
+            # Obtain mantissa value
+            _mant = _i & ((2**_m) - 1)
+            _mmant = _mant / (2**_m)
+
+            # FP8 e4m3 hack
+            if _e == 4 and _m == 3 and _exp == 8 and _mmant == 0.875:
+                _value = 0
+            else:
+                _value = 2 ** (_exp) * (_explicit + _mmant)
+        else:
+            _value = _i / (2 ** (_m - 1))
+
+        x[_i] = _value
+        x[_i + 2 ** (_e + _m)] = -_value
+
+    _CACHE[(_e, _m, encodes_infs)] = x
+
+    return torch.as_tensor(x, dtype=torch.float32, device=device)
+
+
+@cli.command()
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--iters", default=100)
+@click.option("--group-size", default=32)
+@click.option("--warmup-runs", default=10)
+@click.option("--is-fwd", default=True)
+@click.option("--enable-trace-profile", is_flag=True, default=False)
+@click.option("--trace-cuda-only", is_flag=True, default=False)
+@click.option("--power", default=0)
+@click.option("--fp8-only", is_flag=True, default=False)
+@click.option("--mx4-only", is_flag=True, default=False)
+def bench_mx4(
+    flush_gpu_cache_size_mb: int,
+    iters: int,
+    group_size: int,
+    warmup_runs: int,
+    is_fwd: bool,
+    enable_trace_profile: bool,
+    trace_cuda_only: bool,
+    power: int,
+    mx4_only: bool,
+    fp8_only: bool,
+) -> None:
+    assert group_size > 0
+    assert is_power_of_two(group_size)
+    assert torch.cuda.is_available(), "NO GPUs available"
+    device = torch.device("cuda")
+
+    if power != 0:
+        start = power
+        end = power + 1
+    else:
+        start = 16
+        end = 24
+
+    for k in range(start, end):
+
+        size: int = int(2**k)
+        input_data = torch.rand(size, device=device, dtype=torch.float32)
+
+        benchmark = functools.partial(
+            benchmark_torch_function,
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            iters=iters,
+            num_warmups=warmup_runs,
+        )
+        input_size = input_data.numel()
+        logging.info(f"input size: {size} group size: {group_size}")
+        input_2d = input_data.view((-1, 256))
+
+        if enable_trace_profile:
+            if trace_cuda_only:
+                activities = [ProfilerActivity.CUDA]
+            else:
+                activities = None
+            with profile(activities=activities) as prof:
+                q_average_time, dequant_data = benchmark(
+                    torch.ops.fbgemm.quantize_mx_cuda,
+                    (
+                        input_data,
+                        8,  # scale_bits
+                        2,  # ebits
+                        3,  # mbits
+                        6.0,  # max_norm
+                        group_size,  # group_size
+                    ),
+                )
+            print(
+                prof.key_averages().table(sort_by="cuda_time_total", row_limit=10),
+                f"MX4 quantize input_size: {input_size}",
+            )
+            prof.export_chrome_trace(f"MX4_quant_{input_size}.json")
+            with profile(activities=activities) as prof:
+                d_average_time, _ = benchmark(
+                    torch.ops.fbgemm.dequantize_mx_cuda,
+                    (dequant_data, group_size),
+                )
+            print(
+                prof.key_averages().table(sort_by="cuda_time_total", row_limit=10),
+                f"MX4 dequantize input_size: {input_size}",
+            )
+            prof.export_chrome_trace(f"MX4_deq_{input_size}.json")
+
+            with profile(activities=activities) as prof:
+                q_average_time, dequant_data = benchmark(
+                    torch.ops.fbgemm.FloatToFP8RowwiseQuantized,
+                    (input_2d, is_fwd),
+                )
+            print(
+                prof.key_averages().table(sort_by="cuda_time_total", row_limit=10),
+                f"FP8 quantize input_size: {input_size}",
+            )
+            prof.export_chrome_trace(f"FP8_quant_{input_size}.json")
+            with profile(activities=activities) as prof:
+                d_average_time, _ = benchmark(
+                    torch.ops.fbgemm.FP8RowwiseQuantizedToFloat, (dequant_data, is_fwd)
+                )
+            print(
+                prof.key_averages().table(sort_by="cuda_time_total", row_limit=10),
+                f"FP8 dequantize input_size: {input_size}",
+            )
+            prof.export_chrome_trace(f"FP8_deq_{input_size}.json")
+        else:
+            if not fp8_only:
+                q_average_time, dequant_data = benchmark(
+                    torch.ops.fbgemm.quantize_mx_cuda,
+                    (
+                        input_data,
+                        8,  # scale_bits
+                        2,  # ebits
+                        3,  # mbits
+                        6.0,  # max_norm
+                        group_size,  # group_size
+                    ),
+                )
+                d_average_time, _ = benchmark(
+                    torch.ops.fbgemm.dequantize_mx_cuda,
+                    (dequant_data, group_size),
+                )
+                logging.info(
+                    f"input_size={input_size} MX4 quantized time per iter: {q_average_time * 1.0e6:.0f}us"
+                )
+                logging.info(
+                    f"input_size={input_size} MX4 dequantized time per iter: {d_average_time * 1.0e6:.0f}us"
+                )
+            if not mx4_only:
+                q_average_time, dequant_data = benchmark(
+                    torch.ops.fbgemm.FloatToFP8RowwiseQuantized,
+                    (input_2d, is_fwd),
+                )
+                d_average_time, _ = benchmark(
+                    torch.ops.fbgemm.FP8RowwiseQuantizedToFloat,
+                    (dequant_data, is_fwd),
+                )
+                logging.info(
+                    f"input_size={input_size} FP8 quantized time per iter: {q_average_time * 1.0e6:.0f}us"
+                )
+                logging.info(
+                    f"input_size={input_size} FP8 dequantized time per iter: {d_average_time * 1.0e6:.0f}us"
+                )
 
 
 @cli.command()
