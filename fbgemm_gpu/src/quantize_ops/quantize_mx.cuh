@@ -22,7 +22,6 @@
 __device__ __forceinline__ uint8_t quantize_elemwise_mx4(const float input) {
   // bits = mantissa bits + sign bit = 3
   constexpr int exp_bits = 2;
-  constexpr float max_norm = 6.0f;
   // const RoundingMode rounding_mode = rd_away,
   // const bool saturate_normals = true;
   // const bool allow_denorm = true;
@@ -48,57 +47,48 @@ __device__ __forceinline__ uint8_t quantize_elemwise_mx4(const float input) {
   // we want exp_diff = 1 to truncate away 1 bit
   int exp_diff = (new_biased_exp <= 0) ? 1 - new_biased_exp : 0;
   exp_diff = (exp_diff > FLOAT32_FULL_MBITS) ? FLOAT32_FULL_MBITS : exp_diff;
+  bool is_subnorm = biased_exp == 0;
 
   // Shift down and round mantissa, allow overflow except for integers
   // This converts tmant into a full mantissa
-  shift_right_round_mantissa_mx4(tmant, biased_exp == 0, exp_diff);
+  shift_right_round_mantissa(
+      tmant,
+      is_subnorm,
+      mbits,
+      exp_diff,
+      rd_away,
+      /*!is_int=*/true);
 
   if (tmant == 0) {
     return 0.0;
   }
 
-  // Shift back up to restore mantissa
-  // This converts back to a trailing mantissa
-  const bool overflow =
-      shift_left_mantissa(tmant, biased_exp == 0, mbits, exp_diff);
+  // Check for overflow.
+  constexpr int overflow_threshold = 4;
+  bool overflow = tmant >= overflow_threshold;
+  // Allow subnorms to overflow into normals, otherwise shift away overflow.
+  if (overflow && (!is_subnorm)) {
+    tmant = tmant >> 1;
+  }
+  // Special case where a value is subnormal and has a large mantissa, overflow.
+  constexpr int subnormal_round = 2;
+  if (new_biased_exp <= 0 && tmant == subnormal_round) {
+    new_biased_exp = 1;
+  }
+  // Remove implicit 1.
+  constexpr int implicit_mask = 0x1;
+  tmant = tmant & implicit_mask;
+  // Add overflow to exponent.
   if (overflow) {
-    biased_exp = biased_exp + 1;
     new_biased_exp = new_biased_exp + 1;
   }
-
-  // Reconstruct float number
-  const float output = construct_float(sign, biased_exp, tmant);
-
-  /* Convert float to MX4 encodings:
-    bits  FP4     [int4 lookup]
-                    +  - (sign)
-    S000 = 0    <=> 0  8
-    S001 = 0.5  <=> 1  9
-    S010 = 1    <=> 2  10
-    S011 = 1.5  <=> 3  11
-    S100 = 2.0  <=> 4  12
-    S101 = 3.0  <=> 5  13
-    S110 = 4.0  <=> 6  14
-    S111 = 6.0  <=> 7  15
-  */
-
-  // construct the 4 bit using 1-bit sign, 2-bit new_exp 1-bit tmant
-  // |0.5f| is the exception since it has tmant of 0 instead of 1
-  // return the lookup value
-  if (output == 0.5f) {
-    return 1; // bits 0001
-  } else if (output == -0.5f) {
-    return 9; // bits 1001
+  // If exponent overflows, set mantissa to max value (equivalent to clamp).
+  if (new_biased_exp >= overflow_threshold) {
+    tmant = 1;
   }
-
-  // Return Inf if rounded value is out of bounds,
-  // unless target format is integer or saturate_normals==True
-  if (abs(output) > max_norm) {
-    // max norm = 6.0f => bias=3, tmant = 1, sign remains the same
-    new_biased_exp = 3;
-    tmant = 4194304; // bit 10000000000000000000000
-  }
-  CUDA_KERNEL_ASSERT(new_biased_exp >= 0 && new_biased_exp <= 3);
+  // Explicitly clamp new exponent.
+  constexpr int max_mx4_exp = 3;
+  new_biased_exp = std::max(0, std::min(new_biased_exp, max_mx4_exp));
   return construct_fp4(sign, new_biased_exp, tmant);
 }
 

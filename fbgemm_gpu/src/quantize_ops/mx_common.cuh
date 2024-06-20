@@ -47,7 +47,7 @@ construct_fp4(
     const uint32_t new_biased_exp,
     const uint32_t trailing_mantissa) {
   const uint32_t f_4bit =
-      (trailing_mantissa >> 22) | (new_biased_exp << 1) | (sign << 3);
+      (trailing_mantissa) | (new_biased_exp << 1) | (sign << 3);
   const uint8_t* ptr = reinterpret_cast<const uint8_t*>(&f_4bit);
   return *ptr;
 }
