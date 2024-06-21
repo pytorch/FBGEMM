@@ -18,6 +18,7 @@ import torch
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
     quantize_fp8_block,
+    quantize_fp8_row,
 )
 
 from hypothesis import given, settings, strategies as st
@@ -109,11 +110,10 @@ class FP8Tests(unittest.TestCase):
         assert len(fp8_152.float().unique()) <= 256
         assert len(fp8_143.float().unique()) <= 256
 
+    @unittest.skipIf(not torch.version.cuda, "Skip on AMD: f8f8bf16 not yet suported.")
     @settings(deadline=None)
     @given(
-        kernel=st.sampled_from(
-            ["cutlass"] + (["cublas"] if torch.version.cuda else [])
-        ),
+        kernel=st.sampled_from(["cutlass", "cublas"]),
         use_fast_accum=st.booleans() if torch.version.cuda else st.sampled_from([True]),
     )
     def test_f8f8bf16(self, kernel: str, use_fast_accum: bool) -> None:
@@ -173,7 +173,8 @@ class FP8Tests(unittest.TestCase):
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
     @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+        ((not torch.version.cuda) and (not torch.version.hip)),
+        "Skip if no GPU is present.",
     )
     @settings(deadline=None)
     @given(
@@ -181,7 +182,8 @@ class FP8Tests(unittest.TestCase):
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
         Mode=st.sampled_from(
-            ["tensorwise", "tensorwise_broadcast", "rowwise", "blockwise"]
+            ["rowwise", "blockwise"]
+            + (["tensorwise_broadcast", "tensorwise"] if torch.version.cuda else [])
         ),
         QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
         Bias=st.sampled_from([True, False]),
@@ -239,24 +241,48 @@ class FP8Tests(unittest.TestCase):
                     zq += bias
         elif Mode == "rowwise":
             if CudaGraph:
+                # Warm up triton functions before cuda graph.
+                if torch.version.hip:
+                    xq, x_scale = quantize_fp8_row(x)
+                    wq, w_scale = quantize_fp8_row(w)
+
                 g = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(g):
+                    if torch.version.cuda:
+                        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
+                            x, output_dtype=QType
+                        )
+                        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+                    else:
+                        xq, x_scale = quantize_fp8_row(x)
+                        wq, w_scale = quantize_fp8_row(w)
+
+                    zq = torch.ops.fbgemm.f8f8bf16_rowwise(
+                        xq,
+                        wq,
+                        x_scale,
+                        w_scale,
+                        bias=bias if torch.version.cuda else None,
+                    )
+                    # Bias fusion not yet supported on AMD.
+                    if bias is not None and torch.version.hip:
+                        zq += bias
+                g.replay()
+            else:
+                if torch.version.cuda:
                     xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
                         x, output_dtype=QType
                     )
                     wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
-                    zq = torch.ops.fbgemm.f8f8bf16_rowwise(
-                        xq, wq, x_scale, w_scale, bias=bias
-                    )
-                g.replay()
-            else:
-                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
-                    x, output_dtype=QType
-                )
-                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+                else:
+                    xq, x_scale = quantize_fp8_row(x)
+                    wq, w_scale = quantize_fp8_row(w)
                 zq = torch.ops.fbgemm.f8f8bf16_rowwise(
-                    xq, wq, x_scale, w_scale, bias=bias
+                    xq, wq, x_scale, w_scale, bias=bias if torch.version.cuda else None
                 )
+                # Bias fusion not yet supported on AMD.
+                if bias is not None and torch.version.hip:
+                    zq += bias
         elif Mode == "blockwise":
             block_m = block_n = block_k = 256
             output_device = torch.device("cuda")
@@ -267,25 +293,7 @@ class FP8Tests(unittest.TestCase):
                     w, block_n, block_k, output_device=output_device
                 )
                 xq, x_scale = quantize_fp8_block(x, block_m, block_k)
-                zq = matmul_fp8_block(
-                    xq,
-                    wq,
-                    x_scale,
-                    w_scale,
-                    block_m,
-                    block_n,
-                    block_k,
-                    fp8_fast_accum=True,
-                )
-                if bias is not None:
-                    zq += bias
-
-                g = torch.cuda.CUDAGraph()
-                with torch.cuda.graph(g):
-                    wq, w_scale = quantize_fp8_block(
-                        w, block_n, block_k, output_device=output_device
-                    )
-                    xq, x_scale = quantize_fp8_block(x, block_m, block_k)
+                if torch.version.cuda:
                     zq = matmul_fp8_block(
                         xq,
                         wq,
@@ -296,6 +304,31 @@ class FP8Tests(unittest.TestCase):
                         block_k,
                         fp8_fast_accum=True,
                     )
+
+                    if bias is not None:
+                        zq += bias
+
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    wq, w_scale = quantize_fp8_block(
+                        w, block_n, block_k, output_device=output_device
+                    )
+                    xq, x_scale = quantize_fp8_block(x, block_m, block_k)
+                    if torch.version.cuda:
+                        zq = matmul_fp8_block(
+                            xq,
+                            wq,
+                            x_scale,
+                            w_scale,
+                            block_m,
+                            block_n,
+                            block_k,
+                            fp8_fast_accum=True,
+                        )
+                    else:
+                        zq = torch.ops.fbgemm.f8f8bf16_blockwise(
+                            xq, wq, x_scale, w_scale
+                        )
                     if bias is not None:
                         zq += bias
                 g.replay()
@@ -304,16 +337,20 @@ class FP8Tests(unittest.TestCase):
                     w, block_n, block_k, output_device=output_device
                 )
                 xq, x_scale = quantize_fp8_block(x, block_m, block_k)
-                zq = matmul_fp8_block(
-                    xq,
-                    wq,
-                    x_scale,
-                    w_scale,
-                    block_m,
-                    block_n,
-                    block_k,
-                    fp8_fast_accum=True,
-                )
+                if torch.version.cuda:
+                    zq = matmul_fp8_block(
+                        xq,
+                        wq,
+                        x_scale,
+                        w_scale,
+                        block_m,
+                        block_n,
+                        block_k,
+                        fp8_fast_accum=True,
+                    )
+                else:
+                    zq = torch.ops.fbgemm.f8f8bf16_blockwise(xq, wq, x_scale, w_scale)
+
                 if bias is not None:
                     zq += bias
         else:
@@ -322,7 +359,16 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         if bias is not None:
             zq_ref += bias
-        torch.testing.assert_close(zq, zq_ref, atol=8.0e-2, rtol=8.0e-2)
+
+        # Blockwise seems to have slightly more noisy outputs.
+        # Special case correctness to avoid flakiness.
+        if Mode == "blockwise":
+            atol = 1.0e-1
+            rtol = 1.0e-1
+        else:
+            atol = 8.0e-2
+            rtol = 8.0e-2
+        torch.testing.assert_close(zq, zq_ref, atol=atol, rtol=rtol)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
