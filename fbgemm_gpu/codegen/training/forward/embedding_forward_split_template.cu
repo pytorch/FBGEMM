@@ -201,6 +201,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     const float learning_rate,
     const float weight_decay,
     const int64_t iter,
+    const float gwd_lower_bound,
     {%- endif %}
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     );
@@ -387,6 +388,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     const double learning_rate,
     const double weight_decay,
     const int64_t iter,
+    const double gwd_lower_bound,
     {%- endif %}
     const bool is_experimental
     {%- endif %} {#- /*if is_index_select*/ #}
@@ -488,10 +490,6 @@ batch_index_select_dim0_codegen_forward_cuda(
 
     // Cast info_B_mask from int64_t to uint32_t
     const uint32_t info_B_mask = info_B_mask_int64;
-    {%- endif %}
-
-    {%- if is_gwd_kernel %}
-    TORCH_CHECK(learning_rate > 0, "Expect to apply weight decay but learning rate is < 0")
     {%- endif %}
 
     Tensor output;
@@ -763,6 +761,7 @@ batch_index_select_dim0_codegen_forward_cuda(
                 learning_rate,
                 weight_decay,
                 iter,
+                gwd_lower_bound,
                 {%- endif %} // if not dense
                 MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
               );
@@ -882,6 +881,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    float learning_rate, "
           "    float weight_decay, "
           "    int iter, "
+          "    float gwd_lower_bound, "
           {%- endif %}
           "    bool is_experimental"
           ") -> Tensor"
