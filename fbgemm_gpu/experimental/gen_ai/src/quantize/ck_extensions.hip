@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <initializer_list>
 #include <iostream>
+#include <optional>
 #include <numeric>
 
 #include <ATen/ATen.h>
@@ -455,7 +456,7 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    c10::optional<at::Tensor> bias,
+    std::optional<at::Tensor> bias,
     bool use_fast_accum) {
   // Check that input datatypes are valid.
   TORCH_CHECK(

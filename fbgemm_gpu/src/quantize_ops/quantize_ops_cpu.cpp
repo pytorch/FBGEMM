@@ -43,7 +43,7 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
 
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
-  at::native::resize_(output, output_dims, c10::nullopt);
+  at::native::resize_(output, output_dims, std::nullopt);
 
   const auto input_data = static_cast<input_t*>(
       input.data_ptr()); // input.data_ptr<input_t>(); -> Yields
@@ -72,7 +72,7 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
 
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
-  at::native::resize_(output, output_dims, c10::nullopt);
+  at::native::resize_(output, output_dims, std::nullopt);
 
   auto output_data = static_cast<output_t*>(
       output.data_ptr()); // output.data_ptr<output_t>(); -> Yields

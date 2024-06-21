@@ -919,7 +919,7 @@ std::vector<at::Tensor> jagged_index_select_2d(
     const at::Tensor& values,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const std::optional<int64_t> num_dense_output_rows = c10::nullopt);
+    const std::optional<int64_t> num_dense_output_rows = std::nullopt);
 
 at::Tensor jagged_index_select_2d_forward_cpu(
     const at::Tensor& values,
