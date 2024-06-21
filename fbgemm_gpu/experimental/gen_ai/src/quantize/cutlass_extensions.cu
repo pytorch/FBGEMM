@@ -574,20 +574,24 @@ at::Tensor i8i8bf16sm90a_impl(
 }
 
 #if CUDART_VERSION >= 12000
-enum class KernelMode { Small, Large, Default };
+enum class KernelMode { Small, Medium, Large, Default };
 
 KernelMode get_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
   auto M = XQ.size(0);
   auto K = XQ.size(1);
   auto N = WQ.size(0);
-  // Use a large kernel if at least two shapes are large....
-  bool use_large_kernel =
+  // Use large kernel for very compute bound problems.
+  bool use_large_kernel = (M > 8192 && N > 8192);
+  // Use a medium kernel if at least two shapes are reasonably large.
+  bool use_medium_kernel =
       ((M >= 2048 && K >= 2048) || (M >= 2048 && N >= 2048) ||
        (K >= 2048 && N >= 2048));
   if (M <= 128 || N <= 128) {
     return KernelMode::Small;
   } else if (use_large_kernel) {
     return KernelMode::Large;
+  } else if (use_medium_kernel) {
+    return KernelMode::Medium;
   } else {
     return KernelMode::Default;
   }
@@ -987,7 +991,7 @@ at::Tensor f8f8bf16_tensorwise(
   if (kernel == KernelMode::Small) {
     return f8f8bf16_tensorwise_impl<64, 128, 128, 2, 1, 1, true, true>(
         XQ, WQ, scale);
-  } else if (kernel == KernelMode::Large) {
+  } else if (kernel == KernelMode::Large || kernel == KernelMode::Medium) {
     return f8f8bf16_tensorwise_impl<128, 128, 128, 2, 1, 1, true, true>(
         XQ, WQ, scale);
   } else {
@@ -1062,20 +1066,14 @@ at::Tensor f8f8bf16_rowwise_impl(
                           // the Collective Builder
 
   // Implement rowwise scaling epilogue.
-  using XScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
-      TileShape,
-      ElementComputeEpilogue>;
+  using XScale = cutlass::epilogue::fusion::
+      Sm90RowBroadcast<PONG ? 2 : 1, TileShape, ElementComputeEpilogue>;
 
-  using WScale = cutlass::epilogue::fusion::Sm90ColBroadcast<
-      0,
-      TileShape,
-      ElementComputeEpilogue>;
+  using WScale = cutlass::epilogue::fusion::
+      Sm90ColBroadcast<0, TileShape, ElementComputeEpilogue>;
 
-  using Bias = cutlass::epilogue::fusion::Sm90ColBroadcast<
-      0,
-      TileShape,
-      ElementBias>;
+  using Bias =
+      cutlass::epilogue::fusion::Sm90ColBroadcast<0, TileShape, ElementBias>;
 
   using Accum = cutlass::epilogue::fusion::Sm90AccFetch;
 
@@ -1112,6 +1110,11 @@ at::Tensor f8f8bf16_rowwise_impl(
   using EpilogueEVT =
       cute::conditional_t<USE_BIAS, EVTComputeBias, EVTCompute1>;
 
+  using EpilogueSchedule = cute::conditional_t<
+      PONG,
+      cutlass::epilogue::TmaWarpSpecialized,
+      cutlass::epilogue::TmaWarpSpecializedCooperative>;
+
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           cutlass::arch::Sm90,
@@ -1127,13 +1130,13 @@ at::Tensor f8f8bf16_rowwise_impl(
           ElementOutput,
           LayoutOutput,
           AlignmentOutput,
-          cutlass::epilogue::TmaWarpSpecialized,
+          EpilogueSchedule,
           EpilogueEVT>::CollectiveOp;
 
-  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
+  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperative;
   using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
   using FastDefaultSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum;
+      cutlass::gemm::KernelTmaWarpSpecializedCooperativeFP8FastAccum;
   using FastPongSchedule =
       cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum;
   using SlowAccum = cute::conditional_t<PONG, PongSchedule, DefaultSchedule>;
@@ -1230,7 +1233,8 @@ at::Tensor f8f8bf16_rowwise_impl(
   size_t workspace_size = Gemm::get_workspace_size(arguments);
 
   // Allocate workspace memory
-  auto workspace = XQ.new_empty({(int64_t)workspace_size}, at::TensorOptions().dtype(at::kByte));
+  auto workspace = XQ.new_empty(
+      {(int64_t)workspace_size}, at::TensorOptions().dtype(at::kByte));
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm.can_implement(arguments);
@@ -1272,7 +1276,20 @@ at::Tensor dispatch_fp8_rowwise_kernel(
         2,
         1,
         1,
-        false,
+        true,
+        FastAccum,
+        UseBias,
+        InputDType,
+        BiasDType>(XQ, WQ, x_scale, w_scale, bias);
+  } else if (kernel == KernelMode::Medium) {
+    return f8f8bf16_rowwise_impl<
+        128,
+        128,
+        128,
+        1,
+        2,
+        1,
+        true,
         FastAccum,
         UseBias,
         InputDType,
@@ -1295,8 +1312,8 @@ at::Tensor dispatch_fp8_rowwise_kernel(
         128,
         128,
         128,
-        1,
         2,
+        1,
         1,
         false,
         FastAccum,
@@ -1626,7 +1643,7 @@ at::Tensor dispatch_bf16i4bf16_rowwise_kernel(
         1,
         false,
         WEIGHT_SCALE_DTYPE>(X, WQ, w_scale, w_zp);
-  } else if (kernel == KernelMode::Large) {
+  } else if (kernel == KernelMode::Large || kernel == KernelMode::Medium) {
     return bf16i4bf16_rowwise_impl<
         64,
         256,
@@ -1908,7 +1925,7 @@ at::Tensor dispatch_f8i4bf16_rowwise_kernel(
         false,
         InputDType,
         WEIGHT_SCALE_DTYPE>(XQ, WQ, x_scale, w_scale, w_zp);
-  } else if (kernel == KernelMode::Large) {
+  } else if (kernel == KernelMode::Large || kernel == KernelMode::Medium) {
     return f8i4bf16_rowwise_impl<
         64,
         256,
