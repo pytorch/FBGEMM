@@ -71,6 +71,7 @@ __install_check_subpackages () {
     "fbgemm_gpu.docs"
     "fbgemm_gpu.tbe.cache"
     "fbgemm_gpu.tbe.ssd"
+    "fbgemm_gpu.tbe.utils"
   )
 
   for package in "${subpackages[@]}"; do

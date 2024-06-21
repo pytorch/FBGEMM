@@ -18,7 +18,7 @@ import numpy as np
 
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_embedding_utils import (  # noqa: F401
+from fbgemm_gpu.tbe.utils import (  # noqa: F401
     b_indices,
     generate_requests,  # noqa: F401
     get_device,  # noqa: F401
