@@ -126,6 +126,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const float gwd_lower_bound,
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
@@ -207,6 +208,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const float gwd_lower_bound,
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
@@ -505,6 +507,7 @@ Tensor {{ embedding_cuda_op }}(
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const double gwd_lower_bound,
     {%- endif %}
     {{ args.split_function_args_no_defaults | join(", ") }}
     {%- else %}
@@ -1047,6 +1050,7 @@ Tensor {{ embedding_cuda_op }}(
                             {%- if "iter" not in args.split_function_arg_names %}
                             iter,
                             {%- endif %}
+                            gwd_lower_bound,
                             {%- endif %}
                             {%- if is_index_select %}
                             grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -1163,6 +1167,7 @@ Tensor {{ embedding_cuda_op }}(
                             {%- if "iter" not in args.split_function_arg_names %}
                             iter,
                             {%- endif %}
+                            gwd_lower_bound,
                             {%- endif %}
                             {%- if is_index_select %}
                             grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
@@ -1260,6 +1265,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- if "iter" not in args.split_function_arg_names %}
           "    int iter, "
           {%- endif %}
+          "    float gwd_lower_bound, "
           {%- endif %}
           "    {{ args.split_function_schemas | join(", ") }}"
           ") -> Tensor");
