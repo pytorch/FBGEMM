@@ -152,6 +152,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const float gwd_lower_bound,
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
@@ -517,6 +518,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const float gwd_lower_bound,
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,

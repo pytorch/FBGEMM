@@ -101,6 +101,7 @@ Tensor
     const double learning_rate,
     const double weight_decay,
     const int64_t iter,
+    const double gwd_lower_bound,
     {%- endif %}
     const bool is_experimental
 ) {
