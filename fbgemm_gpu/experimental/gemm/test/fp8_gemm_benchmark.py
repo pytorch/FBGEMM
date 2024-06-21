@@ -8,6 +8,8 @@
 
 from typing import Callable, Tuple
 
+import click
+
 import torch
 import triton  # @manual
 
@@ -20,7 +22,10 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
 from torch._tensor import Tensor
 
 
-def bench() -> None:
+@click.command()
+@click.option("--cuda-graph", type=bool, default=True)
+@click.option("--rowwise-tma", is_flag=True, default=False)
+def bench(cuda_graph: bool, rowwise_tma: bool) -> None:
     """Benchmark bf16 vs scale/cast + fp8."""
 
     def _run_benchmark(
@@ -43,12 +48,20 @@ def bench() -> None:
 
         gemm_fn = bench_factory(input_, weight_)
 
-        bench_stream = torch.cuda.Stream()
-        with torch.cuda.stream(bench_stream):
-            ms = triton.testing.do_bench_cudagraph(
+        if cuda_graph:
+            bench_stream = torch.cuda.Stream()
+            with torch.cuda.stream(bench_stream):
+                ms = triton.testing.do_bench_cudagraph(
+                    lambda: gemm_fn(),
+                    rep=100,
+                )
+        else:
+            ms = triton.testing.do_bench(
                 lambda: gemm_fn(),
+                warmup=25,
                 rep=100,
             )
+
         tflops = (2 * m * n * k) / 1e12
         sec = ms / 1e3
         perf_str = f"{tflops / sec:.2f}"
@@ -57,6 +70,7 @@ def bench() -> None:
         )
 
     shapes = [
+        (8192, 8192, 512),
         (8192, 8192, 8192),
         (65536, 8192, 7168),
         (65536, 3584, 8192),
@@ -82,6 +96,12 @@ def bench() -> None:
             tag="fp8 row gemm only | max_num_imprecise_acc=32",
         )
         _run_benchmark(block_gemm_bench, shape=shape, tag="fp8 block gemm only")
+        if rowwise_tma:
+            _run_benchmark(
+                row_gemm_bench_tma,
+                shape=shape,
+                tag="fp8 row gemm only | fp8_fast_accum=True | tma_persistent=True",
+            )
 
 
 def bf16_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
@@ -131,6 +151,30 @@ def row_gemm_bench(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
             dot_out_dtype=torch.float32,
             allow_tf32=True,
             fp8_fast_accum=True,
+        )
+
+    return run_gemm
+
+
+def row_gemm_bench_tma(x: Tensor, w: Tensor) -> Callable[[], Tensor]:
+    # Benchmark only row-wise gemm with TMA persistent
+    x_fp8: Tensor
+    w_fp8: Tensor
+    x_scale: Tensor
+    w_scale: Tensor
+    x_fp8, x_scale = quantize_fp8_row(x)
+    w_fp8, w_scale = quantize_fp8_row(w)
+
+    def run_gemm() -> Tensor:
+        return matmul_fp8_row(
+            x_fp8,
+            w_fp8,
+            x_scale,
+            w_scale,
+            dot_out_dtype=torch.float32,
+            allow_tf32=True,
+            fp8_fast_accum=True,
+            tma_persistent=True,
         )
 
     return run_gemm
