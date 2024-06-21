@@ -24,12 +24,6 @@ import numpy as np
 import torch
 
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    generate_requests,
-    get_device,
-    round_up,
-    TBERequest,
-)
 
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -47,6 +41,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     DenseTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch import Tensor
 
 haveAIBench = False

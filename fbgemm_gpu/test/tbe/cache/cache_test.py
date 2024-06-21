@@ -17,13 +17,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-
-from fbgemm_gpu.split_embedding_utils import (
-    generate_requests,
-    get_table_batched_offsets_from_dense,
-    TBERequest,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -33,6 +26,13 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     MultiPassPrefetchConfig,
     SplitTableBatchedEmbeddingBagsCodegen,
+)
+
+from fbgemm_gpu.tbe.utils import (
+    generate_requests,
+    get_table_batched_offsets_from_dense,
+    TBERequest,
+    to_device,
 )
 from hypothesis import assume, given, settings
 
