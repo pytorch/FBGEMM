@@ -306,7 +306,7 @@ void car_init(
       ptr = local_buffer.data_ptr();
     }
 #ifndef __HIP_PLATFORM_AMD__
-    auto target_rank = rank;
+    auto target_rank = at::cuda::current_device();
 #else
     /*
      * This is to mitigate an issue for ROCm where the
@@ -325,7 +325,7 @@ void car_init(
   for (auto ii = 0; ii < world_size; ++ii) {
     void* ptr = nullptr;
 #ifndef __HIP_PLATFORM_AMD__
-    auto target_rank = rank;
+    auto target_rank = at::cuda::current_device();
 #else
     auto target_rank = (ii == rank ? rank : 0);
 #endif
