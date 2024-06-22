@@ -39,7 +39,7 @@ Testing with the CUDA Variant
 
 For the FBGEMM_GPU CUDA package, GPUs will be automatically detected and
 used for testing. To run the tests and benchmarks on a GPU-capable
-device in CPU-only mode, ``CUDA_VISIBLE_DEVICES=-1`` must be set in the
+machine in CPU-only mode, ``CUDA_VISIBLE_DEVICES=-1`` must be set in the
 environment:
 
 .. code:: sh
