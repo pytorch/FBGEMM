@@ -8,6 +8,8 @@
 
 from typing import Callable, Tuple
 
+import click
+
 import torch
 import triton  # @manual
 
@@ -20,7 +22,9 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
 from torch._tensor import Tensor
 
 
-def bench() -> None:
+@click.command()
+@click.option("--cuda-graph", type=bool, default=True)
+def bench(cuda_graph: bool) -> None:
     """Benchmark bf16 vs scale/cast + fp8."""
 
     def _run_benchmark(
@@ -43,12 +47,20 @@ def bench() -> None:
 
         gemm_fn = bench_factory(input_, weight_)
 
-        bench_stream = torch.cuda.Stream()
-        with torch.cuda.stream(bench_stream):
-            ms = triton.testing.do_bench_cudagraph(
+        if cuda_graph:
+            bench_stream = torch.cuda.Stream()
+            with torch.cuda.stream(bench_stream):
+                ms = triton.testing.do_bench_cudagraph(
+                    lambda: gemm_fn(),
+                    rep=100,
+                )
+        else:
+            ms = triton.testing.do_bench(
                 lambda: gemm_fn(),
+                warmup=25,
                 rep=100,
             )
+
         tflops = (2 * m * n * k) / 1e12
         sec = ms / 1e3
         perf_str = f"{tflops / sec:.2f}"
