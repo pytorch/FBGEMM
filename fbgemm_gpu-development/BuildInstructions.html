@@ -763,6 +763,26 @@ find<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</s
 </pre></div>
 </div>
 </section>
+<section id="install-pytorch-triton">
+<h3>Install PyTorch-Triton<a class="headerlink" href="#install-pytorch-triton" title="Permalink to this heading">¶</a></h3>
+<p>This section is only applicable to building the experimental FBGEMM_GPU
+Triton-GEMM module.  Triton should be installed via the <code class="docutils literal notranslate"><span class="pre">pytorch-triton</span></code>,
+which generally comes installing <code class="docutils literal notranslate"><span class="pre">torch</span></code>, but can also be installed manually:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># pytorch-triton repos:</span>
+<span class="c1"># https://download.pytorch.org/whl/nightly/pytorch-triton/</span>
+<span class="c1"># https://download.pytorch.org/whl/nightly/pytorch-triton-rocm/</span>
+
+<span class="c1"># The version SHA should follow the one pinned in PyTorch</span>
+<span class="c1"># https://github.com/pytorch/pytorch/blob/main/.ci/docker/ci_commit_pins/triton.txt</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>pytorch-triton<span class="o">==</span><span class="m">3</span>.0.0+dedb7bdf33<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/
+</pre></div>
+</div>
+<p>Verify the PyTorch-Triton installation with an <code class="docutils literal notranslate"><span class="pre">import</span></code> test:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Ensure that the package loads properly</span>
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import triton&quot;</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="build-the-fbgemm-gpu-package">
 <h2>Build the FBGEMM_GPU Package<a class="headerlink" href="#build-the-fbgemm-gpu-package" title="Permalink to this heading">¶</a></h2>
@@ -1094,6 +1114,7 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 <li><a class="reference internal" href="#installation-through-conda">Installation Through Conda</a></li>
 <li><a class="reference internal" href="#installation-through-pytorch-pip">Installation Through PyTorch PIP</a></li>
 <li><a class="reference internal" href="#post-install-checks">Post-Install Checks</a></li>
+<li><a class="reference internal" href="#install-pytorch-triton">Install PyTorch-Triton</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#build-the-fbgemm-gpu-package">Build the FBGEMM_GPU Package</a><ul>
