@@ -15,6 +15,8 @@
 import logging
 from typing import Optional, TypeVar
 
+import fbgemm_gpu.quantize_ops  # noqa F401
+
 import torch
 
 from fbgemm_gpu.quantize_utils import (
@@ -99,7 +101,7 @@ def _quantize_tensor(
         return input_quant_all2all
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
-        quantized_output = torch.ops.fbgemm.quantize_mx_cuda(
+        quantized_output = torch.ops.fbgemm.quantize_mx(
             input=input_tensor,
             scale_bits=scale_bits,
             elem_ebits=elem_ebits,
@@ -148,7 +150,7 @@ def _dequantize_tensor(
         return dequant_tensor.view(-1)
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
-        dequant_tensor = torch.ops.fbgemm.dequantize_mx_cuda(
+        dequant_tensor = torch.ops.fbgemm.dequantize_mx(
             input=quantized_tensor,
             mx_group_size=mx_group_size,
         )
