@@ -581,6 +581,24 @@ void _bucketize_sparse_features_cpu(
   }
 }
 
+std::tuple<Tensor, Tensor, std::optional<Tensor>>
+permute_2D_sparse_data_input1D(
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& indices,
+    const int64_t& stride,
+    const std::optional<Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum) {
+  auto [permuted_lengths, permuted_indices, permuted_weights] =
+      permute_2D_sparse_data_cpu(
+          permute,
+          lengths.view({-1, stride}),
+          indices,
+          weights,
+          permuted_lengths_sum);
+  return {permuted_lengths.view(-1), permuted_indices, permuted_weights};
+}
+
 std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
     const Tensor& permute,
     const Tensor& lengths,
@@ -3033,6 +3051,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
       {PT2_COMPLIANT_TAG});
   m.def(
+      "permute_2D_sparse_data_input1D(Tensor permute, Tensor lengths, Tensor values, SymInt stride, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+      {PT2_COMPLIANT_TAG});
+  m.def(
       "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
       {PT2_COMPLIANT_TAG});
   m.def("invert_permute(Tensor permute) -> Tensor");
@@ -3142,6 +3163,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   DISPATCH_TO_CPU(
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
+  DISPATCH_TO_CPU(
+      "permute_2D_sparse_data_input1D",
+      fbgemm_gpu::permute_2D_sparse_data_input1D);
   DISPATCH_TO_CPU(
       "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
   DISPATCH_TO_CPU("invert_permute", fbgemm_gpu::invert_permute_cpu);
