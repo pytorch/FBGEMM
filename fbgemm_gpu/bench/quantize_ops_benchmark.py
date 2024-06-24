@@ -9,12 +9,18 @@
 import functools
 import logging
 import random
+from contextlib import nullcontext
+from typing import Iterable, Optional, Union
 
 import click
 import fbgemm_gpu
 import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings
+
+# pyre-ignore[21]
+from torch.profiler import profile, ProfilerActivity
+
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -186,6 +192,162 @@ def bench_spectrum(
         num_rows=num_rows,
         warmup_runs=warmup_runs,
     )
+
+
+@cli.command()
+@click.option("--flush-gpu-cache-size-mb", default=0)
+@click.option("--iters", default=100)
+@click.option("--group-size", default=32)
+@click.option("--warmup-runs", default=10)
+@click.option("--is-fwd", default=True)
+@click.option("--enable-trace-profile", is_flag=True, default=False)
+@click.option("--trace-cuda-only", is_flag=True, default=False)
+@click.option("--power-input-size", default=0, help="power of the input size")
+def bench_mx4(
+    flush_gpu_cache_size_mb: int,
+    iters: int,
+    group_size: int,
+    warmup_runs: int,
+    is_fwd: bool,
+    enable_trace_profile: bool,
+    trace_cuda_only: bool,
+    power_input_size: int,
+) -> None:
+    """
+    This function benchmarks performance of MX4 and FP8 quant/dequantization ops.
+    By default, it measures the average time the ops take for one iteration in
+    microseconds.
+    If `enable_trace_profile` is set, it also measures total CUDA kernel time for
+    all iterations run.
+
+    Args:
+        flush_gpu_cache_size_mb (int): GPU cache size, 0 by default.
+        group_size (int): number of elements that share the max shared_exp
+                        in MX4 quantization, 32 by default.
+        warmup_runs (int): number of warmup runs, 10 by default.
+        is_fwd (bool): whether to use fwd or bwd, True by default.
+        enable_trace_profile (bool): whether to enable kineto trace profile,
+                        False by default.
+        trace_cuda_only (bool): whether to enable only CUDA profiling,
+                        False by default.
+        power_input_size (int): power for input size s.t. input size = 2**power,
+                        0 by default which makes the inputs sizes of 2**16 to 2**24.
+
+    Returns:
+        None
+    """
+    assert group_size > 0, "group_size needs to be > 0"
+    assert group_size % 32 == 0, "group_size needs to be multiple of 32"
+    assert torch.cuda.is_available(), "NO GPUs available"
+    device = torch.device("cuda")
+
+    if power_input_size != 0:
+        start = power_input_size
+        end = power_input_size + 1
+    else:
+        start = 16
+        end = 24
+
+    if trace_cuda_only:
+        # pyre-ignore[16]
+        activities = [ProfilerActivity.CUDA]
+    else:
+        activities = None
+
+    for k in range(start, end):
+        size: int = int(2**k)
+        input_data = torch.rand(size, device=device, dtype=torch.float32)
+
+        benchmark = functools.partial(
+            benchmark_torch_function,
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            iters=iters,
+            num_warmups=warmup_runs,
+        )
+        input_size = input_data.numel()
+        logging.info(f"input size: {size} group size: {group_size}")
+        input_2d = input_data.view((-1, 256))
+
+        def _kineto_trace_handler(
+            p: profile,
+            text: str,
+            input_size: int,
+        ) -> None:
+            print(
+                p.key_averages().table(sort_by="cuda_time_total", row_limit=10),
+                f"{text}, input_size: {input_size}",
+            )
+            p.export_chrome_trace(f"{text}_{input_size}.json")
+
+        def _create_profile(
+            enable_trace_profile: bool,
+            # pyre-ignore[11]
+            activities: Optional[Iterable[ProfilerActivity]],
+            text: str,
+            input_size: int,
+        ) -> Union[profile, nullcontext[None]]:
+            return (
+                profile(
+                    activities=activities,
+                    on_trace_ready=functools.partial(
+                        _kineto_trace_handler, text=text, input_size=input_size
+                    ),
+                )
+                if enable_trace_profile
+                else nullcontext()
+            )
+
+        # Benchmarking MX4
+        with _create_profile(
+            enable_trace_profile, activities, "MX4 quantize", input_size
+        ):
+            q_average_time, dequant_data = benchmark(
+                torch.ops.fbgemm.quantize_mx_cuda,
+                (
+                    input_data,
+                    8,  # scale_bits
+                    2,  # ebits
+                    3,  # mbits
+                    6.0,  # max_norm
+                    group_size,  # group_size
+                ),
+            )
+
+        with _create_profile(
+            enable_trace_profile, activities, "MX4 dequantize", input_size
+        ):
+            d_average_time, _ = benchmark(
+                torch.ops.fbgemm.dequantize_mx_cuda,
+                (dequant_data, group_size),
+            )
+        print(
+            f"input_size={input_size} MX4 quantized time per iter: {q_average_time * 1.0e6:.0f}us"
+        )
+        print(
+            f"input_size={input_size} MX4 dequantized time per iter: {d_average_time * 1.0e6:.0f}us"
+        )
+
+        # Benchmarking FP8
+
+        with _create_profile(
+            enable_trace_profile, activities, "FP8 quantize", input_size
+        ):
+            q_average_time, dequant_data = benchmark(
+                torch.ops.fbgemm.FloatToFP8RowwiseQuantized,
+                (input_2d, is_fwd),
+            )
+        with _create_profile(
+            enable_trace_profile, activities, "FP8 dequantize", input_size
+        ):
+            d_average_time, _ = benchmark(
+                torch.ops.fbgemm.FP8RowwiseQuantizedToFloat, (dequant_data, is_fwd)
+            )
+        print(
+            f"input_size={input_size} FP8 quantized time per iter: {q_average_time * 1.0e6:.0f}us"
+        )
+        print(
+            f"input_size={input_size} FP8 dequantized time per iter: {d_average_time * 1.0e6:.0f}us"
+        )
 
 
 @cli.command()
