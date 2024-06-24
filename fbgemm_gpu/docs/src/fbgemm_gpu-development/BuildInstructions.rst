@@ -423,6 +423,29 @@ For the CUDA variant of PyTorch, verify that at the minimum ``cuda_cmake_macros.
   conda_prefix=$(conda run -n ${env_name} printenv CONDA_PREFIX)
   find "${conda_prefix}" -name cuda_cmake_macros.h
 
+Install PyTorch-Triton
+~~~~~~~~~~~~~~~~~~~~~~
+
+This section is only applicable to building the experimental FBGEMM_GPU
+Triton-GEMM module.  Triton should be installed via the ``pytorch-triton``,
+which generally comes installing ``torch``, but can also be installed manually:
+
+.. code:: sh
+
+  # pytorch-triton repos:
+  # https://download.pytorch.org/whl/nightly/pytorch-triton/
+  # https://download.pytorch.org/whl/nightly/pytorch-triton-rocm/
+
+  # The version SHA should follow the one pinned in PyTorch
+  # https://github.com/pytorch/pytorch/blob/main/.ci/docker/ci_commit_pins/triton.txt
+  conda run -n ${env_name} pip install --pre pytorch-triton==3.0.0+dedb7bdf33 --index-url https://download.pytorch.org/whl/nightly/
+
+Verify the PyTorch-Triton installation with an ``import`` test:
+
+.. code:: sh
+
+  # Ensure that the package loads properly
+  conda run -n ${env_name} python -c "import triton"
 
 Build the FBGEMM_GPU Package
 ----------------------------
