@@ -31,6 +31,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/cudnn-frontend/include
   ${NCCL_INCLUDE_DIRS})
 
 
@@ -44,7 +45,8 @@ file(GLOB_RECURSE asmjit_sources
 set(third_party_include_directories
   ${THIRDPARTY}/asmjit/src
   ${THIRDPARTY}/cpuinfo/include
-  ${THIRDPARTY}/cutlass/include)
+  ${THIRDPARTY}/cutlass/include
+  ${THIRDPARTY}/cudnn-frontend/include)
 
 
 ################################################################################
