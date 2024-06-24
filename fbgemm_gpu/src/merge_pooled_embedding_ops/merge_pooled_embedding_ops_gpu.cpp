@@ -124,6 +124,20 @@ AdjacencyMatrix<Node> get_intermediate_node(
   }
 }
 
+void all_to_one_target_cpu(
+    const std::vector<Tensor>& input_tensors,
+    std::vector<Tensor>& output_tensors) {
+  TORCH_CHECK(input_tensors.size() == output_tensors.size());
+  for (size_t i = 0; i < input_tensors.size(); i++) {
+    const auto& src = input_tensors.at(i);
+    auto& dst = output_tensors.at(i);
+    dst.copy_(src, /*non_blocking=*/true);
+  }
+  for (const auto& t : input_tensors) {
+    at::cuda::getCurrentCUDAStream(t.device().index()).synchronize();
+  }
+}
+
 // Tensors in `output_tensors` should all be on target_device. We copy the
 // tensor in the same index from `input_tensors` to `output_tensors`. If the
 // tensor in `input_tensors` is already in the `target_device`, we will skip
@@ -133,6 +147,11 @@ void all_to_one(
     std::vector<Tensor>& output_tensors,
     at::Device target_device,
     bool skip_if_same_device) {
+  if (target_device.is_cpu()) {
+    all_to_one_target_cpu(input_tensors, output_tensors);
+    return;
+  }
+
   auto num_gpus = at::cuda::getNumGPUs();
   // Create static thread local CUDAEvent as creating/destroying CUDAEvents
   // can be expensive. In one call to this function, we use events created on
@@ -611,8 +630,11 @@ Tensor merge_pooled_embeddings(
     int64_t uncat_dim_size,
     at::Device target_device,
     int64_t cat_dim = 1) {
-  init_p2p_access();
-  at::cuda::CUDAGuard g(target_device);
+  at::cuda::OptionalCUDAGuard g;
+  if (target_device.is_cuda()) {
+    init_p2p_access();
+    g.set_device(target_device);
+  }
 
   TORCH_CHECK(!pooled_embeddings.empty());
   return cat_dim_2d(pooled_embeddings, uncat_dim_size, target_device, cat_dim);
