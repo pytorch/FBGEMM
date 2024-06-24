@@ -147,6 +147,19 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
                 self.assertEqual(o.device, dst_device)
                 torch.testing.assert_close(o.cpu(), i)
 
+    def test_merge_pooled_embeddings_gpu_to_cpu(self) -> None:
+        dst_device = torch.device("cpu")
+        inputs = [torch.randn(10, 20) for _ in range(4)]
+        cuda_inputs = [input.to("cuda:0") for i, input in enumerate(inputs)]
+        uncat_size = inputs[0].size(1)
+        output = torch.ops.fbgemm.merge_pooled_embeddings(
+            cuda_inputs, uncat_size, dst_device, 0
+        )
+        ref_output = torch.ops.fbgemm.merge_pooled_embeddings(
+            inputs, uncat_size, dst_device, 0
+        )
+        torch.testing.assert_close(output, ref_output)
+
     def test_merge_pooled_embeddings_cpu_with_different_target_device(self) -> None:
         uncat_size = 2
         pooled_embeddings = [torch.ones(uncat_size, 4), torch.ones(uncat_size, 8)]
