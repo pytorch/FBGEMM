@@ -130,6 +130,7 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const double gwd_lower_bound,
     {%- endif -%}
     {{ args.split_function_args_no_defaults | join(", ") }}
     {%- else %}

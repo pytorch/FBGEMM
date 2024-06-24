@@ -17,8 +17,8 @@ from typing import Tuple
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_utils import to_device
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
+from fbgemm_gpu.tbe.utils import to_device
 from hypothesis import given, settings, Verbosity
 from torch import Tensor
 

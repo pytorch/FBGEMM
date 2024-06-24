@@ -1236,6 +1236,8 @@ def _kernel_quantize_fp8_row(
         )
         a_fp8 = a * a_scale
         # Clamp A to fp8 range to make sure there's no overflow.
+        # This is required for AMD. Nvidia's default saturation
+        # handles it, but it's nice to have anyway.
         a_fp8 = tl.clamp(a_fp8, -MAX_FP8, MAX_FP8)
         a_fp8.to(TL_FP8_DTYPE)
         tl.store(
@@ -1400,6 +1402,10 @@ def _kernel_quantize_fp8_block(
         A_scale + block_m * stride_a_scale_m + block_k * stride_a_scale_k, 1.0 / scale
     )
     a_fp8 = a_block * scale
+    # Clamp A to fp8 range to make sure there's no overflow.
+    # This is required for AMD. Nvidia's default saturation
+    # handles it, but it's nice to have anyway.
+    a_fp8 = tl.clamp(a_fp8, -MAX_FP8, MAX_FP8)
     a_fp8.to(TL_FP8_DTYPE)
     tl.store(A_fp8 + a_offset, a_fp8, mask=a_mask)
 

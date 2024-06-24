@@ -129,7 +129,7 @@ def construct_cache_state(
     return s
 
 
-# NOTE: This is also defined in fbgemm_gpu.split_embedding_utils, but declaring
+# NOTE: This is also defined in fbgemm_gpu.tbe.utils, but declaring
 # target dependency on :split_embedding_utils will result in compatibility
 # breakage with Caffe2 module_factory because it will pull in numpy
 def round_up(a: int, b: int) -> int:

@@ -16,7 +16,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_embedding_utils import generate_requests, round_up
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -24,6 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.utils import generate_requests, round_up
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
