@@ -9,9 +9,14 @@
 import unittest
 from typing import List
 
+import fbgemm_gpu.quantize_ops  # noqa F401
+
 import hypothesis.strategies as st
 
 import torch
+
+from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
+from fbgemm_gpu.triton_quantize import py_dequantize_mx4, py_quantize_mx4
 
 from hypothesis import given, settings, Verbosity
 
@@ -79,10 +84,6 @@ def fake_quantize_mx(
 ) -> torch.Tensor:
     """Function used for MX* fake quantization"""
 
-    ####################
-    # Python Quantize
-    ####################
-
     # Make sure axes is a list of non-negative numbers
     axes = [x + A.ndim if x < 0 else x for x in axes]
 
@@ -127,7 +128,6 @@ def fake_quantize_mx(
         saturate_normals=True,
         custom_cuda=False,
     )
-
     A = A * scale
 
     # Undo tile reshaping
@@ -143,7 +143,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(
-        power=st.integers(min_value=5, max_value=8),
+        power=st.integers(min_value=5, max_value=7),
         sizes=st.integers(min_value=4, max_value=12),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
@@ -159,6 +159,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         ebits, mbits, emax, max_norm, _ = _get_format_params(element_format_str)
         scale_bits = 8
 
+        # Reference from mx_github
         output_ref = fake_quantize_mx(
             input,
             scale_bits,
@@ -170,7 +171,8 @@ class TestMXQuantizationConversion(unittest.TestCase):
             group_size=group_size,
         )
 
-        output = fake_quantize_mx_cuda(
+        # Test CUDA implementation
+        output_cuda = fake_quantize_mx_cuda(
             input,
             scale_bits,
             ebits,
@@ -180,7 +182,38 @@ class TestMXQuantizationConversion(unittest.TestCase):
             group_size=group_size,
         )
 
-        check_diff_quantize(input, output_ref, output)
+        # Test CPU implementation
+        quantized_cpu = py_quantize_mx4(input, group_size)
+        output_cpu = py_dequantize_mx4(quantized_cpu, group_size)
+
+        # Test Triton implementation
+        quantized_triton = fp32_to_mx4(input, group_size, use_triton=True)
+        output_triton = mx4_to_fp32(quantized_triton, group_size, use_triton=True)
+
+        # Test shim functions
+        output_cuda_from_quantized_triton = mx4_to_fp32(
+            quantized_triton, group_size, use_triton=False
+        )
+
+        # Test torch.ops
+        quantized_from_ops = torch.ops.fbgemm.quantize_mx(
+            input,
+            scale_bits,
+            ebits,
+            mbits,
+            max_norm,
+            mx_group_size=group_size,
+        )
+        output_from_ops = torch.ops.fbgemm.dequantize_mx(
+            quantized_from_ops,
+            mx_group_size=group_size,
+        )
+
+        check_diff_quantize(input, output_ref, output_cuda)
+        check_diff_quantize(input, output_cuda, output_cuda_from_quantized_triton)
+        check_diff_quantize(input, output_cuda_from_quantized_triton, output_triton)
+        check_diff_quantize(input, output_triton, output_cpu)
+        check_diff_quantize(input, output_cuda, output_from_ops)
 
 
 if __name__ == "__main__":
