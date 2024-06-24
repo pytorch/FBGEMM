@@ -13,6 +13,3 @@
 [submodule "third_party/cutlass"]
 	path = third_party/cutlass
 	url = https://github.com/NVIDIA/cutlass.git
-[submodule "third_party/triton"]
-	path = third_party/triton
-	url = https://github.com/openai/triton.git
