@@ -165,7 +165,7 @@ class ScaledMMBaseline(QuantizeOpBase):
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
-        output, _ = torch._scaled_mm(
+        output = torch._scaled_mm(
             xq,
             wq,
             bias=None,
