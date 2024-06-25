@@ -15,7 +15,7 @@
 
 #include "fbgemm_gpu/embedding_forward_split_cpu.h"
 #include "fbgemm/FbgemmEmbedding.h"
-#include "fbgemm_gpu/cpu_utils.h"
+#include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/dispatch_macros.h"
 

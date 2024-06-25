@@ -13,7 +13,7 @@
 #include <ATen/Context.h>
 #include <ATen/Parallel.h>
 
-#include "fbgemm_gpu/cpu_utils.h"
+#include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm/FbgemmEmbedding.h"
