@@ -128,13 +128,9 @@ __conda_install_clang () {
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
 
-  echo "[INSTALL] Updating LD_LIBRARY_PATH ..."
-  # shellcheck disable=SC2155,SC2086
-  local ld_library_path=$(conda run ${env_prefix} printenv LD_LIBRARY_PATH)
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path:+${ld_library_path}:}${conda_prefix}/lib"
+  append_to_library_path "${env_name}" "${conda_prefix}/lib"
 }
 
 __compiler_post_install_checks () {

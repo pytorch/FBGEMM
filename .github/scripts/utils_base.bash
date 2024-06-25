@@ -87,6 +87,19 @@ env_name_or_prefix () {
   fi
 }
 
+append_to_library_path () {
+  local env=$1
+  local value="$2"
+
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  echo "[INSTALL] Appending to LD_LIBRARY_PATH: ${value} ..."
+  # shellcheck disable=SC2155,SC2086
+  local ld_library_path=$(conda run ${env_prefix} printenv LD_LIBRARY_PATH)
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path:+${ld_library_path}:}${value}"
+}
+
 test_network_connection () {
   exec_with_retries 3 wget -q --timeout 1 pypi.org -O /dev/null
   local exit_status=$?
