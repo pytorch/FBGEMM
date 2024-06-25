@@ -349,6 +349,24 @@ permute_sparse_features_cuda(
   return {permuted_lengths, permuted_indices, permuted_weights};
 }
 
+DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
+permute_2D_sparse_data_input1D_cuda(
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& indices,
+    const int64_t& stride,
+    const std::optional<Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum) {
+  auto [permuted_lengths, permuted_indices, permuted_weights] =
+      permute_2D_sparse_data_cuda(
+          permute,
+          lengths.view({-1, stride}),
+          indices,
+          weights,
+          permuted_lengths_sum);
+  return {permuted_lengths.view(-1), permuted_indices, permuted_weights};
+}
+
 } // namespace fbgemm_gpu
 
 FBGEMM_OP_DISPATCH(
@@ -359,6 +377,10 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "permute_2D_sparse_data",
     fbgemm_gpu::permute_2D_sparse_data_cuda);
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute_2D_sparse_data_input1D",
+    fbgemm_gpu::permute_2D_sparse_data_input1D_cuda);
 FBGEMM_OP_DISPATCH(
     CUDA,
     "permute_sparse_features",
