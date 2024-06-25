@@ -15,6 +15,7 @@
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
 #include "metric_ops.h"
 
 constexpr int MAX_ENTRIES_PER_BLOCK = 512;
