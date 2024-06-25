@@ -582,7 +582,7 @@ void _bucketize_sparse_features_cpu(
 }
 
 std::tuple<Tensor, Tensor, std::optional<Tensor>>
-permute_2D_sparse_data_input1D(
+permute_2D_sparse_data_input1D_cpu(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -3164,7 +3164,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   DISPATCH_TO_CPU(
       "permute_2D_sparse_data_input1D",
-      fbgemm_gpu::permute_2D_sparse_data_input1D);
+      fbgemm_gpu::permute_2D_sparse_data_input1D_cpu);
   DISPATCH_TO_CPU(
       "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
   DISPATCH_TO_CPU("invert_permute", fbgemm_gpu::invert_permute_cpu);

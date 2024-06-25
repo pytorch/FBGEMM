@@ -350,7 +350,7 @@ permute_sparse_features_cuda(
 }
 
 DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
-permute_2D_sparse_data_input1D(
+permute_2D_sparse_data_input1D_cuda(
     const Tensor& permute,
     const Tensor& lengths,
     const Tensor& indices,
@@ -380,7 +380,7 @@ FBGEMM_OP_DISPATCH(
 FBGEMM_OP_DISPATCH(
     CUDA,
     "permute_2D_sparse_data_input1D",
-    fbgemm_gpu::permute_2D_sparse_data_input1D);
+    fbgemm_gpu::permute_2D_sparse_data_input1D_cuda);
 FBGEMM_OP_DISPATCH(
     CUDA,
     "permute_sparse_features",
