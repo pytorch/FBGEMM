@@ -142,6 +142,8 @@ def _get_format_params(  # noqa
 
     min_norm = _get_min_norm(ebits)
 
+    # pyre-fixme[6]: For 1st argument expected `ElemFormat` but got `Union[None,
+    #  ElemFormat, int]`.
     _FORMAT_CACHE[fmt] = (ebits, mbits, emax, max_norm, min_norm)
 
     return ebits, mbits, emax, max_norm, min_norm
@@ -308,6 +310,7 @@ def check_diff_quantize(
         raise IndexError
 
     # Convert to numpy
+    # pyre-fixme[9]: x has type `Tensor`; used as `Union[ndarray, Tensor]`.
     x = np.array(x) if type(x) is list else x
     x = x.cpu().numpy() if type(x) is torch.Tensor else x
     y1 = y1.detach().cpu().numpy()
@@ -510,11 +513,16 @@ def _quantize_elemwise_core(
         private_exp = None
 
     # Scale up so appropriate number of bits are in the integer portion of the number
+    # pyre-fixme[6]: For 3rd argument expected `Optional[int]` but got
+    #  `Optional[Tensor]`.
     out = _safe_lshift(out, bits - 2, private_exp)
 
+    # pyre-fixme[6]: For 3rd argument expected `RoundingMode` but got `str`.
     out = _round_mantissa(out, bits, round, clamp=False)
 
     # Undo scaling
+    # pyre-fixme[6]: For 3rd argument expected `Optional[int]` but got
+    #  `Optional[Tensor]`.
     out = _safe_rshift(out, bits - 2, private_exp)
 
     # Set values > max_norm to Inf if desired, else clamp them

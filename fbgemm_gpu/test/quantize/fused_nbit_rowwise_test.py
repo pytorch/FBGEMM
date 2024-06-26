@@ -15,6 +15,9 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, HealthCheck, settings
 
 from . import common  # noqa E402
+
+# pyre-fixme[21]: Could not find name `open_source` in
+#  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import (
     bytes_to_half_floats,
     fused_rowwise_nbit_quantize_dequantize_reference,
