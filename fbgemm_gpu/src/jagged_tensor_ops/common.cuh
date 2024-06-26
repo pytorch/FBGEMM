@@ -31,6 +31,7 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
+#include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
 
 namespace fbgemm_gpu {
