@@ -91,6 +91,24 @@ at::Tensor segment_sum_csr_cpu(
 /// href="https://www.doxygen.nl/manual/commands.html#cmdlink">here</a>
 
 std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_data_input1D_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const int64_t& stride,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_data_input1D_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const int64_t& stride,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_2D_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,

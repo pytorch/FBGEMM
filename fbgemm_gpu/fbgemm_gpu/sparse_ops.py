@@ -7,7 +7,7 @@
 # pyre-strict
 
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 import torch
 
@@ -69,6 +69,72 @@ else:
             return f
 
         return wrapper
+
+
+def permute_2D_sparse_data_input1D_meta(
+    permute: Tensor,
+    lengths: Tensor,
+    values: Tensor,
+    stride: int,
+    weights: Optional[Tensor] = None,
+    permuted_lengths_sum: Optional[int] = None,
+) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+    torch._check(
+        lengths.dim() == 1, lambda: f"expected lengths.dim() == 1, got {lengths.dim()}"
+    )
+    T = permute.numel()
+    B = stride
+    indices = values
+    permuted_lengths = lengths.new_empty([T * B])
+    permuted_indices_size = 0
+    if permuted_lengths_sum is not None:
+        permuted_indices_size = permuted_lengths_sum
+    else:
+        ctx = torch.library.get_ctx()
+        permuted_indices_size = ctx.new_dynamic_size()
+    # pyre-fixme
+    permuted_indices = indices.new_empty(permuted_indices_size)
+    permuted_weights = None
+    if weights is not None:
+        # pyre-fixme
+        permuted_weights = weights.new_empty(permuted_indices_size)
+    return permuted_lengths, permuted_indices, permuted_weights
+
+
+# pyre-ignore
+def permute_2D_sparse_data_input1D_setup_context(ctx, inputs, output):
+    permute, lengths, values, stride, weights, permuted_lengths_sum = inputs
+    permuted_lengths, permuted_values, permuted_weights = output
+    ctx.permute = permute
+    ctx.permuted_lengths = permuted_lengths
+    ctx.stride = stride
+
+
+def permute_2D_sparse_data_input1D_backward(
+    ctx,  # pyre-ignore
+    grad_lengths: torch.Tensor,
+    grad_values: torch.Tensor,
+    grad_weights: torch.Tensor,
+) -> Tuple[None, Tensor, Tensor, None, Tensor, None]:
+    inv_permute = torch.ops.fbgemm.invert_permute(ctx.permute)
+    permuted_grad_lengths, permuted_grad_values, permuted_grad_weights = (
+        torch.ops.fbgemm.permute_2D_sparse_data_input1D(
+            inv_permute,
+            ctx.permuted_lengths,
+            grad_values,
+            ctx.stride,
+            grad_weights,
+            None,
+        )
+    )
+    return (
+        None,
+        permuted_grad_lengths,
+        permuted_grad_values,
+        None,
+        permuted_grad_weights,
+        None,
+    )
 
 
 def permute_2D_sparse_data_meta(
@@ -919,6 +985,10 @@ def _setup() -> None:
         )
 
         impl_abstract("fbgemm::permute_2D_sparse_data", permute_2D_sparse_data_meta)
+        impl_abstract(
+            "fbgemm::permute_2D_sparse_data_input1D",
+            permute_2D_sparse_data_input1D_meta,
+        )
         impl_abstract("fbgemm::invert_permute", invert_permute_abstract)
         impl_abstract("fbgemm::permute_1D_sparse_data", permute_1D_sparse_data_meta)
         impl_abstract("fbgemm::masked_select_jagged_1d", masked_select_jagged_1d)
