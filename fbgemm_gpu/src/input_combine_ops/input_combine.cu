@@ -9,6 +9,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/input_combine.h"
+#include "fbgemm_gpu/utils/fixed_divisor.cuh"
 
 using Tensor = at::Tensor;
 
