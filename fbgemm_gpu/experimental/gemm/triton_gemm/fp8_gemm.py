@@ -1561,6 +1561,97 @@ def quantize_fp8_row(
     return a_fp8, 1 / a_scale  # pyre-ignore
 
 
+@triton.autotune(
+    configs=[
+        Config({"BLOCK_SIZE": 512}),
+        Config({"BLOCK_SIZE": 1024}),
+        Config({"BLOCK_SIZE": 2048}),
+        Config({"BLOCK_SIZE": 4096}),
+        Config({"BLOCK_SIZE": 8192}),
+    ],
+    key=["N"],
+)
+@triton.jit
+def _kernel_scale_fp8_row(
+    A,
+    x_scale,
+    w_scale,
+    scaled_out,
+    M,
+    N,
+    stride_am,
+    stride_an,
+    BLOCK_SIZE: tl.constexpr,
+) -> None:
+    """
+    Scale each row of A by x_scale and each column of A by w_scale.
+
+    Args:
+        A (Tensor): [m, n] Input tensor to scale.
+        x_scale (Tensor): [m] Row-wise scale tensor.
+        w_scale (Tensor): [n] Col-wise scale tensor.
+        scaled_out (Tensor): [m, n] Output tensor.
+        M (int): Number of rows.
+        N (int): Number of columns.
+        stride_am (int): Stride of m dimension of A.
+        stride_an (int): Stride of n dimension of A.
+        BLOCK_SIZE (int): Block size for data loads.
+    """
+    pid = tl.program_id(0)
+    n_offset = tl.arange(0, BLOCK_SIZE)
+    # Load activation scale for this row.
+    row_scale = tl.load(x_scale + pid)
+
+    # Iterate over chunks of the row and apply scales.
+    for _k in range(0, tl.cdiv(N, BLOCK_SIZE)):
+        a = tl.load(A + pid * stride_am + n_offset * stride_an)
+        col_scale = tl.load(w_scale + n_offset)
+        scaled_a = a * row_scale * col_scale
+        tl.store(
+            scaled_out + pid * stride_am + n_offset * stride_an,
+            scaled_a,
+            mask=n_offset < N,
+        )
+        n_offset += BLOCK_SIZE
+
+
+def scale_fp8_row(
+    a: Tensor,
+    x_scale: Tensor,
+    w_scale: Tensor,
+) -> torch.Tensor:
+    """
+    Apply only rowwise scaling to a tensor. Useful when combining with kernels
+    that do not support fused rowwise scaling.
+
+    Args:
+        a (Tensor): Input floating point tensor to be scaled.
+        x_scale (Tensor): Row-wise activation scale tensor.
+        w_scale (Tensor): Col-wise weight scale tensor.
+    """
+    if a.device == torch.device("cpu"):
+        # On CPU we'll just use native pytorch to scale.
+        return a * x_scale[:, None] * w_scale[None, :]
+
+    # Otherwise, use a fast triton kernel to implement.
+    # We'll parallelize over rows.
+    num_rows = a.shape[0]
+    scaled_out = torch.empty(a.shape, device=a.device, dtype=a.dtype)
+    grid = (num_rows,)
+    _kernel_scale_fp8_row[grid](
+        a,
+        x_scale,
+        w_scale,
+        scaled_out,
+        a.shape[0],
+        a.shape[1],
+        a.stride(0),
+        a.stride(1),
+    )
+
+    return scaled_out
+
+
 @triton.jit
 def _kernel_quantize_fp8_block(
     A,

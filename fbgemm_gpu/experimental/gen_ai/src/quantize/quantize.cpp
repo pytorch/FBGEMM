@@ -59,10 +59,10 @@ at::Tensor f8f8bf16_blockwise(
 at::Tensor f8f8bf16_cublas(
     at::Tensor A,
     at::Tensor B,
-    at::Tensor Ainvs,
-    at::Tensor Binvs,
-    bool use_fast_accum,
-    std::optional<at::Tensor> output);
+    std::optional<at::Tensor> Ainvs = c10::nullopt,
+    std::optional<at::Tensor> Binvs = c10::nullopt,
+    bool use_fast_accum = true,
+    std::optional<at::Tensor> output = c10::nullopt);
 at::Tensor f8i4bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -120,7 +120,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "f8f8bf16(Tensor XQ, Tensor WQ, Tensor scale, bool use_fast_accum=True) -> Tensor");
 
   m.def(
-      "f8f8bf16_cublas(Tensor A, Tensor B, Tensor Ainvs, Tensor Binvs, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
+      "f8f8bf16_cublas(Tensor A, Tensor B, Tensor? Ainvs=None, Tensor? Binvs=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
 
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
@@ -248,10 +248,10 @@ std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
 at::Tensor f8f8bf16_cublas_meta(
     at::Tensor X,
     at::Tensor W,
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> /* x_scale = c10::nullopt */,
+    std::optional<at::Tensor> /* w_scale = c10::nullopt */,
+    bool /* use_fast_accum = true */,
+    std::optional<at::Tensor> /* output = c10::nullopt */) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));

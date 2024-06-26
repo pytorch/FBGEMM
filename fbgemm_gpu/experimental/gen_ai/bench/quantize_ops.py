@@ -17,6 +17,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_row,
     quantize_fp8_block,
     quantize_fp8_row,
+    scale_fp8_row,
 )
 
 quantize_op_registry = []
@@ -220,6 +221,41 @@ class FP8TensorwiseGemm(QuantizeOpBase):
     def hip(self) -> bool:
         # Need to add support for better quantize kernel.
         # Also may have an issue with cuda graphs.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class FP8CublasRowwiseGemm(QuantizeOpBase):
+    """
+    FP8 matmul with tensorwise scaling.
+    """
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        out = torch.ops.fbgemm.f8f8bf16_cublas(xq, wq)
+        scaled_out = scale_fp8_row(out, x_scale, w_scale)
+        return scaled_out
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        return "cublas_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        # This implementation is specific to cublas.
         return False
 
     @property
