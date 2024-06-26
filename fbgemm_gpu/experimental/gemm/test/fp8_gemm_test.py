@@ -16,6 +16,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_row,
     quantize_fp8_block,
     quantize_fp8_row,
+    scale_fp8_row,
 )
 
 
@@ -65,6 +66,34 @@ class TestFp8Matmul(unittest.TestCase):
         _test_quantize_fp8_row(
             (2, 3), False, torch.device("cpu"), torch.device("cuda"), use_scale_ub=True
         )
+
+    def test_scale_fp8_row(self) -> None:
+        def _test_scale_fp8_row(
+            shape: Tuple[int, int],
+            device: torch.device,
+        ) -> None:
+            M, K = shape
+            a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+
+            x_scale = torch.randn(M, dtype=torch.bfloat16, device=device)
+            w_scale = torch.randn(K, dtype=torch.bfloat16, device=device)
+
+            scaled_out = scale_fp8_row(a, x_scale, w_scale)
+
+            # Compare with reference value.
+            scaled_out_torch = a * x_scale[:, None] * w_scale[None, :]
+
+            self.assertTrue(
+                torch.allclose(
+                    scaled_out,
+                    scaled_out_torch,
+                    atol=2e-1,
+                    rtol=1e-1,
+                )
+            )
+
+        _test_scale_fp8_row((2, 3), torch.device("cuda"))
+        _test_scale_fp8_row((2, 3), torch.device("cpu"))
 
     def test_matmul_fp8_row(self) -> None:
         def _test_matmul_fp8_row(

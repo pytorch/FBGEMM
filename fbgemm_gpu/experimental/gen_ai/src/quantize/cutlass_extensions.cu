@@ -2002,8 +2002,8 @@ at::Tensor f8i4bf16_rowwise(
 at::Tensor f8f8bf16_cublas(
     at::Tensor A, // FP8
     at::Tensor B, // FP8
-    at::Tensor Ainvs,
-    at::Tensor Binvs,
+    std::optional<at::Tensor> Ainvs = c10::nullopt,
+    std::optional<at::Tensor> Binvs = c10::nullopt,
     bool use_fast_accum = true,
     std::optional<at::Tensor> output = c10::nullopt) {
   auto m = A.size(0);
@@ -2034,11 +2034,6 @@ at::Tensor f8f8bf16_cublas(
     TORCH_CHECK(output_tensor.options().dtype() == at::kBFloat16);
   }
 
-  // Hack to avoid passing the additional A_scale_scale/B_scale_inverse, which
-  // should be a single FP32 element per input tensor for inverse scale.
-
-  const float* Ainvs_pt = Ainvs.data_ptr<float>();
-  const float* Binvs_pt = Binvs.data_ptr<float>();
   const cudaDataType_t A_type = CUDA_R_8F_E4M3;
   const cudaDataType_t B_type = CUDA_R_8F_E4M3;
   const cudaDataType_t D_type = CUDA_R_16BF;
@@ -2079,16 +2074,23 @@ at::Tensor f8f8bf16_cublas(
       &fastAccuMode,
       sizeof(fastAccuMode)));
 
-  checkCublasStatus(cublasLtMatmulDescSetAttribute(
-      operationDesc,
-      CUBLASLT_MATMUL_DESC_A_SCALE_POINTER,
-      &Ainvs_pt,
-      sizeof(Ainvs_pt)));
-  checkCublasStatus(cublasLtMatmulDescSetAttribute(
-      operationDesc,
-      CUBLASLT_MATMUL_DESC_B_SCALE_POINTER,
-      &Binvs_pt,
-      sizeof(Binvs_pt)));
+  if (Ainvs.has_value()) {
+    const float* Ainvs_pt = Ainvs.value().data_ptr<float>();
+    checkCublasStatus(cublasLtMatmulDescSetAttribute(
+        operationDesc,
+        CUBLASLT_MATMUL_DESC_A_SCALE_POINTER,
+        &Ainvs_pt,
+        sizeof(Ainvs_pt)));
+  }
+
+  if (Binvs.has_value()) {
+    const float* Binvs_pt = Binvs.value().data_ptr<float>();
+    checkCublasStatus(cublasLtMatmulDescSetAttribute(
+        operationDesc,
+        CUBLASLT_MATMUL_DESC_B_SCALE_POINTER,
+        &Binvs_pt,
+        sizeof(Binvs_pt)));
+  }
 
   checkCublasStatus(cublasLtMatmulDescSetAttribute(
       operationDesc,
@@ -2145,10 +2147,10 @@ at::Tensor f8f8bf16_cublas(
 at::Tensor f8f8bf16_cublas(
     at::Tensor A, // FP8
     at::Tensor B, // FP8
-    at::Tensor Ainvs,
-    at::Tensor Binvs,
-    bool use_fast_accum,
-    std::optional<at::Tensor> output) {
+    std::optional<at::Tensor> Ainvs = c10::nullopt,
+    std::optional<at::Tensor> Binvs = c10::nullopt,
+    bool use_fast_accum = true,
+    std::optional<at::Tensor> output = c10::nullopt) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
