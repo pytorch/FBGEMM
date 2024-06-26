@@ -49,7 +49,8 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor x_scale,
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = c10::nullopt,
-    bool use_fast_accum = true);
+    bool use_fast_accum = true,
+    std::optional<at::Tensor> output = c10::nullopt);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -140,7 +141,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 #endif
 
   m.def(
-      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
+      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
       "f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
   m.def("per_tensor_quantize_i8(Tensor X, float scale) -> Tensor");
@@ -212,10 +213,11 @@ at::Tensor i8i8bf16_meta(
 at::Tensor f8f8bf16_rowwise_meta(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    std::optional<at::Tensor> bias = c10::nullopt,
-    bool use_fast_accum = true) {
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    bool /* use_fast_accum = true */,
+    std::optional<at::Tensor> /* output = c10::nullopt */) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));

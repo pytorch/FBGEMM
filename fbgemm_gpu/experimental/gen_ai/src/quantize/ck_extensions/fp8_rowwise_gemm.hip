@@ -75,7 +75,8 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale) {
+    at::Tensor w_scale,
+    std::optional<at::Tensor> output = c10::nullopt) {
   // Get input information.
   int M = XQ.size(0);
   int N = WQ.size(0);
@@ -88,7 +89,15 @@ at::Tensor f8f8bf16_rowwise_impl(
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  at::Tensor Y;
+  if (output.has_value()) {
+    Y = output.value();
+    // Make sure the provided output has the proper shape and dtype.
+    TORCH_CHECK(Y.size(0) == M && Y.size(1) == N);
+    TORCH_CHECK(Y.dtype() == at::kBFloat16);
+  } else {
+    Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  }
 
   using ADataType = ck::f8_t;
   using BDataType = ck::f8_t;
@@ -264,8 +273,9 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    c10::optional<at::Tensor> bias,
-    bool use_fast_accum) {
+    std::optional<at::Tensor> bias,
+    bool use_fast_accum,
+    std::optional<at::Tensor> output = c10::nullopt) {
   // Check that input datatypes are valid.
   TORCH_CHECK(
       (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
@@ -280,30 +290,30 @@ at::Tensor f8f8bf16_rowwise(
   if (pad) {
     if (kernel == RowKernelMode::Tiny) {
       return f8f8bf16_rowwise_impl<64, 16, 16, 256, 1, 1, true, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     } else if (kernel == RowKernelMode::Small) {
       return f8f8bf16_rowwise_impl<128, 32, 128, 128, 1, 2, true, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     } else if (kernel == RowKernelMode::Large) {
       return f8f8bf16_rowwise_impl<256, 256, 128, 64, 4, 2, true, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     } else {
       return f8f8bf16_rowwise_impl<256, 128, 128, 64, 2, 2, true, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     }
   } else {
     if (kernel == RowKernelMode::Tiny) {
       return f8f8bf16_rowwise_impl<64, 16, 16, 256, 1, 1, false, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     } else if (kernel == RowKernelMode::Small) {
       return f8f8bf16_rowwise_impl<128, 32, 128, 128, 1, 2, true, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     } else if (kernel == RowKernelMode::Large) {
       return f8f8bf16_rowwise_impl<256, 256, 128, 64, 4, 2, false, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     } else {
       return f8f8bf16_rowwise_impl<256, 128, 128, 64, 2, 2, false, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, output);
     }
   }
 }
