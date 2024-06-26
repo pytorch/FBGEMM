@@ -1014,7 +1014,8 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias) {
+    std::optional<at::Tensor> bias,
+    std::optional<at::Tensor> output) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   int K = XQ.size(1);
@@ -1022,7 +1023,15 @@ at::Tensor f8f8bf16_rowwise_impl(
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  at::Tensor Y;
+  if (output.has_value()) {
+    Y = output.value();
+    // Make sure the provided output has the proper shape and dtype.
+    TORCH_CHECK(Y.size(0) == M && Y.size(1) == N);
+    TORCH_CHECK(Y.dtype() == at::kBFloat16);
+  } else {
+    Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  }
 
   using ElementInputA = INPUT_DTYPE;
   using LayoutInputA = cutlass::layout::RowMajor;
@@ -1265,7 +1274,8 @@ at::Tensor dispatch_fp8_rowwise_kernel(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias) {
+    std::optional<at::Tensor> bias,
+    std::optional<at::Tensor> output) {
   KernelMode kernel = get_kernel_mode(XQ, WQ);
   if (kernel == KernelMode::Small) {
     return f8f8bf16_rowwise_impl<
@@ -1279,7 +1289,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
         FastAccum,
         UseBias,
         InputDType,
-        BiasDType>(XQ, WQ, x_scale, w_scale, bias);
+        BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   } else if (kernel == KernelMode::Large) {
     return f8f8bf16_rowwise_impl<
         128,
@@ -1292,7 +1302,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
         FastAccum,
         UseBias,
         InputDType,
-        BiasDType>(XQ, WQ, x_scale, w_scale, bias);
+        BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   } else {
     return f8f8bf16_rowwise_impl<
         128,
@@ -1305,7 +1315,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
         FastAccum,
         UseBias,
         InputDType,
-        BiasDType>(XQ, WQ, x_scale, w_scale, bias);
+        BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   }
 }
 
@@ -1314,8 +1324,9 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ, // FP8
     at::Tensor x_scale, // FP32
     at::Tensor w_scale, // FP32
-    std::optional<at::Tensor> bias = c10::nullopt, // BF16
-    bool use_fast_accum = true) {
+    std::optional<at::Tensor> bias = c10::nullopt,
+    bool use_fast_accum = true,
+    std::optional<at::Tensor> output = c10::nullopt) {
   // Check datatypes.
   TORCH_CHECK(
       x_scale.dtype() == at::kFloat && w_scale.dtype() == at::kFloat,
@@ -1340,13 +1351,13 @@ at::Tensor f8f8bf16_rowwise(
               cutlass::float_e5m2_t,
               true,
               true,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias);
+              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
         } else {
           return dispatch_fp8_rowwise_kernel<
               cutlass::float_e4m3_t,
               true,
               true,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias);
+              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
         }
       } else {
         if (use_e5m2) {
@@ -1354,13 +1365,13 @@ at::Tensor f8f8bf16_rowwise(
               cutlass::float_e5m2_t,
               false,
               true,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias);
+              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
         } else {
           return dispatch_fp8_rowwise_kernel<
               cutlass::float_e4m3_t,
               false,
               true,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias);
+              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
         }
       }
     } else {
@@ -1370,13 +1381,13 @@ at::Tensor f8f8bf16_rowwise(
               cutlass::float_e5m2_t,
               true,
               true,
-              float>(XQ, WQ, x_scale, w_scale, bias);
+              float>(XQ, WQ, x_scale, w_scale, bias, output);
         } else {
           return dispatch_fp8_rowwise_kernel<
               cutlass::float_e4m3_t,
               true,
               true,
-              float>(XQ, WQ, x_scale, w_scale, bias);
+              float>(XQ, WQ, x_scale, w_scale, bias, output);
         }
       } else {
         if (use_e5m2) {
@@ -1384,13 +1395,13 @@ at::Tensor f8f8bf16_rowwise(
               cutlass::float_e5m2_t,
               false,
               true,
-              float>(XQ, WQ, x_scale, w_scale, bias);
+              float>(XQ, WQ, x_scale, w_scale, bias, output);
         } else {
           return dispatch_fp8_rowwise_kernel<
               cutlass::float_e4m3_t,
               false,
               true,
-              float>(XQ, WQ, x_scale, w_scale, bias);
+              float>(XQ, WQ, x_scale, w_scale, bias, output);
         }
       }
     }
@@ -1401,13 +1412,13 @@ at::Tensor f8f8bf16_rowwise(
             cutlass::float_e5m2_t,
             true,
             false,
-            float>(XQ, WQ, x_scale, w_scale, bias);
+            float>(XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return dispatch_fp8_rowwise_kernel<
             cutlass::float_e4m3_t,
             true,
             false,
-            float>(XQ, WQ, x_scale, w_scale, bias);
+            float>(XQ, WQ, x_scale, w_scale, bias, output);
       }
     } else {
       if (use_e5m2) {
@@ -1415,13 +1426,13 @@ at::Tensor f8f8bf16_rowwise(
             cutlass::float_e5m2_t,
             false,
             false,
-            float>(XQ, WQ, x_scale, w_scale, bias);
+            float>(XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return dispatch_fp8_rowwise_kernel<
             cutlass::float_e4m3_t,
             false,
             false,
-            float>(XQ, WQ, x_scale, w_scale, bias);
+            float>(XQ, WQ, x_scale, w_scale, bias, output);
       }
     }
   }
@@ -2180,7 +2191,8 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor x_scale,
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = c10::nullopt,
-    bool use_fast_accum = true) {
+    bool use_fast_accum = true,
+    std::optional<at::Tensor> output = c10::nullopt) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
