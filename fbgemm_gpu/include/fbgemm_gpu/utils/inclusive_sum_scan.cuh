@@ -8,10 +8,6 @@
 
 #pragma once
 
-// #include <ATen/ATen.h>
-// #include <ATen/AccumulateType.h>
-// #include <ATen/cuda/CUDAGraphsUtils.cuh>
-
 // clang-format off
 #ifdef USE_ROCM
 #define HIPCUB_ARCH 1
@@ -23,20 +19,11 @@
 #endif
 // clang-format on
 
-// #include <cuda.h>
-// #if !(                                                  \
-//     defined(USE_ROCM) ||                                \
-//     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-//      (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
-// #include <cuda_bf16.h>
-// #elif (defined(USE_ROCM))
-// #include <hip/hip_bfloat16.h>
-// #endif
-// #include <cuda_fp16.h>
-// #include <cuda_runtime.h>
-// #include <curand_kernel.h>
-
 namespace fbgemm_gpu {
+
+#ifdef USE_ROCM
+namespace cub = hipcub;
+#endif
 
 /**
  * inclusive_sum_scan_kernel performs intra- and inter-thread block sum scan
