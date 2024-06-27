@@ -188,6 +188,7 @@ class FP8Tests(unittest.TestCase):
         QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
         Bias=st.sampled_from([True, False]),
         CudaGraph=st.sampled_from([True, False]),
+        UseTriton=st.sampled_from([True, False]),
     )
     def test_quantize_fp8_matmul(
         self,
@@ -198,6 +199,7 @@ class FP8Tests(unittest.TestCase):
         QType: torch.dtype,
         Bias: bool,
         CudaGraph: bool,
+        UseTriton: bool,
     ) -> None:
         x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
@@ -293,7 +295,7 @@ class FP8Tests(unittest.TestCase):
                     w, block_n, block_k, output_device=output_device
                 )
                 xq, x_scale = quantize_fp8_block(x, block_m, block_k)
-                if torch.version.cuda:
+                if UseTriton:
                     zq = matmul_fp8_block(
                         xq,
                         wq,
@@ -304,9 +306,12 @@ class FP8Tests(unittest.TestCase):
                         block_k,
                         fp8_fast_accum=True,
                     )
-
-                    if bias is not None:
-                        zq += bias
+                else:
+                    zq = torch.ops.fbgemm.f8f8bf16_blockwise(
+                        xq, wq, x_scale, w_scale, block_m, block_n, block_k
+                    )
+                if bias is not None:
+                    zq += bias
 
                 g = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(g):
@@ -314,7 +319,7 @@ class FP8Tests(unittest.TestCase):
                         w, block_n, block_k, output_device=output_device
                     )
                     xq, x_scale = quantize_fp8_block(x, block_m, block_k)
-                    if torch.version.cuda:
+                    if UseTriton:
                         zq = matmul_fp8_block(
                             xq,
                             wq,
@@ -327,7 +332,7 @@ class FP8Tests(unittest.TestCase):
                         )
                     else:
                         zq = torch.ops.fbgemm.f8f8bf16_blockwise(
-                            xq, wq, x_scale, w_scale
+                            xq, wq, x_scale, w_scale, block_m, block_n, block_k
                         )
                     if bias is not None:
                         zq += bias
@@ -337,7 +342,7 @@ class FP8Tests(unittest.TestCase):
                     w, block_n, block_k, output_device=output_device
                 )
                 xq, x_scale = quantize_fp8_block(x, block_m, block_k)
-                if torch.version.cuda:
+                if UseTriton:
                     zq = matmul_fp8_block(
                         xq,
                         wq,
@@ -349,8 +354,9 @@ class FP8Tests(unittest.TestCase):
                         fp8_fast_accum=True,
                     )
                 else:
-                    zq = torch.ops.fbgemm.f8f8bf16_blockwise(xq, wq, x_scale, w_scale)
-
+                    zq = torch.ops.fbgemm.f8f8bf16_blockwise(
+                        xq, wq, x_scale, w_scale, block_m, block_n, block_k
+                    )
                 if bias is not None:
                     zq += bias
         else:
