@@ -55,7 +55,10 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale);
+    at::Tensor w_scale,
+    int64_t block_m,
+    int64_t block_n,
+    int64_t block_k);
 at::Tensor f8f8bf16_cublas(
     at::Tensor A,
     at::Tensor B,
@@ -134,12 +137,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor");
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
 #endif
-// Kernels that are only supported in ROCM.
-#ifdef USE_ROCM
   m.def(
-      "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale) -> Tensor");
-#endif
-
+      "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m, int block_n, int block_k) -> Tensor");
   m.def(
       "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
@@ -185,6 +184,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
+  m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
 #ifndef USE_ROCM
@@ -193,9 +193,6 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
-#endif
-#ifdef USE_ROCM
-  m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
 #endif
 }
 
@@ -227,8 +224,11 @@ at::Tensor f8f8bf16_rowwise_meta(
 at::Tensor f8f8bf16_blockwise_meta(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
-    at::Tensor x_scale,
-    at::Tensor w_scale) {
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    int64_t /* block_m */,
+    int64_t /* block_n */,
+    int64_t /* block_k */) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
@@ -316,6 +316,7 @@ std::vector<at::Tensor> quantize_fp8_per_row_meta(
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise_meta);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
 #ifndef USE_ROCM
@@ -326,9 +327,6 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
-#endif
-#ifdef USE_ROCM
-  m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise_meta);
 #endif
 }
 

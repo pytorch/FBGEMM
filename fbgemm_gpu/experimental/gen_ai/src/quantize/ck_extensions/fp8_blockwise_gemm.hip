@@ -56,7 +56,10 @@ at::Tensor f8f8bf16_blockwise_impl(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale) {
+    at::Tensor w_scale,
+    int64_t block_m,
+    int64_t block_n,
+    int64_t block_k) {
   // Check that inputs are valid.
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
@@ -74,13 +77,13 @@ at::Tensor f8f8bf16_blockwise_impl(
   int StrideE = N;
 
   // For now hardcode block size.
-  int ScaleBlockM = 256;
-  int ScaleBlockN = 256;
-  int ScaleBlockK = 256;
+  TORCH_CHECK(block_m == 256);
+  TORCH_CHECK(block_n == 256);
+  TORCH_CHECK(block_k == 256);
 
-  int ScaleStrideAM = K / ScaleBlockK;
+  int ScaleStrideAM = K / block_k;
   int ScaleStrideAK = 1;
-  int ScaleStrideBN = K / ScaleBlockK;
+  int ScaleStrideBN = K / block_k;
   int ScaleStrideBK = 1;
 
   using ADataType = ck::f8_t;
@@ -186,9 +189,9 @@ at::Tensor f8f8bf16_blockwise_impl(
       StrideE,
       reinterpret_cast<AScaleDataType*>(x_scale.data_ptr()),
       reinterpret_cast<BScaleDataType*>(w_scale.data_ptr()),
-      ScaleBlockM,
-      ScaleBlockN,
-      ScaleBlockK,
+      block_m,
+      block_n,
+      block_k,
       ScaleStrideAM,
       ScaleStrideAK,
       ScaleStrideBN,
@@ -239,7 +242,10 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale) {
+    at::Tensor w_scale,
+    int64_t block_m,
+    int64_t block_n,
+    int64_t block_k) {
   // Check that input datatypes are valid.
   TORCH_CHECK(
       (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
@@ -252,24 +258,24 @@ at::Tensor f8f8bf16_blockwise(
   if (pad) {
     if (kernel == BlockKernelMode::Small) {
       return f8f8bf16_blockwise_impl<128, 32, 128, 128, 1, 2, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
     } else if (kernel == BlockKernelMode::Large) {
       return f8f8bf16_blockwise_impl<256, 256, 128, 64, 4, 2, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
     } else {
       return f8f8bf16_blockwise_impl<256, 128, 128, 64, 2, 2, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
     }
   } else {
     if (kernel == BlockKernelMode::Small) {
       return f8f8bf16_blockwise_impl<128, 32, 128, 128, 1, 2, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
     } else if (kernel == BlockKernelMode::Large) {
       return f8f8bf16_blockwise_impl<256, 256, 128, 64, 4, 2, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
     } else {
       return f8f8bf16_blockwise_impl<256, 128, 128, 64, 2, 2, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
     }
   }
 }
