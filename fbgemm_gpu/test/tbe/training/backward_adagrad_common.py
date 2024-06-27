@@ -137,7 +137,6 @@ def execute_backward_adagrad(  # noqa C901
         or (
             weights_precision != SparseType.INT8
             and output_dtype != SparseType.INT8
-            and not use_cpu
             and pooling_mode != PoolingMode.NONE
         )
     )

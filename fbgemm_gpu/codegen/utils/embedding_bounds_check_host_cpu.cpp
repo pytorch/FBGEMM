@@ -47,17 +47,22 @@ void bounds_check_indices_cpu(
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t /*max_B*/) {
-  TORCH_CHECK(
-      !B_offsets.has_value(),
-      "bounds_check_indices on CPU does not support variable length (batch size)");
+    const int64_t max_B) {
+  const auto vbe = B_offsets.has_value();
+  if (vbe) {
+    TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
+  }
+  const int32_t* const B_offsets_ptr =
+      vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr;
+
   auto bounds_check_mode = static_cast<BoundsCheckMode>(bounds_check_mode_);
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
     warning.zero_();
   }
 
-  int32_t T = rows_per_table.size(0);
-  int32_t B = (offsets.size(0) - 1) / T;
+  const int32_t T = rows_per_table.size(0);
+  const int32_t total_B = offsets.size(0) - 1;
+  const int32_t B = total_B / T;
   const auto rows_per_table_acc = rows_per_table.accessor<int64_t, 1>();
   auto warning_acc = warning.data_ptr<int64_t>();
 
@@ -66,11 +71,15 @@ void bounds_check_indices_cpu(
     auto indices_acc = indices.accessor<index_t, 1>();
     auto num_indices = indices.numel();
 
-    TORCH_CHECK(
-        offsets.size(0) == B * T + 1,
-        "offsets size " + std::to_string(offsets.size(0)) +
-            " is not equal to B (" + std::to_string(B) + ") * T (" +
-            std::to_string(T) + ") + 1");
+    if (vbe) {
+      TORCH_CHECK(max_B >= 0);
+    } else {
+      TORCH_CHECK(
+          offsets.size(0) == B * T + 1,
+          "offsets size " + std::to_string(offsets.size(0)) +
+              " is not equal to B (" + std::to_string(B) + ") * T (" +
+              std::to_string(T) + ") + 1");
+    }
     if (weights.has_value()) {
       TORCH_CHECK(
           weights.value().size(0) == num_indices,
@@ -79,29 +88,33 @@ void bounds_check_indices_cpu(
     }
 
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
-      TORCH_CHECK(num_indices == offsets_acc[B * T]);
+      TORCH_CHECK(num_indices == offsets_acc[total_B]);
     } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
-      if (num_indices != offsets_acc[B * T]) {
+      if (num_indices != offsets_acc[total_B]) {
         if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
           LOG(ERROR)
-              << "The last element in offsets is incorrect for "
-              << "total batch size B: " << B << ", total table num T: " << T
-              << ", last element in offsets: " << offsets_acc[B * T]
+              << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
+              << "): The last element in offsets is incorrect for "
+              << "total batch size " << (vbe ? "total_B" : "B") << ": "
+              << (vbe ? total_B : B) << ", total table num T: " << T
+              << ", last element in offsets: " << offsets_acc[total_B]
               << ", indices size: " << num_indices
               << ". Setting the last element in offsets to be indices size.";
         }
-        offsets_acc[B * T] = num_indices;
+        offsets_acc[total_B] = num_indices;
       }
     } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
-      if (num_indices != offsets_acc[B * T]) {
-        offsets_acc[B * T] = num_indices;
+      if (num_indices != offsets_acc[total_B]) {
+        offsets_acc[total_B] = num_indices;
       }
     }
     for (const auto t : c10::irange(T)) {
       auto num_rows = rows_per_table_acc[t];
-      for (const auto b : c10::irange(B)) {
-        auto indices_start = offsets_acc[t * B + b];
-        auto indices_end = offsets_acc[t * B + b + 1];
+      auto B_begin = vbe ? B_offsets_ptr[t] : t * B;
+      auto B_end = vbe ? B_offsets_ptr[t + 1] : (t + 1) * B;
+      for (const auto b : c10::irange(B_end - B_begin)) {
+        auto indices_start = offsets_acc[B_begin + b];
+        auto indices_end = offsets_acc[B_begin + b + 1];
         if (bounds_check_mode == BoundsCheckMode::FATAL) {
           TORCH_CHECK(indices_start >= 0);
           TORCH_CHECK(indices_start <= indices_end);
@@ -111,7 +124,8 @@ void bounds_check_indices_cpu(
               indices_end > num_indices) {
             if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
               LOG(ERROR)
-                  << "(at least one) Out of bounds access for batch: " << b
+                  << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
+                  << "): (at least one) Out of bounds access for batch: " << b
                   << ", table: " << t << ", indices_start: " << indices_start
                   << ", indices_end: " << indices_end
                   << ", num_indices: " << num_indices
@@ -121,16 +135,16 @@ void bounds_check_indices_cpu(
                 indices_start,
                 indices_end,
                 num_indices,
-                &offsets_acc[t * B + b],
-                &offsets_acc[t * B + b + 1]);
+                &offsets_acc[B_begin + b],
+                &offsets_acc[B_begin + b + 1]);
           }
         } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
           adjust_offset_cpu(
               indices_start,
               indices_end,
               num_indices,
-              &offsets_acc[t * B + b],
-              &offsets_acc[t * B + b + 1]);
+              &offsets_acc[B_begin + b],
+              &offsets_acc[B_begin + b + 1]);
         }
 
         auto L = indices_end - indices_start;
@@ -146,10 +160,12 @@ void bounds_check_indices_cpu(
           } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
             if (idx < 0 || idx >= num_rows) {
               if (__sync_fetch_and_add(&warning_acc[0], 1) == 0) {
-                LOG(ERROR) << "(at least one) Out of bounds access for batch: "
-                           << b << ", table: " << t << ", bag element: " << l
-                           << ", idx: " << idx << ", num_rows: " << num_rows
-                           << ". Setting idx to zero.";
+                LOG(ERROR)
+                    << "EmbeddingBoundsCheck (VBE " << (vbe ? "true" : "false")
+                    << "): (at least one) Out of bounds access for batch: " << b
+                    << ", table: " << t << ", bag element: " << l
+                    << ", idx: " << idx << ", num_rows: " << num_rows
+                    << ". Setting idx to zero.";
               }
               indices_acc[indices_start + l] = 0;
             }
