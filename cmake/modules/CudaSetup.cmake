@@ -33,3 +33,14 @@ endif()
 if(NVML_LIB_PATH)
   message(STATUS "Found NVML_LIB_PATH: ${NVML_LIB_PATH}")
 endif()
+
+# The libcuda.so path was previously set by PyTorch CMake, but the setup has
+# been removed from the PyTorch codebase, see:
+# https://github.com/pytorch/pytorch/pull/128801
+set(CUDA_DRIVER_LIBRARIES "${CUDA_cuda_driver_LIBRARY}" CACHE FILEPATH "")
+
+BLOCK_PRINT(
+  "CUDA Driver Path"
+  ""
+  "CUDA_DRIVER_LIBRARIES=${CUDA_DRIVER_LIBRARIES}"
+)
