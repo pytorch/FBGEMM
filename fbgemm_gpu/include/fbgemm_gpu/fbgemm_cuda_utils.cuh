@@ -10,24 +10,112 @@
 
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
-#include <cuda_runtime.h>
-#include <curand_kernel.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 
-#include "fbgemm_gpu/utils/cuda_prelude.cuh"
+// clang-format off
+#ifdef USE_ROCM
+#define HIPCUB_ARCH 1
+#include <hipcub/backend/rocprim/block/block_scan.hpp>
+#else
+#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include <cub/block/block_scan.cuh>
+#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+#endif
+// clang-format on
+
+#include <cuda.h>
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#include <cuda_bf16.h>
+#elif (defined(USE_ROCM))
+#include <hip/hip_bfloat16.h>
+#endif
+#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+#include <curand_kernel.h>
+#if !defined(USE_ROCM) && defined(CUDA_VERSION) && CUDA_VERSION >= 9000
+#define FBGEMM_USE_SUBWARP_SHUFFLE
+#endif
 
 namespace {
-
 using fint32 = union fint32 {
   uint32_t I;
   float F;
 };
+
+int get_device_sm_cnt_() {
+  cudaDeviceProp* deviceProp =
+      at::cuda::getDeviceProperties(c10::cuda::current_device());
+  return deviceProp->multiProcessorCount;
+}
 
 } // namespace
 
 namespace fbgemm_gpu {
 
 enum class PrimitiveType : uint8_t { FP = 0, INT = 1, BF = 2 };
+
+#ifdef USE_ROCM
+namespace cub = hipcub;
+#endif
+
+#define DEVICE_INLINE __device__ inline __attribute__((always_inline))
+
+#define CUDA_DEVICE_GUARD(TENSOR)           \
+  at::cuda::OptionalCUDAGuard device_guard; \
+  device_guard.set_index(TENSOR.get_device())
+
+// Warp size
+#ifdef USE_ROCM
+static constexpr int32_t kWarpSize = 64;
+#else
+static constexpr int32_t kWarpSize = 32;
+#endif
+// Max thread num in one thread block
+static constexpr int32_t kMaxThreads = 1024;
+// Max block size in Y dimension of a grid
+static constexpr int32_t kMaxBlockYDim = 65535;
+// Max block size in Z dimension of a grid
+static constexpr int32_t kMaxBlockZDim = 65535;
+// Full warp mask
+static constexpr uint32_t kFullWarpMask = 0xff'ff'ff'ff;
+
+static constexpr float kQParamEps = 1e-8f;
+
+/* For rowwise int8 quantization, two quantization parameters (qparams)
+will be stored at the end of each row in FP32 formats, appending a total of
+8 bytes to each row.
+*/
+static constexpr float kINT8QparamsBytes = 8;
+
+// Customized Half4 data types with two half2 (64-bit in total)
+struct Half4 {
+  half2 a;
+  half2 b;
+
+  __device__ inline void store(at::Half* p) {
+#ifdef USE_ROCM
+    p[0] = __low2half(a);
+    p[1] = __high2half(a);
+    p[2] = __low2half(b);
+    p[3] = __high2half(b);
+#elif CUDA_VERSION >= 9000
+
+#ifndef __HALF2_TO_UI
+// cuda_fp16.hpp doesn't export this
+#define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
+#endif
+
+    asm("st.v2.u32 [%0], {%1, %2};"
+        :
+        : "l"(p), "r"(__HALF2_TO_UI(a)), "r"(__HALF2_TO_UI(b)));
+#else
+    asm("st.v2.u32 [%0], {%1, %2};" : : "l"(p), "r"(a.x), "r"(b.x));
+#endif
+  }
+};
 
 // Customized 4-element vector data types (with element type Half, or float).
 template <typename T>
@@ -553,6 +641,173 @@ DEVICE_INLINE Vec4T<scalar_t> vec4_acc(
 // A wrapper for Vec4T with acc_type
 template <typename T>
 using Vec4TAcc = Vec4T<at::acc_type<T, true>>;
+
+template <typename T>
+DEVICE_INLINE T shfl_xor(
+    const T val,
+    int laneMask,
+    int width = kWarpSize,
+    unsigned shfl_sync_mask = kFullWarpMask) {
+#if defined(USE_ROCM) || CUDA_VERSION < 9000
+  return __shfl_xor(val, laneMask, width);
+#else
+  return __shfl_xor_sync(shfl_sync_mask, val, laneMask, width);
+#endif
+}
+
+template <typename T>
+DEVICE_INLINE T shfl_sync(
+    const T val,
+    int srcLane = 0,
+    int width = kWarpSize,
+    unsigned shfl_sync_mask = kFullWarpMask) {
+#if defined(USE_ROCM) || CUDA_VERSION < 9000
+  return __shfl(val, srcLane, width);
+#else
+  return __shfl_sync(shfl_sync_mask, val, srcLane, width);
+#endif
+}
+
+template <typename T>
+DEVICE_INLINE T shfl_down_sync(
+    const T val,
+    unsigned delta,
+    int width = kWarpSize,
+    unsigned shfl_sync_mask = kFullWarpMask) {
+#if defined(USE_ROCM) || CUDA_VERSION < 9000
+  return __shfl_down(val, delta, width);
+#else
+  return __shfl_down_sync(shfl_sync_mask, val, delta, width);
+#endif
+}
+
+#if defined(USE_ROCM) || CUDA_VERSION < 9000
+DEVICE_INLINE uint64_t ballot_sync(
+#else
+DEVICE_INLINE uint32_t ballot_sync(
+#endif
+    int predicate,
+    unsigned shfl_sync_mask = kFullWarpMask) {
+#if defined(USE_ROCM) || CUDA_VERSION < 9000
+  return __ballot(predicate);
+#else
+  return __ballot_sync(shfl_sync_mask, predicate);
+#endif
+}
+
+/// Sums a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize>
+DEVICE_INLINE T
+warpReduceAllSum(T val, unsigned shfl_sync_mask = kFullWarpMask) {
+#pragma unroll
+  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+    val += shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
+  }
+  return val;
+}
+
+DEVICE_INLINE void syncwarp() {
+#ifdef USE_ROCM
+  // Performance - replace a block level __syncthreads with per CU
+  // __threadfence_block. It is a fine replacement for __syncwarp on AMD GPUs,
+  // it is because a. memory fencing: __threadfence_block ops. at CU level,
+  // same as __syncwarp at SM b. threads re-converge: wavefront run in
+  // lockstep, no need __syncwarp re-converge
+  __threadfence_block();
+#else
+  __syncwarp();
+#endif
+}
+
+/// Warp bitonic K/V sorting code
+template <typename T>
+struct Comparator {
+  __device__ static inline bool lt(T a, T b) {
+    return a < b;
+  }
+  __device__ static inline bool gt(T a, T b) {
+    return a > b;
+  }
+};
+
+template <typename T>
+inline __device__ void assign(bool assign, T& x, T y) {
+  x = assign ? y : x;
+}
+
+template <
+    typename K,
+    typename V,
+    int32_t L,
+    bool Dir,
+    typename Comp,
+    bool IsBitonic>
+inline __device__ void warpBitonicMergeLE16(K& k, V& v) {
+  static_assert(
+      L <= fbgemm_gpu::kWarpSize / 2, "merge list size must be <= 16");
+  int32_t laneId = threadIdx.x;
+
+  if (!IsBitonic) {
+    // Reverse the first comparison stage.
+    // For example, merging a list of size 8 has the exchanges:
+    // 0 <-> 15, 1 <-> 14, ...
+    K otherK = fbgemm_gpu::shfl_xor(k, 2 * L - 1);
+    V otherV = fbgemm_gpu::shfl_xor(v, 2 * L - 1);
+
+    // Whether we are the lesser thread in the exchange
+    bool small = !(laneId & L);
+
+    if (Dir) {
+      // See the comment above how performing both of these
+      // comparisons in the warp seems to win out over the
+      // alternatives in practice
+      bool s = small ? Comp::gt(k, otherK) : Comp::lt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+
+    } else {
+      bool s = small ? Comp::lt(k, otherK) : Comp::gt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+    }
+  }
+
+#pragma unroll
+  for (int32_t stride = IsBitonic ? L : L / 2; stride > 0; stride /= 2) {
+    K otherK = fbgemm_gpu::shfl_xor(k, stride);
+    V otherV = fbgemm_gpu::shfl_xor(v, stride);
+
+    // Whether we are the lesser thread in the exchange
+    bool small = !(laneId & stride);
+
+    if (Dir) {
+      bool s = small ? Comp::gt(k, otherK) : Comp::lt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+
+    } else {
+      bool s = small ? Comp::lt(k, otherK) : Comp::gt(k, otherK);
+      assign(s, k, otherK);
+      assign(s, v, otherV);
+    }
+  }
+}
+
+template <typename K, typename V, bool Dir, typename Comp>
+struct BitonicSort {
+  static inline __device__ void sort(K k[1], V v[1]) {
+#ifdef USE_ROCM
+    static_assert(fbgemm_gpu::kWarpSize == 64, "unexpected warp size");
+#else
+    static_assert(fbgemm_gpu::kWarpSize == 32, "unexpected warp size");
+#endif
+    warpBitonicMergeLE16<K, V, 1, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 2, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 4, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 8, Dir, Comp, false>(k[0], v[0]);
+    warpBitonicMergeLE16<K, V, 16, Dir, Comp, false>(k[0], v[0]);
+  }
+};
 
 // Correct for cases where x is not subnormal.
 static DEVICE_INLINE __half
@@ -3182,5 +3437,81 @@ __device__ int __any_sync(uint64_t mask, int predicate) {
   return (predicate_bit_pattern & mask) > 0;
 }
 #endif
+
+class FixedDivisor {
+ public:
+  explicit FixedDivisor(const int32_t d) : d_(d) {
+    CalcSignedMagic();
+  }
+
+  /// Calculates `q = n / d`.
+  DEVICE_INLINE int32_t Div(const int32_t n) const {
+    // In lieu of a mulhi instruction being available, perform the
+    // work in uint64
+    return (int32_t)((magic_ * (uint64_t)n) >> shift_);
+  }
+
+  /// Calculates `r = n % d`.
+  DEVICE_INLINE int32_t Mod(const int32_t n) const {
+    return n - d_ * Div(n);
+  }
+
+  /// Calculates `q = n / d` and `r = n % d` together.
+  DEVICE_INLINE void DivMod(const int32_t n, int32_t* q, int32_t* r) const {
+    *q = Div(n);
+    *r = n - d_ * *q;
+  }
+  DEVICE_INLINE int32_t D() const {
+    return d_;
+  }
+
+ private:
+  // Calculates magic multiplicative value and shift amount for calculating `q =
+  // n / d` for signed 32-bit integers.
+  // Implementation taken from Hacker's Delight section 10.
+  void CalcSignedMagic() {
+    if (d_ == 1) {
+      magic_ = UINT64_C(0x1) << 32;
+      shift_ = 32;
+      return;
+    }
+
+    const uint32_t two31 = UINT32_C(0x80000000);
+    const uint32_t ad = std::abs(d_);
+    const uint32_t t = two31 + ((uint32_t)d_ >> 31);
+    const uint32_t anc = t - 1 - t % ad; // Absolute value of nc.
+    uint32_t p = 31; // Init. p.
+    uint32_t q1 = two31 / anc; // Init. q1 = 2**p/|nc|.
+    uint32_t r1 = two31 - q1 * anc; // Init. r1 = rem(2**p, |nc|).
+    uint32_t q2 = two31 / ad; // Init. q2 = 2**p/|d|.
+    uint32_t r2 = two31 - q2 * ad; // Init. r2 = rem(2**p, |d|).
+    uint32_t delta = 0;
+    do {
+      ++p;
+      q1 <<= 1; // Update q1 = 2**p/|nc|.
+      r1 <<= 1; // Update r1 = rem(2**p, |nc|).
+      if (r1 >= anc) { // (Must be an unsigned comparison here).
+        ++q1;
+        r1 -= anc;
+      }
+      q2 <<= 1; // Update q2 = 2**p/|d|.
+      r2 <<= 1; // Update r2 = rem(2**p, |d|).
+      if (r2 >= ad) { // (Must be an unsigned comparison here).
+        ++q2;
+        r2 -= ad;
+      }
+      delta = ad - r2;
+    } while (q1 < delta || (q1 == delta && r1 == 0));
+    int32_t magic = q2 + 1;
+    if (d_ < 0) {
+      magic = -magic;
+    }
+    shift_ = p;
+    magic_ = (uint64_t)(uint32_t)magic;
+  }
+  int32_t d_ = 1;
+  uint64_t magic_;
+  int shift_;
+};
 
 } // namespace fbgemm_gpu
