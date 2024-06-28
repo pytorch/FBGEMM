@@ -683,12 +683,8 @@ set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 # Link to PyTorch
 target_link_libraries(fbgemm_gpu_py
   ${TORCH_LIBRARIES}
-  ${NCCL_LIBRARIES})
-
-# Append -lcuda flag, since TORCH_LIBRARIES doesn't include this
-if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
-  set_target_properties(fbgemm_gpu_py PROPERTIES LINK_FLAGS "-lcuda")
-endif()
+  ${NCCL_LIBRARIES}
+  ${CUDA_DRIVER_LIBRARIES})
 
 # Link to NVML
 if(NVML_LIB_PATH)
