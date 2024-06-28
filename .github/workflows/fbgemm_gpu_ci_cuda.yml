@@ -101,8 +101,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      # TODO: Change back to rolling nightly torch once we figure out the cause for undefined symbol: cuTensorMapEncodeTiled
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly/2.5.0.dev20240621 cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -192,8 +191,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      # TODO: Change back to rolling nightly torch once we figure out the cause for undefined symbol: cuTensorMapEncodeTiled
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly/2.5.0.dev20240621 cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
