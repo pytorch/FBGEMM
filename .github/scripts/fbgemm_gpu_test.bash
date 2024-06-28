@@ -150,6 +150,10 @@ __setup_fbgemm_gpu_test () {
     print_exec conda env config vars set ${env_prefix} KMP_DUPLICATE_LIB_OK=1
   fi
 
+  # NOTE: Uncomment to enable PyTorch C++ stacktraces
+  # shellcheck disable=SC2086
+  # print_exec conda env config vars set ${env_prefix} TORCH_SHOW_CPP_STACKTRACES=1
+
   echo "[TEST] Installing PyTest ..."
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -y pytest expecttest) || return 1

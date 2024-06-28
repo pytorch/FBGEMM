@@ -55,6 +55,11 @@ target_link_libraries(fbgemm_gpu_experimental_example_py
     ${TORCH_LIBRARIES}
     ${NCCL_LIBRARIES})
 
+if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
+  set_target_properties(fbgemm_gpu_experimental_example_py PROPERTIES
+    LINK_FLAGS "-lcuda")
+endif()
+
 # Remove `lib` from the output artifact name
 set_target_properties(fbgemm_gpu_experimental_example_py PROPERTIES PREFIX "")
 

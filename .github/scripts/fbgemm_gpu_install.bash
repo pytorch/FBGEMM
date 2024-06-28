@@ -70,17 +70,19 @@ __install_check_subpackages () {
   local subpackages=(
     "fbgemm_gpu.docs"
     "fbgemm_gpu.tbe.cache"
-    "fbgemm_gpu.tbe.ssd"
-    "fbgemm_gpu.tbe.utils"
   )
+
+  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
+    subpackages+=(
+      "fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+      "fbgemm_gpu.tbe.ssd"
+      "fbgemm_gpu.tbe.utils"
+    )
+  fi
 
   for package in "${subpackages[@]}"; do
     (test_python_import_package "${env_name}" "${package}") || return 1
   done
-
-  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
-    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
-  fi
 }
 
 __install_check_operator_registrations () {

@@ -104,6 +104,11 @@ target_include_directories(fbgemm_gpu_experimental_gen_ai_py PRIVATE
   ${TORCH_INCLUDE_DIRS}
   ${NCCL_INCLUDE_DIRS})
 
+if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
+  set_target_properties(fbgemm_gpu_experimental_gen_ai_py PROPERTIES
+    LINK_FLAGS "-lcuda")
+endif()
+
 target_link_libraries(fbgemm_gpu_experimental_gen_ai_py
   ${TORCH_LIBRARIES}
   ${NCCL_LIBRARIES})
