@@ -58,8 +58,17 @@ install_cuda () {
   (test_filepath "${env_name}" cuda_runtime.h) || return 1
 
   # Ensure that the libraries are properly installed
+  (test_filepath "${env_name}" libcuda.so) || return 1
   (test_filepath "${env_name}" libnvToolsExt.so) || return 1
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
+
+  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155
+  local libcuda_path=$(find "${conda_prefix}" -type f -name libcuda.so)
+  nm -gDC "${libcuda_path}"
+  append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
 
   echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
   # shellcheck disable=SC2155,SC2086
