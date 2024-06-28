@@ -107,7 +107,6 @@ class ForwardTest(unittest.TestCase):
             or (
                 weights_precision != SparseType.INT8
                 and output_dtype != SparseType.INT8
-                and not use_cpu
                 and pooling_mode != PoolingMode.NONE
             )
         )
@@ -377,7 +376,7 @@ class ForwardTest(unittest.TestCase):
             ]
         )
         mixed = False
-        mixed_B = False
+        mixed_B = random.choice([False, True])
         if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:
