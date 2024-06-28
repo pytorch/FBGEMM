@@ -20,7 +20,6 @@
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
-#include "fbgemm_gpu/utils/bitonic_sort.cuh"
 
 using Tensor = at::Tensor;
 
