@@ -131,7 +131,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         assume(not use_cpu or pooling_mode != PoolingMode.NONE)
         assume(not mixed or pooling_mode != PoolingMode.NONE)
         assume(not weighted or pooling_mode != PoolingMode.NONE)
-        assume(not mixed_B or (not use_cpu and pooling_mode != PoolingMode.NONE))
+        assume(not mixed_B or pooling_mode != PoolingMode.NONE)
 
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
         if pooling_mode == PoolingMode.SUM:

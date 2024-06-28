@@ -240,9 +240,6 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         dtype: torch.dtype,
         mixed_B: bool,
     ) -> None:
-        # use_cpu does not support mixed_B
-        if use_cpu and mixed_B:
-            mixed_B = False
         rows_per_table = torch.tensor(
             np.random.randint(low=1, high=1000, size=(T,))
         ).long()
@@ -275,7 +272,9 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         warning = torch.tensor([0]).long()
 
         if mixed_B:
-            B_offsets = torch.tensor(B_offsets, device="cuda", dtype=torch.int32)
+            B_offsets = torch.tensor(
+                B_offsets, device="cpu" if use_cpu else "cuda", dtype=torch.int32
+            )
             max_B = max(Bs)
         else:
             B_offsets = None
