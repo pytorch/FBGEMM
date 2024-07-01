@@ -23,7 +23,7 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 except Exception:
     if torch.version.hip:
