@@ -77,6 +77,15 @@ inline bool torch_tensor_on_cuda_gpu_check(
   return !ten.has_value() || torch_tensor_on_cuda_gpu_check(ten.value());
 }
 
+inline bool torch_tensor_contiguous_check(const at::Tensor& ten) {
+  return ten.is_contiguous();
+}
+
+inline bool torch_tensor_contiguous_check(
+    const c10::optional<at::Tensor>& ten) {
+  return !ten.has_value() || torch_tensor_contiguous_check(ten.value());
+}
+
 inline bool torch_tensor_empty_or_on_cuda_gpu_check(const at::Tensor& ten) {
   return (ten.numel() == 0) || ten.is_cuda();
 }
@@ -181,7 +190,7 @@ inline bool torch_tensor_empty_or_on_cpu_check(
       (ten).ndimension())
 
 #define TENSOR_CONTIGUOUS(x) \
-  TORCH_CHECK((x).is_contiguous(), #x " must be contiguous")
+  TORCH_CHECK(torch_tensor_contiguous_check(x), #x " must be contiguous")
 
 #define TENSOR_CONTIGUOUS_AND_ON_CPU(x) \
   TENSOR_ON_CPU(x);                     \
@@ -315,6 +324,14 @@ std::string tensor_on_same_gpu_if_not_optional_check(
         tensor_on_same_gpu_if_not_optional_check(#__VA_ARGS__, __VA_ARGS__); \
     TORCH_CHECK(tensors_on_same_gpu.empty(), tensors_on_same_gpu);           \
   } while (false)
+
+#define TENSOR_HAS_NUMEL(x, y)  \
+  TORCH_CHECK(                  \
+      (x).numel() == (y),       \
+      #x " must have " #y "(",  \
+      (y),                      \
+      ") elements, but it had", \
+      (x).numel())
 
 /// Determine an appropriate CUDA block count along the x axis
 ///
