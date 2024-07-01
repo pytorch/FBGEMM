@@ -384,6 +384,22 @@ DEVICE_INLINE float stochastic_rounding_scalar_fp8(
     float x,
     uint32_t random_value) {
   uint32_t w_int = __float_as_uint(x);
+
+  // Adjust the subnormal values to normal values if x is subnormal (<pow(2,-6))
+  // if x_sign - 127 <= -6, then x_adjust = x + pow(2, -6)
+  uint32_t x_exp = (w_int << 1) >> 24;
+  int32_t x_exp_int = static_cast<int32_t>(x_exp);
+  x_exp_int = x_exp_int - 127;
+  uint32_t x_sign = w_int & 0x80000000;
+  constexpr uint32_t shift_bits_unsigned = ((127 - 6) << 23);
+  uint32_t shift_bits = shift_bits_unsigned | x_sign;
+  float shift_value = __uint_as_float(shift_bits);
+  // subnormal exp of FP8 E4M3
+  constexpr int32_t subnormal_exp = -6;
+  if (x_exp_int < subnormal_exp) {
+    x = x + shift_value;
+  }
+
   // 1-bit sign + 8-bit exponent
   constexpr uint32_t sign_exp_mask = ((1U << 9) - 1) << (32 - 9);
   unsigned subtract = (w_int & sign_exp_mask);
@@ -394,7 +410,14 @@ DEVICE_INLINE float stochastic_rounding_scalar_fp8(
   // truncate the last 20 bit (keep 3 bit mantissa) to simulate round to zero
   uint32_t ret_int = __float_as_uint(x + assemble_float);
   const uint32_t sign_exp_3bit_mantissa_mask = ((1U << 12) - 1) << (32 - 12);
-  return __uint_as_float(ret_int & sign_exp_3bit_mantissa_mask);
+  float ret = __uint_as_float(ret_int & sign_exp_3bit_mantissa_mask);
+
+  // Before the return, subtract pow(2,-6) from the SR'ed subnormal values
+  // SR(x) = SR(x + pow(2,-6)) - pow(2, -6)
+  if (x_exp_int < subnormal_exp) {
+    ret = ret - shift_value;
+  }
+  return ret;
 }
 
 template <bool QUANTIZE, typename T_OUT, typename T_S, typename T_IN>
