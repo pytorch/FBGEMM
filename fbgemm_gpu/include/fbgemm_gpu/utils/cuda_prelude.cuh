@@ -174,4 +174,29 @@ DEVICE_INLINE void syncwarp() {
 #endif
 }
 
+// ROCm does not natively support __any_sync(). Using __ballot()
+// (https://rocmdocs.amd.com/en/latest/Programming_Guides/Kernel_language.html)
+// to implement __any_sync(). Note: the "warp-size" of AMD GPU is 64.
+#ifdef USE_ROCM
+__device__ int __any_sync(uint64_t mask, int predicate) {
+  uint64_t predicate_bit_pattern = __ballot(predicate);
+  return (predicate_bit_pattern & mask) > 0;
+}
+#endif
+
+__host__ DEVICE_INLINE int32_t div_round_up(int32_t a, int32_t b) {
+  return (a + b - 1) / b;
+}
+
+__host__ DEVICE_INLINE int32_t round_down(int32_t a, int32_t b) {
+  return a / b * b;
+}
+
+// Return if the address is aligned to the type (mainly for Vec4T).
+template <class T>
+DEVICE_INLINE bool is_aligned(const void* ptr) {
+  auto iptr = reinterpret_cast<uintptr_t>(ptr);
+  return !(iptr % alignof(T));
+}
+
 } // namespace fbgemm_gpu
