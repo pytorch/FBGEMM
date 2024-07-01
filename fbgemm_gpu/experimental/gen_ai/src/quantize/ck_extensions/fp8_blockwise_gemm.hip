@@ -76,11 +76,6 @@ at::Tensor f8f8bf16_blockwise_impl(
   int StrideB = K;
   int StrideE = N;
 
-  // For now hardcode block size.
-  TORCH_CHECK(block_m == 256);
-  TORCH_CHECK(block_n == 256);
-  TORCH_CHECK(block_k == 256);
-
   int ScaleStrideAM = K / block_k;
   int ScaleStrideAK = 1;
   int ScaleStrideBN = K / block_k;
@@ -243,9 +238,9 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    int64_t block_m,
-    int64_t block_n,
-    int64_t block_k) {
+    int64_t block_m = 256,
+    int64_t block_n = 256,
+    int64_t block_k = 256) {
   // Check that input datatypes are valid.
   TORCH_CHECK(
       (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
