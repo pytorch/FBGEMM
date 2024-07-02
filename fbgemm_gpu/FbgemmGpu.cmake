@@ -446,6 +446,7 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
     codegen/utils/embedding_bounds_check_host_cpu.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
+    src/permute_pooled_embedding_ops/permute_multi_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_function.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_cpu.cpp
