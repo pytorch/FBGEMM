@@ -44,9 +44,7 @@ class BackwardSplitGenerator:
 
         weighted_options = [True, False]
         nobag_options = [True, False] if (not is_gwd) else [False]
-        vbe_options = (
-            [True, False] if (kwargs.get("has_vbe_support") and not is_gwd) else [False]
-        )
+        vbe_options = [True, False] if (kwargs.get("has_vbe_support")) else [False]
         ssd_options = [True, False] if kwargs.get("has_ssd_support") else [False]
         template = CodeTemplate.load(template_filepath)
 

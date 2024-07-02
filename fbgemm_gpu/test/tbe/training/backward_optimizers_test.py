@@ -38,7 +38,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -94,44 +94,49 @@ class BackwardOptimizersTest(unittest.TestCase):
         optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
-        assume(not use_cpu or T * B * L * D <= 2048)
-        assume(
-            not use_cpu
-            or optimizer
-            in [
-                OptimType.EXACT_ADAGRAD,
-                OptimType.EXACT_SGD,
-                OptimType.EXACT_ROWWISE_ADAGRAD,
-            ]
-        )
+
+        if use_cpu and T * B * L * D > 2048:
+            return
+        if use_cpu and optimizer not in [
+            OptimType.EXACT_ADAGRAD,
+            OptimType.EXACT_SGD,
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+        ]:
+            return
         # weight decay mode is only supported in EXACT_ROWWISE_ADAGRAD
-        assume(
-            weight_decay_mode == WeightDecayMode.NONE
-            or (
-                optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
-                and weight_decay_mode
-                in [
+        if (
+            weight_decay_mode != WeightDecayMode.NONE
+            and (
+                optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
+                or weight_decay_mode
+                not in [
                     WeightDecayMode.L2,
                     WeightDecayMode.DECOUPLE,
                 ]
             )
-            or (
-                not use_cpu
-                and optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
-                and weight_decay_mode
-                in [
+            and (
+                use_cpu
+                or optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
+                or weight_decay_mode
+                not in [
                     WeightDecayMode.COUNTER,
                     WeightDecayMode.COWCLIP,
                 ]
             )
-        )
+        ):
+            return
 
-        assume(pooling_mode == PoolingMode.SUM or not weighted)
+        if pooling_mode != PoolingMode.SUM and weighted:
+            return
         # No bag ops only work on GPUs, no mixed, no weighted
-        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
-        assume(not mixed or pooling_mode != PoolingMode.NONE)
-        assume(not weighted or pooling_mode != PoolingMode.NONE)
-        assume(not mixed_B or pooling_mode != PoolingMode.NONE)
+        if use_cpu and pooling_mode == PoolingMode.NONE:
+            return
+        if mixed and pooling_mode == PoolingMode.NONE:
+            return
+        if weighted and pooling_mode == PoolingMode.NONE:
+            return
+        if mixed_B and (use_cpu or pooling_mode == PoolingMode.NONE):
+            return
 
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
         if pooling_mode == PoolingMode.SUM:
