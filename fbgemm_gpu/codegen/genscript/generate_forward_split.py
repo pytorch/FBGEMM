@@ -118,7 +118,7 @@ class ForwardSplitGenerator:
             "gen_embedding_forward_{}_gwd_codegen_cuda.cu",
             dense_options=[False],
             nobag_options=[False],  # nobag is not used
-            vbe_options=[False],
+            vbe_options=[True, False],
             is_gwd=True,
             ssd_options=[False],
         )
@@ -148,7 +148,7 @@ class ForwardSplitGenerator:
             "gen_embedding_forward_{}_gwd_kernel.cu",
             dense_options=[False],
             nobag_options=[False],
-            vbe_options=[False],
+            vbe_options=[True, False],
             ssd_options=[False],
             is_gwd=True,
         )

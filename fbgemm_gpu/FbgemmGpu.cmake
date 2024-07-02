@@ -156,6 +156,8 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_dense_unweighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_weighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_vbe_codegen_cuda.cu"
+    "gen_embedding_forward_split_weighted_vbe_gwd_codegen_cuda.cu"
+    "gen_embedding_forward_split_unweighted_vbe_gwd_codegen_cuda.cu"
     "gen_batch_index_select_dim0_forward_codegen_cuda.cu"
     "gen_batch_index_select_dim0_forward_kernel.cu"
     "gen_batch_index_select_dim0_forward_kernel_small.cu"
@@ -214,6 +216,7 @@ endforeach()
 # Generate GWD files
 foreach(wdesc weighted unweighted)
   list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_forward_split_${wdesc}_vbe_gwd_kernel.cu"
       "gen_embedding_forward_split_${wdesc}_gwd_kernel.cu")
 endforeach()
 
@@ -302,6 +305,12 @@ foreach(optimizer ${GWD_OPTIMIZERS})
       "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_cuda.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_kernel_cta.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_kernel_warp.cu")
+    if(";${VBE_OPTIMIZERS};" MATCHES ";${optimizer};")
+      list(APPEND gen_gpu_kernel_source_files
+        "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_gwd_cuda.cu"
+        "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_gwd_kernel_cta.cu"
+        "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_gwd_kernel_warp.cu")
+    endif()
   endforeach()
 endforeach()
 

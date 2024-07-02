@@ -30,7 +30,7 @@ from fbgemm_gpu.tbe.utils import (
     round_up,
     to_device,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from hypothesis import given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -77,25 +77,30 @@ class BackwardSGDTest(unittest.TestCase):
         output_dtype: SparseType,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
-        assume(not use_cpu or not use_cache)
+        if use_cpu and use_cache:
+            return
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
-        assume(not use_cpu or T * B * L * D <= 2048)
-        assume(not (use_cpu and weights_precision == SparseType.FP16))
+        if use_cpu and T * B * L * D > 2048:
+            return
+        if use_cpu and weights_precision == SparseType.FP16:
+            return
         # No bag ops only work on GPUs, no mixed, no weighted
-        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
-        assume(not mixed or pooling_mode != PoolingMode.NONE)
-        assume(not weighted or pooling_mode != PoolingMode.NONE)
-
-        assume(pooling_mode == PoolingMode.SUM or not weighted)
+        if use_cpu and pooling_mode == PoolingMode.NONE:
+            return
+        if mixed and pooling_mode == PoolingMode.NONE:
+            return
+        if weighted and pooling_mode == PoolingMode.NONE:
+            return
+        if pooling_mode != PoolingMode.SUM and weighted:
+            return
         # TODO: Support these cases
-        assume(
-            not mixed_B
-            or (
-                weights_precision != SparseType.INT8
-                and output_dtype != SparseType.INT8
-                and pooling_mode != PoolingMode.NONE
-            )
-        )
+        if mixed_B and (
+            weights_precision == SparseType.INT8
+            or output_dtype == SparseType.INT8
+            or use_cpu
+            or pooling_mode == PoolingMode.NONE
+        ):
+            return
 
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
         if pooling_mode == PoolingMode.SUM:

@@ -1039,7 +1039,13 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- if has_vbe_support %}
     // has vbe support
     if (B_offsets.has_value()) {
-      // vbe
+      {%- if has_global_weight_decay_support %}
+        // vbe and has gwd support
+        if (apply_global_weight_decay && weight_decay > 0) {
+          {{ call_autograd(nobag=False, vbe=True, is_gwd=True) }}
+        }
+      {%- endif %} {#-/* if has_global_weight_decay_support */ #}
+      // vbe and no gwd support
       {{ call_autograd(nobag=False, vbe=True, is_gwd=False) }}
     }
     {%- endif %} {#-/* if has_vbe_support */ #}
