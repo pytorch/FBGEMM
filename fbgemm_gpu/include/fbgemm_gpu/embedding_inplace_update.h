@@ -58,6 +58,21 @@ void embedding_inplace_update_cuda(
     std::optional<Tensor> lxu_cache_weights = c10::nullopt,
     std::optional<Tensor> lxu_cache_locations = c10::nullopt);
 
+void embedding_inplace_update_single_placement_cuda(
+    Tensor& dev_weights,
+    Tensor& uvm_weights,
+    const PlacementType& weights_placement,
+    const Tensor& weights_offsets,
+    const Tensor& weights_tys,
+    const Tensor& D_offsets,
+    const Tensor& update_weights,
+    const Tensor& update_table_idx,
+    const Tensor& update_row_idx,
+    const Tensor& update_offsets,
+    const int64_t row_alignment,
+    std::optional<Tensor> lxu_cache_weights = c10::nullopt,
+    std::optional<Tensor> lxu_cache_locations = c10::nullopt);
+
 void embedding_inplace_update_cpu(
     Tensor dev_weights,
     Tensor uvm_weights,
