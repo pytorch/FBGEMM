@@ -31,6 +31,18 @@ else:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
     else:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_multi_embedding_ops_cpu"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_multi_embedding_ops_gpu"
+    )
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 
@@ -557,6 +569,94 @@ def jagged_slice_cpu(
 
     flops = sum(e.flops for e in profiler.events())
     logging.info(f"Total Compute: {flops / 1e9} gflops")
+
+
+@cli.command()
+@click.option("--batch-size", type=int, default=1024)
+@click.option("--num-of-features", type=int, default=256)
+@click.option("--device", type=click.Choice(["cpu", "cuda"]), default="cuda")
+def permute_pooled_embs_bench(
+    num_of_features: int,
+    batch_size: int,
+    device: str,
+) -> None:
+    in_lengths = []
+    out_lengths = []
+    permute_list = []
+    i = 0
+    for in_tensor in range(4):
+        lengths = []
+        for in_feature in range(num_of_features):
+            lengths.append(2 << random.randint(3, 10))
+            permute_list.append([in_tensor, i, sum(lengths[:-1]), 0, lengths[-1], 0])
+            i += 1
+        in_lengths.append(lengths)
+    offsets = [0]
+    for permute in permute_list:
+        offsets.append(offsets[-1] + permute[4])
+    random.shuffle(permute_list)
+    inv_offsets = [0]
+    permutes = []
+    for i, permute in enumerate(permute_list):
+        permutes.append(permute[1])
+        inv_offsets.append(inv_offsets[-1] + permute[4])
+        permute[1] = i // num_of_features
+        if i % num_of_features == 0:
+            out_lengths.append([])
+        permute[3] = sum(out_lengths[-1])
+        out_lengths[-1].append(permute[4])
+    inv_permutes = [0] * len(permutes)
+    for i, p in enumerate(permutes):
+        inv_permutes[p] = i
+
+    in_lengths = [sum(len) for len in in_lengths]
+    out_lengths = [sum(len) for len in out_lengths]
+
+    values = torch.rand((batch_size, offsets[-1]), device=torch.device(device))
+    offsets = torch.tensor(offsets, device=torch.device(device))
+    permutes = torch.tensor(permutes, device=torch.device(device))
+    inv_offsets = torch.tensor(inv_offsets, device=torch.device(device))
+    inv_permutes = torch.tensor(inv_permutes, device=torch.device(device))
+
+    m_values = [
+        torch.empty([batch_size, length], device=torch.device(device))
+        for length in in_lengths
+    ]
+    for i, v in enumerate(torch.split(values, in_lengths, dim=1)):
+        m_values[i].copy_(v)
+    permute_list = [i for p in permute_list for i in p]
+
+    time_ref, output_ref = benchmark_torch_function(
+        torch.ops.fbgemm.permute_pooled_embs_auto_grad,
+        (
+            values,
+            offsets,
+            permutes,
+            inv_offsets,
+            inv_permutes,
+        ),
+        num_warmups=20,
+        iters=100,
+    )
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.permute_multi_embedding,
+        (
+            m_values,
+            permute_list,
+            in_lengths,
+            out_lengths,
+        ),
+        num_warmups=20,
+        iters=100,
+    )
+
+    logging.info(
+        f"size: {batch_size} x {offsets[-1]}; permute_multi_embedding: {time * 1e3} ms; permute_pooled_embs_auto_grad: {time_ref * 1e3} ms"
+    )
+
+    for i, out in enumerate(output_ref.split(out_lengths, dim=1)):
+        assert torch.allclose(out, output[i])
 
 
 if __name__ == "__main__":
