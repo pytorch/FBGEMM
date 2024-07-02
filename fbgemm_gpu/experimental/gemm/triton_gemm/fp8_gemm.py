@@ -1018,6 +1018,21 @@ def matmul_fp8_row(
     return c
 
 
+# pruned some unreasonable config
+def prune_configs_block(configs, named_args, **kwargs):
+    configs = early_config_prune(configs, named_args, **kwargs)
+    scale_block_k = named_args["scale_block_k"]
+    pruned_configs = []
+    # Further rule out configs with scale_block_k is not a multiple of BLOCK_K
+    for config in configs:
+        kw = config.kwargs
+        BLOCK_K = kw["BLOCK_K"]
+        if scale_block_k % BLOCK_K != 0:
+            continue
+        pruned_configs.append(config)
+    return pruned_configs
+
+
 @triton.autotune(
     configs=MATMUL_CONFIGS,
     key=[
@@ -1026,7 +1041,7 @@ def matmul_fp8_row(
         "k_key",
     ],  # TODO caller side bin keys so similar shapes can use same triton.autotune.
     prune_configs_by={
-        "early_config_prune": early_config_prune,
+        "early_config_prune": prune_configs_block,
         "perf_model": estimate_matmul_time,
         "top_k": 10,
     },
@@ -1037,7 +1052,7 @@ def matmul_fp8_row(
     }
 )
 @triton.jit
-def _kernel_matmul_fp8_block(
+def _kernel_matmul_fp8_block_fastacc(
     A,
     B,
     C,
@@ -1064,7 +1079,202 @@ def _kernel_matmul_fp8_block(
     stride_scale_bk,
     dot_out_dtype: tl.constexpr,
     allow_tf32: tl.constexpr,
-    fp8_fast_accum: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    GROUP_M: tl.constexpr,
+    SPLIT_K: tl.constexpr,
+    EVEN_K: tl.constexpr,
+    AB_DTYPE: tl.constexpr,
+) -> None:
+    """Matmul kernel of [M, K] @ [N, K] with block-wise scales
+
+    Performs swizzled matmul in [BLOCK_M, BLOCK_K] with [BLOCK_K, BLOCK_N] tiles and
+    A and B scaled by a scaling factor per [scale_block_m, scale_block_k] and
+    [scale_block_n, scale_block_k] tiles
+    respectively.
+
+    Todo:
+        * Support scale_block_{mnk} < BLOCK{MNK} for each dim.
+    Args:
+        A (TensorWrapper): [M, K] input tensor.
+        B (TensorWrapper): [N, K] input tensor.
+        C (TensorWrapper): [M, N] output tensor.
+        M (int): M dimension of input tensor.
+        N (int): N dimension of input tensor.
+        K (int): K dimension of input tensor.
+        m_key (int): Autotuning key for M dimension of input tensor.
+        n_key (int): Autotuning key for N dimension of input tensor.
+        k_key (int): Autotuning key for K dimension of input tensor.
+        A_scale (TensorWrapper): [cdiv(M, scale_block_m), cdiv(K, scale_block_k)] reciprocal scale tensor per block. A * A_scale = original A
+        B_scale (TensorWrapper): [cdiv(N, scale_block_n), cdiv(K, scale_block_k)] reciprocal scale tensor per block. B * B_scale = original B
+        scale_block_m (int): Block size for M dimension of A_scale.
+        scale_block_n (int): Block size for N dimension of B_scale.
+        scale_block_k (int): Block size for K dimension of A_scale and B_scale.
+        stride_am (int): Stride of M dimension of A.
+        stride_ak (int): Stride of K dimension of A.
+        stride_bn (int): Stride of N dimension of B.
+        stride_bk (int): Stride of K dimension of B.
+        stride_cm (int): Stride of M dimension of C.
+        stride_cn (int): Stride of N dimension of C.
+        stride_scale_am (int): Stride of M dimension of A_scale.
+        stride_scale_ak (int): Stride of K dimension of A_scale.
+        stride_scale_bn (int): Stride of N dimension of B_scale.
+        stride_scale_bk (int): Stride of K dimension of B_scale.
+        dot_out_dtype (torch.dtype): Output type of tensor core.
+        allow_tf32 (bool): Whether to use TF32 for tensor core.
+        fp8_fast_accum (bool): Whether to use fast accumulation for tensor core.
+        BLOCK_M (int): Block size for M dimension.
+        BLOCK_N (int): Block size for N dimension.
+        BLOCK_K (int): Block size for K dimension.
+        GROUP_M (int): Number of groups for M dimension swizzle.
+        SPLIT_K (int): Number of SM's to launch per row.
+        EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
+        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+    """
+    assert BLOCK_M < scale_block_m
+    assert BLOCK_N < scale_block_n
+    assert BLOCK_K < scale_block_k
+    # matrix multiplication
+    pid = tl.program_id(0)
+    pid_z = tl.program_id(1)
+
+    grid_m = tl.cdiv(M, BLOCK_M)
+    grid_n = tl.cdiv(N, BLOCK_N)
+    # re-order program ID for better L2 performance
+    width = GROUP_M * grid_n
+    group_id = pid // width
+    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
+    pid_m = group_id * GROUP_M + (pid % group_size)
+    pid_n = (pid % width) // (group_size)
+    # do matrix multiplication
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
+    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
+    rk = pid_z * BLOCK_K + tl.arange(0, BLOCK_K)
+    # pointers
+    A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
+    B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
+    _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
+    scale_m = pid_m * BLOCK_M // scale_block_m
+    scale_n = pid_n * BLOCK_N // scale_block_n
+    k_multiple = scale_block_k // BLOCK_K
+
+    for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
+
+        if EVEN_K:
+            a = tl.load(A)
+            b = tl.load(B)
+        else:
+            k_remaining = K - k * (BLOCK_K * SPLIT_K)
+
+            a = tl.load(A, mask=rk[None, :] < k_remaining, other=_0)
+            b = tl.load(B, mask=rk[:, None] < k_remaining, other=_0)
+        if AB_DTYPE:
+            a = a.to(C.dtype.element_ty)
+            b = b.to(C.dtype.element_ty)
+
+        acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+
+        A += BLOCK_K * SPLIT_K * stride_ak
+        B += BLOCK_K * SPLIT_K * stride_bk
+
+        # Some math to precompute on scalars, and apply once on matrix.
+        # a + c/s = (as + c) / s
+        # (((a_i-1 * s_i-1 + c_i-1) / s_i-1) * s_i + c_i) / s_i ... ) * s_k + c_k) * 1.0 / s_k
+        # Simplifies to (a_i-1 + c) * (s_i+1/s_i)
+        # And have s_k+1 be 1.
+        # Scale_i = pid_i * BLOCK_I / scale_block_i
+        pid_k = k * SPLIT_K + pid_z
+        if (pid_k + 1) % k_multiple == 0:
+            # Note: Due to split_k access "pid_k" = k * SPLIT_K + pid_z
+            # Access a_scale[pid_m, k * SPLIT_K + pid_z]
+            # and b_scale[k * SPLIT_K + pid_z, pid_n]
+
+            scale_k = pid_k // k_multiple
+            scale_k_next = scale_k + 1
+            a_scale = tl.load(
+                A_scale + scale_m * stride_scale_am + scale_k * stride_scale_ak
+            )
+            b_scale = tl.load(
+                B_scale + scale_n * stride_scale_bn + scale_k * stride_scale_bk
+            )
+            scale = a_scale * b_scale
+            if k + 1 == tl.cdiv(K, BLOCK_K * SPLIT_K):
+                scale_next_inv_scale = scale
+            else:
+                a_scale_next = tl.load(
+                    A_scale + scale_m * stride_scale_am + scale_k_next * stride_scale_ak
+                )
+                b_scale_next = tl.load(
+                    B_scale + scale_n * stride_scale_bn + scale_k_next * stride_scale_bk
+                )
+                scale_next = a_scale_next * b_scale_next
+                scale_next_inv_scale = scale / scale_next
+            acc *= scale_next_inv_scale
+
+    # rematerialize rm and rn to save registers
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+
+    acc = acc.to(C.dtype.element_ty)
+    c = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
+    mask = (rm < M)[:, None] & (rn < N)[None, :]
+    # handles write-back with reduction-splitting
+    if SPLIT_K == 1:
+        tl.store(c, acc, mask=mask)
+    else:
+        tl.atomic_add(c, acc, mask=mask)
+
+
+@triton.autotune(
+    configs=MATMUL_CONFIGS,
+    key=[
+        "m_key",
+        "n_key",
+        "k_key",
+    ],  # TODO caller side bin keys so similar shapes can use same triton.autotune.
+    prune_configs_by={
+        "early_config_prune": early_config_prune,
+        "perf_model": estimate_matmul_time,
+        "top_k": 10,
+    },
+)
+@triton.heuristics(
+    {
+        "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
+    }
+)
+@triton.jit
+def _kernel_matmul_fp8_block_slowacc(
+    A,
+    B,
+    C,
+    M,
+    N,
+    K,
+    m_key,
+    n_key,
+    k_key,
+    A_scale,
+    B_scale,
+    scale_block_m: tl.constexpr,
+    scale_block_n: tl.constexpr,
+    scale_block_k: tl.constexpr,
+    stride_am,
+    stride_ak,
+    stride_bn,
+    stride_bk,
+    stride_cm,
+    stride_cn,
+    stride_scale_am,
+    stride_scale_ak,
+    stride_scale_bn,
+    stride_scale_bk,
+    dot_out_dtype: tl.constexpr,
+    allow_tf32: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
@@ -1146,39 +1356,20 @@ def _kernel_matmul_fp8_block(
     scale_m = pid_m * BLOCK_M // scale_block_m
     scale_n = pid_n * BLOCK_N // scale_block_n
     _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
-    scale_next = 0.0
-
-    a_scale = tl.load(A_scale + scale_m * stride_scale_am)
-    b_scale = tl.load(B_scale + scale_n * stride_scale_bn)
-    scale = a_scale * b_scale
 
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
         # Note: Due to split_k access "pid_k" = k * SPLIT_K + pid_z
         # Access a_scale[pid_m, k * SPLIT_K + pid_z]
         # and b_scale[k * SPLIT_K + pid_z, pid_n]
-
-        # Some math to precompute on scalars, and apply once on matrix.
-        # a + c/s = (as + c) / s
-        # (((a_i-1 * s_i-1 + c_i-1) / s_i-1) * s_i + c_i) / s_i ... ) * s_k + c_k) * 1.0 / s_k
-        # Simplifies to (a_i-1 + c) * (s_i+1/s_i)
-        # And have s_k+1 be 1.
-        # Scale_i = pid_i * BLOCK_I / scale_block_i
-
-        # Normalize last scale with 1.
-        if k + 1 == tl.cdiv(K, BLOCK_K * SPLIT_K):
-            scale_next = 1.0
-        else:
-            pid_k_next = (k + 1) * SPLIT_K + pid_z
-            scale_k_next = pid_k_next * BLOCK_K // scale_block_k
-            a_scale_next = tl.load(
-                A_scale + scale_m * stride_scale_am + scale_k_next * stride_scale_bk
-            )
-            b_scale_next = tl.load(
-                B_scale + scale_n * stride_scale_bn + scale_k_next * stride_scale_bk
-            )
-            scale_next = a_scale_next * b_scale_next
-
-        scale_next_inv_scale = scale / scale_next
+        pid_k = k * SPLIT_K + pid_z
+        scale_k = pid_k * BLOCK_K // scale_block_k
+        a_scale = tl.load(
+            A_scale + scale_m * stride_scale_am + scale_k * stride_scale_ak
+        )
+        b_scale = tl.load(
+            B_scale + scale_n * stride_scale_bn + scale_k * stride_scale_bk
+        )
+        scale = a_scale * b_scale
 
         if EVEN_K:
             a = tl.load(A)
@@ -1191,15 +1382,10 @@ def _kernel_matmul_fp8_block(
         if AB_DTYPE:
             a = a.to(C.dtype.element_ty)
             b = b.to(C.dtype.element_ty)
-        if fp8_fast_accum:
-            acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
 
-            acc *= scale_next_inv_scale
-        else:
-            acc += tl.dot(a, b, out_dtype=dot_out_dtype, allow_tf32=allow_tf32) * scale
+        acc += tl.dot(a, b, out_dtype=dot_out_dtype, allow_tf32=allow_tf32) * scale
         A += BLOCK_K * SPLIT_K * stride_ak
         B += BLOCK_K * SPLIT_K * stride_bk
-        scale = scale_next
 
     # rematerialize rm and rn to save registers
     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
@@ -1266,37 +1452,68 @@ def matmul_fp8_block(
             META["SPLIT_K"],
         )
 
-    _kernel_matmul_fp8_block[grid](
-        a_tl,
-        b_tl,
-        c,
-        M,
-        N,
-        K,
-        m_key,
-        n_key,
-        k_key,
-        a_scale,
-        b_scale,
-        scale_block_m,
-        scale_block_n,
-        scale_block_k,
-        a.stride(0),
-        a.stride(1),
-        b.stride(0),
-        b.stride(1),
-        c.stride(0),
-        c.stride(1),
-        a_scale.stride(0),
-        a_scale.stride(1),
-        b_scale.stride(0),
-        b_scale.stride(1),
-        dot_out_dtype=dot_out_dtype_triton,
-        allow_tf32=allow_tf32,
-        fp8_fast_accum=fp8_fast_accum,
-        GROUP_M=8,
-        AB_DTYPE=False,
-    )
+    if fp8_fast_accum:
+        _kernel_matmul_fp8_block_fastacc[grid](
+            a_tl,
+            b_tl,
+            c,
+            M,
+            N,
+            K,
+            m_key,
+            n_key,
+            k_key,
+            a_scale,
+            b_scale,
+            scale_block_m,
+            scale_block_n,
+            scale_block_k,
+            a.stride(0),
+            a.stride(1),
+            b.stride(0),
+            b.stride(1),
+            c.stride(0),
+            c.stride(1),
+            a_scale.stride(0),
+            a_scale.stride(1),
+            b_scale.stride(0),
+            b_scale.stride(1),
+            dot_out_dtype=dot_out_dtype_triton,
+            allow_tf32=allow_tf32,
+            GROUP_M=8,
+            AB_DTYPE=False,
+        )
+    else:
+        _kernel_matmul_fp8_block_slowacc[grid](
+            a_tl,
+            b_tl,
+            c,
+            M,
+            N,
+            K,
+            m_key,
+            n_key,
+            k_key,
+            a_scale,
+            b_scale,
+            scale_block_m,
+            scale_block_n,
+            scale_block_k,
+            a.stride(0),
+            a.stride(1),
+            b.stride(0),
+            b.stride(1),
+            c.stride(0),
+            c.stride(1),
+            a_scale.stride(0),
+            a_scale.stride(1),
+            b_scale.stride(0),
+            b_scale.stride(1),
+            dot_out_dtype=dot_out_dtype_triton,
+            allow_tf32=allow_tf32,
+            GROUP_M=8,
+            AB_DTYPE=False,
+        )
     return c
 
 
