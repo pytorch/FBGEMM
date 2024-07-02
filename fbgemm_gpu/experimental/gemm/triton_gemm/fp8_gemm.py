@@ -215,9 +215,9 @@ MATMUL_CONFIGS: List[Config] = [
 )
 @triton.jit
 def _kernel_matmul_fp8_row(
-    A,
-    B,
-    C,
+    A_ptr,
+    B_ptr,
+    C_ptr,
     M,
     N,
     K,
@@ -242,6 +242,7 @@ def _kernel_matmul_fp8_row(
     SPLIT_K: tl.constexpr,
     EVEN_K: tl.constexpr,
     AB_DTYPE: tl.constexpr,
+    NUM_SMS: tl.constexpr,
 ) -> None:
     """Matmul kernel of [M, K] @ [N, K] with row-wise scales
 
@@ -277,67 +278,72 @@ def _kernel_matmul_fp8_row(
         AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
-    pid = tl.program_id(0)
-    pid_z = tl.program_id(1)
-    grid_m = tl.cdiv(M, BLOCK_M)
-    grid_n = tl.cdiv(N, BLOCK_N)
-    # Re-order program ID for better L2 performance (swizzle).
-    width = GROUP_M * grid_n
-    group_id = pid // width
-    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
-    pid_m = group_id * GROUP_M + (pid % group_size)
-    pid_n = (pid % width) // (group_size)
-    # Do matrix multiplication.
-    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
-    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
-    rk = pid_z * BLOCK_K + tl.arange(0, BLOCK_K)
-    # Pointers.
-    A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
-    B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+    start_pid = tl.program_id(axis=0)
+    num_pid_m = tl.cdiv(M, BLOCK_M)
+    num_pid_n = tl.cdiv(N, BLOCK_N)
+    k_tiles = tl.cdiv(K, BLOCK_K)
+    num_tiles = num_pid_m * num_pid_n
+
+    tiles_per_SM = num_tiles // NUM_SMS
+    if start_pid < num_tiles % NUM_SMS:
+        tiles_per_SM += 1
+
+    tile_id = start_pid - NUM_SMS
+    ki = -1
+
+    offs_k_for_mask = tl.arange(0, BLOCK_K)
+
+    num_pid_in_group = GROUP_M * num_pid_n
+
+    pid_m = 0
+    pid_n = 0
+    offs_am = tl.arange(0, BLOCK_M)
+    offs_bn = tl.arange(0, BLOCK_N)
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
 
-    for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
-        if EVEN_K:
-            a = tl.load(A)
-            b = tl.load(B)
-        else:
-            k_remaining = K - k * (BLOCK_K * SPLIT_K)
-            _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
-            a = tl.load(A, mask=rk[None, :] < k_remaining, other=_0)
-            b = tl.load(B, mask=rk[:, None] < k_remaining, other=_0)
-        if AB_DTYPE:
-            a = a.to(C.dtype.element_ty)
-            b = b.to(C.dtype.element_ty)
-        if fp8_fast_accum:
-            acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
-        else:
-            acc += tl.dot(a, b, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+    for _ in range(0, k_tiles * tiles_per_SM):
+        ki = tl.where(ki == k_tiles - 1, 0, ki + 1)
+        if ki == 0:
+            tile_id += NUM_SMS
+            group_id = tile_id // num_pid_in_group
+            first_pid_m = group_id * GROUP_M
+            group_size_m = min(num_pid_m - first_pid_m, GROUP_M)
+            pid_m = first_pid_m + (tile_id % group_size_m)
+            pid_n = (tile_id % num_pid_in_group) // group_size_m
 
-        A += BLOCK_K * SPLIT_K * stride_ak
-        B += BLOCK_K * SPLIT_K * stride_bk
+            start_m = pid_m * BLOCK_M
+            start_n = pid_n * BLOCK_N
+            offs_am = start_m + tl.arange(0, BLOCK_M)
+            offs_bn = start_n + tl.arange(0, BLOCK_N)
+            offs_am = tl.where(offs_am < M, offs_am, 0)
+            offs_bn = tl.where(offs_bn < N, offs_bn, 0)
+            offs_am = tl.max_contiguous(tl.multiple_of(offs_am, BLOCK_M), BLOCK_M)
+            offs_bn = tl.max_contiguous(tl.multiple_of(offs_bn, BLOCK_N), BLOCK_N)
+        offs_k = ki * BLOCK_K + tl.arange(0, BLOCK_K)
+        A = A_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
+        B = B_ptr + (offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn)
 
-    # rematerialize rm and rn to save registers
-    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        a = tl.load(A, mask=offs_k_for_mask[None, :] < K - ki * BLOCK_K, other=0.0)
+        b = tl.load(B, mask=offs_k_for_mask[:, None] < K - ki * BLOCK_K, other=0.0)
+        acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
 
-    # Invert scaling.
-    a_scale = tl.load(A_scale + rm, mask=rm < M)
-    b_scale = tl.load(B_scale + rn, mask=rn < N)
-    # Invert vector, then multiply on matrix for speed.
-    # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
-    scale = a_scale[:, None] * b_scale[None, :]
-    acc *= scale
+        if ki == k_tiles - 1:
+            # rematerialize rm and rn to save registers
+            rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+            rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
 
-    acc = acc.to(C.dtype.element_ty)
-    C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
-    mask = (rm < M)[:, None] & (rn < N)[None, :]
-    # Handles write-back with reduction-splitting
-    if SPLIT_K == 1:
-        tl.store(C, acc, mask=mask)
-    else:
-        tl.atomic_add(C, acc, mask=mask)
+            # Invert scaling.
+            a_scale = tl.load(A_scale + rm, mask=rm < M)
+            b_scale = tl.load(B_scale + rn, mask=rn < N)
+            # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
+            scale = a_scale[:, None] * b_scale[None, :]
+            acc *= scale
+            acc = acc.to(C_ptr.dtype.element_ty)
+            C = C_ptr + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
+            mask = (rm < M)[:, None] & (rn < N)[None, :]
+            # Handles write-back with reduction-splitting
+            tl.store(C, acc, mask=mask)
+            acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
 
 
 @triton.autotune(
@@ -362,9 +368,9 @@ def _kernel_matmul_fp8_row(
 )
 @triton.jit
 def _kernel_matmul_fp8_row_no_fast_acc(
-    A,
-    B,
-    C,
+    A_ptr,
+    B_ptr,
+    C_ptr,
     M,
     N,
     K,
@@ -389,6 +395,7 @@ def _kernel_matmul_fp8_row_no_fast_acc(
     SPLIT_K: tl.constexpr,
     EVEN_K: tl.constexpr,
     AB_DTYPE: tl.constexpr,
+    NUM_SMS: tl.constexpr,
 ) -> None:
     """Matmul kernel of [M, K] @ [N, K] with row-wise scales
 
@@ -424,67 +431,73 @@ def _kernel_matmul_fp8_row_no_fast_acc(
         AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
-    pid = tl.program_id(0)
-    pid_z = tl.program_id(1)
-    grid_m = tl.cdiv(M, BLOCK_M)
-    grid_n = tl.cdiv(N, BLOCK_N)
-    # Re-order program ID for better L2 performance (swizzle).
-    width = GROUP_M * grid_n
-    group_id = pid // width
-    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
-    pid_m = group_id * GROUP_M + (pid % group_size)
-    pid_n = (pid % width) // (group_size)
-    # Do matrix multiplication.
-    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
-    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
-    rk = pid_z * BLOCK_K + tl.arange(0, BLOCK_K)
-    # Pointers.
-    A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
-    B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+
+    start_pid = tl.program_id(axis=0)
+    num_pid_m = tl.cdiv(M, BLOCK_M)
+    num_pid_n = tl.cdiv(N, BLOCK_N)
+    k_tiles = tl.cdiv(K, BLOCK_K)
+    num_tiles = num_pid_m * num_pid_n
+
+    tiles_per_SM = num_tiles // NUM_SMS
+    if start_pid < num_tiles % NUM_SMS:
+        tiles_per_SM += 1
+
+    tile_id = start_pid - NUM_SMS
+    ki = -1
+
+    offs_k_for_mask = tl.arange(0, BLOCK_K)
+
+    num_pid_in_group = GROUP_M * num_pid_n
+
+    pid_m = 0
+    pid_n = 0
+    offs_am = tl.arange(0, BLOCK_M)
+    offs_bn = tl.arange(0, BLOCK_N)
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
 
-    for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
-        if EVEN_K:
-            a = tl.load(A)
-            b = tl.load(B)
-        else:
-            k_remaining = K - k * (BLOCK_K * SPLIT_K)
-            _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
-            a = tl.load(A, mask=rk[None, :] < k_remaining, other=_0)
-            b = tl.load(B, mask=rk[:, None] < k_remaining, other=_0)
-        if AB_DTYPE:
-            a = a.to(C.dtype.element_ty)
-            b = b.to(C.dtype.element_ty)
-        if fp8_fast_accum:
-            acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
-        else:
-            acc += tl.dot(a, b, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+    for _ in range(0, k_tiles * tiles_per_SM):
+        ki = tl.where(ki == k_tiles - 1, 0, ki + 1)
+        if ki == 0:
+            tile_id += NUM_SMS
+            group_id = tile_id // num_pid_in_group
+            first_pid_m = group_id * GROUP_M
+            group_size_m = min(num_pid_m - first_pid_m, GROUP_M)
+            pid_m = first_pid_m + (tile_id % group_size_m)
+            pid_n = (tile_id % num_pid_in_group) // group_size_m
 
-        A += BLOCK_K * SPLIT_K * stride_ak
-        B += BLOCK_K * SPLIT_K * stride_bk
+            start_m = pid_m * BLOCK_M
+            start_n = pid_n * BLOCK_N
+            offs_am = start_m + tl.arange(0, BLOCK_M)
+            offs_bn = start_n + tl.arange(0, BLOCK_N)
+            offs_am = tl.where(offs_am < M, offs_am, 0)
+            offs_bn = tl.where(offs_bn < N, offs_bn, 0)
+            offs_am = tl.max_contiguous(tl.multiple_of(offs_am, BLOCK_M), BLOCK_M)
+            offs_bn = tl.max_contiguous(tl.multiple_of(offs_bn, BLOCK_N), BLOCK_N)
+        offs_k = ki * BLOCK_K + tl.arange(0, BLOCK_K)
+        A = A_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
+        B = B_ptr + (offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn)
 
-    # rematerialize rm and rn to save registers
-    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        a = tl.load(A, mask=offs_k_for_mask[None, :] < K - ki * BLOCK_K, other=0.0)
+        b = tl.load(B, mask=offs_k_for_mask[:, None] < K - ki * BLOCK_K, other=0.0)
+        acc += tl.dot(a, b, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
 
-    # Invert scaling.
-    a_scale = tl.load(A_scale + rm, mask=rm < M)
-    b_scale = tl.load(B_scale + rn, mask=rn < N)
-    # Invert vector, then multiply on matrix for speed.
-    # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
-    scale = a_scale[:, None] * b_scale[None, :]
-    acc *= scale
+        if ki == k_tiles - 1:
+            # rematerialize rm and rn to save registers
+            rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+            rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
 
-    acc = acc.to(C.dtype.element_ty)
-    C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
-    mask = (rm < M)[:, None] & (rn < N)[None, :]
-    # Handles write-back with reduction-splitting
-    if SPLIT_K == 1:
-        tl.store(C, acc, mask=mask)
-    else:
-        tl.atomic_add(C, acc, mask=mask)
+            # Invert scaling.
+            a_scale = tl.load(A_scale + rm, mask=rm < M)
+            b_scale = tl.load(B_scale + rn, mask=rn < N)
+            # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
+            scale = a_scale[:, None] * b_scale[None, :]
+            acc *= scale
+            acc = acc.to(C_ptr.dtype.element_ty)
+            C = C_ptr + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
+            mask = (rm < M)[:, None] & (rn < N)[None, :]
+            # Handles write-back with reduction-splitting
+            tl.store(C, acc, mask=mask)
+            acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
 
 
 @triton.autotune(
@@ -914,9 +927,9 @@ def matmul_fp8_row(
             BLOCK_K=BLOCK_K,
             GROUP_M=GROUP_M,
             AB_DTYPE=False,
+            NUM_SMS=NUM_SMS,
             num_stages=num_stages,
             num_warps=num_warps,
-            NUM_SMS=NUM_SMS,
         )
         return c
 
@@ -946,7 +959,7 @@ def matmul_fp8_row(
             AB_DTYPE=False,
         )
     elif fp8_fast_accum:
-        _kernel_matmul_fp8_row[grid](
+        _kernel_matmul_fp8_row[persistent_grid](
             a_tl,
             b_tl,
             c,
@@ -969,9 +982,10 @@ def matmul_fp8_row(
             fp8_fast_accum=fp8_fast_accum,
             GROUP_M=8,
             AB_DTYPE=False,
+            NUM_SMS=NUM_SMS,
         )
     else:
-        _kernel_matmul_fp8_row_no_fast_acc[grid](
+        _kernel_matmul_fp8_row_no_fast_acc[persistent_grid](
             a_tl,
             b_tl,
             c,
@@ -994,6 +1008,7 @@ def matmul_fp8_row(
             fp8_fast_accum=fp8_fast_accum,
             GROUP_M=8,
             AB_DTYPE=False,
+            NUM_SMS=NUM_SMS,
         )
     return c
 
