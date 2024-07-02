@@ -1296,9 +1296,6 @@ Tensor {{ embedding_cuda_op }}(
                         std::cout << "Calling HIP Perf Kernel" << std::endl;
                         return true;
                     } ();
-                    {%- if nobag %}
-                    std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
-                    {%- endif %}
                     if (max_D == 64) {
                         ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64);
                         INVOKE_BACKWARD_WARP_PER_ROW_KERNEL();
