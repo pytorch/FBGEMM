@@ -127,6 +127,11 @@ MATMUL_CONFIGS: List[Config] = [
         num_warps=4,
     ),
     Config(
+        {"BLOCK_M": 64, "BLOCK_N": 128, "BLOCK_K": 128, "SPLIT_K": 1},
+        num_stages=4,
+        num_warps=4,
+    ),
+    Config(
         {"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 32, "SPLIT_K": 1},
         num_stages=4,
         num_warps=4,
