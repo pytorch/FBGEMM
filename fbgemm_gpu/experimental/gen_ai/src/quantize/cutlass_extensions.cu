@@ -1666,9 +1666,9 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor WQ, // FP8
     at::Tensor x_scale, // FP32
     at::Tensor w_scale, // FP32
-    int64_t block_m,
-    int64_t block_n,
-    int64_t block_k) {
+    int64_t block_m = 256,
+    int64_t block_n = 256,
+    int64_t block_k = 256) {
   // Check datatypes.
   TORCH_CHECK(
       x_scale.dtype() == at::kFloat && w_scale.dtype() == at::kFloat,
@@ -2443,9 +2443,9 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    int64_t block_m,
-    int64_t block_n,
-    int64_t block_k) {
+    int64_t block_m = 256,
+    int64_t block_n = 256,
+    int64_t block_k = 256) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

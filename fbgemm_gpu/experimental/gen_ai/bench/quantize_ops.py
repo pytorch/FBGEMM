@@ -332,23 +332,54 @@ class TritonFP8RowwiseGemm(QuantizeOpBase):
 
 
 @register_quantize_op
-class FP8BlockwiseGemm(QuantizeOpBase):
+class FP8TritonBlockwiseGemm(QuantizeOpBase):
     """
     FP8 matmul with block scaling.
     """
 
     def quantize(self, x, w):
         # Quantize both input tensors.
-        xq, x_scale = quantize_fp8_block(x)
-        wq, w_scale = quantize_fp8_block(w)
+        xq, x_scale = quantize_fp8_block(x, 128, 128)
+        wq, w_scale = quantize_fp8_block(w, 128, 128)
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
-        # Dispatch to appropriate function based on device.
-        if torch.version.cuda:
-            return matmul_fp8_block(xq, wq, x_scale, w_scale)
-        else:
-            return torch.ops.fbgemm.f8f8bf16_blockwise(xq, wq, x_scale, w_scale)
+        return matmul_fp8_block(xq, wq, x_scale, w_scale, 128, 128, 128)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        return "triton_blockwise"
+
+    @property
+    def hip(self) -> bool:
+        # Currently has some issues.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class FP8CutlassBlockwiseGemm(QuantizeOpBase):
+    """
+    FP8 matmul with block scaling.
+    """
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = quantize_fp8_block(x, 128, 128)
+        wq, w_scale = quantize_fp8_block(w, 128, 128)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f8f8bf16_blockwise(
+            xq, wq, x_scale, w_scale, 128, 128, 128
+        )
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale = self.quantize(x, w)
@@ -357,7 +388,7 @@ class FP8BlockwiseGemm(QuantizeOpBase):
     @property
     def name(self) -> str:
         if torch.version.cuda:
-            return "triton_blockwise"
+            return "cutlass_blockwise"
         else:
             return "ck_blockwise"
 
