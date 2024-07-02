@@ -17,6 +17,9 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402
+
+# pyre-fixme[21]: Could not find name `open_source` in
+#  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 
 if open_source:
