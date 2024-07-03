@@ -17,6 +17,33 @@ namespace fbgemm_gpu {
 // Floating Type Definitions
 ////////////////////////////////////////////////////////////////////////////////
 
+// Customized Half4 data types with two half2 (64-bit in total)
+struct Half4 {
+  half2 a;
+  half2 b;
+
+  __device__ inline void store(at::Half* p) {
+#ifdef USE_ROCM
+    p[0] = __low2half(a);
+    p[1] = __high2half(a);
+    p[2] = __low2half(b);
+    p[3] = __high2half(b);
+#elif CUDA_VERSION >= 9000
+
+#ifndef __HALF2_TO_UI
+// cuda_fp16.hpp doesn't export this
+#define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
+#endif
+
+    asm("st.v2.u32 [%0], {%1, %2};"
+        :
+        : "l"(p), "r"(__HALF2_TO_UI(a)), "r"(__HALF2_TO_UI(b)));
+#else
+    asm("st.v2.u32 [%0], {%1, %2};" : : "l"(p), "r"(a.x), "r"(b.x));
+#endif
+  }
+};
+
 struct __align__(32) float8 {
   __host__ __device__ float8() {}
   float4 vals[2];
