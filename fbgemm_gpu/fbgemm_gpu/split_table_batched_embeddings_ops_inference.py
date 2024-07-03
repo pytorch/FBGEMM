@@ -1032,9 +1032,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ], "Only 1-way or 32-way(64-way for AMD) implmeneted for now"
 
         self.cache_algorithm = cache_algorithm
-        # pyre-ignore[16]
         self.timestep_counter = torch.classes.fbgemm.AtomicCounter()
-        # pyre-ignore[16]
         self.timestep_prefetch_size = torch.classes.fbgemm.AtomicCounter()
 
         self.max_prefetch_depth = MAX_PREFETCH_DEPTH
@@ -1046,7 +1044,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             lxu_cache_locations_empty = torch.empty(
                 0, device=self.current_device, dtype=torch.int32
             ).fill_(-1)
-        # pyre-ignore[16]
         self.lxu_cache_locations_list = torch.classes.fbgemm.TensorQueue(
             lxu_cache_locations_empty
         )
@@ -1541,7 +1538,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             if self.use_cpu:
                 self.index_remapping_hash_table_cpu = (
-                    # pyre-ignore[16]
                     torch.classes.fbgemm.PrunedMapCPU()
                 )
                 self.index_remapping_hash_table_cpu.insert(

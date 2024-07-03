@@ -92,11 +92,9 @@ def permute_2D_sparse_data_input1D_meta(
     else:
         ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
-    # pyre-fixme
     permuted_indices = indices.new_empty(permuted_indices_size)
     permuted_weights = None
     if weights is not None:
-        # pyre-fixme
         permuted_weights = weights.new_empty(permuted_indices_size)
     return permuted_lengths, permuted_indices, permuted_weights
 
@@ -157,11 +155,9 @@ def permute_2D_sparse_data_meta(
     else:
         ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
-    # pyre-fixme
     permuted_indices = indices.new_empty(permuted_indices_size)
     permuted_weights = None
     if weights is not None:
-        # pyre-fixme
         permuted_weights = weights.new_empty(permuted_indices_size)
     return permuted_lengths, permuted_indices, permuted_weights
 
@@ -211,11 +207,9 @@ def permute_1D_sparse_data_meta(
     else:
         ctx = torch.library.get_ctx()
         permuted_indices_size = ctx.new_dynamic_size()
-    # pyre-fixme
     permuted_indices = indices.new_empty(permuted_indices_size)
     permuted_weights = None
     if weights is not None:
-        # pyre-fixme
         permuted_weights = weights.new_empty(permuted_indices_size)
     return permuted_lengths, permuted_indices, permuted_weights
 
@@ -526,13 +520,9 @@ def permute_sparse_features_abstract(
     B = lengths.size(1)
     permuted_lengths = lengths.new_empty(num_output_features, B)
     output_size = torch.library.get_ctx().new_dynamic_size()
-    # pyre-fixme[6]: In call `torch._C.TensorBase.new_empty`, for 1st positional argument,
-    # expected `Sequence[Union[int, types.SymInt]]` but got `Union[int, torch.SymInt]`
     permuted_indices = indices.new_empty(output_size)
     permuted_weights = None
     if weights is not None:
-        # pyre-fixme[6]: In call `torch._C.TensorBase.new_empty`, for 1st positional argument,
-        # expected `Sequence[Union[int, types.SymInt]]` but got `Union[int, torch.SymInt]`
         permuted_weights = weights.new_empty(output_size)
     return (permuted_lengths, permuted_indices, permuted_weights)
 
@@ -708,7 +698,6 @@ def keyed_jagged_index_select_dim1_abstract(
     This meta function is used to calculate the shape of output tensors
     from the original function `fbgemm::keyed_jagged_index_select_dim1` without the actual data.
     """
-    # pyre-ignore
     num_batches = len(lengths) // batch_size
     # offsets = [0] + lengths.cumsum(0)
     torch._check(len(lengths) + 1 == len(offsets))

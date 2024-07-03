@@ -340,7 +340,6 @@ def _kernel_matmul_fp8_row(
             # Invert scaling.
             a_scale = tl.load(A_scale + rm, mask=rm < M)
             b_scale = tl.load(B_scale + rn, mask=rn < N)
-            # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
             scale = a_scale[:, None] * b_scale[None, :]
             acc *= scale
             acc = acc.to(C_ptr.dtype.element_ty)
@@ -494,7 +493,6 @@ def _kernel_matmul_fp8_row_no_fast_acc(
             # Invert scaling.
             a_scale = tl.load(A_scale + rm, mask=rm < M)
             b_scale = tl.load(B_scale + rn, mask=rn < N)
-            # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
             scale = a_scale[:, None] * b_scale[None, :]
             acc *= scale
             acc = acc.to(C_ptr.dtype.element_ty)
@@ -637,7 +635,6 @@ def _kernel_matmul_fp8_row_imprecise_acc(
     # Invert scaling.
     a_scale = tl.load(A_scale + rm, mask=rm < M)
     b_scale = tl.load(B_scale + rn, mask=rn < N)
-    # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
     scale = a_scale[:, None] * b_scale[None, :]
     acc *= scale
 
@@ -770,7 +767,6 @@ def _kernel_matmul_fp8_row_tma_persistent(
             b_scale = tl._experimental_descriptor_load(
                 B_scale, [rn], [BLOCK_N], scale_dtype
             )
-            # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
             scale = a_scale[:, None] * b_scale[None, :]
             acc *= scale
             acc = acc.to(C_ptr.dtype.element_ty)
@@ -1770,7 +1766,6 @@ def quantize_fp8_row(
     if scale_ub is not None:
         row_max = torch.clamp(row_max, min=eps, max=scale_ub.item())
     else:
-        # pyre-ignore[6]: Incompatible parameter type [6]
         row_max = torch.clamp(row_max, min=eps)
     a_scale = torch.empty((a.shape[0]), dtype=torch.float32, device=output_device)
     a_scale = max_fp8 / row_max.to(torch.float32)  # pyre-ignore
@@ -2067,7 +2062,6 @@ def quantize_fp8_block(
     if scale_ub is not None:
         block_max = torch.clamp(block_max, min=eps, max=scale_ub.item())
     else:
-        # pyre-ignore[6]: Incompatible parameter type [6]
         block_max = torch.clamp(block_max, min=eps)
     x_scale = torch.empty((grid_m, grid_k), dtype=torch.float32, device=output_device)
     x_scale = max_fp8 / block_max.to(torch.float32)  # pyre-ignore
