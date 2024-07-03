@@ -70,33 +70,6 @@ will be stored at the end of each row in FP32 formats, appending a total of
 */
 static constexpr float kINT8QparamsBytes = 8;
 
-// Customized Half4 data types with two half2 (64-bit in total)
-struct Half4 {
-  half2 a;
-  half2 b;
-
-  __device__ inline void store(at::Half* p) {
-#ifdef USE_ROCM
-    p[0] = __low2half(a);
-    p[1] = __high2half(a);
-    p[2] = __low2half(b);
-    p[3] = __high2half(b);
-#elif CUDA_VERSION >= 9000
-
-#ifndef __HALF2_TO_UI
-// cuda_fp16.hpp doesn't export this
-#define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
-#endif
-
-    asm("st.v2.u32 [%0], {%1, %2};"
-        :
-        : "l"(p), "r"(__HALF2_TO_UI(a)), "r"(__HALF2_TO_UI(b)));
-#else
-    asm("st.v2.u32 [%0], {%1, %2};" : : "l"(p), "r"(a.x), "r"(b.x));
-#endif
-  }
-};
-
 template <typename T>
 DEVICE_INLINE T shfl_xor(
     const T val,

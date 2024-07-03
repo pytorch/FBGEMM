@@ -9,6 +9,8 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include "fbgemm_gpu/utils/types.h"
+
 namespace fbgemm_gpu {
 
 at::Tensor _hfp8_to_float_cpu(
@@ -20,11 +22,6 @@ at::Tensor _float_to_hfp8_cpu(
     const int64_t ebits,
     const int64_t exponent_bias,
     const double max_pos);
-
-using fint32 = union fint32 {
-  uint32_t I;
-  float F;
-};
 
 // TODO: add a flag later to control whether underflow
 // flushes to 0 or clips to smallest denorm number.
