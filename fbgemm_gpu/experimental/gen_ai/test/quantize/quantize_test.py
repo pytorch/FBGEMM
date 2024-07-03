@@ -518,11 +518,13 @@ class FP8Tests(unittest.TestCase):
         ), f"fp8 quantization should have 3 unique values: {len(val.tolist())} unique values"
 
         mean_val = (torch.sum(xq_fp32) - x[0, 0]) / (x.numel() - 1)
-        tol = 0.125
+        rtol = 0.125
+        # atol = 1 / (1 << 9)
+        atol = 0
         # verify that elementwise the SR is close to the original value
-        torch.testing.assert_close(xq_fp32, x.float(), atol=0, rtol=tol)
+        torch.testing.assert_close(xq_fp32, x.float(), atol=atol, rtol=rtol)
         # verify the mean value of SR of is close to the original value
-        torch.testing.assert_close(mean_val, x[0, -1].float(), atol=0, rtol=tol)
+        torch.testing.assert_close(mean_val, x[0, -1].float(), atol=atol, rtol=rtol)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
