@@ -323,7 +323,6 @@ def is_valid_gwd_config(
     return (
         not dense
         and not nobag
-        and not vbe
         and not is_index_select
         and has_global_weight_decay_support
         and not ssd
