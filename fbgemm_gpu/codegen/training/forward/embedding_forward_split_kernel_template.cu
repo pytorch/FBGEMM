@@ -518,8 +518,8 @@ batch_index_select_dim0_codegen_forward_kernel(
             ++i) {
             // Simultaneously multiply by 1/L to compute the mean
             accumulators[i].mul_(inv_L);
-            thread_local_max = max(thread_local_max, vec4_max(accumulators[i]));
-            thread_local_min = min(thread_local_max, vec4_min(accumulators[i]));
+            thread_local_max = max(thread_local_max, accumulators[i].vmax());
+            thread_local_min = min(thread_local_max, accumulators[i].vmin());
         }
 
         // Construct the quantization parameters from the min and max values

@@ -9,7 +9,6 @@
 #pragma once
 
 #include <ATen/ATen.h>
-
 #include <cuda.h>
 #if !(                                                  \
     defined(USE_ROCM) ||                                \
