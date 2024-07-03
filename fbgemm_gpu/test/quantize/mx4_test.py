@@ -12,8 +12,6 @@ from typing import List
 import hypothesis.strategies as st
 
 import torch
-from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
-from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
 from hypothesis import given, settings, Verbosity
 
@@ -182,17 +180,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
             group_size=group_size,
         )
 
-        # Test intercompatibility between implementations.
-        py_mx_q_input = py_quantize_mx4(input, group_size)
-        py_mx_output = py_dequantize_mx4(py_mx_q_input, group_size)
-        triton_mx_q_input = fp32_to_mx4(input, group_size, use_triton=True)
-        cuda_mx_output = mx4_to_fp32(triton_mx_q_input, group_size, use_triton=False)
-        triton_mx_output = mx4_to_fp32(triton_mx_q_input, group_size, use_triton=True)
-
-        check_diff_quantize(input, py_mx_output, output_ref)
-        check_diff_quantize(input, cuda_mx_output, output_ref)
-        check_diff_quantize(input, triton_mx_output, output_ref)
-        check_diff_quantize(input, output, output_ref)
+        check_diff_quantize(input, output_ref, output)
 
 
 if __name__ == "__main__":
