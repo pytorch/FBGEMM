@@ -17,6 +17,7 @@ at::Tensor _hfp8_to_float_cpu(
     const at::Tensor& input,
     const int64_t ebits,
     const int64_t exponent_bias);
+
 at::Tensor _float_to_hfp8_cpu(
     const at::Tensor& input,
     const int64_t ebits,
@@ -109,4 +110,5 @@ hfp8_to_float(uint8_t hfp8_val, int ebits, int exponent_bias) {
   val_out.I |= sign.I;
   return val_out.F;
 }
+
 } // namespace fbgemm_gpu
