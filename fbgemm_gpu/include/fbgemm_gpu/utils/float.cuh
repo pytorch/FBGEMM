@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 
 namespace fbgemm_gpu {
