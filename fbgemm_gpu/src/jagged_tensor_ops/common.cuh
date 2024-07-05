@@ -33,6 +33,7 @@
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
+#include "fbgemm_gpu/utils/shared_memory.cuh"
 
 namespace fbgemm_gpu {
 
@@ -40,24 +41,24 @@ using Tensor = at::Tensor;
 
 namespace {
 
-template <typename T>
-struct SharedMemory;
+// template <typename T>
+// struct SharedMemory;
 
-template <>
-struct SharedMemory<int64_t> {
-  __device__ int64_t* getPointer() {
-    extern __shared__ int64_t s_int64_t[];
-    return s_int64_t;
-  }
-};
+// template <>
+// struct SharedMemory<int64_t> {
+//   __device__ int64_t* getPointer() {
+//     extern __shared__ int64_t s_int64_t[];
+//     return s_int64_t;
+//   }
+// };
 
-template <>
-struct SharedMemory<int32_t> {
-  __device__ int32_t* getPointer() {
-    extern __shared__ int32_t s_int32_t[];
-    return s_int32_t;
-  }
-};
+// template <>
+// struct SharedMemory<int32_t> {
+//   __device__ int32_t* getPointer() {
+//     extern __shared__ int32_t s_int32_t[];
+//     return s_int32_t;
+//   }
+// };
 
 /// @defgroup jagged-tensor-ops-cuda Jagged Tensor CUDA Operators
 /// The following are Jagged Tensor CUDA Operators

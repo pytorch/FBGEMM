@@ -32,7 +32,9 @@
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/bitonic_sort.cuh"
+#include "fbgemm_gpu/utils/find_qparams.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
+#include "fbgemm_gpu/utils/vec4acc.cuh"
 
 using Tensor = at::Tensor;
 
