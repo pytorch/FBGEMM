@@ -58,7 +58,7 @@ def benchmark(
             # Compute the output given quantized values.
             output = quantize_op.compute(*quantized_vals)
             # Compare the quantize op output to reference as a sanity check.
-            sim_check = torch.mean(torch.pow(torch.abs(output - out_ref), 2))
+            sim_check = torch.mean(torch.pow(output - out_ref, 2))
 
             # Now perform benchmark.
             if bench_quantize:
