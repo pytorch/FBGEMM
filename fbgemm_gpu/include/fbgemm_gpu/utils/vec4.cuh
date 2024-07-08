@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <ATen/AccumulateType.h>
 #include "fbgemm_gpu/utils/float.cuh"
 
 namespace fbgemm_gpu {

@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 #include <cuda.h>
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
 #if !(                                                  \
     defined(USE_ROCM) ||                                \
     ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
@@ -19,10 +20,6 @@
 #include <hip/hip_bfloat16.h>
 #endif
 #include <cuda_fp16.h>
-
-#if !defined(USE_ROCM) && defined(CUDA_VERSION) && CUDA_VERSION >= 9000
-#define FBGEMM_USE_SUBWARP_SHUFFLE
-#endif
 
 namespace {
 
@@ -35,6 +32,10 @@ int get_device_sm_cnt_() {
 } // namespace
 
 namespace fbgemm_gpu {
+
+#if !defined(USE_ROCM) && defined(CUDA_VERSION) && CUDA_VERSION >= 9000
+#define FBGEMM_USE_SUBWARP_SHUFFLE
+#endif
 
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
