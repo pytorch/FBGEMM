@@ -17,7 +17,8 @@
 #include <algorithm>
 
 #include <fbgemm_gpu/sparse_ops_utils.h>
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 
 #if !(                                                  \
     defined(USE_ROCM) ||                                \
