@@ -14,7 +14,6 @@
 #include <cuda_runtime.h>
 
 #include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/permute_pooled_embedding_ops_split.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"

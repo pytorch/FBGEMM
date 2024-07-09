@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <ATen/ATen.h>
 #include <c10/macros/Macros.h>
 #include <c10/util/ArrayRef.h>
 #include <c10/util/Deprecated.h>

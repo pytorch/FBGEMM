@@ -9,9 +9,9 @@
 #include <ATen/Dispatch.h>
 #include <c10/cuda/CUDAGuard.h>
 #include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
 
 using Tensor = at::Tensor;
 

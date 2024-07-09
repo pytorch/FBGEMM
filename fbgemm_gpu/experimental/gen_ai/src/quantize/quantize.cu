@@ -379,7 +379,7 @@ __inline__ __device__ float scale(float a, float b) {
 
 // Correct for cases where x is not subnormal.
 // Ref:
-// https://github.com/pytorch/FBGEMM/blob/e5d0c9448774e6bc577e7f210ecbec56b7a69f10/fbgemm_gpu/include/fbgemm_gpu/fbgemm_cuda_utils.cuh#L814-L820
+// https://github.com/pytorch/FBGEMM/blob/main/fbgemm_gpu/include/fbgemm_gpu/utils/stochastic_rounding.cuh
 // https://fb.quip.com/zNWAAmYREHhz : AssembleFloat algorithm
 DEVICE_INLINE float stochastic_rounding_scalar_fp8(
     float x,

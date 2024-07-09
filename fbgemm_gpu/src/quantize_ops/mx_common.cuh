@@ -8,8 +8,8 @@
 
 #include <ATen/ATen.h>
 #include <ATen/core/TensorAccessor.h>
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
+#include "fbgemm_gpu/utils/float.cuh"
 #include "mx/common.cuh"
 
 #define FULL_WARP_MASK 0xff'ff'ff'ff

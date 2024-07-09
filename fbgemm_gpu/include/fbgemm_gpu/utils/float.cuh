@@ -9,7 +9,15 @@
 #pragma once
 
 #include <ATen/ATen.h>
-
+#if !(                                                  \
+    defined(USE_ROCM) ||                                \
+    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
+     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
+#include <cuda_bf16.h>
+#elif (defined(USE_ROCM))
+#include <hip/hip_bfloat16.h>
+#endif
+#include <cuda_fp16.h>
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 
 namespace fbgemm_gpu {

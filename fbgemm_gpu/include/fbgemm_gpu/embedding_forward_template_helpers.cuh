@@ -32,7 +32,6 @@
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/find_qparams.cuh"
@@ -40,6 +39,7 @@
 #include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/vec4acc.cuh"
 #include "fbgemm_gpu/utils/vecn.cuh"
+#include "fbgemm_gpu/utils/weight_row.cuh"
 
 #define SHFL_SYNC(val, srcLane) \
   shfl_sync(val, srcLane, kThreadGroupSize, shfl_sync_mask)
