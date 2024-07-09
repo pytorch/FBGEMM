@@ -41,24 +41,6 @@ Tensor permute_pooled_embs_split_gpu(
       false);
 }
 
-Tensor permute_duplicate_pooled_embs_split_gpu(
-    const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-    const Tensor& offset_dim_list,
-    const Tensor& permute_list,
-    const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list) {
-  TORCH_CHECK(offset_dim_list.numel() > 0);
-  TORCH_CHECK(inv_offset_dim_list.numel() > 0);
-
-  return permute_pooled_embs_split_gpu_impl(
-      pooled_embs,
-      offset_dim_list,
-      permute_list,
-      inv_offset_dim_list,
-      inv_permute_list,
-      true);
-}
-
 Tensor permute_pooled_embs_split_gpu_impl(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
