@@ -29,7 +29,6 @@
 
 #include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
