@@ -25,7 +25,6 @@
 // clang-format on
 
 #include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops.h"
@@ -34,6 +33,7 @@
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
 #include "fbgemm_gpu/utils/shared_memory.cuh"
+#include "fbgemm_gpu/utils/vec4.cuh"
 
 namespace fbgemm_gpu {
 
