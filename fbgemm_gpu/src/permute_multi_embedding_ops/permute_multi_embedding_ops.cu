@@ -49,20 +49,21 @@ __global__ void permute_multi_embs_kernel(
   }
 
   // parse permutes
-  int32_t in_tensor, out_tensor, in_start, out_start, length, next;
+  int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
+  auto pp = permutes[permute_id];
   if (reverse_permute) {
-    out_tensor = permutes[permute_id][0];
-    in_tensor = permutes[permute_id][1];
-    out_start = permutes[permute_id][2];
-    in_start = permutes[permute_id][3];
+    out_tensor = pp[PermuteParam::in_tensor];
+    in_tensor = pp[PermuteParam::out_tensor];
+    out_offset = pp[PermuteParam::in_offset];
+    in_offset = pp[PermuteParam::out_offset];
   } else {
-    in_tensor = permutes[permute_id][0];
-    out_tensor = permutes[permute_id][1];
-    in_start = permutes[permute_id][2];
-    out_start = permutes[permute_id][3];
+    in_tensor = pp[PermuteParam::in_tensor];
+    out_tensor = pp[PermuteParam::out_tensor];
+    in_offset = pp[PermuteParam::in_offset];
+    out_offset = pp[PermuteParam::out_offset];
   }
-  length = permutes[permute_id][4];
-  next = permutes[permute_id][5];
+  length = pp[PermuteParam::length];
+  next = pp[PermuteParam::next];
 
   if (worker_id >= length) {
     return;
@@ -73,47 +74,48 @@ __global__ void permute_multi_embs_kernel(
 
   // locate the batch_id
   int32_t in_length = in_lengths[in_tensor];
-  scalar_t* input_ptr = (scalar_t*)inputs[in_tensor];
-  input_ptr += batch_id * in_length;
+  scalar_t* input_ptr = const_cast<scalar_t*>(
+      reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
+      batch_id * in_length + in_offset);
 
   int32_t out_length = out_lengths[out_tensor];
-  scalar_t* output_ptr = (scalar_t*)outputs[out_tensor];
-  output_ptr += batch_id * out_length;
+  scalar_t* output_ptr = const_cast<scalar_t*>(
+      reinterpret_cast<const scalar_t*>(outputs[out_tensor]) +
+      batch_id * out_length + out_offset);
 
-  if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(
-          &output_ptr[out_start]) &&
-      fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(
-          &input_ptr[in_start])) {
+  if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(output_ptr) &&
+      fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(input_ptr)) {
     constexpr int32_t vec_size = 4;
     const int32_t loop_end = round_down(length, vec_size);
     for (int32_t i = worker_id * vec_size; i < loop_end;
          i += blockDim.x * vec_size) {
-      fbgemm_gpu::Vec4T<scalar_t>::copy(
-          &input_ptr[in_start + i], &output_ptr[out_start + i]);
+      fbgemm_gpu::Vec4T<scalar_t>::copy(&input_ptr[i], &output_ptr[i]);
     }
     // Use elementwise access for the last incomplete vector.
     for (int32_t i = loop_end + worker_id; i < length; i += blockDim.x) {
-      output_ptr[out_start + i] = input_ptr[in_start + i];
+      output_ptr[i] = input_ptr[i];
     }
   } else { // Fallback if not aligned.
     for (int32_t i = worker_id; i < length; i += blockDim.x) {
-      output_ptr[out_start + i] = input_ptr[in_start + i];
+      output_ptr[i] = input_ptr[i];
     }
   }
 
   // for reverse_permute (backward) with next
   while (reverse_permute && next > 0 && next < permute_size) {
-    in_tensor = permutes[next][1];
-    in_start = permutes[next][3];
-    length = permutes[next][4];
-    next = -permutes[next][5];
+    auto pp = permutes[next];
+    in_tensor = pp[PermuteParam::out_tensor];
+    in_offset = pp[PermuteParam::out_offset];
+    length = pp[PermuteParam::length];
+    next = -pp[PermuteParam::next];
 
     int32_t in_length = in_lengths[in_tensor];
-    scalar_t* input_ptr = (scalar_t*)inputs[in_tensor];
-    input_ptr += batch_id * in_length;
+    scalar_t* input_ptr = const_cast<scalar_t*>(
+        reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
+        batch_id * in_length + in_offset);
 
     for (int32_t i = worker_id; i < length; i += blockDim.x) {
-      output_ptr[out_start + i] += input_ptr[in_start + i];
+      output_ptr[i] += input_ptr[i];
     }
   }
 }
@@ -155,6 +157,13 @@ std::vector<Tensor> permute_multi_embedding_gpu(
     const Tensor& out_shapes,
     const std::vector<int64_t>& out_lengths,
     const bool& reverse_permute) {
+  CUDA_DEVICE_GUARD(pooled_embs[0]);
+  TENSORS_ON_SAME_DEVICE(permutes, pooled_embs[0]);
+  TENSORS_ON_SAME_DEVICE(permutes, in_shapes);
+  TENSORS_ON_SAME_DEVICE(permutes, out_shapes);
+  TORCH_CHECK(in_shapes.is_contiguous());
+  TORCH_CHECK(out_shapes.is_contiguous());
+
   int32_t num_of_input_tensors = in_shapes.size(0);
   int32_t num_of_output_tensors = out_lengths.size();
   int32_t batch_size = pooled_embs[0].size(0);
@@ -166,12 +175,8 @@ std::vector<Tensor> permute_multi_embedding_gpu(
   for (int32_t i = 0; i < num_of_input_tensors; i++) {
     Tensor cont_tensor = pooled_embs[i].contiguous();
     inputs.push_back(cont_tensor);
-    TENSORS_ON_SAME_DEVICE(cont_tensor, pooled_embs[i]);
-    TENSORS_ON_SAME_DEVICE(pooled_embs[i], pooled_embs[0]);
-    CUDA_DEVICE_GUARD(cont_tensor);
+    TORCH_CHECK(cont_tensor.is_contiguous());
   }
-  TORCH_CHECK(in_shapes.is_contiguous());
-  TORCH_CHECK(out_shapes.is_contiguous());
 
   // initiate output tensors
   std::vector<Tensor> outputs;

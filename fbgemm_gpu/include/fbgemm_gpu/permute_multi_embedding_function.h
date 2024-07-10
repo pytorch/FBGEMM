@@ -66,4 +66,14 @@ std::vector<Tensor> permute_multi_embedding_gpu(
     const Tensor& out_shapes,
     const std::vector<int64_t>& out_lengths,
     const bool& reverse_permute);
+
+enum PermuteParam {
+  in_tensor = 0,
+  out_tensor = 1,
+  in_offset = 2,
+  out_offset = 3,
+  length = 4,
+  next = 5,
+};
+
 } // namespace fbgemm_gpu
