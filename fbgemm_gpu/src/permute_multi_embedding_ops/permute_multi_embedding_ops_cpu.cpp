@@ -29,7 +29,6 @@ std::vector<Tensor> permute_multi_embedding_cpu(
     TENSORS_ON_SAME_DEVICE(cont_tensor, pooled_embs[i]);
     TENSORS_ON_SAME_DEVICE(pooled_embs[i], pooled_embs[0]);
   }
-
   int32_t B = pooled_embs[0].size(0);
   std::vector<Tensor> outputs;
   outputs.reserve(out_lengths.size());
@@ -37,38 +36,40 @@ std::vector<Tensor> permute_multi_embedding_cpu(
     outputs.push_back(at::empty({B, out_lengths[i]}, pooled_embs[0].options()));
     TORCH_CHECK(outputs[i].is_contiguous());
   }
-  int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
-  for (const auto i : c10::irange(permutes.size(0))) {
-    auto pp = permutes[i];
-    if (reverse_permute) {
-      out_tensor = pp[PermuteParam::in_tensor].item<int32_t>();
-      in_tensor = pp[PermuteParam::out_tensor].item<int32_t>();
-      out_offset = pp[PermuteParam::in_offset].item<int32_t>();
-      in_offset = pp[PermuteParam::out_offset].item<int32_t>();
-      next = pp[PermuteParam::next].item<int32_t>();
-    } else {
-      in_tensor = pp[PermuteParam::in_tensor].item<int32_t>();
-      out_tensor = pp[PermuteParam::out_tensor].item<int32_t>();
-      in_offset = pp[PermuteParam::in_offset].item<int32_t>();
-      out_offset = pp[PermuteParam::out_offset].item<int32_t>();
-    }
-    length = permutes[i][4].item<int32_t>();
-    if (reverse_permute && next < 0) {
-      for (auto b : c10::irange(B)) {
-        auto outp = outputs[out_tensor][b].data_ptr<float>() + out_offset;
-        auto inp = inputs[in_tensor][b].data_ptr<float>() + in_offset;
-        for (const auto j : c10::irange(length)) {
-          outp[j] += inp[j];
+  at::parallel_for(0, B, 0, [&](int32_t start, int32_t end) {
+    int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
+    for (const auto i : c10::irange(permutes.size(0))) {
+      auto pp = permutes[i];
+      if (reverse_permute) {
+        out_tensor = pp[PermuteParam::in_tensor].item<int32_t>();
+        in_tensor = pp[PermuteParam::out_tensor].item<int32_t>();
+        out_offset = pp[PermuteParam::in_offset].item<int32_t>();
+        in_offset = pp[PermuteParam::out_offset].item<int32_t>();
+        next = pp[PermuteParam::next].item<int32_t>();
+      } else {
+        in_tensor = pp[PermuteParam::in_tensor].item<int32_t>();
+        out_tensor = pp[PermuteParam::out_tensor].item<int32_t>();
+        in_offset = pp[PermuteParam::in_offset].item<int32_t>();
+        out_offset = pp[PermuteParam::out_offset].item<int32_t>();
+      }
+      length = pp[PermuteParam::length].item<int32_t>();
+      if (reverse_permute && next < 0) {
+        for (auto b : c10::irange(start, end)) {
+          auto outp = outputs[out_tensor][b].data_ptr<float>() + out_offset;
+          auto inp = inputs[in_tensor][b].data_ptr<float>() + in_offset;
+          for (const auto j : c10::irange(length)) {
+            outp[j] += inp[j];
+          }
+        }
+      } else {
+        for (auto b : c10::irange(start, end)) {
+          auto outp = outputs[out_tensor][b].data_ptr<float>() + out_offset;
+          auto inp = inputs[in_tensor][b].data_ptr<float>() + in_offset;
+          std::memcpy(outp, inp, length * pooled_embs[0].itemsize());
         }
       }
-    } else {
-      for (auto b : c10::irange(B)) {
-        auto outp = outputs[out_tensor][b].data_ptr<float>() + out_offset;
-        auto inp = inputs[in_tensor][b].data_ptr<float>() + in_offset;
-        std::memcpy(outp, inp, length * pooled_embs[0].itemsize());
-      }
     }
-  }
+  });
   return outputs;
 }
 
