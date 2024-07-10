@@ -37,32 +37,34 @@ std::vector<Tensor> permute_multi_embedding_cpu(
     outputs.push_back(at::empty({B, out_lengths[i]}, pooled_embs[0].options()));
     TORCH_CHECK(outputs[i].is_contiguous());
   }
-  int32_t in_tensor, out_tensor, in_start, out_start, length, jump;
+  int32_t in_tensor, out_tensor, in_offset, out_offset, length, next;
   for (const auto i : c10::irange(permutes.size(0))) {
+    auto pp = permutes[i];
     if (reverse_permute) {
-      out_tensor = permutes[i][0].item<int32_t>();
-      in_tensor = permutes[i][1].item<int32_t>();
-      out_start = permutes[i][2].item<int32_t>();
-      in_start = permutes[i][3].item<int32_t>();
-      jump = permutes[i][5].item<int32_t>();
+      out_tensor = pp[PermuteParam::in_tensor].item<int32_t>();
+      in_tensor = pp[PermuteParam::out_tensor].item<int32_t>();
+      out_offset = pp[PermuteParam::in_offset].item<int32_t>();
+      in_offset = pp[PermuteParam::out_offset].item<int32_t>();
+      next = pp[PermuteParam::next].item<int32_t>();
     } else {
-      in_tensor = permutes[i][0].item<int32_t>();
-      out_tensor = permutes[i][1].item<int32_t>();
-      in_start = permutes[i][2].item<int32_t>();
-      out_start = permutes[i][3].item<int32_t>();
+      in_tensor = pp[PermuteParam::in_tensor].item<int32_t>();
+      out_tensor = pp[PermuteParam::out_tensor].item<int32_t>();
+      in_offset = pp[PermuteParam::in_offset].item<int32_t>();
+      out_offset = pp[PermuteParam::out_offset].item<int32_t>();
     }
     length = permutes[i][4].item<int32_t>();
-    if (reverse_permute && jump < 0) {
+    if (reverse_permute && next < 0) {
       for (auto b : c10::irange(B)) {
+        auto outp = outputs[out_tensor][b].data_ptr<float>() + out_offset;
+        auto inp = inputs[in_tensor][b].data_ptr<float>() + in_offset;
         for (const auto j : c10::irange(length)) {
-          outputs[out_tensor][b][j + out_start] +=
-              inputs[in_tensor][b][j + in_start];
+          outp[j] += inp[j];
         }
       }
     } else {
       for (auto b : c10::irange(B)) {
-        auto outp = outputs[out_tensor][b].data_ptr<float>() + out_start;
-        auto inp = inputs[in_tensor][b].data_ptr<float>() + in_start;
+        auto outp = outputs[out_tensor][b].data_ptr<float>() + out_offset;
+        auto inp = inputs[in_tensor][b].data_ptr<float>() + in_offset;
         std::memcpy(outp, inp, length * pooled_embs[0].itemsize());
       }
     }
@@ -128,7 +130,7 @@ std::vector<Tensor> permute_multi_embedding_meta(
 /// column is the output tensor index. the third column is the feature's offset
 /// of input tensor, and the fourth column is the feature's offset of output
 /// tensor. the fifth column is the length of the feature in a permute, and the
-/// last column is a jump flag.
+/// last column is a next permute row to operate on (used in backward only).
 /// @param in_shapes a 1D tensor with each element representing the length of an
 /// input KT.
 /// @param out_shapes a 1D tensor with each element representing the length of
