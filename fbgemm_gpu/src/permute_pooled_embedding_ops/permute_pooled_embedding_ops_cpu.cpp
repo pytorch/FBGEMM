@@ -15,13 +15,12 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-Tensor permute_pooled_embs_cpu_impl(
+Tensor permute_pooled_embs_cpu(
     const Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list,
-    const bool& allow_duplicates) {
+    const Tensor& inv_permute_list) {
   TORCH_CHECK(
       offset_dim_list.scalar_type() == at::ScalarType::Long,
       "offset_dim_list needs to have long/int64 type")
@@ -30,7 +29,7 @@ Tensor permute_pooled_embs_cpu_impl(
       "permute_list needs to have long/int64 type")
   auto permute = permute_list.data_ptr<int64_t>();
   const auto n = permute_list.numel();
-  const auto dims_size = allow_duplicates ? offset_dim_list.numel() : n;
+  const auto dims_size = n;
   std::vector<int64_t> dims;
   dims.reserve(dims_size - 1);
   for (const auto i : c10::irange(1, dims_size)) {
@@ -45,37 +44,6 @@ Tensor permute_pooled_embs_cpu_impl(
   return at::cat(permuted_ts, 1);
 }
 
-at::Tensor permute_pooled_embs_cpu(
-    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-    const at::Tensor& offset_dim_list,
-    const at::Tensor& permute_list,
-    const at::Tensor& inv_offset_dim_list,
-    const at::Tensor& inv_permute_list) {
-  return permute_pooled_embs_cpu_impl(
-      pooled_embs,
-      offset_dim_list,
-      permute_list,
-      inv_offset_dim_list,
-      inv_permute_list,
-      false);
-}
-
-///@ingroup permute-duplicate-pooled-embs-cpu
-at::Tensor permute_duplicate_pooled_embs_cpu(
-    const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
-    const at::Tensor& offset_dim_list,
-    const at::Tensor& permute_list,
-    const at::Tensor& inv_offset_dim_list,
-    const at::Tensor& inv_permute_list) {
-  return permute_pooled_embs_cpu_impl(
-      pooled_embs,
-      offset_dim_list,
-      permute_list,
-      inv_offset_dim_list,
-      inv_permute_list,
-      true);
-}
-
 ///@ingroup permute-pooled-embs-cpu
 at::Tensor permute_pooled_embs_auto_grad(
     const Tensor& pooled_embs,
@@ -88,8 +56,7 @@ at::Tensor permute_pooled_embs_auto_grad(
       offset_dim_list,
       permute_list,
       inv_offset_dim_list,
-      inv_permute_list,
-      false);
+      inv_permute_list);
 }
 
 ///@ingroup permute-pooled-embs-cpu
@@ -104,24 +71,7 @@ at::Tensor permute_pooled_embs_auto_grad_cpu(
       offset_dim_list,
       permute_list,
       inv_offset_dim_list,
-      inv_permute_list,
-      false);
-}
-
-///@ingroup permute-duplicate-pooled-embs-cpu
-at::Tensor permute_duplicate_pooled_embs_auto_grad_cpu(
-    const Tensor& pooled_embs,
-    const Tensor& offset_dim_list,
-    const Tensor& permute_list,
-    const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list) {
-  return PermutePooledEmbsFunction::apply(
-      pooled_embs,
-      offset_dim_list,
-      permute_list,
-      inv_offset_dim_list,
-      inv_permute_list,
-      true);
+      inv_permute_list);
 }
 
 at::Tensor permute_pooled_embs_meta(
@@ -151,10 +101,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor",
       {PT2_COMPLIANT_TAG});
-  m.def(
-      "permute_duplicate_pooled_embs(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
-  m.def(
-      "permute_duplicate_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor");
 }
 
 FBGEMM_OP_DISPATCH(
@@ -165,15 +111,6 @@ FBGEMM_OP_DISPATCH(
     CPU,
     "permute_pooled_embs_auto_grad",
     fbgemm_gpu::permute_pooled_embs_auto_grad_cpu);
-FBGEMM_OP_DISPATCH(
-    CPU,
-    "permute_duplicate_pooled_embs",
-    fbgemm_gpu::permute_duplicate_pooled_embs_cpu);
-FBGEMM_OP_DISPATCH(
-    CPU,
-    "permute_duplicate_pooled_embs_auto_grad",
-    fbgemm_gpu::permute_duplicate_pooled_embs_auto_grad_cpu);
-
 FBGEMM_OP_DISPATCH(
     Meta,
     "permute_pooled_embs",
