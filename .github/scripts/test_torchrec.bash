@@ -105,7 +105,7 @@ echo "## 3. Build TorchRec"
 ################################################################################
 
 rm -rf dist
-conda run -n "$env_name" python setup.py bdist_wheel --package_name "${torchrec_package_name}" --python-tag="py${python_tag}"
+conda run -n "$env_name" python setup.py bdist_wheel --python-tag="py${python_tag}"
 
 ################################################################################
 echo "## 4. Import TorchRec"
