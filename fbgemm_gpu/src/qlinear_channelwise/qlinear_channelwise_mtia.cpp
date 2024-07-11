@@ -11,6 +11,8 @@
 #include <torch/library.h>
 #include "torch/types.h"
 
+// TODO move these ops to fb directory
+
 static at::Tensor qlinear_channelwise(
     at::Tensor x,
     at::Tensor weight,
@@ -169,6 +171,14 @@ static at::Tensor qlinear_dynamic(
       x, weight, bias, input_scale, weight_scale, weight_zero_point, relu);
 }
 
+static at::Tensor fused_scaled_dot_product_attention(
+    at::Tensor query,
+    at::Tensor key,
+    at::Tensor value) {
+  // call the existing cpu op here for cpu results
+  return at::scaled_dot_product_attention(query, key, value);
+}
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "qlinear_channelwise(Tensor x, Tensor weight, Tensor "
@@ -204,4 +214,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl(
       "qlinear_dynamic",
       torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(qlinear_dynamic)));
+
+  m.def(
+      "fused_scaled_dot_product_attention(Tensor query, Tensor key, Tensor value) -> Tensor");
+
+  m.impl(
+      "fused_scaled_dot_product_attention",
+      torch::dispatch(
+          c10::DispatchKey::CPU, TORCH_FN(fused_scaled_dot_product_attention)));
 }
