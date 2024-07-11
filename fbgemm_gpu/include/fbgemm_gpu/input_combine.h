@@ -46,4 +46,11 @@ tbe_input_combine_with_length_cuda(
     const uint64_t max_list_size,
     const c10::DeviceIndex& device);
 
+void tbe_input_combine_with_length_cpu_out(
+    at::Tensor& combined_indices,
+    at::Tensor& combined_lengths,
+    at::Tensor& combined_per_sample_weights,
+    const std::vector<at::Tensor>& indices_list,
+    const std::vector<at::Tensor>& lengths_list,
+    const std::vector<at::Tensor>& per_sample_weights);
 } // namespace fbgemm_gpu
