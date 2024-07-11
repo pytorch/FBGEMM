@@ -22,6 +22,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 
 set(attention_ops_sources
