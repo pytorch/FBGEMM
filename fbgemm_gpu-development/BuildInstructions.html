@@ -850,7 +850,6 @@ Python platform name must first be properly set:</p>
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span>
 
@@ -866,7 +865,6 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--cxxprefix<span class="o">=</span><span class="nv">$CONDA_PREFIX</span>
@@ -921,7 +919,6 @@ toolchains have been properly installed.</p>
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cuda<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
@@ -946,7 +943,6 @@ experimental modules are the same as those for a CUDA build, but with specifying
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>genai<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
@@ -982,7 +978,6 @@ presuming the toolchains have been properly installed.</p>
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>rocm<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">package_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
