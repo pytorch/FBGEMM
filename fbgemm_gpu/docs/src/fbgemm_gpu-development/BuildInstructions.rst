@@ -528,7 +528,6 @@ For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
   # Build the wheel artifact only
   python setup.py bdist_wheel \
       --package_variant=cpu \
-      --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}"
 
@@ -546,7 +545,6 @@ To build using Clang + ``libstdc++`` instead of GCC, simply append the
   # Build the wheel artifact only
   python setup.py bdist_wheel \
       --package_variant=cpu \
-      --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --cxxprefix=$CONDA_PREFIX
@@ -607,7 +605,6 @@ toolchains have been properly installed.
   # Build the wheel artifact only
   python setup.py bdist_wheel \
       --package_variant=cuda \
-      --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --nvml_lib_path=${NVML_LIB_PATH} \
@@ -636,7 +633,6 @@ experimental modules are the same as those for a CUDA build, but with specifying
   # Build the wheel artifact only
   python setup.py bdist_wheel \
       --package_variant=genai \
-      --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --nvml_lib_path=${NVML_LIB_PATH} \
@@ -678,7 +674,6 @@ presuming the toolchains have been properly installed.
   # Build the wheel artifact only
   python setup.py bdist_wheel \
       --package_variant=rocm \
-      --package_name="${package_name}" \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
