@@ -18,7 +18,7 @@ if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   #Download Googletest framework from github if
   #GOOGLETEST_SOURCE_DIR is not specified.
   if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
-    set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/third_party/googletest"
+    set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
       CACHE STRING "googletest source directory from submodules")
   endif()
 

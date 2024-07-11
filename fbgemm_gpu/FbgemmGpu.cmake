@@ -39,7 +39,7 @@ set(fbgemm_sources_include_directories
 ################################################################################
 
 file(GLOB_RECURSE asmjit_sources
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/asmjit/src/asmjit/*/*.cpp")
+  "${CMAKE_CURRENT_SOURCE_DIR}/../external/asmjit/src/asmjit/*/*.cpp")
 
 set(third_party_include_directories
   ${THIRDPARTY}/asmjit/src

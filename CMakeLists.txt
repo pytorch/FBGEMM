@@ -112,7 +112,7 @@ endif()
 
 set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
+set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/external)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Add address sanitizer
@@ -249,7 +249,7 @@ message(WARNING "==========")
 if(NOT TARGET asmjit)
   # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
   if(NOT DEFINED ASMJIT_SRC_DIR)
-    set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/third_party/asmjit"
+    set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/external/asmjit"
       CACHE STRING "asmjit source directory from submodules")
   endif()
 
@@ -282,7 +282,7 @@ endif()
 if(NOT TARGET cpuinfo)
   #Download cpuinfo from github if CPUINFO_SOURCE_DIR is not specified.
   if(NOT DEFINED CPUINFO_SOURCE_DIR)
-    set(CPUINFO_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/third_party/cpuinfo"
+    set(CPUINFO_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/cpuinfo"
       CACHE STRING "cpuinfo source directory from submodules")
   endif()
 
