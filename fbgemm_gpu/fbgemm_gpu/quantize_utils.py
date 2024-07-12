@@ -8,6 +8,7 @@
 # pyre-strict
 
 import logging
+import math
 
 import torch
 
@@ -44,13 +45,23 @@ def fp32_to_mx4(
         output: MX4 tensor packed into int8 values with total elements (M / 2 + M / groupsize)
     """
     # Accelerated MX4 is only available on cuda, if input is on cpu, use python.
+    # For CPU and triton, set the second dim to 2048 or the nearest power of 2.
+    dim = (
+        2048 if tensor.numel() >= 2048 else 2 ** (math.floor(math.log2(tensor.numel())))
+    )
+    input = (
+        tensor.view(-1)
+        if (tensor.is_cuda and not use_triton) or tensor.numel() % dim != 0
+        else tensor.view(-1, dim)
+    )
     if not tensor.is_cuda:
-        return py_quantize_mx4(tensor, group_size)
+        return py_quantize_mx4(input, group_size)
+
     if use_triton:
-        return quantize_mx4(tensor, group_size)
+        return quantize_mx4(input, group_size)
     else:
         out = torch.ops.fbgemm.quantize_mx_cuda(
-            tensor.view(-1),
+            input,
             scale_bits=8,
             elem_ebits=2,
             elem_mbits=3,
@@ -75,16 +86,14 @@ def mx4_to_fp32(
     Return:
         output: FP32 tensor with total elements (M).
     """
+    flatten_tensor = tensor.view(-1)
     # Accelerated MX4 dequantize is only available on cuda, if input is on cpu, use python.
     if not tensor.is_cuda:
-        return py_dequantize_mx4(tensor, group_size)
+        return py_dequantize_mx4(flatten_tensor, group_size)
     if use_triton:
-        return dequantize_mx4(tensor, group_size)
+        return dequantize_mx4(flatten_tensor, group_size)
     else:
-        out = torch.ops.fbgemm.dequantize_mx_cuda(tensor.view(-1), group_size)
-        # Perserve input dimensions.
-        output_shape = list(tensor.shape[:-1]) + [-1]
-        return out.view(output_shape)
+        return torch.ops.fbgemm.dequantize_mx_cuda(flatten_tensor, group_size)
 
 
 def fp32_to_fp16_with_clamp(tensor: torch.Tensor) -> torch.Tensor:

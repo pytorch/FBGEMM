@@ -23,14 +23,14 @@ from fbgemm_gpu.quantize_utils import (
     fp32_to_bf16_with_clamp,
     fp32_to_fp16_with_clamp,
     fp32_to_hfp8_with_clamp,
-    fp32_to_mx4,
     hfp8_to_fp32,
-    mx4_to_fp32,
 )
+
 from fbgemm_gpu.split_embedding_configs import SparseType
 from torch.autograd.profiler import record_function  # usort:skip
 from dataclasses import dataclass
 
+import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 
 logger: logging.Logger = logging.getLogger()
 
@@ -100,7 +100,15 @@ def _quantize_tensor(
         return input_quant_all2all
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
-        return fp32_to_mx4(input_tensor, mx_group_size)
+        quantized_output = torch.ops.fbgemm.quantize_mx(
+            input=input_tensor,
+            scale_bits=8,
+            elem_ebits=2,
+            elem_mbits=3,
+            elem_max_norm=6.0,
+            mx_group_size=mx_group_size,
+        )
+        return quantized_output
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -141,7 +149,11 @@ def _dequantize_tensor(
         return dequant_tensor.view(-1)
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
-        return mx4_to_fp32(quantized_tensor, mx_group_size)
+        dequant_tensor = torch.ops.fbgemm.dequantize_mx(
+            input=quantized_tensor,
+            mx_group_size=mx_group_size,
+        )
+        return dequant_tensor.view(-1)
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
