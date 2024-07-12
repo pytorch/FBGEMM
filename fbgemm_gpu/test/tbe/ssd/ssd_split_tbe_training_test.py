@@ -146,6 +146,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ssd_shards: int = 1,  # from SSDTableBatchedEmbeddingBags
         optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
         cache_set_scale: float = 1.0,
+        # pyre-fixme[9]: pooling_mode has type `bool`; used as `PoolingMode`.
         pooling_mode: bool = PoolingMode.SUM,
         weights_precision: SparseType = SparseType.FP32,
         output_dtype: SparseType = SparseType.FP32,
@@ -239,6 +240,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.float() for emb in emb_ref]
 
+        # pyre-fixme[7]: Expected `Tuple[SSDTableBatchedEmbeddingBags,
+        #  List[EmbeddingBag]]` but got `Tuple[SSDTableBatchedEmbeddingBags,
+        #  Union[List[Union[Embedding, EmbeddingBag]], List[Embedding],
+        #  List[EmbeddingBag]]]`.
         return emb, emb_ref
 
     def concat_ref_tensors(
@@ -724,7 +729,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
                 # pyre-fixme[16]: Optional type has no attribute `float`.
                 optim_state_r.add_(
-                    emb_r.weight.grad.float().to_dense().pow(2).mean(dim=1)
+                    # pyre-fixme[16]: `Optional` has no attribute `float`.
+                    emb_r.weight.grad.float()
+                    .to_dense()
+                    .pow(2)
+                    .mean(dim=1)
                 )
                 torch.testing.assert_close(
                     optim_state_t.float(),
