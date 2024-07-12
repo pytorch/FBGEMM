@@ -261,18 +261,6 @@ dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
   return result;
 }
 
-// struct __align__(16) bfx8 {
-//   __nv_bfloat162 vals[4];
-// };
-
-// DEVICE_INLINE bfx4 dequantize_packed_int4(uint16_t vs, __half2
-// shift_scale_0); DEVICE_INLINE bfx8 dequantize_packed_int4(
-//     uint32_t v,
-//     __half2 shift_scale_0,
-//     __half2 shift_scale_1);
-// DEVICE_INLINE bfx8
-// dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale);
-
 #if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 DEVICE_INLINE bfx4 dequantize_packed_fp8(uint32_t vs, __half2 shift_scale_0) {
   uint32_t v = vs;
