@@ -505,3 +505,85 @@ def fill_random_scale_bias(
                     device=scale_shift.device,
                 )
             )
+
+
+def calculate_forward_read_write_bytes(
+    weights_precision: SparseType,
+    output_dtype: SparseType,
+    pooling: bool,
+    batch_size: int,
+    bag_size_list: List[int],
+    embedding_dim_list: List[int],
+) -> int:
+    """
+    This function is a helper function to calculate the forward read/write bytes.
+
+    Args:
+        weights_precision (SparseType): weight precision, different precision has different read/write bytes
+        output_dtype (SparseType): output precision
+        pooling (bool): Do pooling embedding or not
+        batch_size (int): bag number
+        bag_size_list (List[int]): List of bag size in each table
+        embedding_dim_list (List[int]): List of embedding_dim in each table
+
+    Returns:
+        Output (int): Forward read/write bytes
+    """
+    B = batch_size
+    Ls = bag_size_list
+    Ds = embedding_dim_list
+
+    sum_DLs = sum([d * l for d, l in zip(Ds, Ls)])
+
+    param_size_multiplier = int(weights_precision.bit_rate() / 8.0)
+    output_size_multiplier = int(output_dtype.bit_rate() / 8.0)
+
+    read_write_bytes = (
+        # Write output
+        output_size_multiplier * B * (sum(Ds) if pooling else sum_DLs)
+        # Read weight
+        + param_size_multiplier * B * sum_DLs
+    )
+
+    return read_write_bytes
+
+
+def calculate_fused_backward_read_write_bytes(
+    weights_precision: SparseType,
+    output_dtype: SparseType,
+    pooling: bool,
+    batch_size: int,
+    bag_size_list: List[int],
+    embedding_dim_list: List[int],
+) -> int:
+    """
+    This function is a helper function to calculate the backward read/write bytes.
+
+    Args:
+        weights_precision (SparseType): weight precision, different precision has different read/write bytes
+        output_dtype (SparseType): output precision
+        pooling (bool): Do pooling embedding or not
+        batch_size (int): bag number
+        bag_size_list (List[int]): List of bag size in each table
+        embedding_dim_list (List[int]): List of embedding_dim in each table
+
+    Returns:
+        Output (int): Backward read/write bytes
+    """
+    B = batch_size
+    Ls = bag_size_list
+    Ds = embedding_dim_list
+
+    sum_DLs = sum([d * l for d, l in zip(Ds, Ls)])
+
+    param_size_multiplier = int(weights_precision.bit_rate() / 8.0)
+    output_size_multiplier = int(output_dtype.bit_rate() / 8.0)
+
+    read_write_bytes = (
+        # Read the output gradient
+        output_size_multiplier * B * (sum(Ds) if pooling else sum_DLs)
+        # Read and write weight gradient
+        + 2 * param_size_multiplier * B * sum_DLs
+    )
+
+    return read_write_bytes
