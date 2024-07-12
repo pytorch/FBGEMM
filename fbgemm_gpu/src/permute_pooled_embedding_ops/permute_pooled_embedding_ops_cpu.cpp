@@ -8,8 +8,8 @@
 
 #include <c10/util/irange.h>
 #include <vector>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
-#include "fbgemm_gpu/utils/dispatch_macros.h"
 
 using Tensor = at::Tensor;
 

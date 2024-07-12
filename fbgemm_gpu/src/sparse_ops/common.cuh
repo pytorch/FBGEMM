@@ -27,11 +27,11 @@
 #include "fbgemm_gpu/cub_namespace_postfix.cuh"
 // clang-format on
 
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
-#include "fbgemm_gpu/utils/dispatch_macros.h"
 
 #ifdef USE_ROCM
 #include <hipblas/hipblas.h>
