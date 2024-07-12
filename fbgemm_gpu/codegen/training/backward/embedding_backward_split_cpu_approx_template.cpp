@@ -17,7 +17,7 @@
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
