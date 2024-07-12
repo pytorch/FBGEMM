@@ -243,7 +243,10 @@ class QuantizedCommCodec:
 
     def create_context(self) -> Optional[QuantizationContext]:
         # fp8 rowwise is activated when row_dim > 0
-        if self._comm_precision == SparseType.FP8:
+        if (
+            self._comm_precision == SparseType.FP8
+            or self._comm_precision == SparseType.MX4
+        ):
             return QuantizationContext(self._row_dim)
         # int8 rowwise is default
         return QuantizationContext()
