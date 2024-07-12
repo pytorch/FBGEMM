@@ -32,7 +32,7 @@
 // Required for op registrations and dispatchers
 #include "fbgemm_gpu/embedding_op_registration.h"
 #include <torch/script.h>
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 ////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"

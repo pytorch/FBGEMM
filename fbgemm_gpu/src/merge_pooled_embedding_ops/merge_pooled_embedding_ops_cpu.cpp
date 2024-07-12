@@ -10,9 +10,9 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/core/TensorOptions.h>
 #include <torch/library.h>
-#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 
 using Tensor = at::Tensor;
 
