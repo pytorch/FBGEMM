@@ -29,8 +29,7 @@ class PermutePooledEmbsFunction
       const at::Tensor& offset_dim_list,
       const at::Tensor& permute_list,
       const at::Tensor& inv_offset_dim_list,
-      const at::Tensor& inv_permute_list,
-      const bool& allow_duplicates = false);
+      const at::Tensor& inv_permute_list);
 
   static variable_list backward(
       AutogradContext* ctx,
