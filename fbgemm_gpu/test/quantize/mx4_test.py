@@ -21,6 +21,9 @@ from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402
+
+# pyre-fixme[21]: Could not find name `open_source` in
+#  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 from .mx.common import (
     _get_format_params,
@@ -133,6 +136,8 @@ def fake_quantize_mx(
 
     # Undo tile reshaping
     if group_size:
+        # pyre-fixme[61]: `padded_shape` is undefined, or not always defined.
+        # pyre-fixme[61]: `orig_shape` is undefined, or not always defined.
         A = _undo_reshape_to_blocks(A, padded_shape, orig_shape, axes)
 
     return A
