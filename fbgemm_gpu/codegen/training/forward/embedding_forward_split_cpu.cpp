@@ -10,10 +10,10 @@
 #include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/cpu_utils.h"
-#include "fbgemm_gpu/utils/dispatch_macros.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
 #include "folly/container/F14Map.h"

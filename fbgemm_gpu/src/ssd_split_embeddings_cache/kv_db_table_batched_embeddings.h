@@ -37,7 +37,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
-#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/dispatch_macros.h"
 
 namespace kv_db {
 

@@ -13,13 +13,13 @@
 #include <c10/cuda/CUDADeviceAssertionHost.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/bitonic_sort.cuh"
-#include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
 using Tensor = at::Tensor;

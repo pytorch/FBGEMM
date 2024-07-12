@@ -18,6 +18,7 @@
 #include <ATen/core/TensorAccessor.h>
 #include <ATen/native/TensorIterator.h>
 #include <ATen/native/cuda/Loops.cuh>
+#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/ops_utils.h"
@@ -25,7 +26,6 @@
 #include "fbgemm_gpu/quantize_ops_utils.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
-#include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/float.cuh"
 
 #define QUANTIZE_OPS_MAX(a, b) ((a) > (b) ? (a) : (b))

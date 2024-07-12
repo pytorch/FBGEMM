@@ -17,7 +17,7 @@
 
 #include "common.h"
 #include "fbgemm_gpu/cumem_utils.h"
-#include "fbgemm_gpu/utils/enum_utils.h"
+#include "fbgemm_gpu/enum_utils.h"
 
 namespace fbgemm_gpu {
 
