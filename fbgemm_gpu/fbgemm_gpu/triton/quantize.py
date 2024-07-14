@@ -7,12 +7,85 @@
 
 # pyre-unsafe
 import math
+from typing import Union
 
 import torch
 import triton  # @manual
 
 import triton.language as tl  # @manual
 from triton import Config  # @manual
+
+from .common import RoundingMode
+
+
+@triton.jit
+def _floor_log2(x):
+    """Helper function to efficiently compute floor(log2(x))
+
+    Args:
+        x (Tensor): FP32 Input tensor to operate on.
+
+    Returns:
+        Tensor: Floor of log2(x).
+    """
+    # Helpful bit constants.
+    FP32_EXP_MASK: tl.constexpr = 0x7F800000  # type: ignore[Incompatible variable type]
+    FP32_EXP_OFFSET: tl.constexpr = 23  # type: ignore[Incompatible variable type]
+    FP32_EXP_BIAS: tl.constexpr = 127  # type: ignore[Incompatible variable type]
+
+    # View x as an integer and extract its exponent.
+    x = x.to(tl.int32, bitcast=True) & FP32_EXP_MASK
+    # Shift exponent down to bottom bits.
+    x = x >> FP32_EXP_OFFSET
+    # Remove FP32 exponent bias and return.
+    return (x - FP32_EXP_BIAS).to(tl.float32)
+
+
+@triton.jit
+def _compute_exp(
+    group_max,
+    rounding_mode,
+    rand_bits,
+):
+    """Compute shared exponent of group using specified rounding mode.
+
+    Args:
+        group_max (Tensor): Group of values to compute exponent of.
+        rounding_mode (int or RoundingMode): Which rounding mode to use.
+        rand_bits (int): Random integer values used for stochastic rounding.
+
+    Returns:
+        Tensor: Shared exponent of group.
+    """
+    # Define some helpful constants.
+    MBITS_FP32: tl.constexpr = 23  # type: ignore[Incompatible variable type]
+    MBITS_E2M1: tl.constexpr = 1  # type: ignore[Incompatible variable type]
+    # Nearest rounding mode.
+    if rounding_mode == 0:
+        return tl.floor(tl.log2(group_max) + 0.5)
+    # Floor rounding mode. This can be done with fast bit ops.
+    if rounding_mode == 1:
+        return _floor_log2(group_max)
+    # Even pre-rounding mode.
+    elif rounding_mode == 2:
+        # Add fixed amount of rounding to mantissa so that they are clipped
+        # to the closest integer.
+        M_ROUND: tl.constexpr = (1 << (MBITS_FP32 - MBITS_E2M1 - 1)) - 1
+        # Add them to the mantissa bits of the input to round during truncation.
+        group_max = group_max.to(tl.int32, bitcast=True) + M_ROUND
+        # Then perform floor rounding of log.
+        return _floor_log2(group_max)
+    # Stochastic rounding mode.
+    elif rounding_mode == 3:
+        # Define constants needed for stochastic rounding.
+        RAND_MASK: tl.constexpr = 1 << (MBITS_FP32 - MBITS_E2M1) - 1  # type: ignore[Incompatible variable type]
+        # Use random bits to add noise to mantissa that would otherwise
+        # be rounded away.
+        group_max = group_max.to(tl.int32, bitcast=True) + (RAND_MASK & rand_bits)
+        # Now compute log and truncate.
+        return _floor_log2(group_max)
+    else:
+        return tl.ceil(tl.log2(group_max))
 
 
 @triton.autotune(
@@ -31,6 +104,8 @@ def _kernel_quantize_mx4(
     out,
     M,
     K,
+    rand_bits,
+    ROUNDING_MODE: tl.constexpr,
     GROUP_SIZE: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
 ) -> None:
@@ -42,6 +117,8 @@ def _kernel_quantize_mx4(
         out (Tensor): [M / 2 + M / GROUP_SIZE] output containing packed mx4 values.
         M (int): Total number of elements.
         K (int): Number of elements to process in each thread.
+        rand_bits (Optional Tensor): [M, K / 2] random integers used for stochastic rounding.
+        ROUNDING_MODE (int): Which rounding method to use when calculating shared exponent.
         GROUP_SIZE (int): Size of chunks that use the same shared exponent.
         GROUP_LOAD (int): Number of groups to process simultaneously.
     """
@@ -73,6 +150,7 @@ def _kernel_quantize_mx4(
     # Initiate offset ranges used in kernel.
     input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + input_start
     output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 2))
+    rand_bits_offset = tl.arange(0, GROUP_LOAD) + pid * K // GROUP_SIZE
     # We need to shift output offsets to make space for shared exponent storage.
     output_offset += output_offset // (GROUP_SIZE // 2) + output_start
     # Now create offsets for writing the shared exponent.
@@ -97,9 +175,18 @@ def _kernel_quantize_mx4(
         group_max = tl.max(tl.abs(a_groups), axis=1)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, FP32_MIN_NORMAL, group_max)
-        # Convert max to exponent via direct log computation and ceiling
-        # rounding to minimize errors.
-        group_exp = tl.ceil(tl.log2(group_max))
+        # Load relevant random values if doing stochastic rounding.
+        if ROUNDING_MODE == 3:
+            group_rand_bits = tl.load(
+                rand_bits + rand_bits_offset,
+                mask=rand_bits_offset < K // GROUP_SIZE,
+                other=0,
+            )
+            rand_bits_offset += GROUP_LOAD
+        else:
+            group_rand_bits = None
+        # Compute shared exponent using specified rounding mode.
+        group_exp = _compute_exp(group_max, ROUNDING_MODE, group_rand_bits)
         # Subtract largest exponent in target datatype and remove bias.
         group_exp = group_exp - 2
         # Make sure exponent is in valid range.
@@ -204,13 +291,19 @@ def _kernel_quantize_mx4(
         output_offset += GROUP_LOAD * PACKED_GROUP_SIZE
 
 
-def triton_quantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
+def triton_quantize_mx4(
+    a: torch.Tensor,
+    group_size: int = 32,
+    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+) -> torch.Tensor:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
 
     Args:
         a (Tensor): [M] higher precision input tensor.
         group_size (int): Size of chunks that will use the same shared exponent.
+        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        when calculating shared exponent. Defaults to pre-rounding to nearest even int.
 
     Returns:
         torch.Tensor: [M / 2 + M / group_size] mx4 scaled tensor packed into in8
@@ -252,6 +345,19 @@ def triton_quantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
         [a.numel() // 2 + a.numel() // group_size], device=a.device, dtype=torch.uint8
     )
 
+    # If using stochastic rounding, create random noise for each group.
+    if rounding_mode == RoundingMode.stochastic:
+        # Each group will need a seed.
+        rand_bits = torch.randint(
+            low=0,
+            high=2**31 - 1,
+            size=(a.numel() // group_size,),
+            dtype=torch.int32,
+            device=a.device,
+        )
+    else:
+        rand_bits = None
+
     # Invoke triton quantization kernel over rows.
     grid = (M,)
     _kernel_quantize_mx4[grid](
@@ -259,6 +365,8 @@ def triton_quantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
         out,
         a.numel(),
         K,
+        rand_bits=rand_bits,
+        ROUNDING_MODE=rounding_mode,
         GROUP_SIZE=group_size,
     )
     # Inputs are now fully quantized and ready to return.
