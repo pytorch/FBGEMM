@@ -8,7 +8,6 @@
 # pyre-strict
 
 import logging
-import math
 
 import torch
 
@@ -45,15 +44,9 @@ def fp32_to_mx4(
         output: MX4 tensor packed into int8 values with total elements (M / 2 + M / groupsize)
     """
     # Accelerated MX4 is only available on cuda, if input is on cpu, use python.
-    # For CPU and triton, set the second dim to 2048 or the nearest power of 2.
-    dim = (
-        2048 if tensor.numel() >= 2048 else 2 ** (math.floor(math.log2(tensor.numel())))
-    )
-    input = (
-        tensor.view(-1)
-        if (tensor.is_cuda and not use_triton) or tensor.numel() % dim != 0
-        else tensor.view(-1, dim)
-    )
+    # Operate on flattened input.
+    input = tensor.flatten()
+
     if not tensor.is_cuda:
         return py_quantize_mx4(input, group_size)
 
