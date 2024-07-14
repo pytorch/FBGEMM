@@ -217,6 +217,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
         )
 
         check_diff_quantize(input, output_ref, output_cuda)
+        check_diff_quantize(input, output_cuda, output_triton)
         check_diff_quantize(input, output_cuda, output_cuda_from_quantized_triton)
         check_diff_quantize(input, output_cuda_from_quantized_triton, output_triton)
         check_diff_quantize(input, output_triton, output_cpu)
