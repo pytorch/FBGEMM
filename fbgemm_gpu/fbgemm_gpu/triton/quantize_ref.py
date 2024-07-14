@@ -46,11 +46,11 @@ def py_quantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
     # Convert max into an intger exponent.
     # Note this can be more efficient by just shifting and masking exp bits.
     # We can even use those directly.
-    shared_exp = torch.floor(torch.log2(shared_exp))
+    shared_exp = torch.ceil(torch.log2(shared_exp))
     # Offset exponent by largest exponent in target datatype.
     shared_exp = shared_exp - 2
     # Restrict to range expressible as int8.
-    shared_exp = torch.clamp(shared_exp, min=-127, max=127)
+    shared_exp = torch.clamp(shared_exp, min=-127, max=125)
     # Convert exponent to scale and apply to input.
     # Need to do this calculation on cpu for accuracy.
     _shared_exp = shared_exp.cpu()
