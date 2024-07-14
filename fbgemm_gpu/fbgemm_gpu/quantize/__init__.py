@@ -7,6 +7,7 @@
 # pyre-strict
 
 import torch
+
 from fbgemm_gpu.quantize.quantize_ops import dequantize_mx, quantize_mx  # noqa F401
 
 
