@@ -6,8 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   m.def(

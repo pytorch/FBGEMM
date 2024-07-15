@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#pragma once
+
 // This is NECESSARY for the PT2_COMPLIANT_TAG macro to work.
 #include <torch/library.h>
 

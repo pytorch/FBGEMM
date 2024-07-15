@@ -14,8 +14,8 @@
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
 
-#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
 #include "metric_ops.h"
 
