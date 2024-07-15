@@ -17,9 +17,9 @@
 #include <c10/util/Exception.h>
 #include <torch/script.h>
 
-#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/input_combine.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 
 using Tensor = at::Tensor;
 
