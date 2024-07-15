@@ -6,16 +6,62 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-unsafe
+from typing import Union
+
 import torch
 
+from .common import RoundingMode
 
-def py_quantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
+
+def _compute_exp(
+    group_max,
+    rounding_mode,
+):
+    """Compute shared exponent of group using specified rounding mode.
+
+    Args:
+        group_max (Tensor): Group of values to compute exponent of.
+        rounding_mode (int or RoundingMode): Which rounding mode to use.
+
+    Returns:
+        Tensor: Shared exponent of group.
+    """
+    if rounding_mode == 0:
+        return torch.round(torch.log2(group_max))
+    # Floor rounding mode.
+    if rounding_mode == 1:
+        return torch.floor(torch.log2(group_max))
+    # Even pre-rounding mode.
+    elif rounding_mode == 2:
+        # First round to nearest even integer.
+        group_max = torch.round(group_max)
+        # Then perform floor rounding of log.
+        return torch.floor(torch.log2(group_max))
+    # Stochastic rounding mode.
+    elif rounding_mode == 3:
+        # Create random noise.
+        noise = torch.rand_like(group_max)
+        # Add noise to group max and round down.
+        group_max = group_max + noise
+        # Now compute log and truncate.
+        return torch.floor(torch.log2(group_max))
+    else:
+        return torch.ceil(torch.log2(group_max))
+
+
+def py_quantize_mx4(
+    a: torch.Tensor,
+    group_size: int = 32,
+    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+) -> torch.Tensor:
     """
     Quantize a tensor to mx4 format.
 
     Args:
         a (Tensor): [M] higher precision input tensor.
         group_size (int): Size of chunks that will use the same shared exponent.
+        rounding_mode (int or RoundingMode): Which type of rounding to use when
+        calculating shared exponent.
 
     Returns:
         torch.Tensor: [M / 2 + M / group_size] mx4 scaled tensor packed into in8
@@ -43,10 +89,8 @@ def py_quantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
     # Replace zero values with the minimum expressible normal value.
     FP32_MIN_NORMAL = 2 ** (-126)
     shared_exp = torch.where(shared_exp == 0, FP32_MIN_NORMAL, shared_exp)
-    # Convert max into an intger exponent.
-    # Note this can be more efficient by just shifting and masking exp bits.
-    # We can even use those directly.
-    shared_exp = torch.ceil(torch.log2(shared_exp))
+    # Convert max into an integer exponent.
+    shared_exp = _compute_exp(shared_exp, rounding_mode)
     # Offset exponent by largest exponent in target datatype.
     shared_exp = shared_exp - 2
     # Restrict to range expressible as int8.
