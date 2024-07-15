@@ -31,11 +31,13 @@ Variable PermutePooledEmbsFunction::forward(
     const Tensor& offset_dim_list,
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
-    const Tensor& inv_permute_list) {
+    const Tensor& inv_permute_list,
+    const bool& allow_duplicates) {
   ctx->saved_data["offset_dim_list"] = offset_dim_list;
   ctx->saved_data["permute_list"] = permute_list;
   ctx->saved_data["inv_offset_dim_list"] = inv_offset_dim_list;
   ctx->saved_data["inv_permute_list"] = inv_permute_list;
+  ctx->saved_data["allow_duplicates"] = allow_duplicates;
   TORCH_CHECK(
       offset_dim_list.scalar_type() == at::ScalarType::Long,
       "offset_dim_list needs to have long/int64 type");
@@ -43,9 +45,11 @@ Variable PermutePooledEmbsFunction::forward(
       permute_list.scalar_type() == at::ScalarType::Long,
       "permute_list needs to have long/int64 type");
 
+  const auto schema = allow_duplicates ? "fbgemm::permute_duplicate_pooled_embs"
+                                       : "fbgemm::permute_pooled_embs";
   const auto permute_pooled_embs_op =
       torch::Dispatcher::singleton()
-          .findSchemaOrThrow("fbgemm::permute_pooled_embs", "")
+          .findSchemaOrThrow(schema, "")
           .typed<decltype(permute_pooled_embs_cpu)>();
   return permute_pooled_embs_op.call(
       pooled_embs,
@@ -63,6 +67,10 @@ variable_list PermutePooledEmbsFunction::backward(
   const auto& inv_offset_dim_list =
       ctx->saved_data["inv_offset_dim_list"].toTensor();
   const auto& inv_permute_list = ctx->saved_data["inv_permute_list"].toTensor();
+  const auto& allow_duplicates = ctx->saved_data["allow_duplicates"].toBool();
+  TORCH_CHECK(
+      allow_duplicates == false,
+      "permute_pooled_embs does not support allow_duplicates in backward!");
   variable_list grad_inputs(6);
   static auto permute_pooled_embs_op =
       torch::Dispatcher::singleton()

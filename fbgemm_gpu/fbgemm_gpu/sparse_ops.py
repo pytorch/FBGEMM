@@ -951,6 +951,16 @@ def permute_pooled_embs_split_abstract(
     return torch.empty_like(pooled_embs)
 
 
+def permute_duplicate_pooled_embs_split_abstract(
+    pooled_embs: Tensor,
+    offset_dim_list: Tensor,
+    permute_list: Tensor,
+    inv_offset_dim_list: Tensor,
+    inv_permute_list: Tensor,
+) -> Tensor:
+    return torch.empty_like(pooled_embs)
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1073,6 +1083,11 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::permute_pooled_embs_split", permute_pooled_embs_split_abstract
         )
+        impl_abstract(
+            "fbgemm::permute_duplicate_pooled_embs_split",
+            permute_duplicate_pooled_embs_split_abstract,
+        )
+
         _setup.done = True
 
 
