@@ -10,15 +10,14 @@ import unittest
 from typing import List
 
 import fbgemm_gpu.quantize.quantize_ops  # noqa F401
-
 import hypothesis.strategies as st
 
 import torch
 
-from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32
+from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32, RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
-from hypothesis import given, settings, Verbosity
+from hypothesis import assume, given, settings, Verbosity
 
 from . import common  # noqa E402
 
@@ -190,11 +189,15 @@ class TestMXQuantizationConversion(unittest.TestCase):
 
         # Test intercompatibility between implementations.
         # Test CPU implementation
-        quantized_cpu = py_quantize_mx4(input, group_size)
+        quantized_cpu = py_quantize_mx4(
+            input, group_size, rounding_mode=RoundingMode.floor
+        )
         output_cpu = py_dequantize_mx4(quantized_cpu, group_size)
 
         # Test Triton implementation
-        quantized_triton = fp32_to_mx4(input, group_size, use_triton=True)
+        quantized_triton = fp32_to_mx4(
+            input, group_size, rounding_mode=RoundingMode.floor, use_triton=True
+        )
         output_triton = mx4_to_fp32(quantized_triton, group_size, use_triton=True)
 
         # Test shim functions
@@ -210,6 +213,7 @@ class TestMXQuantizationConversion(unittest.TestCase):
             mbits,
             max_norm,
             mx_group_size=group_size,
+            rounding_mode=RoundingMode.floor,
         )
         output_from_ops = torch.ops.fbgemm.dequantize_mx(
             quantized_from_ops,
@@ -222,6 +226,51 @@ class TestMXQuantizationConversion(unittest.TestCase):
         check_diff_quantize(input, output_cuda_from_quantized_triton, output_triton)
         check_diff_quantize(input, output_triton, output_cpu)
         check_diff_quantize(input, output_cuda, output_from_ops)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-fixme[56]:
+    @given(
+        shape=st.sampled_from(
+            [
+                [32],  # Small shape with group_size = num_elements.
+                [2, 16],  # Multi dimensional shape.
+                [2, 2, 4, 4],  # Even more multi dimensional shape.
+                [96],  # Shape that cannot be made into even rows.
+                [16, 1028],  # Large shape with multiple rows.
+            ]
+        ),
+        group_size=st.sampled_from([32, 64]),
+        rounding_mode=st.sampled_from(list(RoundingMode)),
+        magnitude=st.sampled_from([1.0, 1e3, 1e-3]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
+    def test_mx4_cases(
+        self,
+        shape: List[int],
+        group_size: int,
+        rounding_mode: RoundingMode,
+        magnitude: int,
+    ) -> None:
+        """Test correctness of mx4 routines with random inputs and unusual shapes."""
+        # We only want to consider total sizes that are divisible by group_size.
+        assume(sum(shape) % group_size == 0)
+
+        # Generate a random input with the specified magnitude.
+        input = torch.randn(shape, device="cuda", dtype=torch.float32) * magnitude
+
+        # Perform quant then dequant to check that proper shape is maintained and
+        # outputs are reasonably correct.
+        mx_quantized = fp32_to_mx4(input, group_size, rounding_mode=rounding_mode)
+        mx_dequantized = mx4_to_fp32(mx_quantized, group_size)
+
+        # Check that output shape matches input shape.
+        assert mx_dequantized.shape == input.shape
+
+        # Check that values are reasonably close, based on expected variance.
+        # I give quite a bit of wiggle room to make sure this isnt flaky.
+        torch.testing.assert_allclose(
+            input, mx_dequantized, rtol=1.0, atol=magnitude / 2
+        )
 
 
 if __name__ == "__main__":
