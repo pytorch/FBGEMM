@@ -616,14 +616,21 @@ at::Tensor f8f8bf16_impl(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
     at::Tensor scale) {
-  int M = XQ.size(0);
+  // XQ: M x K
+  // WQ: N x K
+  // output: M x N
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
-  int K = XQ.size(1);
+  int K = WQ.size(1);
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
 
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
 
   using ElementInputA = cutlass::float_e4m3_t;
   using LayoutInputA = cutlass::layout::RowMajor;
@@ -808,14 +815,21 @@ at::Tensor f8f8bf16_tensorwise_impl(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
     double scale) {
-  int M = XQ.size(0);
+  // XQ: M x K
+  // WQ: N x K
+  // output: M x N
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
-  int K = XQ.size(1);
+  int K = WQ.size(1);
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
 
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
 
   using ElementInputA = cutlass::float_e4m3_t;
   using LayoutInputA = cutlass::layout::RowMajor;
@@ -1026,9 +1040,17 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias,
     std::optional<at::Tensor> output) {
-  int M = XQ.size(0);
+  // XQ: M x K
+  // WQ: N x K
+  // output: M x N
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
-  int K = XQ.size(1);
+  int K = WQ.size(1);
+  TORCH_CHECK(XQ.size(-1) == K);
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
 
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
@@ -1037,10 +1059,10 @@ at::Tensor f8f8bf16_rowwise_impl(
   if (output.has_value()) {
     Y = output.value();
     // Make sure the provided output has the proper shape and dtype.
-    TORCH_CHECK(Y.size(0) == M && Y.size(1) == N);
+    TORCH_CHECK(Y.sizes().vec() == out_sizes);
     TORCH_CHECK(Y.dtype() == at::kBFloat16);
   } else {
-    Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+    Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
   }
 
   using ElementInputA = INPUT_DTYPE;
@@ -1464,14 +1486,19 @@ at::Tensor f8f8bf16_blockwise_impl(
     int64_t block_m,
     int64_t block_n,
     int64_t block_k) {
-  TORCH_CHECK(XQ.dim() == 2);
-  TORCH_CHECK(WQ.dim() == 2);
-  int M = XQ.size(0);
+  // XQ: M x K
+  // WQ: N x K
+  // output: M x N
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
-  int K = XQ.size(1);
+  int K = WQ.size(1);
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
+
   TORCH_CHECK(WQ.size(1) == K);
-  TORCH_CHECK(XQ.stride(0) == K);
-  TORCH_CHECK(XQ.stride(1) == 1);
+  TORCH_CHECK(XQ.stride(-1) == 1);
   TORCH_CHECK(WQ.stride(0) == K);
   TORCH_CHECK(WQ.stride(1) == 1);
 
@@ -1502,7 +1529,7 @@ at::Tensor f8f8bf16_blockwise_impl(
   TORCH_CHECK(x_scale.device().index() == XQ.device().index());
   TORCH_CHECK(w_scale.device().index() == XQ.device().index());
 
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
 
   using ElementInputA = cutlass::float_e4m3_t;
   using LayoutInputA = cutlass::layout::RowMajor;
@@ -1692,9 +1719,17 @@ at::Tensor bf16i4bf16_rowwise_impl(
     at::Tensor WQ, // INT4
     at::Tensor w_scale,
     at::Tensor w_zp) {
-  int M = X.size(0);
+  // XQ: M x K
+  // WQ: N x K
+  // output: M x N
+  int M = size_to_dim_(X.dim() - 1, X.sizes());
   int N = WQ.size(0);
-  int K = X.size(1);
+  int K = WQ.size(1);
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = X.sizes().vec();
+  out_sizes.back() = N;
+
   int num_groups = w_scale.size(0);
 
   TORCH_CHECK(X.is_cuda() && X.is_contiguous());
@@ -1705,7 +1740,7 @@ at::Tensor bf16i4bf16_rowwise_impl(
 
   int group_size = K / num_groups;
 
-  auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
+  auto Y = at::empty(out_sizes, X.options().dtype(at::kBFloat16));
 
   using ElementInputA = cutlass::bfloat16_t;
   using LayoutInputA = cutlass::layout::ColumnMajor;
@@ -1945,9 +1980,17 @@ at::Tensor f8i4bf16_rowwise_impl(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_zp) {
-  int M = XQ.size(0);
+  // XQ: M x K
+  // WQ: N x K
+  // output: M x N
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
-  int K = XQ.size(1);
+  int K = WQ.size(1);
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
+
   int num_groups = w_scale.size(0);
 
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
@@ -1959,7 +2002,7 @@ at::Tensor f8i4bf16_rowwise_impl(
 
   int group_size = K / num_groups;
 
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
 
   using ElementInputA = INPUT_DTYPE;
   using LayoutInputA = cutlass::layout::ColumnMajor;
