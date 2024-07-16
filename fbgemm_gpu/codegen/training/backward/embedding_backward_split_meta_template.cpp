@@ -26,7 +26,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "fbgemm_gpu/embedding_op_registration.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"

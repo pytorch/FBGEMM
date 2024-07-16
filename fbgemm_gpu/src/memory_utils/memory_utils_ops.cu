@@ -8,8 +8,8 @@
 
 #include <torch/library.h>
 #include "common.cuh"
-#include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 namespace fbgemm_gpu {
 
