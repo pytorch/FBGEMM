@@ -20,7 +20,9 @@ static at::Tensor qlinear_channelwise(
     at::Tensor input_scale,
     at::Tensor weight_scale,
     at::Tensor weight_zero_point,
+    at::Tensor y_off,
     at::Tensor relu) {
+  return x;
   // quantized linear function with
   // activation: per-tensor quantization,
   // weight: per-tensor quantization
@@ -168,7 +170,14 @@ static at::Tensor qlinear_dynamic(
   x = qlinear_quant(
       x, weight, bias, input_scale, weight_scale, weight_zero_point, relu);
   return qlinear_channelwise(
-      x, weight, bias, input_scale, weight_scale, weight_zero_point, relu);
+      x,
+      weight,
+      bias,
+      input_scale,
+      weight_scale,
+      weight_zero_point,
+      relu,
+      relu);
 }
 
 static at::Tensor fused_scaled_dot_product_attention(
@@ -183,7 +192,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "qlinear_channelwise(Tensor x, Tensor weight, Tensor "
       "bias, Tensor input_scale, Tensor weight_scale, Tensor "
-      "weight_zero_point, Tensor relu) -> Tensor");
+      "weight_zero_point, Tensor y_off, Tensor relu) -> Tensor");
   m.impl(
       "qlinear_channelwise",
       torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(qlinear_channelwise)));
