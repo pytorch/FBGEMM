@@ -30,7 +30,7 @@
 #include <ATen/TypeDefault.h>
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations and dispatchers
-#include "fbgemm_gpu/embedding_op_registration.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include <torch/script.h>
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 ////////////////////////////////////////////////////////////////////////////////

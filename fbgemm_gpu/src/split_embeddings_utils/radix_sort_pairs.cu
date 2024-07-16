@@ -11,7 +11,7 @@
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh" // @manual
-#include "fbgemm_gpu/ops_utils.h" // @manual
+#include "fbgemm_gpu/utils/ops_utils.h" // @manual
 
 // clang-format off
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh" // @manual

@@ -34,7 +34,7 @@
 {%- if not is_index_select %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "fbgemm_gpu/embedding_op_registration.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 ////////////////////////////////////////////////////////////////////////////////
 {%- endif %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
