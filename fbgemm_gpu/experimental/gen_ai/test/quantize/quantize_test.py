@@ -165,7 +165,7 @@ class FP8Tests(unittest.TestCase):
         QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
         Bias=st.sampled_from([True, False]),
         CudaGraph=st.sampled_from([True, False]),
-        UseTriton=st.sampled_from([True, False]),
+        UseTriton=st.sampled_from([False] + ([True] if torch.version.cuda else [])),
         InputMultiDim=st.booleans(),
     )
     def test_quantize_fp8_matmul(
