@@ -808,12 +808,17 @@ def matmul_fp8_row(
     """
     # Get datatypes and constants to use.
     _, tl_dtype, _, _ = get_fp8_constants()
+    # Handle 3D+ a shape
+    a_shape = a.shape
+    a = a.view(-1, a.size(-1))
     # Reinterpret inputs into proper triton fp8 dtype.
     a_tl = convert_fp8_type(a, tl_dtype)
     b_tl = convert_fp8_type(b, tl_dtype)
     M, N, K, m_key, n_key, k_key, c, dot_out_dtype_triton, device = prep_matmul(
         a_tl, b_tl, dot_out_dtype
     )
+
+    output_shape = a_shape[:-1] + (N,)
     # launch kernel
     if a.device == torch.device("cpu"):
         logger.info(
@@ -936,7 +941,7 @@ def matmul_fp8_row(
             num_stages=num_stages,
             num_warps=num_warps,
         )
-        return c
+        return c.view(output_shape)
 
     if imprecise_acc:
         _kernel_matmul_fp8_row_imprecise_acc[grid](
@@ -1015,7 +1020,7 @@ def matmul_fp8_row(
             AB_DTYPE=False,
             NUM_SMS=NUM_SMS,
         )
-    return c
+    return c.view(output_shape)
 
 
 # pruned some unreasonable config
@@ -1432,6 +1437,9 @@ def matmul_fp8_block(
     """
     # Get datatypes and constants to use.
     _, tl_dtype, _, _ = get_fp8_constants()
+    # Handle 3D+ a shape
+    a_shape = a.shape
+    a = a.view(-1, a.size(-1))
     # Reinterpret inputs into proper triton fp8 dtype.
     a_tl = convert_fp8_type(a, tl_dtype)
     b_tl = convert_fp8_type(b, tl_dtype)
@@ -1440,6 +1448,7 @@ def matmul_fp8_block(
         a_tl, b_tl, dot_out_dtype
     )
 
+    output_shape = a_shape[:-1] + (N,)
     # launch kernel
     assert device != torch.device(
         "cpu"
@@ -1514,7 +1523,7 @@ def matmul_fp8_block(
             GROUP_M=8,
             AB_DTYPE=False,
         )
-    return c
+    return c.view(output_shape)
 
 
 def get_matmul_tune(M: int, N: int, K: int) -> Tuple[int, int, int]:
@@ -1710,6 +1719,8 @@ def triton_quantize_fp8_row(
         torch.Tensor: fp8 scaled tensor.
         torch.Tensor: reciprocal scale tensor per row.
     """
+    a_shape = a.shape
+    a = a.view(-1, a.size(-1))
     # Get constant values.
     pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     num_rows = a.shape[0]
@@ -1732,7 +1743,7 @@ def triton_quantize_fp8_row(
         CLAMP_MAX=scale_ub is not None,
     )
 
-    return a_fp8, a_scale
+    return a_fp8.view(a_shape), a_scale
 
 
 def quantize_fp8_row(
@@ -1754,11 +1765,14 @@ def quantize_fp8_row(
         torch.Tensor: fp8 scaled tensor.
         torch.Tensor: The reciprocal scale tensor per row.
     """
+    a_shape = a.shape
+    a = a.view(-1, a.size(-1))
     if a.device == torch.device("cpu"):
         logger.info("Triton does not support cpu, falling back to torch ops.")
         use_triton = False
     if use_triton:
-        return triton_quantize_fp8_row(a, scale_ub)
+        aq, a_scale = triton_quantize_fp8_row(a, scale_ub)
+        return aq.view(a_shape), a_scale
     # else use pytorch implementation.
     if not output_device:
         output_device = a.device
@@ -1780,7 +1794,7 @@ def quantize_fp8_row(
     a_fp8 = a_fp8.to(device=output_device, dtype=pt_dtype)
     a_scale = a_scale.to(output_device)  # pyre-ignore
     del a
-    return a_fp8, 1 / a_scale  # pyre-ignore
+    return a_fp8.view(a_shape), 1 / a_scale  # pyre-ignore
 
 
 @triton.autotune(
@@ -1975,6 +1989,8 @@ def triton_quantize_fp8_block(
     assert x.device != torch.device(
         "cpu"
     ), "Blockwise quantization not support on cpu, please use row-wise quantization instead."
+    x_shape = x.shape
+    x = x.view(-1, x.size(-1))
     # Get constant values.
     pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     M, K = x.shape
@@ -2008,7 +2024,7 @@ def triton_quantize_fp8_block(
         BLOCK_K=block_k,
     )
 
-    return x_fp8, x_scale
+    return x_fp8.view(x_shape), x_scale
 
 
 def quantize_fp8_block(
@@ -2036,11 +2052,14 @@ def quantize_fp8_block(
         torch.Tensor: [M, K] fp8 scaled tensor.
         torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block.
     """
+    x_shape = x.shape
+    x = x.view(-1, x.size(-1))
     if x.device == torch.device("cpu"):
         logger.info("Triton does not support cpu, falling back to torch ops.")
         use_triton = False
     if use_triton:
-        return triton_quantize_fp8_block(x, block_m, block_k, scale_ub)
+        xq, x_scale = triton_quantize_fp8_block(x, block_m, block_k, scale_ub)
+        return xq.view(x_shape), x_scale
     # else use pytorch implementation.
     if not output_device:
         output_device = x.device
@@ -2083,4 +2102,4 @@ def quantize_fp8_block(
     x_fp8 = x_fp8.to(device=output_device, dtype=pt_dtype)
     x_scale = x_scale.to(output_device)  # pyre-ignore
     del x, x_padded
-    return x_fp8, 1 / x_scale  # pyre-ignore
+    return x_fp8.view(x_shape), 1 / x_scale  # pyre-ignore
