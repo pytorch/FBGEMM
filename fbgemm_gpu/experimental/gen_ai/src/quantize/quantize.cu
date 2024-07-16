@@ -40,6 +40,8 @@
 
 #if CUDART_VERSION >= 12000
 #include <cuda_fp8.h>
+#elif (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+#include <hip/hip_fp8.h>
 #endif
 
 #if (                         \
@@ -78,8 +80,10 @@ static __host__ DEVICE_INLINE int32_t round_up(int32_t a, int32_t b) {
 }
 
 #ifdef __HIP_PLATFORM_AMD__
-// constexpr int32_t kThreadsPerWarp = 64;
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+constexpr int32_t kThreadsPerWarp = 64;
 // constexpr int32_t kWarpsPerBlock = 16;
+#endif
 #else
 constexpr int32_t kThreadsPerWarp = 32;
 // constexpr int32_t kWarpsPerBlock = 32;
@@ -106,6 +110,17 @@ __floats2bfloat162_rn(float x, float y) {
   output.y = __float2bfloat16_rn(y);
   return output;
 }
+#endif
+
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3_fnuz;
+using __nv_fp8_e4m3 = __hip_fp8_e4m3_fnuz;
+using __nv_fp8_e5m2 = __hip_fp8_e5m2_fnuz;
+#define torch_fp8_e4m3 at::kFloat8_e4m3fnuz
+#define torch_fp8_e5m2 at::kFloat8_e5m2fnuz
+#else
+#define torch_fp8_e4m3 at::kFloat8_e4m3fn
+#define torch_fp8_e5m2 at::kFloat8_e5m2
 #endif
 
 struct __align__(16) bf16x8 {
@@ -361,10 +376,15 @@ at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale) {
   return Y;
 }
 
-#if CUDART_VERSION >= 12000
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 class FP8_E4M3_MAX {
  public:
+#ifndef USE_ROCM
   static constexpr float value = 448.0;
+#else
+  static constexpr float value = 240.0;
+#endif
 };
 class FP8_E5M2_MAX {
  public:
@@ -830,7 +850,7 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
 
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
-      torch::dtype(torch::kFloat8_e4m3fn)
+      torch::dtype(torch_fp8_e4m3)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
 
@@ -876,7 +896,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
   input = input.cuda();
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
-      torch::dtype(torch::kFloat8_e4m3fn)
+      torch::dtype(torch_fp8_e4m3)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
   at::Tensor scales = torch::empty(
@@ -1109,12 +1129,12 @@ void invokeComputeScalesAndQuantizeMatrix(
   auto const shmem_size = lda * sizeof(T_IN);
   if (shmem_size >= (48 << 10)) {
     cudaError_t ret;
+#ifndef USE_ROCM
     if (stochastic_rounding) {
       ret = cudaFuncSetAttribute(
           dynamicQuantizeMatrixRowwiseStoc<SCALE, T_OUT, T_S, T_IN>,
           cudaFuncAttributeMaxDynamicSharedMemorySize,
           shmem_size);
-
     } else {
       ret = cudaFuncSetAttribute(
           dynamicQuantizeMatrixRowwise<SCALE, T_OUT, T_S, T_IN>,
@@ -1122,6 +1142,9 @@ void invokeComputeScalesAndQuantizeMatrix(
           shmem_size);
     }
     use_shmem = ret == cudaSuccess;
+#else
+    use_shmem = false;
+#endif
   }
   if (use_shmem) {
     dim3 block(std::min((lda + 31) / 32 * 32, static_cast<int64_t>(1024)));
@@ -1195,12 +1218,12 @@ std::vector<at::Tensor> quantize_fp8_per_row(
       !stochastic_rounding || input.size(-1) % 4 == 0,
       "input row dim must be 4's multiple when stochastic_rounding is True");
   // Default data type is f8_e4m3fn.
-  c10::ScalarType quantization_type = torch::kFloat8_e4m3fn;
+  c10::ScalarType quantization_type = torch_fp8_e4m3;
   if (output_dtype.has_value()) {
     TORCH_CHECK(
-        (output_dtype.value() == torch::kFloat8_e4m3fn ||
-         output_dtype.value() == torch::kFloat8_e5m2),
-        "Invalid output type, must be e4m3fn or e5m2.");
+        (output_dtype.value() == torch_fp8_e4m3 ||
+         output_dtype.value() == torch_fp8_e5m2),
+        "Invalid output type, must be e4m3 or e5m2.");
     quantization_type = output_dtype.value();
   }
   std::vector<long int> quantized_input_shape;
@@ -1222,7 +1245,7 @@ std::vector<at::Tensor> quantize_fp8_per_row(
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
   // Templatize implementation based on output type.
-  if (quantization_type == torch::kFloat8_e4m3fn) {
+  if (quantization_type == torch_fp8_e4m3) {
     auto* const quantized_input_ptr =
         reinterpret_cast<__nv_fp8_e4m3*>(quantized_input.data_ptr());
     const auto stream = at::cuda::getCurrentCUDAStream();
@@ -1281,7 +1304,7 @@ std::vector<at::Tensor> quantize_fp8_per_col(
   input = input.cuda();
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
-      torch::dtype(torch::kFloat8_e4m3fn)
+      torch::dtype(torch_fp8_e4m3)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
   at::Tensor scales = torch::empty(
@@ -1339,5 +1362,14 @@ at::Tensor get_fp8_per_tensor_scale(
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
+
+std::vector<at::Tensor> quantize_fp8_per_col(
+    at::Tensor input,
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub) { // scale upperbound
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+
 #endif
 } // namespace fbgemm_gpu
