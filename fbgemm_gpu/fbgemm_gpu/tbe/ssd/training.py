@@ -14,7 +14,7 @@ import logging
 import os
 import tempfile
 from math import log2
-from typing import List, Optional, Tuple, Type
+from typing import Any, Callable, List, Optional, Tuple, Type
 
 import torch  # usort:skip
 
@@ -219,6 +219,29 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         self.timestep = 0
 
+        # Dummy profile configuration for measuring the SSD get/set time
+        # get and set are executed by another thread which (for some reason) is
+        # not traceable by PyTorch's Kineto. We workaround this problem by
+        # injecting a dummy kernel into the GPU stream to make it traceable
+        #
+        # This function can be enabled by setting an environment variable
+        # FBGEMM_SSD_TBE_USE_DUMMY_PROFILE=1
+        self.dummy_profile_tensor: Tensor = torch.as_tensor(
+            [0], device=self.current_device, dtype=torch.int
+        )
+        set_dummy_profile = os.environ.get("FBGEMM_SSD_TBE_USE_DUMMY_PROFILE")
+        use_dummy_profile = False
+        if set_dummy_profile is not None:
+            use_dummy_profile = int(set_dummy_profile) == 1
+            logging.info(
+                f"FBGEMM_SSD_TBE_USE_DUMMY_PROFILE is set to {set_dummy_profile}; "
+                f"Use dummy profile: {use_dummy_profile}"
+            )
+        # pyre-ignore[4]
+        self.record_function_via_dummy_profile: Callable[..., Any] = (
+            self.record_function_via_dummy_profile_factory(use_dummy_profile)
+        )
+
         os.makedirs(ssd_storage_directory, exist_ok=True)
 
         ssd_directory = tempfile.mkdtemp(
@@ -362,6 +385,51 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
         self.optimizer = optimizer
 
+    # pyre-ignore[3]
+    def record_function_via_dummy_profile_factory(
+        self,
+        use_dummy_profile: bool,
+    ) -> Callable[..., Any]:
+        """
+        Generate the record_function_via_dummy_profile based on the
+        use_dummy_profile flag.
+
+        If use_dummy_profile is True, inject a dummy kernel before and after
+        the function call and record function via `record_function`
+
+        Otherwise, just execute the function
+
+        Args:
+            use_dummy_profile (bool): A flag for enabling/disabling
+                                      record_function_via_dummy_profile
+        """
+        if use_dummy_profile:
+
+            def func(
+                name: str,
+                # pyre-ignore[2]
+                fn: Callable[..., Any],
+                *args: Any,
+                **kwargs: Any,
+            ) -> None:
+                with record_function(name):
+                    self.dummy_profile_tensor.add_(1)
+                    fn(*args, **kwargs)
+                    self.dummy_profile_tensor.add_(1)
+
+            return func
+
+        def func(
+            name: str,
+            # pyre-ignore[2]
+            fn: Callable[..., Any],
+            *args: Any,
+            **kwargs: Any,
+        ) -> None:
+            fn(*args, **kwargs)
+
+        return func
+
     def _apply_split(
         self,
         split: SplitState,
@@ -391,31 +459,46 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return t_cpu
 
     def evict(
-        self, evicted_rows: Tensor, evicted_indices: Tensor, actions_count_cpu: Tensor
+        self,
+        evicted_rows: Tensor,
+        evicted_indices: Tensor,
+        actions_count_cpu: Tensor,
+        name: Optional[str] = "",
     ) -> None:
         """
         Evict data from the given input tensors to SSD via RocksDB
         """
-        with torch.cuda.stream(self.ssd_stream):
-            self.ssd_stream.wait_event(self.ssd_set_start)
-            evicted_rows_cpu = self.to_pinned_cpu(evicted_rows)
-            evicted_indices_cpu = self.to_pinned_cpu(evicted_indices)
-            evicted_rows.record_stream(self.ssd_stream)
-            evicted_indices.record_stream(self.ssd_stream)
-            self.ssd_db.set_cuda(
-                evicted_indices_cpu, evicted_rows_cpu, actions_count_cpu, self.timestep
-            )
-            # TODO: is this needed?
-            # Need a way to synchronize
-            #  actions_count_cpu.record_stream(self.ssd_stream)
-            self.ssd_stream.record_event(self.ssd_set_end)
+        with record_function(f"## ssd_evict_{name} ##"):
+            with torch.cuda.stream(self.ssd_stream):
+                self.ssd_stream.wait_event(self.ssd_set_start)
+                evicted_rows_cpu = self.to_pinned_cpu(evicted_rows)
+                evicted_indices_cpu = self.to_pinned_cpu(evicted_indices)
+                evicted_rows.record_stream(self.ssd_stream)
+                evicted_indices.record_stream(self.ssd_stream)
+                self.record_function_via_dummy_profile(
+                    f"## ssd_set_{name} ##",
+                    self.ssd_db.set_cuda,
+                    evicted_indices_cpu,
+                    evicted_rows_cpu,
+                    actions_count_cpu,
+                    self.timestep,
+                )
+                # TODO: is this needed?
+                # Need a way to synchronize
+                #  actions_count_cpu.record_stream(self.ssd_stream)
+                self.ssd_stream.record_event(self.ssd_set_end)
 
     def _evict_from_scratch_pad(self, grad: Tensor) -> None:
         assert len(self.ssd_scratch_pads) > 0, "There must be at least one scratch pad"
         (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu) = (
             self.ssd_scratch_pads.pop(0)
         )
-        self.evict(inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
+        self.evict(
+            inserted_rows_gpu,
+            post_bwd_evicted_indices,
+            actions_count_cpu,
+            name="scratch_pad",
+        )
 
     def _compute_cache_ptrs(
         self,
@@ -467,80 +550,94 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
     def prefetch(self, indices: Tensor, offsets: Tensor) -> Optional[Tensor]:
-        (indices, offsets) = indices.long(), offsets.long()
+        with record_function("## ssd_prefetch ##"):
+            (indices, offsets) = indices.long(), offsets.long()
 
-        linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
-            self.hash_size_cumsum,
-            indices,
-            offsets,
-        )
-        self.timestep += 1
-        self.timesteps_prefetched.append(self.timestep)
-        (
-            inserted_indices,
-            evicted_indices,
-            assigned_cache_slots,
-            actions_count_gpu,
-            linear_index_inverse_indices,
-            unique_indices_count_cumsum,
-            cache_set_inverse_indices,
-            unique_indices_length,
-        ) = torch.ops.fbgemm.ssd_cache_populate_actions(
-            linear_cache_indices,
-            self.total_hash_size,
-            self.lxu_cache_state,
-            self.timestep,
-            1,  # for now assume prefetch_dist == 1
-            self.lru_state,
-        )
-
-        actions_count_cpu = self.to_pinned_cpu(actions_count_gpu)
-        assigned_cache_slots = assigned_cache_slots.long()
-        evicted_rows = self.lxu_cache_weights[
-            assigned_cache_slots.clamp(min=0).long(), :
-        ]
-        inserted_rows = torch.empty(
-            evicted_rows.shape,
-            dtype=self.lxu_cache_weights.dtype,
-            pin_memory=True,
-        )
-
-        current_stream = torch.cuda.current_stream()
-
-        # Ensure the previous iterations l3_db.set(..) has completed.
-        current_stream.wait_event(self.ssd_set_end)
-        self.ssd_db.get_cuda(
-            self.to_pinned_cpu(inserted_indices), inserted_rows, actions_count_cpu
-        )
-        current_stream.record_event(self.ssd_set_start)
-        # TODO: T123943415 T123943414 this is a big copy that is (mostly) unnecessary with a decent cache hit rate.
-        # Should we allocate on HBM?
-        inserted_rows_gpu = inserted_rows.cuda(non_blocking=True)
-
-        torch.ops.fbgemm.masked_index_put(
-            self.lxu_cache_weights,
-            assigned_cache_slots,
-            inserted_rows_gpu,
-            actions_count_gpu,
-        )
-
-        # Evict rows from cache to SSD
-        self.evict(evicted_rows, evicted_indices, actions_count_cpu)
-
-        # TODO: keep only necessary tensors
-        self.ssd_prefetch_data.append(
+            linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+                self.hash_size_cumsum,
+                indices,
+                offsets,
+            )
+            self.timestep += 1
+            self.timesteps_prefetched.append(self.timestep)
             (
-                linear_cache_indices,
+                inserted_indices,
+                evicted_indices,
                 assigned_cache_slots,
+                actions_count_gpu,
                 linear_index_inverse_indices,
                 unique_indices_count_cumsum,
                 cache_set_inverse_indices,
-                inserted_rows_gpu,
                 unique_indices_length,
-                inserted_indices,
+            ) = torch.ops.fbgemm.ssd_cache_populate_actions(
+                linear_cache_indices,
+                self.total_hash_size,
+                self.lxu_cache_state,
+                self.timestep,
+                1,  # for now assume prefetch_dist == 1
+                self.lru_state,
+            )
+
+            actions_count_cpu = self.to_pinned_cpu(actions_count_gpu)
+            assigned_cache_slots = assigned_cache_slots.long()
+            evicted_rows = self.lxu_cache_weights[
+                assigned_cache_slots.clamp(min=0).long(), :
+            ]
+            inserted_rows = torch.empty(
+                evicted_rows.shape,
+                dtype=self.lxu_cache_weights.dtype,
+                pin_memory=True,
+            )
+
+            current_stream = torch.cuda.current_stream()
+
+            # Ensure the previous iterations l3_db.set(..) has completed.
+            current_stream.wait_event(self.ssd_set_end)
+
+            inserted_indices_cpu = self.to_pinned_cpu(inserted_indices)
+
+            self.record_function_via_dummy_profile(
+                "## ssd_get ##",
+                self.ssd_db.get_cuda,
+                inserted_indices_cpu,
+                inserted_rows,
                 actions_count_cpu,
             )
-        )
+
+            current_stream.record_event(self.ssd_set_start)
+            # TODO: T123943415 T123943414 this is a big copy that is (mostly) unnecessary with a decent cache hit rate.
+            # Should we allocate on HBM?
+            inserted_rows_gpu = inserted_rows.cuda(non_blocking=True)
+
+            torch.ops.fbgemm.masked_index_put(
+                self.lxu_cache_weights,
+                assigned_cache_slots,
+                inserted_rows_gpu,
+                actions_count_gpu,
+            )
+
+            # Evict rows from cache to SSD
+            self.evict(
+                evicted_rows,
+                evicted_indices,
+                actions_count_cpu,
+                name="cache",
+            )
+
+            # TODO: keep only necessary tensors
+            self.ssd_prefetch_data.append(
+                (
+                    linear_cache_indices,
+                    assigned_cache_slots,
+                    linear_index_inverse_indices,
+                    unique_indices_count_cumsum,
+                    cache_set_inverse_indices,
+                    inserted_rows_gpu,
+                    unique_indices_length,
+                    inserted_indices,
+                    actions_count_cpu,
+                )
+            )
 
     def forward(
         self,
@@ -554,8 +651,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if per_sample_weights is not None:
             per_sample_weights = per_sample_weights.float()
         if len(self.timesteps_prefetched) == 0:
-            with record_function("## prefetch ##"):
-                self.prefetch(indices, offsets)
+            self.prefetch(indices, offsets)
         assert len(self.ssd_prefetch_data) > 0
 
         prefetch_data = self.ssd_prefetch_data.pop(0)
