@@ -7,10 +7,10 @@
  */
 
 // clang-format off
-#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
 #include <cub/device/device_scan.cuh>
 #include "fbgemm_gpu/utils/dispatch_macros.h"
-#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
 
 #include <ATen/ATen.h>
