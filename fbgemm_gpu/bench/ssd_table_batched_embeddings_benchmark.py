@@ -36,6 +36,7 @@ from fbgemm_gpu.tbe.ssd import (
     SSDTableBatchedEmbeddingBags,
 )
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
+from torch.autograd.profiler import record_function
 from torch.profiler import profile
 
 logging.basicConfig(level=logging.DEBUG)
@@ -272,14 +273,6 @@ def ssd_training(  # noqa C901
     E: int = num_embeddings
     T: int = num_tables
 
-    # SSD only supports FP32 for weights and output
-    assert weights_precision == SparseType.FP32, (
-        "SSD only supports weights_precision = SparseType.FP32",
-    )
-    assert output_dtype == SparseType.FP32, (
-        "SSD only supports output_dtype = SparseType.FP32",
-    )
-
     if weighted_num_requires_grad:
         assert weighted_num_requires_grad <= T
         weighted_requires_grad_tables = np.random.choice(
@@ -441,42 +434,43 @@ def ssd_training(  # noqa C901
             # Forward
             test_name = f"{prefix} Forward"
             logging.info(f"Running benchmark: {test_name}")
+            with record_function(f"## {test_name} ##"):
+                time_per_iter = benchmark_requests(
+                    requests,
+                    gen_forward_func(emb, feature_requires_grad),
+                    flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                    num_warmups=warmup_runs,
+                    periodic_logs=True,
+                )
 
-            time_per_iter = benchmark_requests(
-                requests,
-                gen_forward_func(emb, feature_requires_grad),
-                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-                num_warmups=warmup_runs,
-                periodic_logs=True,
-            )
-
-            bw = f"{read_write_bytes / time_per_iter / 1.0e9: .2f}"
-            report.append(
-                f"{test_name: <{name_width}} B: {B}, "
-                f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-                f"BW: {bw: <{bw_width}} GB/s, "  # noqa: B950
-                f"T: {time_per_iter * 1.0e6:.0f}us"
-            )
+                bw = f"{read_write_bytes / time_per_iter / 1.0e9: .2f}"
+                report.append(
+                    f"{test_name: <{name_width}} B: {B}, "
+                    f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                    f"BW: {bw: <{bw_width}} GB/s, "  # noqa: B950
+                    f"T: {time_per_iter * 1.0e6:.0f}us"
+                )
 
             # Backward
-            test_name = f"{prefix} Backward,"
+            test_name = f"{prefix} Backward"
             logging.info(f"Running benchmark: {test_name}")
-            time_per_iter = benchmark_requests(
-                requests,
-                gen_forward_func(emb, feature_requires_grad),
-                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-                bwd_only=True,
-                grad=grad_output,
-                num_warmups=warmup_runs,
-                periodic_logs=True,
-            )
+            with record_function(f"## {test_name} ##"):
+                time_per_iter = benchmark_requests(
+                    requests,
+                    gen_forward_func(emb, feature_requires_grad),
+                    flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                    bwd_only=True,
+                    grad=grad_output,
+                    num_warmups=warmup_runs,
+                    periodic_logs=True,
+                )
 
-            bw = f"{2 * read_write_bytes / time_per_iter / 1.0e9: .2f}"
-            report.append(
-                f"{test_name: <{name_width}} B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-                f"BW: {bw: <{bw_width}} GB/s, "
-                f"T: {time_per_iter * 1.0e6:.0f}us"
-            )
+                bw = f"{2 * read_write_bytes / time_per_iter / 1.0e9: .2f}"
+                report.append(
+                    f"{test_name: <{name_width}} B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                    f"BW: {bw: <{bw_width}} GB/s, "
+                    f"T: {time_per_iter * 1.0e6:.0f}us"
+                )
 
             # Compute nparams once
             if prefix == "HBM":
