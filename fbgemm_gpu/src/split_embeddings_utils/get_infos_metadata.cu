@@ -7,8 +7,8 @@
  */
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh" // @manual
-#include "fbgemm_gpu/ops_utils.h" // @manual
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
+#include "fbgemm_gpu/utils/ops_utils.h" // @manual
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;

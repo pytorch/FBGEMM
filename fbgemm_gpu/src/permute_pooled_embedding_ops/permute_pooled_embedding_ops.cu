@@ -12,7 +12,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include "fbgemm_gpu/ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/permute_pooled_embedding_ops.h"
