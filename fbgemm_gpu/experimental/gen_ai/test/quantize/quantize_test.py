@@ -443,7 +443,8 @@ class FP8Tests(unittest.TestCase):
         torch.testing.assert_close(zq, zq_ref, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+        not torch.version.cuda and torch.version.hip < "6.2",
+        "Skip on AMD with < RoCM 6.2",
     )
     @settings(deadline=None)
     @given(
@@ -493,7 +494,8 @@ class FP8Tests(unittest.TestCase):
         torch.testing.assert_close(xq.float(), xq_ref.float(), atol=tol, rtol=tol)
 
     @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
+        not torch.version.cuda and torch.version.hip < "6.2",
+        "Skip on AMD with < RoCM 6.2",
     )
     @settings(deadline=None)
     @given(
