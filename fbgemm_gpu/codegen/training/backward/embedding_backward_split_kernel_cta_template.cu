@@ -34,7 +34,7 @@
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 {%- if optimizer != "none" and not dense %}
 #include "gen_embedding_optimizer_{{ optimizer }}_{{ mdesc }}_device_kernel.cuh"
