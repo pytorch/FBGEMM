@@ -11,12 +11,12 @@
 #include "common.h"
 
 // clang-format off
-#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_select.cuh>
 #include <cub/block/block_reduce.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
 
 #include <ATen/cuda/CUDAContext.h>

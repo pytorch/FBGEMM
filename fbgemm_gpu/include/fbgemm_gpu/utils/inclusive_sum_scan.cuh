@@ -13,9 +13,9 @@
 #define HIPCUB_ARCH 1
 #include <hipcub/backend/rocprim/block/block_scan.hpp>
 #else
-#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
 #include <cub/block/block_scan.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 #endif
 // clang-format on
 
