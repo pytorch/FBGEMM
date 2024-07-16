@@ -271,8 +271,8 @@ class FP8RowwiseGemm(QuantizeOpBase):
 
     def quantize(self, x, w):
         # Quantize both input tensors.
-        xq, x_scale = quantize_fp8_row(x)
-        wq, w_scale = quantize_fp8_row(w)
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
