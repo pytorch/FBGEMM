@@ -7,6 +7,7 @@
  */
 
 #include "kv_db_table_batched_embeddings.h"
+#include "torch/csrc/autograd/record_function_ops.h"
 
 namespace kv_db {
 
@@ -23,6 +24,8 @@ void EmbeddingKVDB::get_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::get_cuda ##");
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
   std::function<void()>* functor =
@@ -45,6 +48,7 @@ void EmbeddingKVDB::get_cuda(
   };
   AT_CUDA_CHECK(cudaStreamAddCallback(
       at::cuda::getCurrentCUDAStream(), callFunctor, functor, 0));
+  rec->record.end();
 }
 
 void EmbeddingKVDB::set_cuda(
@@ -52,6 +56,8 @@ void EmbeddingKVDB::set_cuda(
     const at::Tensor& weights,
     const at::Tensor& count,
     const int64_t timestep) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::set_cuda ##");
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
   std::function<void()>* functor = new std::function<void()>([=]() {
@@ -76,6 +82,7 @@ void EmbeddingKVDB::set_cuda(
   };
   AT_CUDA_CHECK(cudaStreamAddCallback(
       at::cuda::getCurrentCUDAStream(), callFunctor, functor, 0));
+  rec->record.end();
 }
 
 } // namespace kv_db
