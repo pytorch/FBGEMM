@@ -10,8 +10,8 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include "fbgemm_gpu/embedding_inplace_update.h"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
 using Tensor = at::Tensor;
 

@@ -24,7 +24,6 @@
 #include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
 
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
@@ -33,6 +32,7 @@
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/shared_memory.cuh"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
 namespace fbgemm_gpu {
