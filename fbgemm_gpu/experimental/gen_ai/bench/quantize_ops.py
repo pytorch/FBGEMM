@@ -41,12 +41,57 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
         """Function which quantizes inputs and performs main compute operation."""
         pass
 
-    def benchmark(self, *args, bench_quantize: bool = False) -> float:
+    def bench_with_rotating_buffer(self, fn, args):
+        import copy
+        import pickle
+
+        # torch.cuda.get_device_properties does not have L2 cache size,
+        # so hard code an overapproximation of L2 cache size to ensure L2 cache flush
+        total_buffer_size = 16 * 1024 * 1024
+
+        # Use pickle to serialize model input to estimate total sizes of input
+        input_sizes = len(pickle.dumps(args))
+
+        # Make at least one copy of the inputs
+        copy_cnt = total_buffer_size // input_sizes
+        if copy_cnt == 0:
+            copy_cnt = 1
+
+        args_list = [args]
+        for _ in range(copy_cnt):
+            args_list.append(copy.deepcopy(args))
+
+        def rotating_buffer_fn(fn, args_list, copy_cnt):
+            for i in range(copy_cnt):
+                fn(*(args_list[i]))
+
+        with torch.cuda.stream(torch.cuda.Stream()):
+            # A rotating_buffer_fn contains multiple runs of the fn to benchmark,
+            # so divide time accordingly
+            return triton.testing.do_bench_cudagraph(
+                lambda: rotating_buffer_fn(self.compute, args_list, copy_cnt + 1),
+                rep=500,
+            ) / (copy_cnt + 1)
+
+    def benchmark(
+        self,
+        *args,
+        bench_quantize: bool = False,
+        use_rotating_buffer_bench: bool = False
+    ) -> float:
         """Benchmark runtime of this operator."""
         if bench_quantize:
-            return triton.testing.do_bench(lambda: self.quantize_and_compute(*args))
+            with torch.cuda.stream(torch.cuda.Stream()):
+                t = triton.testing.do_bench_cudagraph(
+                    lambda: self.quantize_and_compute(*args)
+                )
         else:
-            return triton.testing.do_bench(lambda: self.compute(*args))
+            if use_rotating_buffer_bench:
+                t = self.bench_with_rotating_buffer(self.compute, args)
+            else:
+                with torch.cuda.stream(torch.cuda.Stream()):
+                    t = triton.testing.do_bench_cudagraph(lambda: self.compute(*args))
+        return t
 
     @abc.abstractproperty
     def name(self) -> str:

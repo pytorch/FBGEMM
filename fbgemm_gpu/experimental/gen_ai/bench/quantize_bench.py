@@ -37,6 +37,7 @@ def benchmark(
     k: int,
     kernels: Optional[List[str]] = None,
     bench_quantize: bool = False,
+    use_rotating_buffer_bench: bool = False,
 ) -> Dict[str, Any]:
     # Create input tensors.
     A = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
@@ -63,10 +64,17 @@ def benchmark(
             # Now perform benchmark.
             if bench_quantize:
                 # Benchmark both quantize and compute.
-                ms_runtime = quantize_op.benchmark(A, B, bench_quantize=True)
+                ms_runtime = quantize_op.benchmark(
+                    A,
+                    B,
+                    bench_quantize=True,
+                    use_rotating_buffer_bench=use_rotating_buffer_bench,
+                )
             else:
                 ms_runtime = quantize_op.benchmark(
-                    *quantized_vals, bench_quantize=False
+                    *quantized_vals,
+                    bench_quantize=False,
+                    use_rotating_buffer_bench=use_rotating_buffer_bench,
                 )
 
             # Print out results for this op.
@@ -137,7 +145,13 @@ def main(args: Any):
     for m, n, k in MNK:
         print(f"Benchmarking M={m}, N={n}, K={k}.")
         quantize_measurements = benchmark(
-            quantize_ops, m, n, k, kernels, args.bench_quantize
+            quantize_ops,
+            m,
+            n,
+            k,
+            kernels,
+            args.bench_quantize,
+            args.use_rotating_buffer_bench,
         )
         benchmark_results.append(quantize_measurements)
     if args.export_csv:
@@ -188,6 +202,12 @@ def invoke_main() -> None:
     )
     parser.add_argument(
         "--K", default=None, help="Comma separated list of K values to benchmark."
+    )
+    parser.add_argument(
+        "--use_rotating_buffer_bench",
+        default=False,
+        action="store_true",
+        help="If set, use rotating buffer to benchmark.",
     )
 
     args = parser.parse_args()
