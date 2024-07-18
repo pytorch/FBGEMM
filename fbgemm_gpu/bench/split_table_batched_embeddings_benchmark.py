@@ -64,6 +64,8 @@ if open_source:
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
+        calculate_forward_read_write_bytes,
+        calculate_fused_backward_read_write_bytes,
         fill_random_scale_bias,
     )
 else:
@@ -73,6 +75,8 @@ else:
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
+        calculate_forward_read_write_bytes,
+        calculate_fused_backward_read_write_bytes,
         fill_random_scale_bias,
     )
 
@@ -229,17 +233,6 @@ def device(  # noqa C901
 
     nparams = sum(w.numel() for w in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    if do_pooling:
-        read_write_bytes = (
-            output_size_multiplier * B * sum(Ds)
-            + param_size_multiplier * B * sum(Ds) * L
-        )
-    else:
-        read_write_bytes = (
-            output_size_multiplier * B * sum(Ds) * L
-            + param_size_multiplier * B * sum(Ds) * L
-        )
 
     logging.info(
         f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
@@ -264,6 +257,9 @@ def device(  # noqa C901
     )
 
     # forward
+    fwd_read_write_bytes = calculate_forward_read_write_bytes(
+        weights_precision, output_dtype, do_pooling, B, [L] * T, Ds
+    )
     time_per_iter = benchmark_requests(
         requests,
         lambda indices, offsets, per_sample_weights: emb.forward(
@@ -278,7 +274,7 @@ def device(  # noqa C901
     logging.info(
         f"Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {fwd_read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -291,6 +287,9 @@ def device(  # noqa C901
     else:
         grad_output = torch.randn(B * T * L, D).to(get_device())
     # backward
+    bwd_read_write_bytes = calculate_fused_backward_read_write_bytes(
+        weights_precision, output_dtype, do_pooling, B, [L] * T, Ds
+    )
     time_per_iter = benchmark_requests(
         requests,
         lambda indices, offsets, per_sample_weights: emb(
@@ -306,7 +305,7 @@ def device(  # noqa C901
     )
     logging.info(
         f"Backward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
-        f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"BW: {bwd_read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -487,11 +486,13 @@ def uvm(
             tables=tables,
         )
 
-    param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    read_write_bytes_uvm = (
-        output_size_multiplier * B * sum(Ds[:T_uvm])
-        + param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm
+    read_write_bytes_uvm = calculate_forward_read_write_bytes(
+        weights_precision,
+        output_dtype,
+        pooling=True,
+        batch_size=B,
+        bag_size_list=[L_uvm] * T_uvm,
+        embedding_dim_list=Ds[:T_uvm],
     )
 
     if eval_conflict_misses:
@@ -604,9 +605,13 @@ def uvm(
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
             num_warmups=warmup_runs,
         )
-        read_write_bytes_hbm = (
-            output_size_multiplier * B * sum(Ds[T_uvm:])
-            + param_size_multiplier * B * sum(Ds[T_uvm:]) * L
+        read_write_bytes_hbm = calculate_forward_read_write_bytes(
+            weights_precision,
+            output_dtype,
+            pooling=True,
+            batch_size=B,
+            bag_size_list=[L] * T_gpu,
+            embedding_dim_list=Ds[T_uvm:],
         )
         logging.info(
             f"GPU Forward, B: {B}, "
@@ -932,16 +937,9 @@ def nbit_cpu(  # noqa C901
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    if do_pooling:
-        read_write_bytes = (
-            output_size_multiplier * B * T * D + param_size_multiplier * B * T * L * D
-        )
-    else:
-        read_write_bytes = (
-            output_size_multiplier * B * T * L * D
-            + param_size_multiplier * B * T * L * D
-        )
+    read_write_bytes = calculate_forward_read_write_bytes(
+        weights_precision, output_dtype, do_pooling, B, [L] * T, Ds
+    )
 
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
@@ -1116,16 +1114,10 @@ def nbit_device(  # noqa C901
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    if do_pooling:
-        read_write_bytes = (
-            output_size_multiplier * B * T * D + param_size_multiplier * B * T * L * D
-        )
-    else:
-        read_write_bytes = (
-            output_size_multiplier * B * T * L * D
-            + param_size_multiplier * B * T * L * D
-        )
+    read_write_bytes = calculate_forward_read_write_bytes(
+        weights_precision, output_dtype, do_pooling, B, [L] * T, Ds
+    )
+
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
         f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
@@ -1403,23 +1395,9 @@ def nbit_device_with_spec(  # noqa C901
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    if do_pooling:
-        read_write_bytes = sum(
-            [
-                output_size_multiplier * B * d
-                + param_size_multiplier * B * bag_size * d
-                for bag_size, d in zip(Ls, Ds)
-            ]
-        )
-    else:
-        read_write_bytes = sum(
-            [
-                output_size_multiplier * B * bag_size * d
-                + param_size_multiplier * B * bag_size * d
-                for bag_size, d in zip(Ls, Ds)
-            ]
-        )
+    read_write_bytes = calculate_forward_read_write_bytes(
+        weights_precision, output_dtype, do_pooling, B, Ls, Ds
+    )
     logging.info(
         f"{weights_precision} Embedding tables: {sum(Es)} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
         f"{nparams_byte / 1.0e9: .2f} GB"  # IntN TBE use byte for storage
@@ -1733,10 +1711,13 @@ def nbit_uvm(
         ]
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    read_write_bytes_uvm = (
-        output_size_multiplier * B * sum(Ds[:T_uvm])
-        + param_size_multiplier * B * sum(Ds[:T_uvm]) * L_uvm
+    read_write_bytes_uvm = calculate_forward_read_write_bytes(
+        weights_precision,
+        output_dtype,
+        pooling=True,
+        batch_size=B,
+        bag_size_list=[L_uvm] * T_uvm,
+        embedding_dim_list=Ds[:T_uvm],
     )
 
     if T_gpu > 0:
@@ -1799,9 +1780,13 @@ def nbit_uvm(
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         )
 
-        read_write_bytes_hbm = (
-            output_size_multiplier * B * sum(Ds[T_uvm:])
-            + param_size_multiplier * B * sum(Ds[T_uvm:]) * L
+        read_write_bytes_hbm = calculate_forward_read_write_bytes(
+            weights_precision,
+            output_dtype,
+            pooling=True,
+            batch_size=B,
+            bag_size_list=[L] * T_gpu,
+            embedding_dim_list=Ds[T_uvm:],
         )
         logging.info(
             f"GPU NBit Forward, {weights_precision}, B: {B}, "
@@ -1953,11 +1938,13 @@ def nbit_uvm_compare_direct_mapped(
         for req in _requests_uvm
     ]
 
-    param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    read_write_bytes_uvm: float = (
-        output_size_multiplier * B * sum(Ds[:T])
-        + param_size_multiplier * B * sum(Ds[:T]) * L
+    read_write_bytes_uvm: float = calculate_forward_read_write_bytes(
+        weights_precision,
+        output_dtype,
+        pooling=True,
+        batch_size=B,
+        bag_size_list=[L] * T,
+        embedding_dim_list=Ds[:T],
     )
 
     stats: Dict[str, Any] = {
@@ -2207,12 +2194,13 @@ def nbit_cache(  # noqa C901
 
     nparams_byte = sum(w.numel() for (w, _) in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    read_write_bytes = (
-        # read L rows per batch per table.
-        param_size_multiplier * B * sum(Ds) * L
-        # write 1 row (assuming pooling) per batch per table.
-        + output_size_multiplier * B * sum(Ds)
+    read_write_bytes = calculate_forward_read_write_bytes(
+        weights_precision,
+        output_dtype,
+        pooling=True,
+        batch_size=B,
+        bag_size_list=[L] * T,
+        embedding_dim_list=Ds,
     )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
@@ -2730,9 +2718,14 @@ def emb_inplace_update(  # noqa C901
         device=torch.cuda.current_device(),
     )
 
-    param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    read_write_bytes = output_size_multiplier * N * D + param_size_multiplier * N * D
+    read_write_bytes = calculate_forward_read_write_bytes(
+        weights_precision,
+        output_dtype,
+        pooling=False,
+        batch_size=N,
+        bag_size_list=[1] * T,
+        embedding_dim_list=[D] * T,
+    )
 
     # Update op weights with the customized ops
     op.embedding_inplace_update_internal(
@@ -2947,7 +2940,6 @@ def device_with_spec(  # noqa C901
 
     nparams = sum(w.numel() for w in emb.split_embedding_weights())
     param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
 
     # Generate a request for each table then combine
     all_requests = {
@@ -3000,14 +2992,9 @@ def device_with_spec(  # noqa C901
     assert len(requests) == iters
 
     sum_DLs = sum([d * l for d, l in zip(Ds, Ls)])
-    if do_pooling:
-        read_write_bytes = (
-            output_size_multiplier * B * sum(Ds) + param_size_multiplier * B * sum_DLs
-        )
-    else:
-        read_write_bytes = (
-            output_size_multiplier * B * sum_DLs + param_size_multiplier * B * sum_DLs
-        )
+    fwd_read_write_bytes = calculate_forward_read_write_bytes(
+        weights_precision, output_dtype, do_pooling, B, Ls, Ds
+    )
 
     if use_variable_bag_sizes:
         # pyre-ignore [61]
@@ -3038,7 +3025,7 @@ def device_with_spec(  # noqa C901
     logging.info(
         f"Forward, B: {B}, "
         f"Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, W: {weighted}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {fwd_read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -3054,6 +3041,9 @@ def device_with_spec(  # noqa C901
         # pyre-fixme[61]: `D` is undefined, or not always defined.
         grad_output = torch.randn(requests[0].indices.numel(), D).to(get_device())
     # backward
+    bwd_read_write_bytes = calculate_fused_backward_read_write_bytes(
+        weights_precision, output_dtype, do_pooling, B, Ls, Ds
+    )
     time_per_iter = benchmark_requests(
         requests,
         lambda indices, offsets, per_sample_weights: emb(
@@ -3069,7 +3059,7 @@ def device_with_spec(  # noqa C901
     )
     logging.info(
         f"Backward, B: {B}, Es: {Es}, T: {T}, Ds: {Ds}, Ls: {Ls_str}, "
-        f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"BW: {bwd_read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
