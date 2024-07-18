@@ -353,10 +353,11 @@ class TritonFP8RowwiseGemm(QuantizeOpBase):
         # Quantize both input tensors.
         xq, x_scale = quantize_fp8_row(x)
         wq, w_scale = quantize_fp8_row(w)
-        return xq, wq, x_scale, w_scale
+        bias = torch.randn(w.shape[0], device=x.device, dtype=torch.float32)
+        return xq, wq, x_scale, w_scale, bias
 
-    def compute(self, xq, wq, x_scale, w_scale):
-        return matmul_fp8_row(xq, wq, x_scale, w_scale)
+    def compute(self, xq, wq, x_scale, w_scale, bias):
+        return matmul_fp8_row(xq, wq, x_scale, w_scale, bias=bias)
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale = self.quantize(x, w)
