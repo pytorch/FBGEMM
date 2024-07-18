@@ -231,6 +231,7 @@ def _kernel_matmul_fp8_row(
     k_key,
     A_scale,
     B_scale,
+    Bias,
     stride_am,
     stride_ak,
     stride_bn,
@@ -246,6 +247,7 @@ def _kernel_matmul_fp8_row(
     GROUP_M: tl.constexpr,
     SPLIT_K: tl.constexpr,
     EVEN_K: tl.constexpr,
+    USE_BIAS: tl.constexpr,
     AB_DTYPE: tl.constexpr,
     NUM_SMS: tl.constexpr,
 ) -> None:
@@ -263,8 +265,9 @@ def _kernel_matmul_fp8_row(
         m_key (int): Autotuning key for M dimension of input tensor.
         n_key (int): Autotuning key for N dimension of input tensor.
         k_key (int): Autotuning key for K dimension of input tensor.
-        A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A
-        B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B
+        A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A.
+        B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B.
+        Bias (tensorWrapper): [N] Optional bias tensor.
         stride_am (int): Stride of M dimension of A.
         stride_ak (int): Stride of K dimension of A.
         stride_bn (int): Stride of N dimension of B.
@@ -279,6 +282,7 @@ def _kernel_matmul_fp8_row(
         BLOCK_K (int): Block size for K dimension.
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
+        USE_BIAS (bool): Whether to use bias.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
         AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
     """
@@ -343,6 +347,12 @@ def _kernel_matmul_fp8_row(
             # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
             scale = a_scale[:, None] * b_scale[None, :]
             acc *= scale
+
+            # Load and add bias if specified.
+            if USE_BIAS:
+                bias = tl.load(Bias + rn, mask=rn < N)
+                acc += bias[None, :]
+
             acc = acc.to(C_ptr.dtype.element_ty)
             C = C_ptr + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
             mask = (rm < M)[:, None] & (rn < N)[None, :]
@@ -384,6 +394,7 @@ def _kernel_matmul_fp8_row_no_fast_acc(
     k_key,
     A_scale,
     B_scale,
+    Bias,
     stride_am,
     stride_ak,
     stride_bn,
@@ -399,6 +410,7 @@ def _kernel_matmul_fp8_row_no_fast_acc(
     GROUP_M: tl.constexpr,
     SPLIT_K: tl.constexpr,
     EVEN_K: tl.constexpr,
+    USE_BIAS: tl.constexpr,
     AB_DTYPE: tl.constexpr,
     NUM_SMS: tl.constexpr,
 ) -> None:
@@ -418,6 +430,7 @@ def _kernel_matmul_fp8_row_no_fast_acc(
         k_key (int): Autotuning key for K dimension of input tensor.
         A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A
         B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B
+        Bias (TensorWrapper): [N] Optional bias tensor.
         stride_am (int): Stride of M dimension of A.
         stride_ak (int): Stride of K dimension of A.
         stride_bn (int): Stride of N dimension of B.
@@ -433,6 +446,7 @@ def _kernel_matmul_fp8_row_no_fast_acc(
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
+        USE_BIAS(bool): Whether to use bias.
         AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
@@ -497,6 +511,12 @@ def _kernel_matmul_fp8_row_no_fast_acc(
             # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
             scale = a_scale[:, None] * b_scale[None, :]
             acc *= scale
+
+            # Load and add bias if specified.
+            if USE_BIAS:
+                bias = tl.load(Bias + rn, mask=rn < N)
+                acc += bias[None, :]
+
             acc = acc.to(C_ptr.dtype.element_ty)
             C = C_ptr + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
             mask = (rm < M)[:, None] & (rn < N)[None, :]
@@ -531,6 +551,7 @@ def _kernel_matmul_fp8_row_imprecise_acc(
     k_key,
     A_scale,
     B_scale,
+    Bias,
     stride_am,
     stride_ak,
     stride_bn,
@@ -546,6 +567,7 @@ def _kernel_matmul_fp8_row_imprecise_acc(
     GROUP_M: tl.constexpr,
     SPLIT_K: tl.constexpr,
     EVEN_K: tl.constexpr,
+    USE_BIAS: tl.constexpr,
     AB_DTYPE: tl.constexpr,
 ) -> None:
     """Matmul kernel of [M, K] @ [N, K] with row-wise scales
@@ -564,6 +586,7 @@ def _kernel_matmul_fp8_row_imprecise_acc(
         k_key (int): Autotuning key for K dimension of input tensor.
         A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A
         B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B
+        Bias (TensorWrapper): [N] Optional bias tensor.
         stride_am (int): Stride of M dimension of A.
         stride_ak (int): Stride of K dimension of A.
         stride_bn (int): Stride of N dimension of B.
@@ -579,6 +602,7 @@ def _kernel_matmul_fp8_row_imprecise_acc(
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
+        USE_BIAS (bool): Whether to use bias.
         AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
@@ -640,6 +664,11 @@ def _kernel_matmul_fp8_row_imprecise_acc(
     # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
     scale = a_scale[:, None] * b_scale[None, :]
     acc *= scale
+
+    # Apply bias.
+    if USE_BIAS:
+        bias = tl.load(Bias + rn, mask=rn < N)
+        acc += bias[None, :]
 
     acc = acc.to(C.dtype.element_ty)
     C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
@@ -784,6 +813,7 @@ def matmul_fp8_row(
     b: torch.Tensor,
     a_scale: torch.Tensor,
     b_scale: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
     dot_out_dtype: Optional[torch.dtype] = None,
     allow_tf32: bool = True,
     fp8_fast_accum: bool = True,
@@ -798,6 +828,7 @@ def matmul_fp8_row(
         b (torch.Tensor): [N, K] input tensor.
         a_scale (torch.Tensor): [M] reciprocal scale tensor per row. A * a_scale = original A
         b_scale (torch.Tensor): [N] reciprocal scale tensor per row. B * b_scale = original B
+        bias (torch.Tensor): [N] optional bias tensor to add to output if provided.
         dot_out_dtype (torch.dtype): Output type of tensor core.
         allow_tf32 (bool): Whether to use TF32 for tensor core.
         fp8_fast_accum (bool): Whether to use fast accumulation for tensor core.
@@ -824,10 +855,12 @@ def matmul_fp8_row(
         logger.info(
             "FP8 Row-wise Triton kernel not supported on cpu, fallback to torch"
         )
-        return (
-            torch.matmul(a.to(torch.bfloat16), b.to(torch.bfloat16).T)
-            * (a_scale[:, None] * b_scale[None, :])
-        ).to(dtype=c.dtype)
+        output = torch.matmul(a.to(torch.bfloat16), b.to(torch.bfloat16).T) * (
+            a_scale[:, None] * b_scale[None, :]
+        )
+        if bias is not None:
+            output += bias[None, :]
+        return output.to(c.dtype)
 
     def grid(META):
         return (
@@ -846,6 +879,9 @@ def matmul_fp8_row(
         )
 
     if tma_persistent:
+        if bias is not None:
+            raise NotImplementedError("TMA persistent kernel doesn't support bias yet")
+
         # used by TMA persistent kernel
         TMA_SIZE = 128
         import numpy as np
@@ -956,6 +992,7 @@ def matmul_fp8_row(
             k_key,
             a_scale,
             b_scale,
+            bias,
             a.stride(0),
             a.stride(1),
             b.stride(0),
@@ -966,6 +1003,7 @@ def matmul_fp8_row(
             allow_tf32=allow_tf32,
             fp8_fast_accum=fp8_fast_accum,
             GROUP_M=8,
+            USE_BIAS=bias is not None,
             AB_DTYPE=False,
         )
     elif fp8_fast_accum:
@@ -981,6 +1019,7 @@ def matmul_fp8_row(
             k_key,
             a_scale,
             b_scale,
+            bias,
             a.stride(0),
             a.stride(1),
             b.stride(0),
@@ -991,6 +1030,7 @@ def matmul_fp8_row(
             allow_tf32=allow_tf32,
             fp8_fast_accum=fp8_fast_accum,
             GROUP_M=8,
+            USE_BIAS=bias is not None,
             AB_DTYPE=False,
             NUM_SMS=NUM_SMS,
         )
@@ -1007,6 +1047,7 @@ def matmul_fp8_row(
             k_key,
             a_scale,
             b_scale,
+            bias,
             a.stride(0),
             a.stride(1),
             b.stride(0),
@@ -1017,6 +1058,7 @@ def matmul_fp8_row(
             allow_tf32=allow_tf32,
             fp8_fast_accum=fp8_fast_accum,
             GROUP_M=8,
+            USE_BIAS=bias is not None,
             AB_DTYPE=False,
             NUM_SMS=NUM_SMS,
         )

@@ -97,29 +97,40 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_matmul_fp8_row(self) -> None:
         def _test_matmul_fp8_row(
-            shape: Tuple[int, int, int], device: torch.device, fp8_fast_accum: bool
+            shape: Tuple[int, int, int],
+            device: torch.device,
+            fp8_fast_accum: bool,
+            use_bias: bool = False,
         ) -> None:
             M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
             b = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+            bias = (
+                torch.randn(N, dtype=torch.float32, device=device) if use_bias else None
+            )
 
             # Quantize inputs.
             a_fp8, a_scale = quantize_fp8_row(a)
             b_fp8, b_scale = quantize_fp8_row(b)
 
             result = matmul_fp8_row(
-                a_fp8, b_fp8, a_scale, b_scale, fp8_fast_accum=fp8_fast_accum
+                a_fp8, b_fp8, a_scale, b_scale, bias=bias, fp8_fast_accum=fp8_fast_accum
             )
             self.assertTrue(result.shape == (M, N))
 
             expected_result = a @ b.T
+            if use_bias:
+                expected_result += bias
             self.assertTrue(
                 torch.allclose(result, expected_result, atol=2e-1, rtol=5e-2)
             )
 
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True)
+        _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True, True)
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), False)
+        _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), False, True)
         _test_matmul_fp8_row((3, 4, 5), torch.device("cpu"), False)
+        _test_matmul_fp8_row((3, 4, 5), torch.device("cpu"), False, True)
 
     def test_quantize_fp8_block(self) -> None:
         def _test_quantize_fp8_block(
