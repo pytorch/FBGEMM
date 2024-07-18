@@ -254,7 +254,6 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         )
         if not ps_hosts:
             # pyre-fixme[4]: Attribute must be annotated.
-            # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
                 ssd_directory,
                 ssd_shards,
@@ -285,8 +284,6 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                     | SSDIntNBitTableBatchedEmbeddingBags._local_instance_index
                 )
             logging.info(f"tbe_unique_id: {tbe_unique_id}")
-            # pyre-fixme[4]: Attribute must be annotated.
-            # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
                 [host[0] for host in ps_hosts],
                 [host[1] for host in ps_hosts],
@@ -302,10 +299,8 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         self.ssd_set_end = torch.cuda.Event()
 
         # pyre-fixme[4]: Attribute must be annotated.
-        # pyre-ignore[16]
         self.timestep_counter = torch.classes.fbgemm.AtomicCounter()
         # pyre-fixme[4]: Attribute must be annotated.
-        # pyre-ignore[16]
         self.timestep_prefetch_size = torch.classes.fbgemm.AtomicCounter()
 
         self.weights_dev: torch.Tensor = torch.empty(

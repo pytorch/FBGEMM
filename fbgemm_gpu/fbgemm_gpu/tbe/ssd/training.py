@@ -250,7 +250,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # logging.info("DEBUG: weights_precision {}".format(weights_precision))
         if not ps_hosts:
             # pyre-fixme[4]: Attribute must be annotated.
-            # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
                 ssd_directory,
                 ssd_shards,
@@ -281,8 +280,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     | SSDTableBatchedEmbeddingBags._local_instance_index
                 )
             logging.info(f"tbe_unique_id: {tbe_unique_id}")
-            # pyre-fixme[4]: Attribute must be annotated.
-            # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
                 [host[0] for host in ps_hosts],
                 [host[1] for host in ps_hosts],
