@@ -25,6 +25,7 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include <iostream>
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
