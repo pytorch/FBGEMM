@@ -321,7 +321,7 @@ def generate_vbe_metadata(
     batch_size_per_feature_per_rank: Optional[List[List[int]]],
     optimizer: OptimType,
     pooling_mode: PoolingMode,
-    feature_dims: Tensor,
+    feature_dims_cpu: Tensor,
     device: torch.device,
 ) -> invokers.lookup_args.VBEMetadata:
     """
@@ -374,11 +374,9 @@ def generate_vbe_metadata(
         if not torch.jit.is_scripting() and is_torchdynamo_compiling():
             torch._check_is_size(max_B_feature_rank)
             torch._check(max_B_feature_rank <= offsets.size(0))
-        # D->H only once
-        feature_dims = feature_dims.cpu()
-        output_sizes_feature_rank = B_feature_rank.transpose(0, 1) * feature_dims.view(
-            1, -1
-        )
+        output_sizes_feature_rank = B_feature_rank.transpose(
+            0, 1
+        ) * feature_dims_cpu.view(1, -1)
         output_offsets_feature_rank = torch.concat(
             [
                 zero_tensor.to(torch.int64),
@@ -1227,6 +1225,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         batch_size_per_feature_per_rank: Optional[List[List[int]]],
     ) -> invokers.lookup_args.VBEMetadata:
+        # Blocking D2H copy, but only runs at first call
+        self.feature_dims = self.feature_dims.cpu()
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
@@ -2586,6 +2586,8 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         batch_size_per_feature_per_rank: Optional[List[List[int]]],
     ) -> invokers.lookup_args.VBEMetadata:
+        # Blocking D2H copy, but only runs at first call
+        self.feature_dims = self.feature_dims.cpu()
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
