@@ -174,17 +174,17 @@ def benchmark_requests(
     if callback_after_warmup is not None:
         callback_after_warmup()
 
+    num_iters = len(requests)
+
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
+        start_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
+        end_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
+    else:
+        start_events = []
+        end_events = []
+
     for it, req in enumerate(requests):
-        if periodic_logs and it % 100 == 99:
-            avg_time = sum(times) / len(times) * 1.0e6
-            last_100_avg = sum(times[-100:]) / 100 * 1.0e6
-            logging.info(
-                f"Iteration [{it}/{len(requests)}]: Last 100: {last_100_avg:.2f} us, Running avg: {avg_time:.2f} us"
-            )
         indices, offsets, weights = req.unpack_3()
         if bwd_only:
             # Run forward before profiling if does backward only
@@ -197,8 +197,7 @@ def benchmark_requests(
                     dtype=torch.float,
                     device="cuda",
                 )
-                torch.cuda.synchronize()
-            start_event.record()
+            start_events[it].record()
 
         if nvtx_range:
             torch.cuda.nvtx.range_push(f"{nvtx_range}-{it}")
@@ -212,14 +211,27 @@ def benchmark_requests(
             torch.cuda.nvtx.range_pop()
 
         if torch.cuda.is_available():
-            end_event.record()
-            torch.cuda.synchronize()
-            # pyre-fixme[61]: `end_event` is undefined, or not always defined.
-            it_time = start_event.elapsed_time(end_event) * 1.0e-3
-            times.append(it_time)
+            end_events[it].record()
         else:
             it_time = time.time() - start_time
             times.append(it_time)
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        times = [
+            start.elapsed_time(end) * 1.0e-3
+            for start, end in zip(start_events, end_events)
+        ]
+
+    if periodic_logs:
+        for it in range(100, num_iters + 1, 100):
+            times_ = times[0:it]
+            avg_time = sum(times_) / len(times_) * 1.0e6
+            last_100_avg = sum(times_[-100:]) / 100 * 1.0e6
+            logging.info(
+                f"Iteration [{it}/{len(requests)}]: Last 100: {last_100_avg:.2f} us, Running avg: {avg_time:.2f} us"
+            )
+
     avg_time = sum(times) / len(requests)
     median_time = statistics.median(times)
     return median_time if check_median else avg_time
