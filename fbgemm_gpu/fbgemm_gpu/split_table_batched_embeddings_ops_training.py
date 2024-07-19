@@ -521,6 +521,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
+        self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
@@ -1076,6 +1077,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
     @staticmethod
+    def get_table_name_for_logging(table_names: Optional[List[str]]) -> str:
+        """
+        Given list of all table names in the TBE, generate a string to represent
+        them in logging. If there's more than one tables, this method will count
+        them than list them.
+        """
+        if table_names is None:
+            return "<Unknown>"
+        # Do this because sometimes multiple shards of a same table could appear
+        # in one TBE.
+        table_name_set = set(table_names)
+        if len(table_name_set) == 1:
+            return next(iter(table_name_set))
+        return f"<{len(table_name_set)} tables>"
+
+    @staticmethod
     def get_prefetch_passes(
         multipass_prefetch_config: Optional[MultiPassPrefetchConfig],
         input_tensor: Tensor,
@@ -1161,7 +1178,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.stats_reporter
         ), "We should not be here. AsyncTimer only happens with reporter present."
-        self.stats_reporter.report_duration(it_step, event_name, dur_ms)
+        self.stats_reporter.report_duration(
+            iteration_step=it_step,
+            event_name=event_name,
+            duration_ms=dur_ms,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
+        )
 
     @torch.jit.ignore
     def _report_tbe_mem_usage(
@@ -1194,11 +1217,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             iteration_step=self.step,
             event_name="tbe.total_hbm_usage",
             data_bytes=total_hbm_usage,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="tbe.total_uvm_usage",
             data_bytes=total_uvm_usage,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
         )
 
     @torch.jit.ignore
@@ -1211,11 +1238,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 iteration_step=self.step,
                 event_name=f"tbe.{event}_size",
                 data_bytes=data.element_size() * data.numel(),
+                embedding_id=self.logging_table_name,
+                tbe_id=self.uuid,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=f"tbe.{event}_count",
                 data_bytes=data.numel(),
+                embedding_id=self.logging_table_name,
+                tbe_id=self.uuid,
             )
         return data
 
@@ -1585,6 +1616,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     * self.max_D_cache
                     / passed_steps
                 ),
+                embedding_id=self.logging_table_name,
+                tbe_id=self.uuid,
             )
 
     def prefetch(

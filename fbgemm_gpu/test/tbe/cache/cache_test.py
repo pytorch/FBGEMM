@@ -199,6 +199,7 @@ class CacheTest(unittest.TestCase):
                 mpp_conf = mpp_conf._replace(num_passes=mpp_n_passes)
             if mpp_min_size:
                 mpp_conf = mpp_conf._replace(min_splitable_pass_size=mpp_min_size)
+        cc: SplitTableBatchedEmbeddingBagsCodegen
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T,
             D,
@@ -356,8 +357,8 @@ class CacheTest(unittest.TestCase):
                         self.assertEqual(rep_val, expected_value[i])
                     else:
                         self.assertGreaterEqual(float(rep_val), 0)
-                    self.assertEqual(rep_emb_id, "")
-                    self.assertEqual(rep_tbe_id, "")
+                    self.assertEqual(rep_emb_id, cc.logging_table_name)
+                    self.assertEqual(rep_tbe_id, cc.uuid)
 
             def assert_event_not_exist(event_name: str) -> None:
                 self.assertFalse(event_name in stats_reporter.reported_data)
