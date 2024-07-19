@@ -292,7 +292,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
-        self.ssd_stream = torch.cuda.Stream(priority=low_priority)
+        # GPU stream for SSD cache eviction
+        self.ssd_eviction_stream = torch.cuda.Stream(priority=low_priority)
+        # GPU stream for SSD memory copy
+        self.ssd_memcpy_stream = torch.cuda.Stream(priority=low_priority)
 
         # SSD get completion event
         self.ssd_event_get = torch.cuda.Event()
@@ -302,6 +305,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_event_backward = torch.cuda.Event()
         # SSD scratch pad eviction completion event
         self.ssd_event_evict_sp = torch.cuda.Event()
+        # SSD get's input copy completion event
+        self.ssd_event_get_inputs_cpy = torch.cuda.Event()
 
         self.timesteps_prefetched: List[int] = []
         self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
@@ -466,10 +471,40 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         t_cpu.copy_(t, non_blocking=True)
         return t_cpu
 
+    def to_pinned_cpu_on_stream_wait_on_current_stream(
+        self,
+        tensors: List[Tensor],
+        stream: torch.cuda.Stream,
+        post_event: Optional[torch.cuda.Event] = None,
+    ) -> List[Tensor]:
+        """
+        Transfer input tensors from GPU to CPU using a pinned host buffer.
+        The transfer is carried out on the given stream (`stream`) after all
+        the kernels in the default stream (`current_stream`) are complete.
+
+        Args:
+            tensors (List[Tensor]): The list of tensors to be transferred
+            stream (Stream): The stream to run memory copy
+            post_event (Event): The post completion event
+
+        Returns:
+            The list of pinned CPU tensors
+        """
+        current_stream = torch.cuda.current_stream()
+        with torch.cuda.stream(stream):
+            stream.wait_stream(current_stream)
+            cpu_tensors = []
+            for t in tensors:
+                t.record_stream(stream)
+                cpu_tensors.append(self.to_pinned_cpu(t))
+            if post_event is not None:
+                stream.record_event(post_event)
+            return cpu_tensors
+
     def evict(
         self,
         rows: Tensor,
-        indices: Tensor,
+        indices_cpu: Tensor,
         actions_count_cpu: Tensor,
         stream: torch.cuda.Stream,
         pre_event: torch.cuda.Event,
@@ -478,16 +513,30 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     ) -> None:
         """
         Evict data from the given input tensors to SSD via RocksDB
+        Args:
+            rows (Tensor): The 2D tensor that contains rows to evict
+            indices_cpu (Tensor): The 1D CPU tensor that contains the row
+                                  indices that the rows will be evicted to
+            actions_count_cpu (Tensor): A scalar tensor that contains the
+                                        number of rows that the evict function
+                                        has to process
+            stream (Stream): The CUDA stream that cudaStreamAddCallback will
+                             synchronize the host function with.  Moreover, the
+                             asynchronous D->H memory copies will operate on
+                             this stream
+            pre_event (Event): The CUDA event that the stream has to wait on
+            post_event (Event): The CUDA event that the current will record on
+                                when the eviction is done
+        Returns:
+            None
         """
         with record_function(f"## ssd_evict_{name} ##"):
             with torch.cuda.stream(stream):
                 stream.wait_event(pre_event)
 
                 rows_cpu = self.to_pinned_cpu(rows)
-                indices_cpu = self.to_pinned_cpu(indices)
 
                 rows.record_stream(stream)
-                indices.record_stream(stream)
 
                 self.record_function_via_dummy_profile(
                     f"## ssd_set_{name} ##",
@@ -500,20 +549,20 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
                 # TODO: is this needed?
                 # Need a way to synchronize
-                #  actions_count_cpu.record_stream(self.ssd_stream)
+                #  actions_count_cpu.record_stream(self.ssd_eviction_stream)
                 stream.record_event(post_event)
 
     def _evict_from_scratch_pad(self, grad: Tensor) -> None:
         assert len(self.ssd_scratch_pads) > 0, "There must be at least one scratch pad"
-        (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu) = (
+        (inserted_rows_gpu, post_bwd_evicted_indices_cpu, actions_count_cpu) = (
             self.ssd_scratch_pads.pop(0)
         )
         torch.cuda.current_stream().record_event(self.ssd_event_backward)
         self.evict(
             rows=inserted_rows_gpu,
-            indices=post_bwd_evicted_indices,
+            indices_cpu=post_bwd_evicted_indices_cpu,
             actions_count_cpu=actions_count_cpu,
-            stream=self.ssd_stream,
+            stream=self.ssd_eviction_stream,
             pre_event=self.ssd_event_backward,
             post_event=self.ssd_event_evict_sp,
             name="scratch_pad",
@@ -553,10 +602,24 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
             )
 
+        # Transfer post_bwd_evicted_indices from GPU to CPU right away to
+        # increase a chance of overlapping with compute in the default stream
+        (post_bwd_evicted_indices_cpu,) = (
+            self.to_pinned_cpu_on_stream_wait_on_current_stream(
+                tensors=[post_bwd_evicted_indices],
+                stream=self.ssd_eviction_stream,
+                post_event=None,
+            )
+        )
+
         with record_function("## ssd_scratch_pads ##"):
             # Store scratch pad info for post backward eviction
             self.ssd_scratch_pads.append(
-                (inserted_rows_gpu, post_bwd_evicted_indices, actions_count_cpu)
+                (
+                    inserted_rows_gpu,
+                    post_bwd_evicted_indices_cpu,
+                    actions_count_cpu,
+                )
             )
 
         # pyre-fixme[7]: Expected `Tensor` but got `Tuple[typing.Any, Tensor,
@@ -564,7 +627,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return (
             lxu_cache_ptrs,
             inserted_rows_gpu,
-            post_bwd_evicted_indices,
+            post_bwd_evicted_indices_cpu,
             actions_count_cpu,
         )
 
@@ -597,7 +660,27 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.lru_state,
             )
 
-            actions_count_cpu = self.to_pinned_cpu(actions_count_gpu)
+            # Transfer evicted indices from GPU to CPU right away to increase a
+            # chance of overlapping with compute on the default stream
+            (evicted_indices_cpu,) = (
+                self.to_pinned_cpu_on_stream_wait_on_current_stream(
+                    tensors=[evicted_indices],
+                    stream=self.ssd_eviction_stream,
+                    post_event=None,
+                )
+            )
+
+            actions_count_cpu, inserted_indices_cpu = (
+                self.to_pinned_cpu_on_stream_wait_on_current_stream(
+                    tensors=[
+                        actions_count_gpu,
+                        inserted_indices,
+                    ],
+                    stream=self.ssd_memcpy_stream,
+                    post_event=self.ssd_event_get_inputs_cpy,
+                )
+            )
+
             assigned_cache_slots = assigned_cache_slots.long()
             evicted_rows = self.lxu_cache_weights[
                 assigned_cache_slots.clamp(min=0).long(), :
@@ -613,8 +696,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Ensure the previous iterations l3_db.set(..) has completed.
             current_stream.wait_event(self.ssd_event_evict)
             current_stream.wait_event(self.ssd_event_evict_sp)
-
-            inserted_indices_cpu = self.to_pinned_cpu(inserted_indices)
+            current_stream.wait_event(self.ssd_event_get_inputs_cpy)
 
             self.record_function_via_dummy_profile(
                 "## ssd_get ##",
@@ -639,9 +721,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Evict rows from cache to SSD
             self.evict(
                 rows=evicted_rows,
-                indices=evicted_indices,
+                indices_cpu=evicted_indices_cpu,
                 actions_count_cpu=actions_count_cpu,
-                stream=self.ssd_stream,
+                stream=self.ssd_eviction_stream,
                 pre_event=self.ssd_event_get,
                 post_event=self.ssd_event_evict,
                 name="cache",
@@ -681,7 +763,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         (
             lxu_cache_ptrs,
             inserted_rows_gpu,
-            post_bwd_evicted_indices,
+            post_bwd_evicted_indices_cpu,
             actions_count_cpu,
         ) = self._compute_cache_ptrs(*prefetch_data)
 
@@ -723,7 +805,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ssd_tensors={
                 "row_addrs": lxu_cache_ptrs,
                 "inserted_rows": inserted_rows_gpu,
-                "post_bwd_evicted_indices": post_bwd_evicted_indices,
+                "post_bwd_evicted_indices": post_bwd_evicted_indices_cpu,
                 "actions_count": actions_count_cpu,
             },
         )
@@ -844,7 +926,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             active_slots_mask_cpu.view(-1)
         )
 
-        torch.cuda.current_stream().wait_stream(self.ssd_stream)
+        torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
 
         self.ssd_db.set_cuda(
             active_ids,
