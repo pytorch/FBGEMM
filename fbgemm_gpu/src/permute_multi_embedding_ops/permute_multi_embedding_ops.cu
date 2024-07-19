@@ -29,7 +29,7 @@ namespace fbgemm_gpu {
 template <typename scalar_t, bool reverse_permute>
 __global__ void permute_multi_embs_kernel(
     const scalar_t** __restrict__ inputs,
-    const scalar_t** __restrict__ outputs,
+    scalar_t** __restrict__ outputs,
     const pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
         permutes,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
@@ -75,14 +75,14 @@ __global__ void permute_multi_embs_kernel(
 
   // locate the batch_id
   int32_t in_length = in_lengths[in_tensor];
-  const scalar_t* input_ptr =
+  const scalar_t* __restrict__ input_ptr =
       reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
       batch_id * in_length + in_offset;
 
   int32_t out_length = out_lengths[out_tensor];
-  scalar_t* output_ptr = const_cast<scalar_t*>(
-      reinterpret_cast<const scalar_t*>(outputs[out_tensor]) +
-      batch_id * out_length + out_offset);
+  scalar_t* __restrict__ output_ptr =
+      reinterpret_cast<scalar_t*>(outputs[out_tensor]) + batch_id * out_length +
+      out_offset;
 
   if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(output_ptr) &&
       fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(input_ptr)) {
@@ -122,15 +122,81 @@ __global__ void permute_multi_embs_kernel(
 }
 
 template <typename index_t>
-Tensor from_vec(const std::vector<index_t> input) {
-  const auto int_opts =
-      torch::TensorOptions().dtype(torch::kInt32).pinned_memory(true);
-  Tensor output = at::empty({static_cast<index_t>(input.size())}, int_opts);
+Tensor from_vec(const std::vector<index_t>& input) {
+  Tensor output = at::empty(
+      {static_cast<index_t>(input.size())},
+      torch::TensorOptions().dtype(torch::kInt32).pinned_memory(true));
   // Ensure that output is contiguous
   TORCH_CHECK(output.is_contiguous());
   std::memcpy(
       output.data_ptr<index_t>(), input.data(), input.size() * sizeof(index_t));
   return output;
+}
+
+/// @ingroup permute pooled embedding function group
+///
+/// @brief generate the permutes arguments for permute_multi_embedding
+/// operator
+///
+/// This is a helper function for the permute_multi_embedding operator. It
+/// generates the required arguments for permute_multi_embedding operator.
+/// including permutes, in_shapes, out_shapes, and out_lengths. It also move
+/// the arguments (tensors) to the corresponding CUDA device.
+///
+/// **Example:**
+/// ```python
+/// # input arguments
+/// keys = [["F1", "F2"], ["F3", "F4"]]
+/// lengths = [[128, 128], [64, 32]]
+/// batch_size = 1024
+/// values = [torch.randn(batch_size, 256), torch.randn(batch_size, 96)]
+///
+/// # target output KTs
+/// groups = [["F1", "F3"], ["F2", "F4"]]
+///
+/// # generate permutes
+/// permutes, in_shapes, out_shapes, out_lengths = kt_regroup_arguments(keys,
+/// lengths, groups)
+///
+/// # permute and regroup
+/// permuted_values = permute_multi_embedding(values, permutes, in_shapes,
+/// out_shapes, lengths)
+/// ```
+///
+///
+/// @param emb one of the tensors from KTs' values
+/// @param keys List[List[str]], each string represents a feature/key in a KT
+/// a list of keys represents a KT
+/// @param lengths List[List[int64_t]], each int represents the length of a
+/// feature/key in a KT, and a list of lengths represents a KT
+/// @param groups List[List[str]], each string represents a feature/key in an
+/// output KT a list of strings represents one output KT
+/// @return tuple of permutes, in_shapes, out_shapes and output_lengths. See the
+/// inputs of permute_multi_embedding for more details. The output tensors
+/// should be contiguous, and on the same device as the input tensor.
+///
+/// @note This operator doesn't need autograd since it's purely about index.
+///
+/// @warning this gpu/cuda version will move the output tensors to corresponding
+/// CUDA device.
+///
+std::tuple<Tensor, Tensor, Tensor, std::vector<int64_t>>
+kt_regroup_arguments_gpu(
+    const Tensor& emb,
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups) {
+  auto [permutes, in_lengths, out_lengths] =
+      kt_regroup_arguments_impl(keys, lengths, groups);
+  CUDA_DEVICE_GUARD(emb);
+  auto device = emb.device();
+  auto pt = from_vec<int32_t>(permutes)
+                .view({-1, PermuteParam::size})
+                .to(device, true);
+  auto in_shapes = from_vec<int32_t>(in_lengths).to(device, true);
+  auto out_shapes = from_vec<int32_t>(out_lengths).to(device, true);
+  std::vector<int64_t> out(out_lengths.begin(), out_lengths.end());
+  return {pt, in_shapes, out_shapes, out};
 }
 
 template <typename scalar_t>
@@ -220,7 +286,7 @@ std::vector<Tensor> permute_multi_embedding_gpu(
 #endif
         permute_kernel<<<grid_dim, block_dim, 0, stream>>>(
             reinterpret_cast<const scalar_t**>(in_ptr.data_ptr()),
-            reinterpret_cast<const scalar_t**>(out_ptr.data_ptr()),
+            reinterpret_cast<scalar_t**>(out_ptr.data_ptr()),
             MAKE_PTA_WITH_NAME(func_name, permutes, int32_t, 2, 32),
             MAKE_PTA_WITH_NAME(func_name, in_shapes, int32_t, 1, 32),
             MAKE_PTA_WITH_NAME(func_name, out_shapes, int32_t, 1, 32),
@@ -237,3 +303,8 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "permute_multi_embedding_function",
     fbgemm_gpu::permute_multi_embedding_gpu);
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "kt_regroup_arguments",
+    fbgemm_gpu::kt_regroup_arguments_gpu);
