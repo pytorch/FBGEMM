@@ -116,13 +116,13 @@ class GradSumDecay(enum.IntEnum):
     CTR_DECAY = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class TailIdThreshold:
     val: float = 0
     is_ratio: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class CounterBasedRegularizationDefinition:
     counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE
     counter_halflife: int = -1
@@ -134,7 +134,7 @@ class CounterBasedRegularizationDefinition:
     max_counter_update_freq: int = 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class CowClipDefinition:
     counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE
     counter_halflife: int = -1
