@@ -115,7 +115,7 @@ std::vector<Tensor> permute_multi_embedding_meta(
 /// groups = [["F1", "F3"], ["F2", "F4"]]
 ///
 /// # generate permutes
-/// permutes, in_shapes, out_shapes, out_lengths = kt_regroup_permutes(keys,
+/// permutes, in_shapes, out_shapes, out_lengths = kt_regroup_arguments(keys,
 /// lengths, groups)
 ///
 /// # permute and regroup
@@ -158,6 +158,127 @@ std::vector<Tensor> permute_multi_embedding(
       pooled_embs, permutes, in_shapes, out_shapes, out_lengths);
 }
 
+template <typename index_t>
+Tensor from_cpu(const std::vector<index_t>& input) {
+  Tensor output = at::empty(
+      {static_cast<index_t>(input.size())},
+      torch::TensorOptions().dtype(torch::kInt32).pinned_memory(false));
+  // Ensure that output is contiguous
+  TORCH_CHECK(output.is_contiguous());
+  std::memcpy(
+      output.data_ptr<index_t>(), input.data(), input.size() * sizeof(index_t));
+  return output;
+}
+
+/// @ingroup permute pooled embedding function group
+///
+/// @brief generate the permutes arguments for permute_multi_embedding
+/// operator
+///
+/// This is a helper function for the permute_multi_embedding operator. It
+/// generates the required arguments for permute_multi_embedding operator.
+/// including permutes, in_shapes, out_shapes, and out_lengths.
+///
+/// **Example:**
+/// ```python
+/// # input arguments
+/// keys = [["F1", "F2"], ["F3", "F4"]]
+/// lengths = [[128, 128], [64, 32]]
+/// batch_size = 1024
+/// values = [torch.randn(batch_size, 256), torch.randn(batch_size, 96)]
+///
+/// # target output KTs
+/// groups = [["F1", "F3"], ["F2", "F4"]]
+///
+/// # generate permutes
+/// permutes, in_shapes, out_shapes, out_lengths = kt_regroup_arguments(keys,
+/// lengths, groups)
+///
+/// # permute and regroup
+/// permuted_values = permute_multi_embedding(values, permutes, in_shapes,
+/// out_shapes, lengths)
+/// ```
+///
+///
+/// @param emb one of the tensors from KTs' values
+/// @param keys List[List[str]], each string represents a feature/key in a KT
+/// a list of keys represents a KT
+/// @param lengths List[List[int64_t]], each int represents the length of a
+/// feature/key in a KT, and a list of lengths represents a KT
+/// @param groups List[List[str]], each string represents a feature/key in an
+/// output KT a list of strings represents one output KT
+/// @return tuple of permutes, in_shapes, out_shapes and output_lengths. See the
+/// inputs of permute_multi_embedding for more details. The output tensors
+/// should be contiguous, and on the same device as the input tensor.
+///
+/// @note This operator doesn't need autograd since it's purely about index.
+///
+/// @warning the dispatcher should be able to dispatch meta function for this
+/// operator.
+///
+std::tuple<Tensor, Tensor, Tensor, std::vector<int64_t>>
+kt_regroup_arguments_cpu(
+    const Tensor& /* embs */,
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups) {
+  auto [permutes, in_lengths, out_lengths] =
+      kt_regroup_arguments_impl(keys, lengths, groups);
+  auto pt = from_cpu<int32_t>(permutes).view({-1, PermuteParam::size});
+  auto in_shapes = from_cpu<int32_t>(in_lengths);
+  auto out_shapes = from_cpu<int32_t>(out_lengths);
+  std::vector<int64_t> out(out_lengths.begin(), out_lengths.end());
+  return {pt, in_shapes, out_shapes, out};
+}
+
+std::tuple<Tensor, Tensor, Tensor, std::vector<int64_t>>
+kt_regroup_arguments_meta(
+    const Tensor& embs,
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups) {
+  const int32_t in_tensors = keys.size();
+  const int32_t out_tensors = groups.size();
+  int32_t out_num = 0; // total number of features in the output KTs
+  for (auto i : c10::irange(out_tensors)) {
+    out_num += groups[i].size();
+  }
+
+  Tensor permutes = at::empty({out_num, PermuteParam::size}, embs.options());
+  Tensor in_shapes = at::empty({in_tensors}, embs.options());
+  Tensor out_shapes = at::empty({out_tensors}, embs.options());
+  std::vector<int64_t> out_lengths(out_tensors, 0);
+
+  std::unordered_map<std::string, int32_t> lookup;
+  for (auto i : c10::irange(in_tensors)) {
+    for (auto j : c10::irange(lengths[i].size())) {
+      lookup.insert({keys[i][j], lengths[i][j]});
+    }
+  }
+
+  int64_t* __restrict__ olp = out_lengths.data();
+  for (auto i : c10::irange(out_tensors)) {
+    for (auto j : c10::irange(groups[i].size())) {
+      auto length = lookup.at(groups[i][j]);
+      olp[i] += length;
+    }
+  }
+  return {permutes, in_shapes, out_shapes, out_lengths};
+}
+
+std::vector<Tensor> regroup_keyed_tensor(
+    const at::TensorList& pooled_embs,
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups) {
+  const auto op = torch::Dispatcher::singleton()
+                      .findSchemaOrThrow("fbgemm::kt_regroup_arguments", "")
+                      .typed<decltype(kt_regroup_arguments_cpu)>();
+  auto [permutes, in_shapes, out_shapes, out_lengths] =
+      op.call(pooled_embs[0], keys, lengths, groups);
+  return PermuteMultiEmbeddingOp::apply(
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths);
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -168,6 +289,18 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // register the main function for external usage
   m.def(
       "permute_multi_embedding(Tensor[] pooled_embs,Tensor permutes, Tensor in_shapes, Tensor out_shapes,  SymInt[] out_lengths) -> Tensor[]");
+
+  // register the main function for external usage
+  m.def(
+      "regroup_keyed_tensor(Tensor[] pooled_embs, str[][] keys, int[][] lengths, str[][] groups) -> Tensor[]");
+
+  // register the permute function
+  m.def(
+      "kt_regroup_arguments(Tensor embs, str[][] keys, int[][] lengths, str[][] groups) -> (Tensor, Tensor, Tensor, int[])");
+
+  DISPATCH_TO_CPU("kt_regroup_arguments", fbgemm_gpu::kt_regroup_arguments_cpu);
+  DISPATCH_TO_META(
+      "kt_regroup_arguments", fbgemm_gpu::kt_regroup_arguments_meta);
 
   // dispatch the forward function to CPU for internal (autograd) usage
   DISPATCH_TO_CPU(
@@ -186,4 +319,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // dispath the main function to Autograd for external usage
   DISPATCH_TO_CUDA(
       "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding);
+
+  // dispath the main function to Autograd for external usage
+  DISPATCH_TO_AUTOGRAD(
+      "regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor);
+
+  // dispath the main function to Autograd for external usage
+  DISPATCH_TO_CUDA("regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor);
 }
