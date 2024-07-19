@@ -1719,16 +1719,9 @@ at::Tensor bf16i4bf16_rowwise_impl(
     at::Tensor WQ, // INT4
     at::Tensor w_scale,
     at::Tensor w_zp) {
-  // XQ: M x K
-  // WQ: N x K
-  // output: M x N
-  int M = size_to_dim_(X.dim() - 1, X.sizes());
+  int M = X.size(0);
   int N = WQ.size(0);
-  int K = WQ.size(1);
-  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
-  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
-  auto out_sizes = X.sizes().vec();
-  out_sizes.back() = N;
+  int K = X.size(1);
 
   int num_groups = w_scale.size(0);
 
@@ -1740,7 +1733,7 @@ at::Tensor bf16i4bf16_rowwise_impl(
 
   int group_size = K / num_groups;
 
-  auto Y = at::empty(out_sizes, X.options().dtype(at::kBFloat16));
+  auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
 
   using ElementInputA = cutlass::bfloat16_t;
   using LayoutInputA = cutlass::layout::ColumnMajor;
@@ -1980,16 +1973,9 @@ at::Tensor f8i4bf16_rowwise_impl(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_zp) {
-  // XQ: M x K
-  // WQ: N x K
-  // output: M x N
-  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int M = XQ.size(0);
   int N = WQ.size(0);
-  int K = WQ.size(1);
-  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
-  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
-  auto out_sizes = XQ.sizes().vec();
-  out_sizes.back() = N;
+  int K = XQ.size(1);
 
   int num_groups = w_scale.size(0);
 
@@ -2002,7 +1988,7 @@ at::Tensor f8i4bf16_rowwise_impl(
 
   int group_size = K / num_groups;
 
-  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
+  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
 
   using ElementInputA = INPUT_DTYPE;
   using LayoutInputA = cutlass::layout::ColumnMajor;
