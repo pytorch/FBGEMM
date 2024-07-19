@@ -45,7 +45,7 @@ install_torchrec_pip () {
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     iopath \
     lightning-utilities \
-    pyre_extensions) || return 1
+    pyre-extensions) || return 1
 
   # Install the package from TorchRec PIP (not PyPI)
   install_from_pytorch_pip "${env_name}" torchrec "${torchrec_channel_version}" "${torchrec_variant_type_version}" || return 1
