@@ -529,13 +529,13 @@
     <span class="n">CTR_DECAY</span> <span class="o">=</span> <span class="mi">0</span>
 
 
-<span class="nd">@dataclass</span>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">TailIdThreshold</span><span class="p">:</span>
     <span class="n">val</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">is_ratio</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 
 
-<span class="nd">@dataclass</span>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">CounterBasedRegularizationDefinition</span><span class="p">:</span>
     <span class="n">counter_weight_decay_mode</span><span class="p">:</span> <span class="n">CounterWeightDecayMode</span> <span class="o">=</span> <span class="n">CounterWeightDecayMode</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">counter_halflife</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
@@ -547,7 +547,7 @@
     <span class="n">max_counter_update_freq</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1000</span>
 
 
-<span class="nd">@dataclass</span>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">CowClipDefinition</span><span class="p">:</span>
     <span class="n">counter_weight_decay_mode</span><span class="p">:</span> <span class="n">CounterWeightDecayMode</span> <span class="o">=</span> <span class="n">CounterWeightDecayMode</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">counter_halflife</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
