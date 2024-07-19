@@ -67,6 +67,12 @@ std::vector<Tensor> permute_multi_embedding_gpu(
     const std::vector<int64_t>& out_lengths,
     const bool& reverse_permute);
 
+std::tuple<std::vector<int32_t>, std::vector<int32_t>, std::vector<int32_t>>
+kt_regroup_arguments_impl(
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups);
+
 enum PermuteParam {
   in_tensor = 0,
   out_tensor = 1,
@@ -74,6 +80,7 @@ enum PermuteParam {
   out_offset = 3,
   length = 4,
   next = 5,
+  size = 6, // number of elements in PermuteParam excluding this size
 };
 
 } // namespace fbgemm_gpu
