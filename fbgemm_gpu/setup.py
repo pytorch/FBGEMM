@@ -220,7 +220,9 @@ class FbgemmGpuBuild:
                 gitversion.version_from_git().split("+")[0],
             )
 
-        full_version_string = f"{pkg_version}{pkg_vver}"
+        # full_version_string = f"{pkg_version}{pkg_vver}"
+        # full_version_string = f"0.7.1rc0.post127"
+        full_version_string = f"0.7.2"
         print(
             f"[SETUP.PY] Setting the full package version string: {full_version_string}"
         )

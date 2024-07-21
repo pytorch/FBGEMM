@@ -22,8 +22,8 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
-  ${THIRDPARTY}/json/include
-  ${NCCL_INCLUDE_DIRS})
+  ${THIRDPARTY}/json/include)
+  # ${NCCL_INCLUDE_DIRS})
 
 set(attention_ops_sources
     src/attention/attention.cpp
@@ -34,14 +34,14 @@ set(quantize_ops_sources
     src/quantize/quantize.cu
     src/quantize/quantize.cpp)
 
-set(comm_ops_sources
-    src/comm/car.cu
-    src/comm/car.cpp)
+  # set(comm_ops_sources
+  #     src/comm/car.cu
+  #     src/comm/car.cpp)
 
 set(experimental_gen_ai_cpp_source_files
-    ${attention_ops_sources}
     ${quantize_ops_sources}
-    ${comm_ops_sources})
+    ${attention_ops_sources})
+  # ${comm_ops_sources})
 
 set_source_files_properties(${experimental_gen_ai_cpp_source_files}
     PROPERTIES INCLUDE_DIRECTORIES
@@ -102,13 +102,25 @@ else()
 endif()
 
 target_include_directories(fbgemm_gpu_experimental_gen_ai_py PRIVATE
-  ${TORCH_INCLUDE_DIRS}
-  ${NCCL_INCLUDE_DIRS})
+  ${TORCH_INCLUDE_DIRS})
+# ${NCCL_INCLUDE_DIRS})
 
 target_link_libraries(fbgemm_gpu_experimental_gen_ai_py
   ${TORCH_LIBRARIES}
-  ${NCCL_LIBRARIES}
+  # ${NCCL_LIBRARIES}
   ${CUDA_DRIVER_LIBRARIES})
+
+# target_link_libraries(${GPU_MOD_NAME} PRIVATE torch ${torch_python_LIBRARY}
+#   ${GPU_LIBRARIES})
+# 
+#   # Don't use `TORCH_LIBRARIES` for CUDA since it pulls in a bunch of
+#   # dependencies that are not necessary and may not be installed.
+#   if (GPU_LANGUAGE STREQUAL "CUDA")
+#     target_link_libraries(${GPU_MOD_NAME} PRIVATE ${CUDA_CUDA_LIB}
+#       ${CUDA_LIBRARIES})
+#   else()
+#     target_link_libraries(${GPU_MOD_NAME} PRIVATE ${TORCH_LIBRARIES})
+#   endif()
 
 # Remove `lib` from the output artifact name
 set_target_properties(fbgemm_gpu_experimental_gen_ai_py PROPERTIES PREFIX "")
