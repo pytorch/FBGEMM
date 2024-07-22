@@ -23,6 +23,7 @@ if(USE_ROCM)
   list(APPEND HIP_HCC_FLAGS
     " \"-Wno-#pragma-messages\" "
     " \"-Wno-#warnings\" "
+    -fclang-abi-compat=17
     -Wno-cuda-compat
     -Wno-deprecated-declarations
     -Wno-format
