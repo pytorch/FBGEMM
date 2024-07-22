@@ -369,7 +369,7 @@ struct rowwise_adagrad_kernel_arg_t
     float eps;
     float learning_rate;
     float weight_decay;
-    // int64_t weight_decay_mode;
+    int64_t weight_decay_mode;
 };
 
 typedef struct
