@@ -1,5 +1,7 @@
 var searchData=
 [
-  ['is_5f16or32bit_0',['is_16or32bit',['../structis__16or32bit.html',1,'']]],
-  ['is_5f8bit_1',['is_8bit',['../structfbgemm_1_1is__8bit.html',1,'fbgemm']]]
+  ['gemmdescription_0',['GemmDescription',['../structcutlass__extensions_1_1_gemm_description.html',1,'cutlass_extensions']]],
+  ['gemmfunctionalkey_1',['GemmFunctionalKey',['../structcutlass__extensions_1_1_gemm_functional_key.html',1,'cutlass_extensions']]],
+  ['gemmfunctionalkeyhasher_2',['GemmFunctionalKeyHasher',['../structcutlass__extensions_1_1_gemm_functional_key_hasher.html',1,'cutlass_extensions']]],
+  ['gemmperformancekeyhasher_3',['GemmPerformanceKeyHasher',['../structcutlass__extensions_1_1_gemm_performance_key_hasher.html',1,'cutlass_extensions']]]
 ];

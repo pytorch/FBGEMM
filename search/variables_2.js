@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['g_0',['G',['../structfbgemm_1_1conv__param__t.html#ab8735735273b982cc3125e51fe46e2f4',1,'fbgemm::conv_param_t']]]
+  ['c_0',['C',['../structcutlass__extensions_1_1_gemm_description.html#afdcdcb32ed4e5d66c8f0dc81940591da',1,'cutlass_extensions::GemmDescription']]]
 ];

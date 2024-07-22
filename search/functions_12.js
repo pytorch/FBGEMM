@@ -1,9 +1,10 @@
 var searchData=
 [
-  ['takedepthwisefastpath_0',['takeDepthWiseFastPath',['../namespacefbgemm.html#a523727ffa987158ac9021cc0d9b97e0b',1,'fbgemm']]],
-  ['takepointwisefastpath_1',['takePointWiseFastPath',['../namespacefbgemm.html#affb3e7487c8a1c6c7d1549eb7090aee1',1,'fbgemm']]],
-  ['tostring_2',['toString',['../structfbgemm_1_1conv__param__t.html#a1fe5121d6528fdea3f243321b3fa3a49',1,'fbgemm::conv_param_t']]],
-  ['transpose_5f8rows_3',['transpose_8rows',['../namespacefbgemm.html#a9ee41553113b6cd89e0e336022acf250',1,'fbgemm']]],
-  ['transpose_5fref_4',['transpose_ref',['../namespacefbgemm.html#a18832d0507cb6d8bce78371b97f66479',1,'fbgemm']]],
-  ['transpose_5fsimd_5',['transpose_simd',['../namespacefbgemm.html#a75b4ad78ae16c6e6782f82e1ff4012a8',1,'fbgemm']]]
+  ['sparse_5fadagrad_5fref_0',['sparse_adagrad_ref',['../namespacefbgemm.html#a3f04df11e31dd656955d1bd1f8a7893d',1,'fbgemm']]],
+  ['sparsedensemm_1',['SparseDenseMM',['../namespacefbgemm.html#a1671cc912f6aa4bab678a0d255c8a690',1,'fbgemm']]],
+  ['spmdm_2',['SpMDM',['../classfbgemm_1_1_compressed_sparse_column.html#a9f8530a8442a8fd99bfe3896d0fff5de',1,'fbgemm::CompressedSparseColumn']]],
+  ['spmdm_5fref_3',['spmdm_ref',['../namespacefbgemm.html#a4f19d1389f9e99cc0daded599b1f1fd4',1,'fbgemm']]],
+  ['spmdmkernelavx2_4',['spmdmKernelAvx2',['../namespacefbgemm.html#a8b547effff25521017d20a5c4ddb8fcc',1,'fbgemm']]],
+  ['ssd_5fgenerate_5frow_5faddrs_5fcuda_5',['ssd_generate_row_addrs_cuda',['../group__embedding-ssd.html#ga6c17fd18abf27a7776661565e7f1e011',1,'ssd_generate_row_addrs_cuda(const Tensor &amp;lxu_cache_locations, const Tensor &amp;assigned_cache_slots, const Tensor &amp;linear_index_inverse_indices, const Tensor &amp;unique_indices_count_cumsum, const Tensor &amp;cache_set_inverse_indices, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights, const Tensor &amp;unique_indices_length, const Tensor &amp;cache_set_sorted_unique_indices):&#160;ssd_split_embeddings_cache_cuda.cu'],['../group__embedding-ssd.html#ga6c17fd18abf27a7776661565e7f1e011',1,'ssd_generate_row_addrs_cuda(const Tensor &amp;lxu_cache_locations, const Tensor &amp;assigned_cache_slots, const Tensor &amp;linear_index_inverse_indices, const Tensor &amp;unique_indices_count_cumsum, const Tensor &amp;cache_set_inverse_indices, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights, const Tensor &amp;unique_indices_length, const Tensor &amp;cache_set_sorted_unique_indices):&#160;ssd_split_embeddings_cache_cuda.cu']]],
+  ['storecregs_6',['storeCRegs',['../classfbgemm_1_1_code_gen_base.html#a01bcc02f063a515df6d7fda518ef1d12',1,'fbgemm::CodeGenBase::storeCRegs(x86::Emitter *a, int rowRegs, int colRegs, x86::Gp C_Offset, x86::Gp ldcReg, bool accum)'],['../classfbgemm_1_1_code_gen_base.html#a12a9f2428ed6fd0dd90c91fd4477e271',1,'fbgemm::CodeGenBase::storeCRegs(x86::Emitter *a, int rowRegs, int colRegs, x86::Gp C_Offset, x86::Gp ldcReg, bool accum)'],['../classfbgemm_1_1_code_gen_base.html#a87e3f3cd0d070bf371466f4c7521266d',1,'fbgemm::CodeGenBase::storeCRegs(x86::Emitter *a, int rowRegs, int colRegs, x86::Gp C_Offset, x86::Gp ldcReg, bool accum)'],['../classfbgemm_1_1_code_gen_base.html#a87e3f3cd0d070bf371466f4c7521266d',1,'fbgemm::CodeGenBase::storeCRegs(x86::Emitter *a, int rowRegs, int colRegs, x86::Gp C_Offset, x86::Gp ldcReg, bool accum)']]]
 ];

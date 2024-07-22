@@ -45,5 +45,6 @@ var searchData=
   ['fused8bitrowwisequantizedsbfloattofloatorhalfref_42',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a19217d3a8551a7b251ecb1eba79669bc',1,'fbgemm']]],
   ['fusednbitrowwisequantizedsbhalftofloatorhalf_43',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a2b2ca55a7d2d5c2dbba337ee2e585f6a',1,'fbgemm']]],
   ['fusednbitrowwisequantizedsbhalftofloatorhalfref_44',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#adee65a9c68614b76ffdf2b3bc11b4618',1,'fbgemm']]],
-  ['fusedquantizedequantize_45',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
+  ['fusedquantizedequantize_45',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]],
+  ['fusion_5fkind_46',['fusion_kind',['../structcutlass__extensions_1_1_gemm_description.html#a9b6b443f70358324abd956a8dc5e714b',1,'cutlass_extensions::GemmDescription']]]
 ];
