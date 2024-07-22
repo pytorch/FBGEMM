@@ -1059,34 +1059,66 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
   const inst_set_t isa = fbgemmInstructionSet();
 #endif
   if (no_bag == true) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const inType* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDM_ref(
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          no_bag,
-          is_bf16_out,
-          is_bf16_in);
-    };
+    if (std::is_same<inType, uint8_t>::value && !is_autovec_disabled()) {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const inType* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        const uint8_t* input_u8 = reinterpret_cast<const uint8_t*>(input);
+        return EmbeddingSpMDM8Bit_autovec(
+            block_size,
+            output_size,
+            index_size,
+            data_size,
+            input_u8,
+            indices,
+            offsets_or_lengths,
+            weights,
+            normalize_by_lengths,
+            out,
+            is_weight_positional,
+            use_offsets,
+            output_stride,
+            input_stride,
+            scale_bias_last,
+            no_bag,
+            is_bf16_out);
+      };
+
+    } else {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const inType* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return EmbeddingSpMDM_ref(
+            block_size,
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            normalize_by_lengths,
+            out,
+            is_weight_positional,
+            use_offsets,
+            output_stride,
+            input_stride,
+            scale_bias_last,
+            no_bag,
+            is_bf16_out,
+            is_bf16_in);
+      };
+    }
   }
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
