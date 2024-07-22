@@ -10,6 +10,7 @@
 #   * https://github.com/nod-ai/SHARK/issues/2095
 #   * https://github.com/jianyicheng/mase-docker/pull/9
 
+backports.tarfile
 build
 cmake
 hypothesis
