@@ -445,3 +445,41 @@ class FP8CutlassBlockwiseGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+# CUTLASS kernel v2
+@register_quantize_op
+class CutlassFP8TensorwiseGemm_v2(QuantizeOpBase):
+    """
+    FP8 matmul with tensorwise scaling.
+    """
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f8f8bf16_v2(xq, wq, x_scale * w_scale)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_tensorwise_v2"
+
+    @property
+    def hip(self) -> bool:
+        # Need to add support for better quantize kernel.
+        # Also may have an issue with cuda graphs.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+##################################################################################
