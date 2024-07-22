@@ -116,6 +116,14 @@ at::Tensor get_fp8_per_tensor_scale(
     std::optional<at::Tensor> bs,
     std::optional<at::Tensor> scale_ub); // scale upperbound
 
+#ifndef USE_ROCM
+std::vector<at::Tensor> quantize_nvfp4_per_tensor(
+    at::Tensor input,
+    std::optional<at::Tensor> static_scales,
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub); // scale upperbound
+#endif
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 #ifndef USE_ROCM
   // TODO: on AMD this throws "Undefined symbol" when loading
@@ -140,6 +148,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor");
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
+  m.def(
+      "quantize_nvfp4_per_tensor(Tensor input, Tensor? static_scales=None, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]");
+  m.impl("quantize_nvfp4_per_tensor", quantize_nvfp4_per_tensor);
 #endif
   m.def(
       "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=256, int block_n=256, int block_k=256) -> Tensor");
