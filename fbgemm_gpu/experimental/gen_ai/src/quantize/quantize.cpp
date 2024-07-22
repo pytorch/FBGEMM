@@ -62,9 +62,9 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    int64_t block_m = 256,
-    int64_t block_n = 256,
-    int64_t block_k = 256);
+    int64_t block_m = 128,
+    int64_t block_n = 128,
+    int64_t block_k = 128);
 at::Tensor f8f8bf16_cublas(
     at::Tensor A,
     at::Tensor B,
@@ -142,7 +142,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
 #endif
   m.def(
-      "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=256, int block_n=256, int block_k=256) -> Tensor");
+      "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor");
   m.def(
       "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
@@ -221,9 +221,9 @@ at::Tensor f8f8bf16_blockwise_meta(
     at::Tensor WQ, // FP8
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
-    int64_t /* block_m = 256*/,
-    int64_t /* block_n = 256*/,
-    int64_t /* block_k = 256*/) {
+    int64_t /* block_m = 128*/,
+    int64_t /* block_n = 128*/,
+    int64_t /* block_k = 128*/) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));

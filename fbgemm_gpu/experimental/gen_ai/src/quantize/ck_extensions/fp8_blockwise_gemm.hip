@@ -56,10 +56,7 @@ at::Tensor f8f8bf16_blockwise_impl(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale,
-    int64_t block_m,
-    int64_t block_n,
-    int64_t block_k) {
+    at::Tensor w_scale) {
   // Check that inputs are valid.
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
@@ -76,10 +73,10 @@ at::Tensor f8f8bf16_blockwise_impl(
   int StrideB = K;
   int StrideE = N;
 
-  int ScaleStrideAM = K / block_k;
-  int ScaleStrideAK = 1;
-  int ScaleStrideBN = K / block_k;
-  int ScaleStrideBK = 1;
+  // Only block_size = 128 is supported.
+  static constexpr ck::index_t Scale_Block_M = 128;
+  static constexpr ck::index_t Scale_Block_N = 128;
+  static constexpr ck::index_t Scale_Block_K = 128;
 
   using ADataType = ck::f8_t;
   using AScaleDataType = float;
@@ -131,6 +128,9 @@ at::Tensor f8f8bf16_blockwise_impl(
           CDEElementOp,
           GemmSpec,
           BLOCK_SIZE,
+          Scale_Block_M,
+          Scale_Block_N,
+          Scale_Block_K,
           MBLOCK,
           NBLOCK,
           KBLOCK,
@@ -184,13 +184,6 @@ at::Tensor f8f8bf16_blockwise_impl(
       StrideE,
       reinterpret_cast<AScaleDataType*>(x_scale.data_ptr()),
       reinterpret_cast<BScaleDataType*>(w_scale.data_ptr()),
-      block_m,
-      block_n,
-      block_k,
-      ScaleStrideAM,
-      ScaleStrideAK,
-      ScaleStrideBN,
-      ScaleStrideBK,
       a_element_op,
       b_element_op,
       cde_element_op);
@@ -238,9 +231,9 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    int64_t block_m = 256,
-    int64_t block_n = 256,
-    int64_t block_k = 256) {
+    int64_t block_m = 128,
+    int64_t block_n = 128,
+    int64_t block_k = 128) {
   // Check that input datatypes are valid.
   TORCH_CHECK(
       (XQ.dtype() == at::kFloat8_e4m3fnuz) &&
@@ -249,28 +242,31 @@ at::Tensor f8f8bf16_blockwise(
   TORCH_CHECK(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");
+  TORCH_CHECK(
+      (block_m == 128 && block_n == 128 && block_k == 128),
+      "Only block_size = 128 is supported.");
   auto [kernel, pad] = get_block_kernel_mode(XQ, WQ);
   if (pad) {
     if (kernel == BlockKernelMode::Small) {
       return f8f8bf16_blockwise_impl<128, 32, 128, 128, 1, 2, true>(
-          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+          XQ, WQ, x_scale, w_scale);
     } else if (kernel == BlockKernelMode::Large) {
       return f8f8bf16_blockwise_impl<256, 256, 128, 64, 4, 2, true>(
-          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+          XQ, WQ, x_scale, w_scale);
     } else {
       return f8f8bf16_blockwise_impl<256, 128, 128, 64, 2, 2, true>(
-          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+          XQ, WQ, x_scale, w_scale);
     }
   } else {
     if (kernel == BlockKernelMode::Small) {
       return f8f8bf16_blockwise_impl<128, 32, 128, 128, 1, 2, true>(
-          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+          XQ, WQ, x_scale, w_scale);
     } else if (kernel == BlockKernelMode::Large) {
       return f8f8bf16_blockwise_impl<256, 256, 128, 64, 4, 2, false>(
-          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+          XQ, WQ, x_scale, w_scale);
     } else {
       return f8f8bf16_blockwise_impl<256, 128, 128, 64, 2, 2, false>(
-          XQ, WQ, x_scale, w_scale, block_m, block_n, block_k);
+          XQ, WQ, x_scale, w_scale);
     }
   }
 }
