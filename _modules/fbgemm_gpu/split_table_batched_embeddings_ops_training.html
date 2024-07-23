@@ -934,6 +934,7 @@
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">=</span> <span class="n">pooling_mode</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">=</span> <span class="n">weights_precision</span>
@@ -1489,6 +1490,22 @@
         <span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Given list of all table names in the TBE, generate a string to represent</span>
+<span class="sd">        them in logging. If there&#39;s more than one table, this method will count</span>
+<span class="sd">        them than list them.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">table_names</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;&lt;Unknown&gt;&quot;</span>
+        <span class="c1"># Do this because sometimes multiple shards of the same table could appear</span>
+        <span class="c1"># in one TBE.</span>
+        <span class="n">table_name_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">))</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span><span class="si">}</span><span class="s2"> tables&gt;&quot;</span>
+
+    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">get_prefetch_passes</span><span class="p">(</span>
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">],</span>
         <span class="n">input_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1574,7 +1591,13 @@
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span>
         <span class="p">),</span> <span class="s2">&quot;We should not be here. AsyncTimer only happens with reporter present.&quot;</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_duration</span><span class="p">(</span><span class="n">it_step</span><span class="p">,</span> <span class="n">event_name</span><span class="p">,</span> <span class="n">dur_ms</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_duration</span><span class="p">(</span>
+            <span class="n">iteration_step</span><span class="o">=</span><span class="n">it_step</span><span class="p">,</span>
+            <span class="n">event_name</span><span class="o">=</span><span class="n">event_name</span><span class="p">,</span>
+            <span class="n">duration_ms</span><span class="o">=</span><span class="n">dur_ms</span><span class="p">,</span>
+            <span class="n">embedding_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">,</span>
+            <span class="n">tbe_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
+        <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">_report_tbe_mem_usage</span><span class="p">(</span>
@@ -1607,11 +1630,15 @@
             <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
             <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.total_hbm_usage&quot;</span><span class="p">,</span>
             <span class="n">data_bytes</span><span class="o">=</span><span class="n">total_hbm_usage</span><span class="p">,</span>
+            <span class="n">embedding_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">,</span>
+            <span class="n">tbe_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
             <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
             <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;tbe.total_uvm_usage&quot;</span><span class="p">,</span>
             <span class="n">data_bytes</span><span class="o">=</span><span class="n">total_uvm_usage</span><span class="p">,</span>
+            <span class="n">embedding_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">,</span>
+            <span class="n">tbe_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
@@ -1624,11 +1651,15 @@
                 <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
                 <span class="n">event_name</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;tbe.</span><span class="si">{</span><span class="n">event</span><span class="si">}</span><span class="s2">_size&quot;</span><span class="p">,</span>
                 <span class="n">data_bytes</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span> <span class="o">*</span> <span class="n">data</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
+                <span class="n">embedding_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">,</span>
+                <span class="n">tbe_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
                 <span class="n">iteration_step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
                 <span class="n">event_name</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;tbe.</span><span class="si">{</span><span class="n">event</span><span class="si">}</span><span class="s2">_count&quot;</span><span class="p">,</span>
                 <span class="n">data_bytes</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">numel</span><span class="p">(),</span>
+                <span class="n">embedding_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">,</span>
+                <span class="n">tbe_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">data</span>
 
@@ -1998,6 +2029,8 @@
                     <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_D_cache</span>
                     <span class="o">/</span> <span class="n">passed_steps</span>
                 <span class="p">),</span>
+                <span class="n">embedding_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">,</span>
+                <span class="n">tbe_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
             <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">prefetch</span><span class="p">(</span>
