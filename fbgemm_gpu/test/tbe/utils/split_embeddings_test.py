@@ -159,6 +159,38 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         _do_test(True)
         _do_test(False)
 
+    def test_get_table_name_for_logging(self) -> None:
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(None),
+            "<Unknown>",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(["t1"]),
+            "t1",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
+                ["t1", "t1"]
+            ),
+            "t1",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
+                ["t1", "t2"]
+            ),
+            "<2 tables>",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
+                ["t1", "t2", "t1"]
+            ),
+            "<2 tables>",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging([]),
+            "<0 tables>",
+        )
+
     @unittest.skipIf(*gpu_unavailable)
     @given(N=st.integers(min_value=1, max_value=2))
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
