@@ -96,6 +96,7 @@ class WeightDecayMode(enum.IntEnum):
     DECOUPLE = 2
     COUNTER = 3
     COWCLIP = 4
+    DECOUPLE_GLOBAL = 5
 
 
 class CounterWeightDecayMode(enum.IntEnum):
@@ -139,6 +140,12 @@ class CowClipDefinition:
     counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE
     counter_halflife: int = -1
     weight_norm_coefficient: float = 0.0
+    lower_bound: float = 0.0
+
+
+@dataclass
+class GlobalWeightDecayDefinition:
+    start_iter: int = 0
     lower_bound: float = 0.0
 
 
@@ -518,6 +525,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         table_names: Optional[List[str]] = None,
         optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
         multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
+        # Global weight decay params
+        global_weight_decay: Optional[GlobalWeightDecayDefinition] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
@@ -792,6 +801,30 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
+        if weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL and (
+            not optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            or global_weight_decay is None
+        ):
+            raise AssertionError(
+                """weight_decay_mode=WeightDecayMode.DECOUPLE_GLOBAL is supported for
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD and global_weight_decay cannot be None.
+                """
+            )
+
+        self._used_rowwise_adagrad_with_global_weight_decay: bool = (
+            optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            and (weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL)
+        )
+        logging.info(
+            f"Using global weight decay = {self._used_rowwise_adagrad_with_global_weight_decay}"
+        )
+        # Declare GWD params here to avoid torch.jit.script error
+        if global_weight_decay is None:
+            global_weight_decay = GlobalWeightDecayDefinition()
+
+        self.gwd_start_iter: int = global_weight_decay.start_iter
+        self.gwd_lower_bound: float = global_weight_decay.lower_bound
+
         if counter_based_regularization is None:
             counter_based_regularization = CounterBasedRegularizationDefinition()
         if cowclip_regularization is None:
@@ -950,6 +983,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
                 self.register_buffer(
                     "max_counter", torch.tensor([1], dtype=torch.float32)
+                )
+            elif self._used_rowwise_adagrad_with_global_weight_decay:
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=True,
+                        cacheable=False,
+                    ),
+                    prefix="prev_iter",
+                    # TODO: ideally we should use int64 to track iter but it failed to compile.
+                    # It may be related to low precision training code. Currently using float32
+                    # as a workaround while investigating the issue.
+                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
+                    #  but got `Type[torch.float32]`.
+                    dtype=torch.float32,
+                )
+                self._register_nonpersistent_buffers("row_counter")
+                self.register_buffer(
+                    "max_counter",
+                    torch.ones(1, dtype=torch.float32, device=self.current_device),
+                    persistent=False,
                 )
             else:
                 self._register_nonpersistent_buffers("prev_iter")
@@ -1506,16 +1560,33 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         momentum1,
                         prev_iter,
                         row_counter,
-                        # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                        self.iter.item(),
+                        int(
+                            self.iter.item()
+                        ),  # Cast to int to suppress pyre type error
                         self.max_counter.item(),
+                    ),
+                )
+            elif self._used_rowwise_adagrad_with_global_weight_decay:
+                apply_global_weight_decay = self.step >= self.gwd_start_iter
+                return self._report_io_size_count(
+                    "fwd_output",
+                    invokers.lookup_rowwise_adagrad.invoke(
+                        common_args,
+                        self.optimizer_args,
+                        momentum1,
+                        iter=int(self.iter.item()),
+                        apply_global_weight_decay=apply_global_weight_decay,
+                        prev_iter_dev=self.prev_iter_dev,
+                        gwd_lower_bound=self.gwd_lower_bound,
                     ),
                 )
             else:
                 return self._report_io_size_count(
                     "fwd_output",
                     invokers.lookup_rowwise_adagrad.invoke(
-                        common_args, self.optimizer_args, momentum1
+                        common_args,
+                        self.optimizer_args,
+                        momentum1,
                     ),
                 )
 

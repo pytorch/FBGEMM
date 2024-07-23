@@ -681,9 +681,11 @@ class {{ autograd_func }} :
         /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %}
+
     {%- if is_gwd %}
     const auto prev_iter_dev_ = prev_iter_dev.value_or(Tensor());
     {%- endif %}
+
     ctx->save_for_backward({
         dev_weights,
         {%- if not dense %}

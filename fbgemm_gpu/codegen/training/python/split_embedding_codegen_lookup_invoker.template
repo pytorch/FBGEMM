@@ -63,6 +63,15 @@ def invoke(
     {%- if "total_unique_indices" in args.split_function_arg_names %}
     total_unique_indices: int,
     {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    iter: int = 0,
+    {%- endif %}
+    apply_global_weight_decay: bool = False,
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    # only pass prev_iter_dev since prev_iter is never created on UVM
+    prev_iter_dev: Optional[torch.Tensor] = None,
+    {%- endif %}
+    gwd_lower_bound: float = 0.0,
 ) -> torch.Tensor:
     {%- if is_experimental_optimizer %}
     # By design, the warning only shows up once
@@ -362,6 +371,9 @@ def invoke(
         prev_iter_uvm=prev_iter.uvm,
         prev_iter_offsets=prev_iter.offsets,
         prev_iter_placements=prev_iter.placements,
+        {%- else %}
+        {# // explicitly pass only prev_iter_dev for global weight decay #}
+        prev_iter_dev=prev_iter_dev,
         {%- endif %}
         # row_counter
         {%- if "row_counter_dev" in args.split_function_arg_names %}
@@ -371,9 +383,7 @@ def invoke(
         row_counter_placements=row_counter.placements,
         {%- endif %}
         # iter
-        {%- if "iter" in args.split_function_arg_names %}
         iter=iter,
-        {%- endif %}
         # max counter
         {%- if "max_counter" in args.split_function_arg_names %}
         max_counter=max_counter,
@@ -386,5 +396,7 @@ def invoke(
         is_experimental=common_args.is_experimental,
         use_uniq_cache_locations_bwd=common_args.use_uniq_cache_locations_bwd,
         use_homogeneous_placements=common_args.use_homogeneous_placements,
+        apply_global_weight_decay=apply_global_weight_decay,
+        gwd_lower_bound=gwd_lower_bound,
     )
     {%- endif %}
