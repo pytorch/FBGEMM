@@ -139,7 +139,7 @@ class SplitEmbedding{{ optimizer_class_name }}(Optimizer):
                     rowwise = False
                     {% endif %}
                     {% elif state_tensor == "momentum2" %}
-                    {% if optimizer in ["partial_rowwise_adam", "partial_rowwise_lamb"] %}
+                    {% if optimizer in ["partial_rowwise_adam", "partial_rowwise_lamb", "ensemble_rowwise_adagrad"] %}
                     rowwise = True
                     {% else %}
                     rowwise = False

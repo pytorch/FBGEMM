@@ -1017,6 +1017,105 @@ def adam() -> Dict[str, Any]:
     }
 
 
+def ensemble_rowwise_adagrad() -> Dict[str, Any]:
+    split_precomputation = """
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
+    """
+    split_precomputation += generate_optimized_grad_sum_loop_access(
+        """
+        const float4* grad = &{grad_vec}.acc;
+        auto gx = grad->x;
+        auto gy = grad->y;
+        auto gz = grad->z;
+        auto gw = grad->w;
+        g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+    """
+    )
+    split_precomputation += """
+    const at::acc_type<cache_t, true> g_avg_square =
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
+
+    at::acc_type<cache_t, true> multiplier;
+    at::acc_type<cache_t, true> correction;
+    at::acc_type<cache_t, true> slow;
+    at::acc_type<cache_t, true> fast;
+    if (threadIdx.x == 0) {
+        at::acc_type<cache_t, true> new_sum_square_grads = momentum2[idx] + g_avg_square;
+        momentum2[idx] = new_sum_square_grads;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        correction = 1.0 - (learning_rate * weight_decay);
+        slow = floorf(iter * beta1) - floorf((iter-1.0) * beta1);
+        fast = floorf(iter * beta2) - floorf((iter-1.0) * beta2);
+    }    
+    multiplier = SHFL_SYNC(multiplier, 0);
+    correction = SHFL_SYNC(correction, 0);
+    slow = SHFL_SYNC(slow, 0);
+    fast = SHFL_SYNC(fast, 0);
+    """
+
+    split_weight_update = """
+        if  (slow > 0.5) {
+            Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
+            m_t.acc.x = (1.0 - eta) * weight_new.acc.x + eta * m_t.acc.x;
+            m_t.acc.y = (1.0 - eta) * weight_new.acc.y + eta * m_t.acc.y;
+            m_t.acc.z = (1.0 - eta) * weight_new.acc.z + eta * m_t.acc.z;   
+            m_t.acc.w = (1.0 - eta) * weight_new.acc.w + eta * m_t.acc.w;
+            m_t.store(&momentum1[idx * D + d]);
+        }
+
+        if (fast > 0.5) {
+            Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
+            weight_new.acc.x = correction * weight_new.acc.x + (1.0 - correction) * m_t.acc.x;
+            weight_new.acc.y = correction * weight_new.acc.y + (1.0 - correction) * m_t.acc.y;
+            weight_new.acc.z = correction * weight_new.acc.z + (1.0 - correction) * m_t.acc.z;
+            weight_new.acc.w = correction * weight_new.acc.w + (1.0 - correction) * m_t.acc.w;
+        }
+
+        weight_new.acc.x = weight_new.acc.x - multiplier * grad.acc.x;
+        weight_new.acc.y = weight_new.acc.y - multiplier * grad.acc.y;
+        weight_new.acc.z = weight_new.acc.z - multiplier * grad.acc.z;
+        weight_new.acc.w = weight_new.acc.w - multiplier * grad.acc.w;
+    """
+
+    split_weight_update_cpu = ""  # TODO
+
+    return {
+        "optimizer": "ensemble_rowwise_adagrad",
+        "args": OptimizerArgsSet.create(
+            [
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum1",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum2",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(ArgType.TENSOR, "prev_iter"),
+                OptimItem(ArgType.TENSOR, "row_counter"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "beta1"),
+                OptimItem(ArgType.FLOAT, "beta2"),
+                OptimItem(ArgType.FLOAT, "weight_decay"),
+                OptimItem(ArgType.FLOAT, "eta"),
+                OptimItem(ArgType.INT, "iter"),
+            ]
+        ),
+        "split_precomputation": split_precomputation,
+        "split_weight_update": split_weight_update,
+        "split_post_update": "",
+        "split_weight_update_cpu": split_weight_update_cpu,
+        "has_cpu_support": False,
+        "has_gpu_support": True,
+        "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
+    }
+
+
 def partial_rowwise_adam() -> Dict[str, Any]:
     split_precomputation = """
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
