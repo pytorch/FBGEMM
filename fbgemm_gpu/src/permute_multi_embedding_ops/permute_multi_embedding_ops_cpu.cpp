@@ -316,6 +316,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_AUTOGRAD(
       "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding);
 
+  // dispath the main function to CPU for external usage
+  DISPATCH_TO_CPU(
+      "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding);
+
   // dispath the main function to Autograd for external usage
   DISPATCH_TO_CUDA(
       "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding);
@@ -323,6 +327,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // dispath the main function to Autograd for external usage
   DISPATCH_TO_AUTOGRAD(
       "regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor);
+
+  // dispath the main function to CPU for external usage
+  DISPATCH_TO_CPU("regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor);
 
   // dispath the main function to Autograd for external usage
   DISPATCH_TO_CUDA("regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor);
