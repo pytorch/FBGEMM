@@ -134,7 +134,10 @@ def _run_allreduce_inner(path: str) -> None:
         def round_up(a: int, b: int) -> int:
             return int(math.ceil(a / b)) * b
 
-        N = round_up(N, 256)
+        N_even_divisor = 8 * 64 if torch.version.hip else 8 * 32
+        N = round_up(N, N_even_divisor)
+        if rank == 0:
+            logger.info(f"N: {N}")
         y = torch.zeros(size=(N,), dtype=torch.bfloat16, device="cuda")
         y[:] = rank
         y_allreduce = torch.empty_like(y)
@@ -229,9 +232,10 @@ def _run_oneshot_car_stress_inner(path: str) -> None:
         def round_up(a: int, b: int) -> int:
             return int(math.ceil(a / b)) * b
 
-        N = round_up(N, 256)
+        N_even_divisor = 8 * 64 if torch.version.hip else 8 * 32
+        N = round_up(N, N_even_divisor)
         if rank == 0:
-            print(f"N: {N}")
+            logger.info(f"N: {N}")
         for iterId in range(ITER):
             y = torch.zeros(size=(N,), dtype=torch.bfloat16, device="cuda")
             y[:] = rank + idx + iterId
