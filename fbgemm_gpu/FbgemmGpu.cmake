@@ -60,6 +60,7 @@ set(GPU_ONLY_OPTIMIZERS
     lamb
     partial_rowwise_adam
     partial_rowwise_lamb
+    ensemble_rowwise_adagrad
     lars_sgd
     none
     rowwise_adagrad_with_counter)
