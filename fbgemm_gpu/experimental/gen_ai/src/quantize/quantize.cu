@@ -52,6 +52,9 @@
 
 /// @defgroup FP8/INT8 quantized FC Operators
 ///
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <math.h>
 
 namespace fbgemm_gpu {
 
@@ -1323,6 +1326,381 @@ std::vector<at::Tensor> quantize_fp8_per_col(
       input.size(-1),
       stream);
 
+  return std::vector<at::Tensor>{quantized_input, scales};
+}
+
+#ifdef __CUDA_ARCH__
+#define CONSTANT __constant__
+#else
+#define CONSTANT static
+#endif
+CONSTANT float e2m1_table_values[8] = {0, 0.5, 1, 1.5, 2, 3, 4, 6};
+CONSTANT float e2m1_table_bounds[7] = {0.25, 0.75, 1.25, 1.75, 2.5, 3.5, 5};
+
+__device__ __host__ __inline__ float quantize_amax_e4m3(const float x) {
+  return static_cast<float>(static_cast<__nv_fp8_e4m3>(x));
+}
+
+// Compute scaling factor.
+__device__ __host__ __inline__ void
+compute_scale(float& scale, float& inv_scale, const float amax) {
+  if (amax == 0 || isinf(amax) || isnan(amax)) {
+    scale = 1.f;
+    inv_scale = 1.f;
+  } else {
+    const float emax = 6.f; // maxbound for E2M1 quantized block elements
+    scale = emax / amax;
+    inv_scale = quantize_amax_e4m3(1. / scale);
+    scale = 1. / inv_scale;
+  }
+}
+
+__device__ __host__ __inline__ void compute_scale_with_global(
+    float& scale,
+    float& inv_scale,
+    const float global_amax,
+    const float local_amax) {
+  bool local_amax_invalid =
+      local_amax == 0 || isinf(local_amax) || isnan(local_amax);
+  bool global_amax_invalid =
+      global_amax == 0 || isinf(global_amax) || isnan(global_amax);
+  if (local_amax_invalid || global_amax_invalid) {
+    scale = 1.f;
+    inv_scale = 1.f;
+  } else {
+    const float elem_format_max =
+        6.f; // maxbound for E2M1 quantized block elements
+    const float scale_format_max =
+        448.f; // maxbound for E4M3 quantized block scale
+
+    const float local_unscale = local_amax / elem_format_max;
+    // Note: if elem_format_max / global_amax > 1 and scale_format_max
+    // is close to FLT_MAX, we can overflow here, WAR is to just do these
+    // few calculations in double.
+    const double two_level_scale =
+        static_cast<double>(scale_format_max) * (elem_format_max / global_amax);
+
+    const double local_unscale_q = quantize_amax_e4m3(static_cast<float>(
+                                       local_unscale * two_level_scale)) /
+        two_level_scale;
+    scale = 1. / local_unscale_q;
+    inv_scale = static_cast<float>(local_unscale_q);
+  }
+}
+
+template <int THREAD_X, int THREAD_Y = 4>
+__device__ float compute_max_block(
+    const float x,
+    const int block_size,
+    const float clamp = FLT_MAX) {
+  float xabs = fabsf(x);
+  xabs = (xabs > clamp) ? clamp : xabs;
+
+  typedef cub::BlockReduce<float, THREAD_X> BlockReduce;
+
+  __shared__ typename BlockReduce::TempStorage temp_storage[THREAD_Y];
+
+  float amax = BlockReduce(temp_storage[threadIdx.y]).Reduce(xabs, cub::Max());
+
+  __shared__ float amax_smem[THREAD_Y];
+  if (threadIdx.x == 0)
+    amax_smem[threadIdx.y] = amax;
+
+  __syncthreads();
+
+  return amax_smem[threadIdx.y];
+}
+
+template <int THREAD_Y>
+__device__ float compute_max_warp(
+    const float x,
+    const int block_size,
+    const float clamp = FLT_MAX) {
+  float xabs = fabsf(x);
+  xabs = (xabs > clamp) ? clamp : xabs;
+
+  typedef cub::WarpReduce<float> WarpReduce;
+  __shared__ typename WarpReduce::TempStorage temp_storage[THREAD_Y];
+
+  float amax = WarpReduce(temp_storage[threadIdx.y]).Reduce(xabs, cub::Max());
+  amax = __shfl_sync(0xffffffff, amax, 0);
+  return amax;
+}
+
+template <int THREAD_X, int THREAD_Y>
+__device__ float
+compute_max(const float x, const int block_size, const float clamp = FLT_MAX) {
+  if (THREAD_X == 32) {
+    return compute_max_warp<THREAD_Y>(x, block_size, clamp);
+  } else {
+    return compute_max_block<THREAD_X, THREAD_Y>(x, block_size, clamp);
+  }
+}
+
+// Rounding function. Round to nearest, ties to even
+__device__ __host__ __inline__ float
+round_to_even(float x, const float* values, const float* bounds, int n) {
+  // Within current bounds.
+  for (int i = 0; i < n - 1; i++) {
+    // If less than tie, round down
+    if (x < bounds[i]) {
+      return values[i];
+    }
+    // If equals to tie, round to representable value that has 0 in lsb of
+    // the mantissa
+    if (x == bounds[i]) {
+      // Since lsb alternates between 0 and 1, we can round down
+      // if the index is even, and round up if the index is odd
+      if (i % 2 == 0) {
+        return values[i];
+      } else
+        return values[i + 1];
+    }
+  }
+  // Max bounds.
+  return values[n - 1];
+}
+
+// Encoding function.
+// (1) Saturate when x > maxnorm (no infs or nans).
+// (2) Rounding.
+__device__ __host__ __inline__ float
+encode(float x, const int n, const float* values, const float* bounds) {
+  float sign;
+  if (x < 0.f) {
+    sign = -1.f;
+    x = -x;
+  } else {
+    sign = 1.f;
+  }
+  // Encoding table for 4-bit formats.
+  // Saturate infs and nans.
+  if (isinf(x) || isnan(x)) {
+    return sign * values[n - 1];
+  }
+
+  // Round.
+  float value = round_to_even(x, values, bounds, n);
+
+  return value * sign;
+}
+
+static __device__ __host__ __inline__ float
+quantize(const float x, const float scale, const float unscale) {
+  //  Get the sign.
+  int sign;
+  if (x < 0.0) {
+    sign = -1;
+  }
+  if (x > 0.0) {
+    sign = 1;
+  }
+  // Absolute value of x.
+  float xabs = fabsf(x);
+  // Scale.
+  xabs = xabs * scale;
+  // Quantize.
+  xabs = encode(xabs, 8, e2m1_table_values, e2m1_table_bounds);
+  // Unscale.
+  xabs = xabs * unscale;
+
+  // Apply sign.
+  return sign * xabs;
+}
+
+template <typename T, int THREAD_X, int THREAD_Y>
+__global__ void compute_amax_and_quantize_kernel(
+    const T* x,
+    T* y,
+    const int64_t n,
+    const int blocksize,
+    const float* global_amax = nullptr) {
+  // map thread -> element
+  const uint64_t block_idx = (uint64_t)blockIdx.x * blockDim.y;
+  const int thread_id = threadIdx.x;
+  const int warp_id = threadIdx.y;
+  const int64_t idx = (block_idx + warp_id) * blocksize + thread_id;
+
+  if (idx >= n)
+    return;
+
+  float scale = 1.f, unscale = 1.f;
+
+  float thread_val = x[idx];
+  float block_amax = compute_max<THREAD_X, THREAD_Y>(thread_val, blocksize);
+
+  if (global_amax) {
+    float global_amax_val = global_amax[0];
+    compute_scale_with_global(scale, unscale, global_amax_val, block_amax);
+  } else {
+    compute_scale(scale, unscale, block_amax);
+  }
+
+  y[idx] = quantize(thread_val, scale, unscale);
+}
+
+int ceil_div(const int a, const int b) {
+  return (a + b - 1) / b;
+}
+
+void fp4_fused_amax_quantize(
+    __nv_bfloat16* const y,
+    float const* const global_amax_ptr,
+    __nv_bfloat16 const* const x,
+    const int64_t numel,
+    const int blocksize,
+    const cudaStream_t stream) {
+  const int blocks_per_cta = 4;
+
+  const dim3 block(blocksize, blocks_per_cta);
+  const int blocks = ceil_div(numel, blocksize * blocks_per_cta);
+
+  compute_amax_and_quantize_kernel<__nv_bfloat16, 16, 4>
+      <<<blocks, block, 0, stream>>>(x, y, numel, blocksize, global_amax_ptr);
+
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+template <typename T_S, typename T_W>
+__global__ void computeFP4GlobalAmax(
+    T_S* const quant_ptr,
+    const T_W* const weights,
+    const int64_t size,
+    const int64_t n,
+    const int64_t total_elements_per_slice,
+    const int64_t* bs,
+    const float* scale_ub) {
+  float max = 0.f;
+  int64_t numel_scale = size;
+  if (total_elements_per_slice != -1 && bs != nullptr) {
+    numel_scale = size / total_elements_per_slice * (*bs);
+  }
+  for (int64_t i = threadIdx.x + blockIdx.x * blockDim.x; i < numel_scale;
+       i += (size_t)gridDim.x * blockDim.x) {
+    auto val = fabs(static_cast<float>(weights[i]));
+    max = max > val ? max : val;
+  }
+  max = blockReduceMax<float>(max);
+  if (threadIdx.x == 0) {
+    auto bounded_max = max;
+    if (scale_ub != nullptr) {
+      bounded_max = std::min(max, *scale_ub);
+    }
+
+    atomicMaxExtd(quant_ptr, bounded_max);
+  }
+}
+
+template <typename T_S, typename T_IN>
+void invokeComputeFP4GlobalAmax(
+    T_S* const quant_ptr,
+    const T_IN* const input,
+    const int64_t numel,
+    const int64_t lda,
+    const int64_t total_elements_per_slice,
+    const int64_t* bs,
+    const float* scale_ub,
+    const cudaStream_t stream) {
+  constexpr dim3 block(1024);
+  constexpr dim3 grid(1024);
+  int64_t numel_scale = numel;
+  C10_CUDA_CHECK(cudaMemsetAsync(quant_ptr, 0, sizeof(T_S), stream));
+  computeFP4GlobalAmax<<<grid, block, 0, stream>>>(
+      quant_ptr,
+      input,
+      numel_scale,
+      lda,
+      total_elements_per_slice,
+      bs,
+      scale_ub);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+std::vector<at::Tensor> quantize_nvfp4_per_tensor(
+    at::Tensor input,
+    c10::optional<at::Tensor> static_scales, // static scale is optional
+    c10::optional<at::Tensor> bs, // batch size
+    c10::optional<at::Tensor> scale_ub) // scale upperbound)
+{
+  TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
+  TORCH_CHECK(
+      input.dim() >= 2,
+      "Invalid dim. The dim of input should be greater than or equal to 2");
+  auto _st = input.scalar_type();
+  TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
+  std::vector<long int> quantized_input_shape;
+  quantized_input_shape.reserve(input.dim());
+  for (int i = 0; i < input.dim(); i++) {
+    quantized_input_shape.push_back(input.size(i));
+  }
+  std::vector<long int> scale_shape = {1};
+  input = input.cuda();
+  at::Tensor quantized_input = torch::empty(
+      quantized_input_shape,
+      torch::dtype(torch::kBFloat16)
+          .device(torch::kCUDA, at::cuda::current_device())
+          .requires_grad(false));
+  at::Tensor scales;
+  if (!static_scales.has_value()) {
+    scales = torch::empty(
+        scale_shape,
+        torch::dtype(torch::kFloat32)
+            .device(torch::kCUDA, at::cuda::current_device())
+            .requires_grad(false));
+  } else {
+    scales = static_scales.value();
+  }
+  auto* const quantized_input_ptr =
+      reinterpret_cast<__nv_bfloat16*>(quantized_input.data_ptr());
+  const auto stream = at::cuda::getCurrentCUDAStream();
+  if (bs.has_value()) {
+    int64_t total_elements_per_slice = quantized_input_shape[0];
+    for (int i = 1; i < input.dim() - 1; i++) {
+      total_elements_per_slice =
+          total_elements_per_slice * quantized_input_shape[i];
+    }
+    if (!static_scales.has_value()) {
+      invokeComputeFP4GlobalAmax(
+          reinterpret_cast<float*>(scales.data_ptr()),
+          reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
+          input.numel(),
+          input.size(-1),
+          total_elements_per_slice,
+          reinterpret_cast<int64_t*>(bs.value().data_ptr()),
+          scale_ub.has_value()
+              ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
+              : nullptr,
+          stream);
+    }
+    fp4_fused_amax_quantize(
+        quantized_input_ptr,
+        reinterpret_cast<const float*>(scales.data_ptr()),
+        reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
+        input.numel(),
+        16,
+        stream);
+  } else {
+    if (!static_scales.has_value()) {
+      invokeComputeFP4GlobalAmax(
+          reinterpret_cast<float*>(scales.data_ptr()),
+          reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
+          input.numel(),
+          input.size(-1),
+          -1,
+          nullptr,
+          scale_ub.has_value()
+              ? reinterpret_cast<float*>(scale_ub.value().data_ptr())
+              : nullptr,
+          stream);
+    }
+    fp4_fused_amax_quantize(
+        quantized_input_ptr,
+        reinterpret_cast<const float*>(scales.data_ptr()),
+        reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
+        input.numel(),
+        16,
+        stream);
+  }
   return std::vector<at::Tensor>{quantized_input, scales};
 }
 
