@@ -509,6 +509,7 @@
     <span class="n">DECOUPLE</span> <span class="o">=</span> <span class="mi">2</span>
     <span class="n">COUNTER</span> <span class="o">=</span> <span class="mi">3</span>
     <span class="n">COWCLIP</span> <span class="o">=</span> <span class="mi">4</span>
+    <span class="n">DECOUPLE_GLOBAL</span> <span class="o">=</span> <span class="mi">5</span>
 
 
 <span class="k">class</span> <span class="nc">CounterWeightDecayMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
@@ -552,6 +553,12 @@
     <span class="n">counter_weight_decay_mode</span><span class="p">:</span> <span class="n">CounterWeightDecayMode</span> <span class="o">=</span> <span class="n">CounterWeightDecayMode</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">counter_halflife</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
     <span class="n">weight_norm_coefficient</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">lower_bound</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">GlobalWeightDecayDefinition</span><span class="p">:</span>
+    <span class="n">start_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">lower_bound</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
 
 
@@ -931,6 +938,8 @@
         <span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">optimizer_state_dtypes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SparseType</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="c1"># Global weight decay params</span>
+        <span class="n">global_weight_decay</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">GlobalWeightDecayDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
@@ -1205,6 +1214,30 @@
             <span class="p">)</span>
         <span class="p">)</span>
 
+        <span class="k">if</span> <span class="n">weight_decay_mode</span> <span class="o">==</span> <span class="n">WeightDecayMode</span><span class="o">.</span><span class="n">DECOUPLE_GLOBAL</span> <span class="ow">and</span> <span class="p">(</span>
+            <span class="ow">not</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
+            <span class="ow">or</span> <span class="n">global_weight_decay</span> <span class="ow">is</span> <span class="kc">None</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
+<span class="w">                </span><span class="sd">&quot;&quot;&quot;weight_decay_mode=WeightDecayMode.DECOUPLE_GLOBAL is supported for</span>
+<span class="sd">                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD and global_weight_decay cannot be None.</span>
+<span class="sd">                &quot;&quot;&quot;</span>
+            <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">weight_decay_mode</span> <span class="o">==</span> <span class="n">WeightDecayMode</span><span class="o">.</span><span class="n">DECOUPLE_GLOBAL</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Using global weight decay = </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="c1"># Declare GWD params here to avoid torch.jit.script error</span>
+        <span class="k">if</span> <span class="n">global_weight_decay</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">global_weight_decay</span> <span class="o">=</span> <span class="n">GlobalWeightDecayDefinition</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">gwd_start_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">global_weight_decay</span><span class="o">.</span><span class="n">start_iter</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gwd_lower_bound</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">global_weight_decay</span><span class="o">.</span><span class="n">lower_bound</span>
+
         <span class="k">if</span> <span class="n">counter_based_regularization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">counter_based_regularization</span> <span class="o">=</span> <span class="n">CounterBasedRegularizationDefinition</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">cowclip_regularization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -1363,6 +1396,27 @@
                 <span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
                     <span class="s2">&quot;max_counter&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
+                    <span class="n">construct_split_state</span><span class="p">(</span>
+                        <span class="n">embedding_specs</span><span class="p">,</span>
+                        <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                        <span class="n">cacheable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;prev_iter&quot;</span><span class="p">,</span>
+                    <span class="c1"># TODO: ideally we should use int64 to track iter but it failed to compile.</span>
+                    <span class="c1"># It may be related to low precision training code. Currently using float32</span>
+                    <span class="c1"># as a workaround while investigating the issue.</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
+                    <span class="c1">#  but got `Type[torch.float32]`.</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;row_counter&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+                    <span class="s2">&quot;max_counter&quot;</span><span class="p">,</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
+                    <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;prev_iter&quot;</span><span class="p">)</span>
@@ -1919,16 +1973,33 @@
                         <span class="n">momentum1</span><span class="p">,</span>
                         <span class="n">prev_iter</span><span class="p">,</span>
                         <span class="n">row_counter</span><span class="p">,</span>
-                        <span class="c1"># pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                        <span class="nb">int</span><span class="p">(</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+                        <span class="p">),</span>  <span class="c1"># Cast to int to suppress pyre type error</span>
                         <span class="bp">self</span><span class="o">.</span><span class="n">max_counter</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span>
+                    <span class="p">),</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span><span class="p">:</span>
+                <span class="n">apply_global_weight_decay</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">gwd_start_iter</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                    <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                    <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                        <span class="n">common_args</span><span class="p">,</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                        <span class="n">momentum1</span><span class="p">,</span>
+                        <span class="nb">iter</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">()),</span>
+                        <span class="n">apply_global_weight_decay</span><span class="o">=</span><span class="n">apply_global_weight_decay</span><span class="p">,</span>
+                        <span class="n">prev_iter_dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_dev</span><span class="p">,</span>
+                        <span class="n">gwd_lower_bound</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gwd_lower_bound</span><span class="p">,</span>
                     <span class="p">),</span>
                 <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
                     <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
                     <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
-                        <span class="n">common_args</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span> <span class="n">momentum1</span>
+                        <span class="n">common_args</span><span class="p">,</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                        <span class="n">momentum1</span><span class="p">,</span>
                     <span class="p">),</span>
                 <span class="p">)</span>
 
