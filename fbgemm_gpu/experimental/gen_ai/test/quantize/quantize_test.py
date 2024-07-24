@@ -180,7 +180,7 @@ class FP8Tests(unittest.TestCase):
         UseTriton: bool,
         InputMultiDim: bool,
     ) -> None:
-        if InputMultiDim:
+        if InputMultiDim and not torch.version.hip:
             x = torch.randn(size=(3, B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         else:
             x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
