@@ -2127,11 +2127,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
         return 0.0
 
-    @torch.jit.export
+    @torch.jit.ignore
     def set_optimizer_step(self, step: int) -> None:
         """
         Sets the optimizer step.
         """
+        self.log(f"set_optimizer_step from {self.iter[0]} to {step}")
         if self.optimizer == OptimType.NONE:
             raise NotImplementedError(
                 f"Setting optimizer step is not supported for {self.optimizer}"
