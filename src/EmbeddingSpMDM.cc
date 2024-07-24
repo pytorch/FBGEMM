@@ -1088,7 +1088,6 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
             no_bag,
             is_bf16_out);
       };
-
     } else {
       return [=](int64_t output_size,
                  int64_t index_size,

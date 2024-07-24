@@ -102,14 +102,19 @@ bool EmbeddingSpMDM8Bit_autovec(
   IndexType current = 0;
 
   if (no_bag) {
-#pragma unroll 4
+    // compiler may see this as unused even if it's used in pragma
+    [[maybe_unused]] constexpr int unroll_factor = 4;
+#if defined(__clang__)
+#pragma unroll unroll_factor
+#elif defined(__GNUC__)
+#pragma GCC unroll unroll_factor
+#endif
     for (int m = 0; m < output_size; ++m) {
       const auto idx = indices[m];
 
       if (idx < 0 || idx >= data_size) {
         return false;
       }
-
       if constexpr (isOutput8bit) {
         const uint8_t* input_row_ptr = input + input_stride * idx;
         memcpy(out, input_row_ptr, sizeof(uint8_t) * input_stride);
@@ -140,8 +145,8 @@ bool EmbeddingSpMDM8Bit_autovec(
               std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
         }
         fill_output(out, buf.data(), block_size, is_bf16_out);
-        out += output_stride;
       }
+      out += output_stride;
     } // m
     return true;
   } // no_bag
