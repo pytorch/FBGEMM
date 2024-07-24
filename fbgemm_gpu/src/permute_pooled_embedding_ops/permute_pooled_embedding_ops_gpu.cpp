@@ -25,13 +25,12 @@ Tensor permute_pooled_embs_auto_grad_gpu(
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list) {
-  return PermutePooledEmbsFunction::apply(
+  return permute_pooled_embs_gpu(
       pooled_embs,
       offset_dim_list,
       permute_list,
       inv_offset_dim_list,
-      inv_permute_list,
-      false);
+      inv_permute_list);
 }
 
 ///@ingroup permute-duplicate-pooled-embs-gpu
