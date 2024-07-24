@@ -43,7 +43,7 @@ class PermuteMultiEmbeddingOp
       variable_list grad_output);
 };
 
-std::vector<Tensor> permute_multi_embedding_cpu(
+std::vector<Tensor> permute_multi_embedding_function_cpu(
     const at::TensorList& pooled_embs,
     const Tensor& permutes,
     const Tensor& in_shapes,
@@ -51,7 +51,7 @@ std::vector<Tensor> permute_multi_embedding_cpu(
     const std::vector<int64_t>& out_lengths,
     const bool& reverse_permute);
 
-std::vector<Tensor> permute_multi_embedding_meta(
+std::vector<Tensor> permute_multi_embedding_function_meta(
     const at::TensorList& pooled_embs,
     const Tensor& permutes,
     const Tensor& in_shapes,
@@ -59,7 +59,7 @@ std::vector<Tensor> permute_multi_embedding_meta(
     const std::vector<int64_t>& out_lengths,
     const bool& reverse_permute);
 
-std::vector<Tensor> permute_multi_embedding_gpu(
+std::vector<Tensor> permute_multi_embedding_function_gpu(
     const at::TensorList& pooled_embs,
     const Tensor& permutes,
     const Tensor& in_shapes,
