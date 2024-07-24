@@ -217,7 +217,7 @@ Tensor tensors_ptr(const at::TensorList& tensors) {
   return ptr_tensor;
 }
 
-std::vector<Tensor> permute_multi_embedding_gpu(
+std::vector<Tensor> permute_multi_embedding_function_gpu(
     const at::TensorList& pooled_embs,
     const Tensor& permutes,
     const Tensor& in_shapes,
@@ -296,15 +296,45 @@ std::vector<Tensor> permute_multi_embedding_gpu(
       });
   return outputs;
 }
+std::vector<Tensor> permute_multi_embedding_gpu(
+    const at::TensorList& pooled_embs,
+    const Tensor& permutes,
+    const Tensor& in_shapes,
+    const Tensor& out_shapes,
+    const std::vector<int64_t>& out_lengths) {
+  return permute_multi_embedding_function_gpu(
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
+}
+
+std::vector<Tensor> regroup_keyed_tensor_gpu(
+    const at::TensorList& pooled_embs,
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups) {
+  auto [permutes, in_shapes, out_shapes, out_lengths] =
+      kt_regroup_arguments_gpu(pooled_embs[0], keys, lengths, groups);
+  return permute_multi_embedding_function_gpu(
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
+}
 
 } // namespace fbgemm_gpu
 
 FBGEMM_OP_DISPATCH(
     CUDA,
     "permute_multi_embedding_function",
+    fbgemm_gpu::permute_multi_embedding_function_gpu);
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "permute_multi_embedding",
     fbgemm_gpu::permute_multi_embedding_gpu);
 
 FBGEMM_OP_DISPATCH(
     CUDA,
     "kt_regroup_arguments",
     fbgemm_gpu::kt_regroup_arguments_gpu);
+
+FBGEMM_OP_DISPATCH(
+    CUDA,
+    "regroup_keyed_tensor",
+    fbgemm_gpu::regroup_keyed_tensor_gpu);

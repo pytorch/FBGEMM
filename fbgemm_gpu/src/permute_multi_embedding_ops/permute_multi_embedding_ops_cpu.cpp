@@ -14,7 +14,7 @@ using Tensor = at::Tensor;
 using torch::autograd::AutogradContext;
 using torch::autograd::variable_list;
 
-std::vector<Tensor> permute_multi_embedding_cpu(
+std::vector<Tensor> permute_multi_embedding_function_cpu(
     const at::TensorList& pooled_embs,
     const Tensor& permutes,
     const Tensor& /* in_shapes */,
@@ -73,7 +73,7 @@ std::vector<Tensor> permute_multi_embedding_cpu(
   return outputs;
 }
 
-std::vector<Tensor> permute_multi_embedding_meta(
+std::vector<Tensor> permute_multi_embedding_function_meta(
     const at::TensorList& pooled_embs,
     const Tensor& /* permutes */,
     const Tensor& /* in_shapes */,
@@ -148,7 +148,7 @@ std::vector<Tensor> permute_multi_embedding_meta(
 /// @warning when a feature is omitted from the output KTs, the gradient of the
 /// feature won't be set to 0.
 ///
-std::vector<Tensor> permute_multi_embedding(
+std::vector<Tensor> permute_multi_embedding_autograd(
     const at::TensorList& pooled_embs,
     const Tensor& permutes,
     const Tensor& in_shapes,
@@ -156,6 +156,26 @@ std::vector<Tensor> permute_multi_embedding(
     const std::vector<int64_t>& out_lengths) {
   return PermuteMultiEmbeddingOp::apply(
       pooled_embs, permutes, in_shapes, out_shapes, out_lengths);
+}
+
+std::vector<Tensor> permute_multi_embedding_cpu(
+    const at::TensorList& pooled_embs,
+    const Tensor& permutes,
+    const Tensor& in_shapes,
+    const Tensor& out_shapes,
+    const std::vector<int64_t>& out_lengths) {
+  return permute_multi_embedding_function_cpu(
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
+}
+
+std::vector<Tensor> permute_multi_embedding_meta(
+    const at::TensorList& pooled_embs,
+    const Tensor& permutes,
+    const Tensor& in_shapes,
+    const Tensor& out_shapes,
+    const std::vector<int64_t>& out_lengths) {
+  return permute_multi_embedding_function_meta(
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
 }
 
 template <typename index_t>
@@ -266,7 +286,7 @@ kt_regroup_arguments_meta(
   return {permutes, in_shapes, out_shapes, out_lengths};
 }
 
-std::vector<Tensor> regroup_keyed_tensor(
+std::vector<Tensor> regroup_keyed_tensor_autograd(
     const at::TensorList& pooled_embs,
     const std::vector<std::vector<std::string>>& keys,
     const std::vector<std::vector<int64_t>>& lengths,
@@ -279,6 +299,28 @@ std::vector<Tensor> regroup_keyed_tensor(
   return PermuteMultiEmbeddingOp::apply(
       pooled_embs, permutes, in_shapes, out_shapes, out_lengths);
 }
+
+std::vector<Tensor> regroup_keyed_tensor_cpu(
+    const at::TensorList& pooled_embs,
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups) {
+  auto [permutes, in_shapes, out_shapes, out_lengths] =
+      kt_regroup_arguments_cpu(pooled_embs[0], keys, lengths, groups);
+  return permute_multi_embedding_function_cpu(
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
+}
+
+std::vector<Tensor> regroup_keyed_tensor_meta(
+    const at::TensorList& pooled_embs,
+    const std::vector<std::vector<std::string>>& keys,
+    const std::vector<std::vector<int64_t>>& lengths,
+    const std::vector<std::vector<std::string>>& groups) {
+  auto [permutes, in_shapes, out_shapes, out_lengths] =
+      kt_regroup_arguments_meta(pooled_embs[0], keys, lengths, groups);
+  return permute_multi_embedding_function_meta(
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
+}
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -290,40 +332,48 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "permute_multi_embedding(Tensor[] pooled_embs,Tensor permutes, Tensor in_shapes, Tensor out_shapes,  SymInt[] out_lengths) -> Tensor[]");
 
+  // register the permute function
+  m.def(
+      "kt_regroup_arguments(Tensor embs, str[][] keys, int[][] lengths, str[][] groups) -> (Tensor, Tensor, Tensor, int[])");
+
   // register the main function for external usage
   m.def(
       "regroup_keyed_tensor(Tensor[] pooled_embs, str[][] keys, int[][] lengths, str[][] groups) -> Tensor[]");
 
-  // register the permute function
-  m.def(
-      "kt_regroup_arguments(Tensor embs, str[][] keys, int[][] lengths, str[][] groups) -> (Tensor, Tensor, Tensor, int[])");
+  // dispatch the forward function to CPU for internal (autograd) usage
+  DISPATCH_TO_CPU(
+      "permute_multi_embedding_function",
+      fbgemm_gpu::permute_multi_embedding_function_cpu);
+
+  // dispatch the forward function to CPU for internal (autograd) usage
+  DISPATCH_TO_META(
+      "permute_multi_embedding_function",
+      fbgemm_gpu::permute_multi_embedding_function_meta);
+
+  // dispath the main function to Autograd for external usage
+  DISPATCH_TO_AUTOGRAD(
+      "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding_autograd);
+
+  // dispath the main function to CPU for external usage
+  DISPATCH_TO_CPU(
+      "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding_cpu);
+
+  // dispath the main function to CPU for external usage
+  DISPATCH_TO_META(
+      "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding_meta);
 
   DISPATCH_TO_CPU("kt_regroup_arguments", fbgemm_gpu::kt_regroup_arguments_cpu);
   DISPATCH_TO_META(
       "kt_regroup_arguments", fbgemm_gpu::kt_regroup_arguments_meta);
 
-  // dispatch the forward function to CPU for internal (autograd) usage
-  DISPATCH_TO_CPU(
-      "permute_multi_embedding_function",
-      fbgemm_gpu::permute_multi_embedding_cpu);
+  // dispath the main function to Autograd for external usage
+  DISPATCH_TO_AUTOGRAD(
+      "regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor_autograd);
 
-  // dispatch the forward function to CPU for internal (autograd) usage
+  // dispath the main function to CPU for external usage
+  DISPATCH_TO_CPU("regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor_cpu);
+
+  // dispath the main function to META for external usage
   DISPATCH_TO_META(
-      "permute_multi_embedding_function",
-      fbgemm_gpu::permute_multi_embedding_meta);
-
-  // dispath the main function to Autograd for external usage
-  DISPATCH_TO_AUTOGRAD(
-      "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding);
-
-  // dispath the main function to Autograd for external usage
-  DISPATCH_TO_CUDA(
-      "permute_multi_embedding", fbgemm_gpu::permute_multi_embedding);
-
-  // dispath the main function to Autograd for external usage
-  DISPATCH_TO_AUTOGRAD(
-      "regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor);
-
-  // dispath the main function to Autograd for external usage
-  DISPATCH_TO_CUDA("regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor);
+      "regroup_keyed_tensor", fbgemm_gpu::regroup_keyed_tensor_meta);
 }
