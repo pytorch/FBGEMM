@@ -1082,6 +1082,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.log(
             f"Using rowwise_adagrad_with_counter={self._used_rowwise_adagrad_with_counter}"
         )
+        self._print_once: bool = True
 
         self.step = 0
         self.last_reported_step = 0
@@ -1475,6 +1476,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if not self.iter.is_cpu:
             self.iter = self.iter.cpu()
         self.iter[0] += 1
+        self.print_once(f"TBE step with iter={self.iter[0]}, {self.training=}")
 
         if self.optimizer == OptimType.ADAM:
             return self._report_io_size_count(
@@ -1571,7 +1573,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     ),
                 )
             elif self._used_rowwise_adagrad_with_global_weight_decay:
-                apply_global_weight_decay = self.step >= self.gwd_start_iter
+                apply_global_weight_decay = (
+                    self.step >= self.gwd_start_iter and self.training
+                )
                 return self._report_io_size_count(
                     "fwd_output",
                     invokers.lookup_rowwise_adagrad.invoke(
@@ -2133,6 +2137,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 f"Setting optimizer step is not supported for {self.optimizer}"
             )
         self.iter[0] = step
+
+    def print_once(self, msg: str) -> None:
+        if self._print_once:
+            self.log(msg)
+        self._print_once = False
 
     @torch.jit.export
     def flush(self) -> None:
