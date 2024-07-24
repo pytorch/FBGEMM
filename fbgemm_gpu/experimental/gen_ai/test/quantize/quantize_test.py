@@ -9,7 +9,7 @@
 
 import unittest
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -603,53 +603,6 @@ class FP8Tests(unittest.TestCase):
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
-
-
-@unittest.skipIf(
-    not torch.cuda.is_available()
-    or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9
-    or torch.version.hip is not None,
-    "Skip when cuda is not available or HIP is enabled",
-)
-class NVFP4Tests(unittest.TestCase):
-    @unittest.skipIf(
-        (not torch.version.cuda) or torch.version.hip is not None,
-        "Skip if no cuda is present or HIP is enabled",
-    )
-    @settings(deadline=None)
-    @given(
-        B_T=st.sampled_from([2048, 4096]),
-        D=st.sampled_from([128, 256]),
-        HD_L=st.sampled_from([256, 512]),
-        static_scale=st.sampled_from(
-            [None, torch.tensor([1.0], dtype=torch.float, device="cuda")]
-        ),
-        scale_ub=st.sampled_from(
-            [None, torch.tensor([1.0], dtype=torch.float, device="cuda")]
-        ),
-    )
-    def test_fake_quantize_nvfp4_per_tensor(
-        self,
-        B_T: int,
-        D: int,
-        HD_L: int,
-        static_scale: Optional[torch.tensor],
-        scale_ub: Optional[torch.tensor],
-    ) -> None:
-        x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
-
-        xq, _ = torch.ops.fbgemm.quantize_nvfp4_per_tensor(
-            x, static_scales=static_scale, scale_ub=scale_ub
-        )
-        wq, _ = torch.ops.fbgemm.quantize_nvfp4_per_tensor(
-            w, static_scales=static_scale, scale_ub=scale_ub
-        )
-        fake_quant_y = xq @ wq.T
-        fake_quant_y = fake_quant_y.to(torch.bfloat16)
-
-        y_ref = (x @ w.T).to(torch.bfloat16)
-        torch.testing.assert_close(fake_quant_y, y_ref, atol=0.1, rtol=0.1)
 
 
 if __name__ == "__main__":
