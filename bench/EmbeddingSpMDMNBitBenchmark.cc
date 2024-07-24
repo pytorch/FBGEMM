@@ -256,44 +256,49 @@ int run_benchmark(
             }
           });
 
-      // Hand-written AVX2/AVX512 implementation
-      double t = measureWithWarmup(
-          [&]() {
-            if (use_32_bit_indices) {
-              success = kernel_32(
-                  batch_size,
-                  lengths_sum,
-                  num_rows,
-                  fused_embedding_table.data(),
-                  indices_32.data(),
-                  offsets.data(),
-                  has_weight ? weights.data() : nullptr,
-                  output.data());
-            } else {
-              success = kernel_64(
-                  batch_size,
-                  lengths_sum,
-                  num_rows,
-                  fused_embedding_table.data(),
-                  indices.data(),
-                  offsets.data(),
-                  has_weight ? weights.data() : nullptr,
-                  output.data());
-            }
-          },
-          NUM_WARMUP,
-          NUM_ITER,
-          [&]() {
-            if (flush_cache) {
-              cache_evict(fused_embedding_table);
-              cache_evict(indices);
-              cache_evict(indices_32);
-              cache_evict(offsets);
-              cache_evict(weights);
-              cache_evict(output);
-            }
-          });
-
+      bool skip_asmjit =
+          (fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
+          is_autovec_forced();
+      double t = 0;
+      if (!skip_asmjit) {
+        // Hand-written AVX2/AVX512 implementation
+        t = measureWithWarmup(
+            [&]() {
+              if (use_32_bit_indices) {
+                success = kernel_32(
+                    batch_size,
+                    lengths_sum,
+                    num_rows,
+                    fused_embedding_table.data(),
+                    indices_32.data(),
+                    offsets.data(),
+                    has_weight ? weights.data() : nullptr,
+                    output.data());
+              } else {
+                success = kernel_64(
+                    batch_size,
+                    lengths_sum,
+                    num_rows,
+                    fused_embedding_table.data(),
+                    indices.data(),
+                    offsets.data(),
+                    has_weight ? weights.data() : nullptr,
+                    output.data());
+              }
+            },
+            NUM_WARMUP,
+            NUM_ITER,
+            [&]() {
+              if (flush_cache) {
+                cache_evict(fused_embedding_table);
+                cache_evict(indices);
+                cache_evict(indices_32);
+                cache_evict(offsets);
+                cache_evict(weights);
+                cache_evict(output);
+              }
+            });
+      }
       // printMatrix(
       //     matrix_op_t::NoTranspose,
       //     output.data(),
@@ -352,15 +357,24 @@ int run_benchmark(
         cout << "prefetch off, ";
       }
 
-      cout << "b/w, " << bytes / 1e9 / t << ", GB/s, " << "effective b/w, "
-           << bytes_padded / 1e9 / t << ", GB/s, " << "time, " << t
-           << ", autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
-           << "autovec eff. b/w, " << bytes_padded / 1e9 / t_autovec
-           << ", GB/s, " << "autovec time, " << t_autovec << ", ref b/w, "
-           << bytes / 1e9 / t_ref << ", GB/s, " << "ref eff. b/w, "
-           << bytes_padded / 1e9 / t_ref << ", GB/s, " << "ref time, " << t_ref
-           << ", autovec speedup, " << t_ref / t_autovec << ", asmjit speedup, "
-           << t_ref / t << endl;
+      if (skip_asmjit) {
+        cout << "autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
+             << "autovec eff. b/w, " << bytes_padded / 1e9 / t_autovec
+             << ", GB/s, " << "autovec time, " << t_autovec << ", ref b/w, "
+             << bytes / 1e9 / t_ref << ", GB/s, " << "ref eff. b/w, "
+             << bytes_padded / 1e9 / t_ref << ", GB/s, " << "ref time, "
+             << t_ref << ", autovec speedup, " << t_ref / t_autovec << endl;
+      } else {
+        cout << "b/w, " << bytes / 1e9 / t << ", GB/s, " << "effective b/w, "
+             << bytes_padded / 1e9 / t << ", GB/s, " << "time, " << t
+             << ", autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
+             << "autovec eff. b/w, " << bytes_padded / 1e9 / t_autovec
+             << ", GB/s, " << "autovec time, " << t_autovec << ", ref b/w, "
+             << bytes / 1e9 / t_ref << ", GB/s, " << "ref eff. b/w, "
+             << bytes_padded / 1e9 / t_ref << ", GB/s, " << "ref time, "
+             << t_ref << ", autovec speedup, " << t_ref / t_autovec
+             << ", asmjit speedup, " << t_ref / t << endl;
+      }
     } // flush_cache
   } // has_weight
   return 0;
