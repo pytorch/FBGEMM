@@ -281,7 +281,7 @@ class FP8Tests(unittest.TestCase):
                     if bias is not None and torch.version.hip:
                         zq += bias
         elif Mode == "blockwise":
-            block_m = block_n = block_k = 256
+            block_m = block_n = block_k = 128
             output_device = torch.device("cuda")
             if CudaGraph:
                 #  Need a warmup to compile the Triton kernel before cuda graph
