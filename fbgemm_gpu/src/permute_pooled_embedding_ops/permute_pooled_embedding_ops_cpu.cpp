@@ -99,7 +99,7 @@ at::Tensor permute_pooled_embs_auto_grad_cpu(
     const Tensor& permute_list,
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list) {
-  return PermutePooledEmbsFunction::apply(
+  return permute_pooled_embs_cpu_impl(
       pooled_embs,
       offset_dim_list,
       permute_list,
