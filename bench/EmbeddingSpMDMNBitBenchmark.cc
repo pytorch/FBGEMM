@@ -208,7 +208,7 @@ int run_benchmark(
               cache_evict(indices_32);
               cache_evict(offsets);
               cache_evict(weights);
-              cache_evict(output);
+              cache_evict(output_ref);
             }
           });
 
@@ -252,7 +252,7 @@ int run_benchmark(
               cache_evict(indices_32);
               cache_evict(offsets);
               cache_evict(weights);
-              cache_evict(output);
+              cache_evict(output_autovec);
             }
           });
 
@@ -316,21 +316,30 @@ int run_benchmark(
           assert(
               false &&
               "ERROR: reference impl and JIT impl did not both succeed");
-        } else if (success != success_autovec) {
-          assert(
-              false &&
-              "ERROR: reference impl and auto-vec impl did not both succeed");
-        } else if (success) {
+          cout << "asmjit return " << success << " ref return " << success_ref
+               << endl;
+        } else {
           for (size_t i = 0; i < output.size(); ++i) {
             assert(fabs(output[i] - output_ref[i]) < 1e-3);
-            assert(fabs(output_autovec[i] - output_ref[i]) < 1e-3);
             if (fabs(output[i] - output_ref[i]) >= 1e-3) {
               cout << "asmjit vs ref  : " << i << " " << output[i] << " "
                    << output_ref[i] << endl;
             }
+          }
+        }
+
+        if (success_autovec != success_ref) {
+          assert(
+              false &&
+              "ERROR: reference impl and autovec impl did not both succeed");
+          cout << "autovec return " << success_autovec << " ref return "
+               << success_ref << endl;
+        } else {
+          for (size_t i = 0; i < output.size(); ++i) {
+            assert(fabs(output_autovec[i] - output_ref[i]) < 1e-3);
             if (fabs(output_autovec[i] - output_ref[i]) >= 1e-3) {
-              cout << "autovec vec ref: " << i << " " << output_autovec[i]
-                   << " " << output_ref[i] << endl;
+              cout << "autovec vs ref: " << i << " " << output_autovec[i] << " "
+                   << output_ref[i] << endl;
             }
           }
         }
