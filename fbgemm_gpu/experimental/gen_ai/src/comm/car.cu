@@ -305,15 +305,16 @@ void car_init(
     } else {
       ptr = local_buffer.data_ptr();
     }
-#ifndef __HIP_PLATFORM_AMD__
-    auto target_rank = at::cuda::current_device();
-#else
+#if (defined(USE_ROCM) && ROCM_VERSION < 60200)
     /*
      * This is to mitigate an issue for ROCm where the
      * device for the data ptr from hipIpcOpenMemHandle
      * is always 0, tracked in FBA-288
+     * This issue is fixed after RoCM 6.2.0
      */
     auto target_rank = (ii == rank ? rank : 0);
+#else
+    auto target_rank = at::cuda::current_device();
 #endif
     state->buffers_[ii] = at::from_blob(
         ptr,
@@ -324,10 +325,10 @@ void car_init(
   }
   for (auto ii = 0; ii < world_size; ++ii) {
     void* ptr = nullptr;
-#ifndef __HIP_PLATFORM_AMD__
-    auto target_rank = at::cuda::current_device();
-#else
+#if (defined(USE_ROCM) && ROCM_VERSION < 60200)
     auto target_rank = (ii == rank ? rank : 0);
+#else
+    auto target_rank = at::cuda::current_device();
 #endif
     if (ii != rank) {
       AT_CUDA_CHECK(cudaIpcOpenMemHandle(
