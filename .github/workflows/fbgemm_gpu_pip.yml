@@ -61,8 +61,8 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.4xlarge", timeout: 20 },
-          { arch: arm, instance: "linux.arm64.2xlarge", timeout: 30 },
+          { arch: x86, instance: "amz2023.linux.4xlarge", timeout: 20 },
+          { arch: arm, instance: "amz2023.linux.arm64.2xlarge", timeout: 30 },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
 
@@ -118,7 +118,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { instance: "linux.g5.4xlarge.nvidia.gpu" },
+          { instance: "amz2023.linux.g5.4xlarge.nvidia.gpu" },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]

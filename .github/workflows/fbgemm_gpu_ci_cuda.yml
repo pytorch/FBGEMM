@@ -63,7 +63,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.24xlarge" },
+          { arch: x86, instance: "amz2023.linux.24xlarge" },
         ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]
@@ -126,7 +126,7 @@ jobs:
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    # runs-on: linux.4xlarge.nvidia.gpu
+    # runs-on: amz2023.linux.4xlarge.nvidia.gpu
     # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
     runs-on: ${{ matrix.host-machine.instance }}
     defaults:
@@ -141,7 +141,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
+          { arch: x86, instance: "amz2023.linux.g5.4xlarge.nvidia.gpu" },
           # TODO: Enable when A100 machine queues are reasonably small enough for doing per-PR CI
           # https://hud.pytorch.org/metrics
           # { arch: x86, instance: "linux.gcp.a100" },
