@@ -27,14 +27,37 @@ using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
 template <typename scalar_t>
+DEVICE_INLINE void
+vec4_copy(scalar_t* dst, const scalar_t* src, const int32_t D) {
+  constexpr int32_t VEC_SIZE = 4;
+  const scalar_t* __restrict__ src_ = src;
+  scalar_t* __restrict__ dst_ = dst;
+  for (int32_t d = threadIdx.x * VEC_SIZE; d < D; d += blockDim.x * VEC_SIZE) {
+    Vec4T<scalar_t>::copy(&src_[d], &dst_[d]);
+  }
+}
+
+template <>
+DEVICE_INLINE void
+vec4_copy(uint8_t* dst, const uint8_t* src, const int32_t D) {
+  // each row is padded with row_alignment (16 bytes on GPUs), so each row will
+  // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
+  const uint4* __restrict__ src_ = reinterpret_cast<const uint4*>(src);
+  uint4* __restrict__ dst_ = reinterpret_cast<uint4*>(dst);
+  for (int32_t d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
+    dst_[d] = src_[d];
+  }
+}
+
+template <typename scalar_t>
 __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
     pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> self,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         indices,
     const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         values,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count,
-    TORCH_DSA_KERNEL_ARGS) {
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        count) {
   const int32_t N = indices.size(0);
   const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= N) {
@@ -49,42 +72,7 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
     return;
   }
   const auto D = self.size(1);
-  for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-    Vec4T<scalar_t>::copy((&values[n][0]) + d * 4, (&self[idx][0]) + d * 4);
-  }
-}
-
-template <>
-__global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
-    pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> self,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        indices,
-    const pta::PackedTensorAccessor32<uint8_t, 2, at::RestrictPtrTraits> values,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count,
-    TORCH_DSA_KERNEL_ARGS) {
-  const int32_t N = indices.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
-    return;
-  }
-  const auto count_ = count[0];
-  if (n >= count_) {
-    return;
-  }
-  const auto idx = indices[n];
-  if (idx < 0) {
-    return;
-  }
-  const auto D = self.size(1);
-  // each row is padded with row_alignment (16 bytes on GPUs), so each row will
-  // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
-  CUDA_KERNEL_ASSERT2(
-      D % 16 == 0 && "D needs to be padded to be multiple of 16");
-  auto vec_self = reinterpret_cast<uint4*>(&self[idx][0]);
-  auto vec_values = reinterpret_cast<const uint4*>(&values[n][0]);
-  for (int32_t d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
-    vec_self[d] = vec_values[d];
-  }
+  vec4_copy(&self[idx][0], &values[n][0], D);
 }
 
 Tensor masked_index_put_cuda(
@@ -112,16 +100,19 @@ Tensor masked_index_put_cuda(
 #ifdef FBGEMM_GPU_MEMCHECK
         const auto func_name = "masked_index_put_kernel";
 #endif
-        TORCH_DSA_KERNEL_LAUNCH(
-            masked_index_put_kernel<scalar_t>,
-            div_round_up(N, kMaxThreads / tx),
-            dim3(tx, kMaxThreads / tx),
-            0,
-            at::cuda::getCurrentCUDAStream(),
-            MAKE_PTA_WITH_NAME(func_name, self, scalar_t, 2, 64),
-            MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 32),
-            MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
+        if (std::is_same_v<scalar_t, uint8_t>) {
+          TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16")
+        }
+        masked_index_put_kernel<scalar_t>
+            <<<div_round_up(N, kMaxThreads / tx),
+               dim3(tx, kMaxThreads / tx),
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                MAKE_PTA_WITH_NAME(func_name, self, scalar_t, 2, 64),
+                MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 32),
+                MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       } // lambda
   );
 
