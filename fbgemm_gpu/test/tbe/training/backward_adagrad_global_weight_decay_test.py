@@ -244,9 +244,9 @@ def execute_global_weight_decay(  # noqa C901
     else:
         Bs = [B] * num_features
         Bs_rank_feature = None
-    global_weight_decay = GlobalWeightDecayDefinition()
-    global_weight_decay.start_iter = start_iter
-    global_weight_decay.lower_bound = gwd_lower_bound
+    global_weight_decay = GlobalWeightDecayDefinition(
+        start_iter=start_iter, lower_bound=gwd_lower_bound
+    )
     tbe = SplitTableBatchedEmbeddingBagsCodegen(
         embedding_specs=[
             (E, D, managed_option, ComputeDevice.CUDA) for (E, D) in zip(Es, Ds)
