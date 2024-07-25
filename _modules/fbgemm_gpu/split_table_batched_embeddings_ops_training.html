@@ -1984,7 +1984,9 @@
                     <span class="p">),</span>
                 <span class="p">)</span>
             <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span><span class="p">:</span>
-                <span class="n">apply_global_weight_decay</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">gwd_start_iter</span>
+                <span class="n">apply_global_weight_decay</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">gwd_start_iter</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">training</span>
+                <span class="p">)</span>
                 <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
                     <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
                     <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
