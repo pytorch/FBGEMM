@@ -1102,6 +1102,8 @@ DEVICE_INLINE T warp_reduce_max(T val) {
 template <typename scalar_t>
 DEVICE_INLINE float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
   float2 qparams;
+  qparams.x = 0.0f;
+  qparams.y = 0.0f;
   local_min = warp_reduce_min<scalar_t>(local_min);
   local_max = warp_reduce_max<scalar_t>(local_max);
   if (threadIdx.x == 0) {
