@@ -1571,7 +1571,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     ),
                 )
             elif self._used_rowwise_adagrad_with_global_weight_decay:
-                apply_global_weight_decay = self.step >= self.gwd_start_iter
+                apply_global_weight_decay = (
+                    self.step >= self.gwd_start_iter and self.training
+                )
                 return self._report_io_size_count(
                     "fwd_output",
                     invokers.lookup_rowwise_adagrad.invoke(
