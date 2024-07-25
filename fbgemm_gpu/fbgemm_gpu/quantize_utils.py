@@ -35,6 +35,7 @@ def fp32_to_mx4(
     tensor: torch.Tensor,
     group_size: int = 32,
     rounding_mode: Optional[Union[RoundingMode, int]] = RoundingMode.ceil,
+    stochastic_casting: bool = False,
     use_triton: bool = True,
 ) -> torch.Tensor:
     """Quantize an FP32 tensor to MX4 with triton or native cuda impl.
@@ -44,6 +45,7 @@ def fp32_to_mx4(
         group_size (int): Compute scale in chunks of group_size.
         rounding_mode (RoundingMode or int): Which type of rounding to use when computing exponent.
         Only supported with use_triton=True.
+        stochastic_casting (bool): Whether to use stochastic casting when downcasting.
         use_triton (bool): If set, use triton quantization, otherwise cuda.
 
     Return:
@@ -60,7 +62,12 @@ def fp32_to_mx4(
         return py_quantize_mx4(input, group_size, rounding_mode=rounding_mode)
 
     if use_triton:
-        return quantize_mx4(input, group_size, rounding_mode=rounding_mode)
+        return quantize_mx4(
+            input,
+            group_size,
+            rounding_mode=rounding_mode,
+            stochastic_casting=stochastic_casting,
+        )
     else:
         out = torch.ops.fbgemm.quantize_mx_cuda(
             input,

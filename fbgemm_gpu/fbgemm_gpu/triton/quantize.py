@@ -78,7 +78,7 @@ def _compute_exp(
     # Stochastic rounding mode.
     elif rounding_mode == 3:
         # Define constants needed for stochastic rounding.
-        RAND_MASK: tl.constexpr = 1 << (MBITS_FP32 - MBITS_E2M1) - 1  # type: ignore[Incompatible variable type]
+        RAND_MASK: tl.constexpr = (1 << (MBITS_FP32 - MBITS_E2M1)) - 1  # type: ignore[Incompatible variable type]
         # Use random bits to add noise to mantissa that would otherwise
         # be rounded away.
         group_max = group_max.to(tl.int32, bitcast=True) + (RAND_MASK & rand_bits)
@@ -95,6 +95,7 @@ def _compute_exp(
         Config({"GROUP_LOAD": 8}),
         Config({"GROUP_LOAD": 16}),
         Config({"GROUP_LOAD": 32}),
+        Config({"GROUP_LOAD": 64}),
     ],
     key=["K"],
 )
@@ -107,6 +108,7 @@ def _kernel_quantize_mx4(
     rand_bits,
     ROUNDING_MODE: tl.constexpr,
     GROUP_SIZE: tl.constexpr,
+    STOCHASTIC_CASTING: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
@@ -121,6 +123,7 @@ def _kernel_quantize_mx4(
         ROUNDING_MODE (int): Which rounding method to use when calculating shared exponent.
         GROUP_SIZE (int): Size of chunks that use the same shared exponent.
         GROUP_LOAD (int): Number of groups to process simultaneously.
+        STOCHASTIC_CASTING (bool): Whether to use stochastic rounding when downcasting.
     """
     # Define Constant Expressions.
     FP32_EXP_MASK: tl.constexpr = 0x7F800000  # type: ignore[Incompatible variable type]
@@ -136,6 +139,7 @@ def _kernel_quantize_mx4(
     IMPLIED_1_BIT: tl.constexpr = 1 << 23  # type: ignore[Incompatible variable type]
     OVERFLOW_THRESHOLD: tl.constexpr = 4  # type: ignore[Incompatible variable type]
     FP32_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    RAND_MASK: tl.constexpr = (1 << (FP32_EXP_OFFSET - FP4_EXP_BIAS)) - 1  # type: ignore[Incompatible variable type]
     # Boundaries for writing to output tensor.
     OUTPUT_LIMIT: tl.constexpr = K // 2 + K // GROUP_SIZE  # type: ignore[Incompatible variable type]
     OUTPUT_SIZE: tl.constexpr = M // 2 + M // GROUP_SIZE  # type: ignore[Incompatible variable type]
@@ -150,7 +154,12 @@ def _kernel_quantize_mx4(
     # Initiate offset ranges used in kernel.
     input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + input_start
     output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 2))
-    rand_bits_offset = tl.arange(0, GROUP_LOAD) + pid * K // GROUP_SIZE
+    # Stochastic rounding loads chunks of random values.
+    if ROUNDING_MODE == 3:
+        rand_bits_offset = tl.arange(0, GROUP_LOAD) + pid * K // GROUP_SIZE
+    # Ceil rounding uses single values as a seed.
+    else:
+        rand_bits_offset = pid * K // GROUP_SIZE
     # We need to shift output offsets to make space for shared exponent storage.
     output_offset += output_offset // (GROUP_SIZE // 2) + output_start
     # Now create offsets for writing the shared exponent.
@@ -175,16 +184,16 @@ def _kernel_quantize_mx4(
         group_max = tl.max(tl.abs(a_groups), axis=1)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, FP32_MIN_NORMAL, group_max)
-        # Load relevant random values if doing stochastic rounding.
-        if ROUNDING_MODE == 3:
+        # Load relevant random values if doing stochastic rounding
+        # or stochastic casting.
+        group_rand_bits = None
+        if (ROUNDING_MODE) == 3 or STOCHASTIC_CASTING:
             group_rand_bits = tl.load(
                 rand_bits + rand_bits_offset,
                 mask=rand_bits_offset < K // GROUP_SIZE,
                 other=0,
             )
             rand_bits_offset += GROUP_LOAD
-        else:
-            group_rand_bits = None
         # Compute shared exponent using specified rounding mode.
         group_exp = _compute_exp(group_max, ROUNDING_MODE, group_rand_bits)
         # Subtract largest exponent in target datatype and remove bias.
@@ -216,6 +225,42 @@ def _kernel_quantize_mx4(
         # During quantization, we're going to be doing a lot of bitwise operations.
         # This is easier to work with in int32.
         scaled_a = scaled_a.to(tl.int32, bitcast=True)
+
+        # When doing stochastic downcasting, generate random values for this block
+        # and apply it to the mantissa.
+        if STOCHASTIC_CASTING:
+            # We're going to generate 4 blocks at once so we only need
+            # one fourth of the input offsets.
+            # Start by splitting down to half of offsets.
+            philox_4x_offset = tl.split(
+                tl.reshape(
+                    input_offset,
+                    [GROUP_LOAD * GROUP_SIZE // 2, 2],
+                    can_reorder=True,
+                )
+            )
+            # Split down to fourth.
+            philox_4x_offset = tl.split(
+                tl.reshape(
+                    philox_4x_offset,
+                    [GROUP_LOAD * GROUP_SIZE // 4, 2],
+                    can_reorder=True,
+                )
+            )
+            # Generate 4 blocks of random bits for this block.
+            a_4x, b_4x, c_4x, d_4x = tl.randint4x(
+                group_rand_bits, philox_4x_offset, n_rounds=7
+            )
+            # Combine the 4 blocks into a single chunk of random values.
+            # This needs to be done incrementally.
+            stochastic_round_bits = tl.join(tl.join(a_4x, b_4x), tl.join(c_4x, d_4x))
+            # Flatten back to simple array.
+            stochastic_round_bits = tl.reshape(
+                stochastic_round_bits, [GROUP_LOAD * GROUP_SIZE]
+            ).to(tl.int32, bitcast=True)
+
+            # Mask off mantissa bits of random value and add to mantissa.
+            scaled_a = scaled_a + (stochastic_round_bits & RAND_MASK)
 
         # Extract sign bit of value.
         sign_bit = (scaled_a >> FP32_SIGN_OFFSET) & SIGN_MASK
@@ -295,6 +340,7 @@ def triton_quantize_mx4(
     a: torch.Tensor,
     group_size: int = 32,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    stochastic_casting: bool = False,
 ) -> torch.Tensor:
     """
     Quantize a tensor to mx4 format using efficient triton kernels.
@@ -304,6 +350,7 @@ def triton_quantize_mx4(
         group_size (int): Size of chunks that will use the same shared exponent.
         rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
+        stochastic_casting (bool): Whether to use stochastic casting.
 
     Returns:
         torch.Tensor: [M / 2 + M / group_size] mx4 scaled tensor packed into in8
@@ -346,7 +393,8 @@ def triton_quantize_mx4(
     )
 
     # If using stochastic rounding, create random noise for each group.
-    if rounding_mode == RoundingMode.stochastic:
+    # We use the same random bits as seeds when doing stochastic downcasting.
+    if rounding_mode == RoundingMode.stochastic or stochastic_casting:
         # Each group will need a seed.
         rand_bits = torch.randint(
             low=0,
@@ -368,6 +416,7 @@ def triton_quantize_mx4(
         rand_bits=rand_bits,
         ROUNDING_MODE=rounding_mode,
         GROUP_SIZE=group_size,
+        STOCHASTIC_CASTING=stochastic_casting,
     )
     # Inputs are now fully quantized and ready to return.
     # Try to return in the original shape if possible.
