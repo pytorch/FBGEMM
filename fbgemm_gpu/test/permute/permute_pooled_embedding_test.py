@@ -10,7 +10,6 @@
 import inspect
 import sys
 import unittest
-from itertools import accumulate
 from typing import List
 
 import hypothesis.strategies as st
@@ -23,14 +22,9 @@ from .common import Net, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import cpu_and_maybe_gpu, gpu_unavailable, on_arm_platform, optests
+    from test_utils import cpu_and_maybe_gpu, on_arm_platform, optests
 else:
-    from fbgemm_gpu.test.test_utils import (
-        cpu_and_maybe_gpu,
-        gpu_unavailable,
-        on_arm_platform,
-        optests,
-    )
+    from fbgemm_gpu.test.test_utils import cpu_and_maybe_gpu, on_arm_platform, optests
 
 suppressed_list: List[HealthCheck] = (
     [HealthCheck.not_a_test_method]
