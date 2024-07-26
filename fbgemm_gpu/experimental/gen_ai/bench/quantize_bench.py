@@ -7,7 +7,7 @@
 import argparse
 import itertools
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 
@@ -28,6 +28,29 @@ def set_amd_env_vars() -> None:
     os.environ["PYTORCH_TUNABLEOP_FILENAME"] = "hipblas_tuning_pt_llama.csv"
     os.environ["PYTORCH_TUNABLEOP_MAX_TUNING_DURATION_MS"] = "30"
     os.environ["PYTORCH_TUNABLEOP_MAX_WARMUP_DURATION_MS"] = "30"
+
+
+def get_llama_shapes() -> List[Tuple[int, int, int]]:
+    # Helper function that returns a list of shapes relevant to llama.
+
+    llama_shapes = []
+    for M in [1, 16384]:
+        # Add shapes for llama 70B
+        llama_shapes += [
+            (M, 1280, 8192),
+            (M, 8192, 1024),
+            (M, 7168, 8192),
+            (M, 8192, 3584),
+        ]
+        # Add shapes for llama 405B
+        llama_shapes += [
+            (M, 13312, 6656),
+            (M, 13312, 16384),
+            (M, 16384, 6656),
+            (M, 16384, 16384),
+        ]
+
+    return llama_shapes
 
 
 def benchmark(
@@ -118,28 +141,35 @@ def plot_benchmark(results: List[Dict[str, Any]]) -> None:
 def main(args: Any):
     if args.enable_amd_env_vars:
         set_amd_env_vars()
+
     # Get operators to quantize.
     quantize_ops = get_quantize_ops()
+
     # If kernel filter is provided, parse it.
     if args.kernels is not None:
         kernels = args.kernels.strip().split(",")
     else:
         kernels = None
+
     # Enumerate shapes to benchmark.
-    if args.M is None:
-        M = [1, 4, 8, 16, 32, 64, 128, 2048, 4096, 8192, 16384]
+    if args.use_llama_shapes:
+        MNK = get_llama_shapes()
     else:
-        M = [int(m) for m in args.M.strip().split(",")]
-    if args.N is None:
-        N = [1280, 2304, 7168, 8192, 16384]
-    else:
-        N = [int(n) for n in args.N.strip().split(",")]
-    if args.K is None:
-        K = [1024, 3584, 8192, 16384]
-    else:
-        K = [int(k) for k in args.K.strip().split(",")]
-    # List all shapes for simplicity.
-    MNK = list(itertools.product(M, N, K))
+        if args.M is None:
+            M = [1, 4, 8, 16, 32, 64, 128, 2048, 4096, 8192, 16384]
+        else:
+            M = [int(m) for m in args.M.strip().split(",")]
+        if args.N is None:
+            N = [1280, 2304, 7168, 8192, 16384]
+        else:
+            N = [int(n) for n in args.N.strip().split(",")]
+        if args.K is None:
+            K = [1024, 3584, 8192, 16384]
+        else:
+            K = [int(k) for k in args.K.strip().split(",")]
+        # List all shapes for simplicity.
+        MNK = list(itertools.product(M, N, K))
+
     # Iterate over shapes and benchmark.
     benchmark_results = []
     for m, n, k in MNK:
@@ -208,6 +238,12 @@ def invoke_main() -> None:
         default=False,
         action="store_true",
         help="If set, use rotating buffer to benchmark.",
+    )
+    parser.add_argument(
+        "--use_llama_shapes",
+        default=False,
+        action="store_true",
+        help="If set, benchmark using fixed shapes relevant to llama workloads.",
     )
 
     args = parser.parse_args()

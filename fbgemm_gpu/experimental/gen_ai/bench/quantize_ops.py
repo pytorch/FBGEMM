@@ -240,6 +240,45 @@ class ScaledMMBaseline(QuantizeOpBase):
 
 
 @register_quantize_op
+class ScaledMMRowwise(QuantizeOpBase):
+    def quantize(self, x, w):
+        xq, x_scale = quantize_fp8_row(x)
+        wq, w_scale = quantize_fp8_row(w)
+        dummy_scale = torch.tensor([1.0], device=x.device, dtype=torch.float32)
+        return xq, wq.t(), x_scale, w_scale, dummy_scale
+
+    def compute(self, xq, wq, x_scale, w_scale, dummy_scale):
+        output = torch._scaled_mm(
+            xq,
+            wq,
+            bias=None,
+            out_dtype=torch.bfloat16,
+            scale_a=dummy_scale,
+            scale_b=dummy_scale,
+            scale_result=None,
+            use_fast_accum=True,
+        )
+        # Apply separate rowwise scaling.
+        output = output * x_scale[:, None] * w_scale[None, :]
+        return output
+
+    def quantize_and_compute(self, x, w):
+        return self.compute(*self.quantize(x, w))
+
+    @property
+    def name(self) -> str:
+        return "scaled_mm_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class FP8TensorwiseGemm(QuantizeOpBase):
     """
     FP8 matmul with tensorwise scaling.
@@ -316,8 +355,8 @@ class FP8RowwiseGemm(QuantizeOpBase):
 
     def quantize(self, x, w):
         # Quantize both input tensors.
-        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
-        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+        xq, x_scale = quantize_fp8_row(x)
+        wq, w_scale = quantize_fp8_row(w)
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
