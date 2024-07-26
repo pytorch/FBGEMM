@@ -253,6 +253,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
             prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
         )
         if not ps_hosts:
+            use_passed_in_path = True
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
@@ -272,6 +273,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 ssd_uniform_init_upper,
                 8,  # row_storage_bitwidth
                 0,  # ssd_block_cache_size
+                use_passed_in_path,
             )
         else:
             # create tbe unique id using rank index | pooling mode

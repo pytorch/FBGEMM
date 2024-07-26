@@ -37,7 +37,8 @@ TEST(RocksDbEmbeddingCacheTest, TestPutAndGet) {
       -0.01, // uniform_init_lower,
       0.01, // uniform_init_upper,
       32, // row_storage_bitwidth = 32,
-      0 // cache_size = 0
+      0, // cache_size = 0
+      true // use_passed_in_path = true,
   );
 
   auto write_indices =

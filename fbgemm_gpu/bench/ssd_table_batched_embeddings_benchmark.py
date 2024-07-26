@@ -117,7 +117,7 @@ def benchmark_read_write(
     np.random.seed(42)
     torch.random.manual_seed(43)
     elem_size = 4
-
+    use_passed_in_path = True
     with tempfile.TemporaryDirectory(prefix=ssd_prefix) as ssd_directory:
         # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
         ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
@@ -137,6 +137,7 @@ def benchmark_read_write(
             0.01,  # ssd_uniform_init_upper
             32,  # row_storage_bitwidth
             block_cache_size_mb * (2**20),  # block cache size
+            use_passed_in_path,
         )
 
         total_indices = (warmup_iters + iters) * batch_size * bag_size
@@ -354,8 +355,8 @@ def ssd_training(  # noqa C901
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
             ssd_cache_location=EmbeddingLocation.MANAGED,
-            ssd_shards=8,
-            ssd_block_cache_size=block_cache_size_mb * (2**20),
+            ssd_rocksdb_shards=8,
+            ssd_block_cache_size_per_tbe=block_cache_size_mb * (2**20),
             **common_args,
         ),
     }

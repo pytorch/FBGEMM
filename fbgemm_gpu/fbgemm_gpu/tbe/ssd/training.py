@@ -63,19 +63,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         feature_table_map: Optional[List[int]],  # [T]
         cache_sets: int,
         ssd_storage_directory: str,
-        ssd_shards: int = 1,
+        ssd_rocksdb_shards: int = 1,
         ssd_memtable_flush_period: int = -1,
         ssd_memtable_flush_offset: int = -1,
         ssd_l0_files_per_compact: int = 4,
         ssd_rate_limit_mbps: int = 0,
         ssd_size_ratio: int = 10,
         ssd_compaction_trigger: int = 8,
-        ssd_write_buffer_size: int = 2 * 1024 * 1024 * 1024,
-        ssd_max_write_buffer_num: int = 16,
+        ssd_rocksdb_write_buffer_size: int = 2 * 1024 * 1024 * 1024,
+        ssd_max_write_buffer_num: int = 4,
         ssd_cache_location: EmbeddingLocation = EmbeddingLocation.MANAGED,
         ssd_uniform_init_lower: float = -0.01,
         ssd_uniform_init_upper: float = 0.01,
-        ssd_block_cache_size: int = 0,
+        ssd_block_cache_size_per_tbe: int = 0,
         weights_precision: SparseType = SparseType.FP32,
         output_dtype: SparseType = SparseType.FP32,
         optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
@@ -102,6 +102,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Parameter Server Configs
         ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
         tbe_unique_id: int = -1,
+        use_passed_in_path: int = True,
+        # in local test we need to use the pass in path for rocksdb creation
+        # in production we need to do it inside SSD mount path which will ignores the passed in path
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -161,7 +164,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         cache_size = cache_sets * ASSOC * element_size * self.max_D
         logging.info(
             f"Using cache for SSD with admission algorithm "
-            f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_shards} shards, "
+            f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_rocksdb_shards} shards, "
             f"SSD storage directory: {ssd_storage_directory}, "
             f"Memtable Flush Period: {ssd_memtable_flush_period}, "
             f"Memtable Flush Offset: {ssd_memtable_flush_offset}, "
@@ -249,12 +252,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         # logging.info("DEBUG: weights_precision {}".format(weights_precision))
         if not ps_hosts:
+            logging.info(
+                f"Logging SSD offloading setup "
+                f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
+                f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
+                f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},rate_limit_mbps={ssd_rate_limit_mbps},"
+                f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger},"
+                f"write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size},max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num},"
+                f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
+                f"row_storage_bitwidth={weights_precision.bit_rate()},block_cache_size_per_tbe={ssd_block_cache_size_per_tbe},"
+                f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB"
+            )
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
                 ssd_directory,
-                ssd_shards,
-                ssd_shards,
+                ssd_rocksdb_shards,
+                ssd_rocksdb_shards,
                 ssd_memtable_flush_period,
                 ssd_memtable_flush_offset,
                 ssd_l0_files_per_compact,
@@ -262,15 +276,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ssd_rate_limit_mbps,
                 ssd_size_ratio,
                 ssd_compaction_trigger,
-                ssd_write_buffer_size,
+                ssd_rocksdb_write_buffer_size,
                 ssd_max_write_buffer_num,
                 ssd_uniform_init_lower,
                 ssd_uniform_init_upper,
                 weights_precision.bit_rate(),  # row_storage_bitwidth
-                ssd_block_cache_size,
+                ssd_block_cache_size_per_tbe,
+                use_passed_in_path,
             )
         else:
-            # create tbe unique id using rank index | pooling mode
+            # create tbe unique id using rank index | local tbe idx
             if tbe_unique_id == -1:
                 SSDTableBatchedEmbeddingBags._local_instance_index += 1
                 assert (
