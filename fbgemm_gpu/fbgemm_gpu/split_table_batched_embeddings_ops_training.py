@@ -143,7 +143,7 @@ class CowClipDefinition:
     lower_bound: float = 0.0
 
 
-@dataclass(frozen=True)
+@dataclass
 class GlobalWeightDecayDefinition:
     start_iter: int = 0
     lower_bound: float = 0.0
@@ -1013,15 +1013,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     torch.ones(1, dtype=torch.float32, device=self.current_device),
                     persistent=False,
                 )
-            if (
-                optimizer
-                in (
-                    OptimType.ADAM,
-                    OptimType.LAMB,
-                    OptimType.PARTIAL_ROWWISE_ADAM,
-                    OptimType.PARTIAL_ROWWISE_LAMB,
-                )
-                or self._used_rowwise_adagrad_with_global_weight_decay
+            if optimizer in (
+                OptimType.ADAM,
+                OptimType.LAMB,
+                OptimType.PARTIAL_ROWWISE_ADAM,
+                OptimType.PARTIAL_ROWWISE_LAMB,
             ):
                 self.register_buffer(
                     "iter",
@@ -1971,11 +1967,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 (
                     {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
                     if self._used_rowwise_adagrad_with_counter
-                    else (
-                        {"sum": states[0], "prev_iter": states[1]}
-                        if self._used_rowwise_adagrad_with_global_weight_decay
-                        else {"sum": states[0]}
-                    )
+                    else {"sum": states[0]}
                 )
                 for states in split_optimizer_states
             ]
@@ -2068,17 +2060,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.momentum2_physical_placements,
                     rowwise=self.optimizer
                     in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
-                )
-            )
-        if self._used_rowwise_adagrad_with_global_weight_decay:
-            states.append(
-                get_optimizer_states(
-                    self.prev_iter_dev,
-                    self.prev_iter_host,
-                    self.prev_iter_uvm,
-                    self.prev_iter_physical_offsets,
-                    self.prev_iter_physical_placements,
-                    rowwise=True,
                 )
             )
         if self._used_rowwise_adagrad_with_counter:
