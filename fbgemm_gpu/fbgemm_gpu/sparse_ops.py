@@ -26,7 +26,6 @@ except Exception:
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip"
         )
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops_hip"
         )
@@ -36,7 +35,8 @@ except Exception:
             "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
         )
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
+
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library(
