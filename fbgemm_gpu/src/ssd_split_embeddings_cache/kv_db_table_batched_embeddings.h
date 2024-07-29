@@ -53,7 +53,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   virtual void set(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) = 0;
+      const at::Tensor& count,
+      const bool isBwd = true) = 0;
 
   virtual void get(
       const at::Tensor& indices,
@@ -76,7 +77,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
-      const int64_t timestep);
+      const int64_t timestep,
+      const bool isBwd = true);
 
  private:
   virtual void flush_or_compact(const int64_t timestep) = 0;

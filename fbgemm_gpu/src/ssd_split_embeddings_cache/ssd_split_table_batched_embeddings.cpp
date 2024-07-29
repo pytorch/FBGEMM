@@ -134,9 +134,13 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             cache_size,
             use_passed_in_path)) {}
 
-  void
-  set_cuda(Tensor indices, Tensor weights, Tensor count, int64_t timestep) {
-    return impl_->set_cuda(indices, weights, count, timestep);
+  void set_cuda(
+      Tensor indices,
+      Tensor weights,
+      Tensor count,
+      int64_t timestep,
+      bool isBwd) {
+    return impl_->set_cuda(indices, weights, count, timestep, isBwd);
   }
 
   void get_cuda(Tensor indices, Tensor weights, Tensor count) {
@@ -149,6 +153,16 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
   void get(Tensor indices, Tensor weights, Tensor count) {
     return impl_->get(indices, weights, count);
+  }
+
+  std::vector<int64_t> get_mem_usage() {
+    return impl_->get_mem_usage();
+  }
+
+  std::vector<double> get_io_duration(
+      const int64_t step,
+      const int64_t interval) {
+    return impl_->get_io_duration(step, interval);
   }
 
   void compact() {
@@ -209,6 +223,8 @@ static auto embedding_rocks_db_wrapper =
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
         .def("compact", &EmbeddingRocksDBWrapper::compact)
         .def("flush", &EmbeddingRocksDBWrapper::flush)
+        .def("get_mem_usage", &EmbeddingRocksDBWrapper::get_mem_usage)
+        .def("get_io_duration", &EmbeddingRocksDBWrapper::get_io_duration)
         .def("set", &EmbeddingRocksDBWrapper::set)
         .def("get", &EmbeddingRocksDBWrapper::get);
 

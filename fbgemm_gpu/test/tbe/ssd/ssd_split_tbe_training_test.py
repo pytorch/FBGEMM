@@ -87,7 +87,13 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         assert (output_weights <= 0.1).all().item()
         assert (output_weights >= -0.1).all().item()
 
-        emb.ssd_db.set_cuda(indices, weights, count, 1)
+        emb.ssd_db.set_cuda(
+            indices,
+            weights,
+            count,
+            1,
+            False,  # is_bwd
+        )
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
         torch.testing.assert_close(weights, output_weights)
@@ -233,6 +239,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 emb_r.weight.cpu(),
                 torch.as_tensor([E]),
                 t,
+                False,  # is_bwd
             )
 
         # Convert back to float (to make sure that accumulation is done

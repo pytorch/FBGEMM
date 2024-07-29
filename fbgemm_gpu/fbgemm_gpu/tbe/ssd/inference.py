@@ -441,6 +441,7 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 evicted_rows_cpu,
                 actions_count_cpu,
                 self.timestep_counter.get(),
+                False,  # is_bwd
             )
             # TODO: is this needed?
             # Need a way to synchronize

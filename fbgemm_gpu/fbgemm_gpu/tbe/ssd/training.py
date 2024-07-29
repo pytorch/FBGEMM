@@ -8,6 +8,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[13,56]
 
+import contextlib
 import functools
 import itertools
 import logging
@@ -20,6 +21,7 @@ import torch  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.runtime_monitor import (
+    AsyncSeriesTimer,
     TBEStatsReporter,
     TBEStatsReporterConfig,
 )
@@ -447,6 +449,62 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"stats_reporter:{none_throws(self.stats_reporter) if self.stats_reporter else 'none'}, "
         )
 
+        # prefetch launch a series of kernels, we use AsyncSeriesTimer to track the kernel time
+        self.ssd_prefetch_read_timer: Optional[AsyncSeriesTimer] = None
+        self.ssd_prefetch_evict_timer: Optional[AsyncSeriesTimer] = None
+        self.prefetch_parallel_stream_cnt: int = 2
+        # tuple of iteration, prefetch parallel stream cnt, reported duration
+        # since there are 2 stream in parallel in prefetch, we want to count the longest one
+        self.prefetch_duration_us: Tuple[int, int, float] = (
+            -1,
+            self.prefetch_parallel_stream_cnt,
+            0,
+        )
+        if self.stats_reporter:
+            self.ssd_prefetch_read_timer = AsyncSeriesTimer(
+                functools.partial(
+                    SSDTableBatchedEmbeddingBags._report_duration,
+                    self,
+                    event_name="tbe.prefetch_duration_us",
+                    time_unit="us",
+                )
+            )
+            self.ssd_prefetch_evict_timer = AsyncSeriesTimer(
+                functools.partial(
+                    SSDTableBatchedEmbeddingBags._report_duration,
+                    self,
+                    event_name="tbe.prefetch_duration_us",
+                    time_unit="us",
+                )
+            )
+
+    @torch.jit.ignore
+    def _report_duration(
+        self,
+        it_step: int,
+        dur_ms: float,
+        event_name: str,
+        time_unit: str,
+    ) -> None:
+        recorded_itr, stream_cnt, report_val = self.prefetch_duration_us
+        duration = dur_ms
+        if time_unit == "us":
+            duration = dur_ms * 1000
+        if it_step == recorded_itr:
+            report_val = max(report_val, duration)
+            stream_cnt -= 1
+        else:
+            recorded_itr = it_step
+            report_val = duration
+            stream_cnt = self.prefetch_parallel_stream_cnt
+        self.prefetch_duration_us = (recorded_itr, stream_cnt, report_val)
+
+        if stream_cnt == 1:
+            # this is the last stream, handling ods report
+            none_throws(self.stats_reporter).report_duration(
+                it_step, event_name, report_val, time_unit=time_unit
+            )
+
     # pyre-ignore[3]
     def record_function_via_dummy_profile_factory(
         self,
@@ -560,6 +618,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         post_event: torch.cuda.Event,
         is_rows_uvm: bool,
         name: Optional[str] = "",
+        is_bwd: bool = True,
     ) -> None:
         """
         Evict data from the given input tensors to SSD via RocksDB
@@ -598,6 +657,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     rows_cpu,
                     actions_count_cpu,
                     self.timestep,
+                    is_bwd,
                 )
 
                 # TODO: is this needed?
@@ -766,6 +826,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             current_stream.wait_event(self.ssd_event_evict_sp)
             current_stream.wait_event(self.ssd_event_get_inputs_cpy)
 
+            if self.gather_ssd_cache_stats:
+                # call to collect past SSD IO dur right before next rocksdb IO
+                self._report_ssd_io_stats()
+
             if linear_cache_indices.numel() > 0:
                 self.record_function_via_dummy_profile(
                     "## ssd_get ##",
@@ -794,6 +858,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     post_event=self.ssd_event_evict,
                     is_rows_uvm=False,
                     name="cache",
+                    is_bwd=False,
                 )
 
             # TODO: keep only necessary tensors
@@ -814,6 +879,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if self.gather_ssd_cache_stats:
             self.ssd_cache_stats[3] += actions_count_gpu[0]  # num unique misses
             self.ssd_cache_stats[2] += unique_indices_length[0]  # num unique indices
+            self._report_ssd_mem_usage()
             self._report_ssd_stats()
 
     def forward(
@@ -828,7 +894,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if per_sample_weights is not None:
             per_sample_weights = per_sample_weights.float()
         if len(self.timesteps_prefetched) == 0:
-            self.prefetch(indices, offsets)
+            with self._recording_to_timer(
+                self.ssd_prefetch_read_timer,
+                context=self.step,
+                stream=torch.cuda.current_stream(),
+            ), self._recording_to_timer(
+                self.ssd_prefetch_evict_timer,
+                context=self.step,
+                stream=self.ssd_eviction_stream,
+            ):
+                self.prefetch(indices, offsets)
         assert len(self.ssd_prefetch_data) > 0
 
         prefetch_data = self.ssd_prefetch_data.pop(0)
@@ -1006,6 +1081,51 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             active_weights,
             torch.tensor([active_ids.numel()]),
             self.timestep,
+            False,
+        )
+
+    @torch.jit.ignore
+    def _report_ssd_io_stats(self) -> None:
+        """
+        EmbeddingRocksDB will hold stats for total read/write duration in fwd/bwd
+        this function fetch the stats from EmbeddingRocksDB and report it with stats_reporter
+        """
+        if self.stats_reporter is None:
+            return
+
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if not stats_reporter.should_report(self.step):
+            return
+
+        ssd_io_duration = self.ssd_db.get_io_duration(
+            self.step, stats_reporter.report_interval  # pyre-ignore
+        )
+
+        if len(ssd_io_duration) != 3:
+            logging.error("ssd io duration should have 3 elements")
+            return
+
+        ssd_read_dur_us = ssd_io_duration[0]
+        fwd_ssd_write_dur_us = ssd_io_duration[1]
+        bwd_ssd_write_dur_us = ssd_io_duration[2]
+
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="ssd.io_duration.read_us",
+            duration_ms=ssd_read_dur_us,
+            time_unit="us",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="ssd.io_duration.fwd_write_us",
+            duration_ms=fwd_ssd_write_dur_us,
+            time_unit="us",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="ssd.io_duration.bwd_write_us",
+            duration_ms=bwd_ssd_write_dur_us,
+            time_unit="us",
         )
 
     @torch.jit.ignore
@@ -1062,3 +1182,61 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             event_name="ssd.hbm_cache_stats.num_unique_misses",
             data_bytes=int(ssd_cache_stats_delta[3] / passed_steps),
         )
+
+    @torch.jit.ignore
+    def _report_ssd_mem_usage(
+        self,
+    ) -> None:
+        """
+        rocskdb has internal stats for dram mem usage, here we call EmbeddingRocksDB to
+        extract those stats out and report it with stats_reporter
+        """
+        if self.stats_reporter is None:
+            return
+
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if not stats_reporter.should_report(self.step):
+            return
+
+        mem_usage_list = self.ssd_db.get_mem_usage()
+        block_cache_usage = mem_usage_list[0]
+        estimate_table_reader_usage = mem_usage_list[1]
+        memtable_usage = mem_usage_list[2]
+        block_cache_pinned_usage = mem_usage_list[3]
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="ssd.mem_usage.block_cache",
+            data_bytes=block_cache_usage,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="ssd.mem_usage.estimate_table_reader",
+            data_bytes=estimate_table_reader_usage,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="ssd.mem_usage.memtable",
+            data_bytes=memtable_usage,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name="ssd.mem_usage.block_cache_pinned",
+            data_bytes=block_cache_pinned_usage,
+        )
+
+    # pyre-ignore
+    def _recording_to_timer(
+        self, timer: Optional[AsyncSeriesTimer], **kwargs: Any
+    ) -> Any:
+        """
+        helper function to call AsyncSeriesTimer, wrap it inside the kernels we want to record
+        """
+        if self.stats_reporter is not None and self.stats_reporter.should_report(
+            self.step
+        ):
+            assert (
+                timer
+            ), "We shouldn't be here, async timer must have been initiated if reporter is present."
+            return timer.recording(**kwargs)
+        # No-Op context manager
+        return contextlib.nullcontext()
