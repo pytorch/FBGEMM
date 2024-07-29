@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <folly/executors/CPUThreadPoolExecutor.h>
 #include <torch/nn/init.h>
 #include <iostream>
 #include "kv_db_table_batched_embeddings.h"
