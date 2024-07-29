@@ -1008,12 +1008,42 @@ __global__ void dynamicQuantizeMatrixRowwise(
   auto const nrows = numel / lda;
   for (int64_t row = blockIdx.x; row < nrows; row += gridDim.x) {
     float max = 0.f;
-    for (int64_t i = threadIdx.x; i < lda; i += blockDim.x) {
-      auto const in = input[row * lda + i];
-      shmem[i] = in;
-      auto val = fabs(static_cast<float>(in));
-      max = max > val ? max : val;
+    for (int64_t i = static_cast<int64_t>(threadIdx.x) * 4; i < lda;
+         i += static_cast<size_t>(blockDim.x) * 4) {
+      float4 val = {0, 0, 0, 0};
+
+      if (i + 3 < lda &&
+          (uintptr_t)(&input[row * lda + i]) % sizeof(float4) == 0) {
+        // Vectorized load: Load 4 floats at once
+        val = *reinterpret_cast<const float4*>(&input[row * lda + i]);
+      } else {
+        // Fallback to scalar load for misaligned or out-of-bounds
+        if (i < lda)
+          val.x = static_cast<float>(input[row * lda + i]);
+        if (i + 1 < lda)
+          val.y = static_cast<float>(input[row * lda + i + 1]);
+        if (i + 2 < lda)
+          val.z = static_cast<float>(input[row * lda + i + 2]);
+        if (i + 3 < lda)
+          val.w = static_cast<float>(input[row * lda + i + 3]);
+      }
+
+      for (int offset = 0; offset < 4; ++offset) {
+        if (i + offset < lda) {
+          shmem[i + offset] = input[row * lda + i + offset];
+        }
+      }
+
+      // Compute max value
+      max = fmaxf(
+          max,
+          fmaxf(
+              fmaxf(fabs(val.x), fabs(val.y)),
+              fmaxf(fabs(val.z), fabs(val.w))));
     }
+
+    __syncthreads();
+
     max = blockAllReduceMax<float>(max);
     auto bounded_max = max;
     if (scale_ub != nullptr) {
@@ -1021,10 +1051,29 @@ __global__ void dynamicQuantizeMatrixRowwise(
     }
     auto const s =
         (T_S)std::max(bounded_max / SCALE::value, min_scaling_factor);
-    for (int64_t i = threadIdx.x; i < lda; i += blockDim.x) {
-      output[row * lda + i] = (T_OUT)scale<true>(
-          static_cast<float>(shmem[i]), static_cast<float>(s));
+
+    float s_float = static_cast<float>(s);
+    for (int64_t i = static_cast<int64_t>(threadIdx.x) * 4;
+         i < static_cast<int64_t>((lda + 3) / 4) * 4;
+         i += static_cast<size_t>(blockDim.x) * 4) {
+      output[row * lda + i] =
+          (T_OUT)scale<true>(static_cast<float>(shmem[i]), s_float);
+      output[row * lda + i + 1] =
+          (T_OUT)scale<true>(static_cast<float>(shmem[i + 1]), s_float);
+      output[row * lda + i + 2] =
+          (T_OUT)scale<true>(static_cast<float>(shmem[i + 2]), s_float);
+      output[row * lda + i + 3] =
+          (T_OUT)scale<true>(static_cast<float>(shmem[i + 3]), s_float);
     }
+
+    // Handle the remaining elements after the main loop
+    for (int64_t i = static_cast<int64_t>((lda + 3) / 4) * 4 + threadIdx.x;
+         i < lda;
+         i += blockDim.x) {
+      output[row * lda + i] =
+          (T_OUT)scale<true>(static_cast<float>(shmem[i]), s_float);
+    }
+
     if (threadIdx.x == 0) {
       quant_ptr[row] = s;
     }
