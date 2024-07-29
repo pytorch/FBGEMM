@@ -437,6 +437,8 @@
 <span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
 
 <span class="kn">import</span> <span class="nn">fbgemm_gpu.split_embedding_codegen_lookup_invokers</span> <span class="k">as</span> <span class="nn">invokers</span>
+
+<span class="c1"># from fbgemm_gpu.config import FeatureGateName</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.runtime_monitor</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">AsyncSeriesTimer</span><span class="p">,</span>
     <span class="n">TBEStatsReporter</span><span class="p">,</span>
@@ -1502,16 +1504,20 @@
 
         <span class="c1"># Check whether to use TBE v2</span>
         <span class="n">is_experimental</span> <span class="o">=</span> <span class="kc">False</span>
-        <span class="n">fbgemm_exp_tbe</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_EXPERIMENTAL_TBE&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">use_experimental_tbe</span><span class="p">:</span>
             <span class="n">is_experimental</span> <span class="o">=</span> <span class="kc">True</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;use_experimental_tbe is set to True; Use experimental TBE: True&quot;</span><span class="p">)</span>
-        <span class="k">elif</span> <span class="n">fbgemm_exp_tbe</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">is_experimental</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">fbgemm_exp_tbe</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;FBGEMM_EXPERIMENTAL_TBE is set to </span><span class="si">{</span><span class="n">fbgemm_exp_tbe</span><span class="si">}</span><span class="s2">; &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;Use experimental TBE: </span><span class="si">{</span><span class="n">is_experimental</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;use_experimental_tbe is set to True; Using experimental TBE&quot;</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_EXPERIMENTAL_TBE&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">))</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="c1"># Keep the old feature enablement mechanism to ensure no negative impact on models that have already adopted TBE v2</span>
+            <span class="n">is_experimental</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;FBGEMM_EXPERIMENTAL_TBE is set to True; Using experimental TBE&quot;</span><span class="p">)</span>
+
+        <span class="c1"># NOTE: Keep this disabled for now until the backend lands into Pyper</span>
+        <span class="c1"># elif FeatureGateName.TBE_V2.is_enabled():</span>
+        <span class="c1">#     is_experimental = True</span>
+        <span class="c1">#     self.log(&quot;TBE_V2 Knob is set to True; Using experimental TBE&quot;)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">is_experimental</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">is_experimental</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
