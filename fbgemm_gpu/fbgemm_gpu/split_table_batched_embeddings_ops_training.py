@@ -24,6 +24,8 @@ import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+
+# from fbgemm_gpu.config import FeatureGateName
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
     TBEStatsReporter,
@@ -1089,16 +1091,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # Check whether to use TBE v2
         is_experimental = False
-        fbgemm_exp_tbe = os.environ.get("FBGEMM_EXPERIMENTAL_TBE")
         if use_experimental_tbe:
             is_experimental = True
-            self.log("use_experimental_tbe is set to True; Use experimental TBE: True")
-        elif fbgemm_exp_tbe is not None:
-            is_experimental = int(fbgemm_exp_tbe) == 1
-            self.log(
-                f"FBGEMM_EXPERIMENTAL_TBE is set to {fbgemm_exp_tbe}; "
-                f"Use experimental TBE: {is_experimental}"
-            )
+            self.log("use_experimental_tbe is set to True; Using experimental TBE")
+
+        elif int(os.environ.get("FBGEMM_EXPERIMENTAL_TBE", "0")) == 1:
+            # Keep the old feature enablement mechanism to ensure no negative impact on models that have already adopted TBE v2
+            is_experimental = True
+            self.log("FBGEMM_EXPERIMENTAL_TBE is set to True; Using experimental TBE")
+
+        # NOTE: Keep this disabled for now until the backend lands into Pyper
+        # elif FeatureGateName.TBE_V2.is_enabled():
+        #     is_experimental = True
+        #     self.log("TBE_V2 Knob is set to True; Using experimental TBE")
+
         self.is_experimental: bool = is_experimental
 
     @torch.jit.ignore
