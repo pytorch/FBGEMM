@@ -41,6 +41,7 @@ class TBEStatsReporter(abc.ABC):
         duration_ms: float,
         embedding_id: str = "",
         tbe_id: str = "",
+        time_unit: str = "ms",
     ) -> None:
         """
         Report the duration of a timed event.
@@ -77,9 +78,10 @@ class StdLogStatsReporter(TBEStatsReporter):
         duration_ms: float,
         embedding_id: str = "",
         tbe_id: str = "",
+        time_unit: str = "ms",
     ) -> None:
         logging.info(
-            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} ms"
+            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} {time_unit}"
         )
 
     def report_data_amount(

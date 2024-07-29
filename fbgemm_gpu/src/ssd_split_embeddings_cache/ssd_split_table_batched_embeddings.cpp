@@ -113,7 +113,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       double uniform_init_lower,
       double uniform_init_upper,
       int64_t row_storage_bitwidth = 32,
-      int64_t cache_size = 0)
+      int64_t cache_size = 0,
+      bool use_passed_in_path = false)
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -130,11 +131,16 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             uniform_init_lower,
             uniform_init_upper,
             row_storage_bitwidth,
-            cache_size)) {}
+            cache_size,
+            use_passed_in_path)) {}
 
-  void
-  set_cuda(Tensor indices, Tensor weights, Tensor count, int64_t timestep) {
-    return impl_->set_cuda(indices, weights, count, timestep);
+  void set_cuda(
+      Tensor indices,
+      Tensor weights,
+      Tensor count,
+      int64_t timestep,
+      bool isBwd) {
+    return impl_->set_cuda(indices, weights, count, timestep, isBwd);
   }
 
   void get_cuda(Tensor indices, Tensor weights, Tensor count) {
@@ -147,6 +153,16 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
   void get(Tensor indices, Tensor weights, Tensor count) {
     return impl_->get(indices, weights, count);
+  }
+
+  std::vector<int64_t> get_mem_usage() {
+    return impl_->get_mem_usage();
+  }
+
+  std::vector<double> get_io_duration(
+      const int64_t step,
+      const int64_t interval) {
+    return impl_->get_io_duration(step, interval);
   }
 
   void compact() {
@@ -164,27 +180,51 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
 static auto embedding_rocks_db_wrapper =
     torch::class_<EmbeddingRocksDBWrapper>("fbgemm", "EmbeddingRocksDBWrapper")
-        .def(torch::init<
-             std::string,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             double,
-             double,
-             int64_t,
-             int64_t>())
+        .def(
+            torch::init<
+                std::string,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                double,
+                double,
+                int64_t,
+                int64_t,
+                bool>(),
+            "",
+            {
+                torch::arg("path"),
+                torch::arg("num_shards"),
+                torch::arg("num_threads"),
+                torch::arg("memtable_flush_period"),
+                torch::arg("memtable_flush_offset"),
+                torch::arg("l0_files_per_compact"),
+                torch::arg("max_D"),
+                torch::arg("rate_limit_mbps"),
+                torch::arg("size_ratio"),
+                torch::arg("compaction_ratio"),
+                torch::arg("write_buffer_size"),
+                torch::arg("max_write_buffer_num"),
+                torch::arg("uniform_init_lower"),
+                torch::arg("uniform_init_upper"),
+                torch::arg("row_storage_bitwidth"),
+                torch::arg("cache_size"),
+                torch::arg("use_passed_in_path") = true,
+            })
         .def("set_cuda", &EmbeddingRocksDBWrapper::set_cuda)
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
         .def("compact", &EmbeddingRocksDBWrapper::compact)
         .def("flush", &EmbeddingRocksDBWrapper::flush)
+        .def("get_mem_usage", &EmbeddingRocksDBWrapper::get_mem_usage)
+        .def("get_io_duration", &EmbeddingRocksDBWrapper::get_io_duration)
         .def("set", &EmbeddingRocksDBWrapper::set)
         .def("get", &EmbeddingRocksDBWrapper::get);
 

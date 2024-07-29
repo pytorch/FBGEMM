@@ -55,13 +55,14 @@ void EmbeddingKVDB::set_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count,
-    const int64_t timestep) {
+    const int64_t timestep,
+    const bool isBwd) {
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::set_cuda ##");
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
   std::function<void()>* functor = new std::function<void()>([=]() {
-    self->set(indices, weights, count);
+    self->set(indices, weights, count, isBwd);
     self->flush_or_compact(timestep);
   });
   auto callFunctor =

@@ -66,7 +66,13 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
 
-        emb.ssd_db.set_cuda(indices, weights, count, 1)
+        emb.ssd_db.set_cuda(
+            indices,
+            weights,
+            count,
+            1,
+            False,  # is_bwd
+        )
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
         torch.testing.assert_close(weights, output_weights)
@@ -204,6 +210,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 copy_byte_tensor,
                 torch.as_tensor([E]),
                 t,
+                False,  # is_bwd
             )
         torch.cuda.synchronize()
 
@@ -358,6 +365,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 copy_byte_tensor,
                 torch.as_tensor([E]),
                 t,
+                False,  # is_bwd
             )
         torch.cuda.synchronize()
 

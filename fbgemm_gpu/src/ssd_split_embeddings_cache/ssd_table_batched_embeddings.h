@@ -10,7 +10,16 @@
 
 #include <torch/nn/init.h>
 #include <iostream>
+#ifdef FBGEMM_FBCODE
+#include "common/network/PortUtil.h"
+#include "common/strings/UUID.h"
+#include "common/time/Time.h"
+#include "fb_rocksdb/DBMonitor/DBMonitor.h"
+#include "fb_rocksdb/FbRocksDb.h"
+#include "rocks/utils/FB303Stats.h"
+#endif
 #include "kv_db_table_batched_embeddings.h"
+#include "torch/csrc/autograd/record_function_ops.h"
 
 namespace ssd {
 
@@ -27,6 +36,24 @@ inline size_t db_shard(int64_t id, size_t num_shards) {
 
 // We can be a bit sloppy with host memory here.
 constexpr size_t kRowInitBufferSize = 32 * 1024;
+
+#ifdef FBGEMM_FBCODE
+constexpr size_t num_ssd_drives = 8;
+const std::string ssd_mount_point = "/data00_nvidia";
+#endif
+
+// mem usage propertiese
+// -- block cache usage
+// -- Indexes and filter blocks usage
+// -- Memtable usage
+// -- Blocks pinned by iterators usage
+// for details, checkout https://fburl.com/by9kyk12
+const std::vector<std::string> rocks_db_mem_properties = {
+    "rocksdb.block-cache-usage",
+    "rocksdb.estimate-table-readers-mem",
+    "rocksdb.cur-size-all-mem-tables",
+    "rocksdb.block-cache-pinned-usage",
+};
 
 class Initializer {
  public:
@@ -117,7 +144,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       float uniform_init_lower,
       float uniform_init_upper,
       int64_t row_storage_bitwidth = 32,
-      int64_t cache_size = 0) {
+      int64_t cache_size = 0,
+      bool use_passed_in_path = false) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
     options.create_if_missing = true;
@@ -126,7 +154,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     options.compression = rocksdb::kNoCompression;
 
     // Lots of free memory on the TC, use large write buffers.
-    options.write_buffer_size = write_buffer_size;
+    // max_write_buffer_num is per rocksdb shard level, write_buffer_size is tbe
+    // level to calc individual buffer size we need to have total buffer size
+    // per tbe / # db shards / # buffer per shards
+    int64_t write_buffer_size_per_buffer =
+        int64_t(write_buffer_size / num_shards / max_write_buffer_num);
+    options.write_buffer_size = write_buffer_size_per_buffer;
     options.max_write_buffer_number = max_write_buffer_num;
     options.min_write_buffer_number_to_merge = 2;
     options.target_file_size_base = int64_t(2) * 1024 * 1024 * 1024;
@@ -146,9 +179,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     // options.allow_concurrent_memtable_write = false;
     // options.inplace_update_support = true;
     // Full Pipeline Options
-    options.allow_concurrent_memtable_write = true;
+    options.allow_concurrent_memtable_write = false;
     options.enable_write_thread_adaptive_yield = true;
-    options.inplace_update_support = false;
+    // inplace_update_support = false means we will apend kv pair in write
+    // buffer even we saw duplications, this quickly fills up the buffer and
+    // causing flush set this to true to make update on the existing key
+    // allow_concurrent_memtable_write is toggled in pair with
+    // inplace_update_support
+    options.inplace_update_support = true;
     options.avoid_unnecessary_blocking_io = true;
 
     options.use_direct_reads = true;
@@ -161,8 +199,16 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     options.rate_limiter = rate_limiter_;
 
     // TODO: use fb303?
+#ifdef FBGEMM_FBCODE
+    options.statistics =
+        std::make_shared<facebook::rocks::FB303Stats>("tbe_metrics");
+#else
     options.statistics = rocksdb::CreateDBStatistics();
+#endif
     options.stats_dump_period_sec = 600;
+
+    // no bloom filter on the last level, checkout https://fburl.com/ne99girf
+    options.optimize_filters_for_hits = true;
 
     rocksdb::BlockBasedTableOptions table_options;
 
@@ -191,10 +237,49 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     options.env->SetBackgroundThreads(1, rocksdb::Env::LOW);
 
     options.max_open_files = -1;
+
+#ifdef FBGEMM_FBCODE
+    auto serviceInfo = std::make_shared<facebook::fb_rocksdb::ServiceInfo>();
+    serviceInfo->oncall = "pyper_training";
+    serviceInfo->service_name = "ssd_offloading_rocksb";
+    auto db_monitor_options = facebook::fb_rocksdb::DBMonitorOptions();
+    db_monitor_options.fb303Prefix = "tbe_metrics";
+
+    std::string tbe_uuid = "";
+    if (!use_passed_in_path) {
+      path = ssd_mount_point;
+      tbe_uuid = facebook::strings::generateUUID();
+    }
+    std::string used_path = "";
+#endif
     for (auto i = 0; i < num_shards; ++i) {
+#ifdef FBGEMM_FBCODE
+      int ssd_drive_idx = i % num_ssd_drives;
+      std::string ssd_idx_tbe_id_str = "";
+      if (!use_passed_in_path) {
+        ssd_idx_tbe_id_str =
+            std::to_string(ssd_drive_idx) + std::string("/") + tbe_uuid;
+      }
+      auto shard_path =
+          path + ssd_idx_tbe_id_str + std::string("_shard") + std::to_string(i);
+      used_path += shard_path + ", ";
+#else
       auto shard_path = path + std::string("/shard_") + std::to_string(i);
+#endif
       rocksdb::DB* db;
+
+#ifdef FBGEMM_FBCODE
+      db_monitor_options.port = facebook::network::getFreePort();
+      auto s = facebook::fb_rocksdb::openRocksDB(
+          options,
+          shard_path,
+          &db,
+          serviceInfo,
+          facebook::fb_rocksdb::getDefaultProfileOptions(),
+          db_monitor_options);
+#else
       auto s = rocksdb::DB::Open(options, shard_path, &db);
+#endif
       if (!s.ok() && s.code() == rocksdb::Status::kInvalidArgument &&
           (options.use_direct_reads ||
            options.use_direct_io_for_flush_and_compaction)) {
@@ -221,6 +306,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             row_storage_bitwidth));
       }
     }
+#ifdef FBGEMM_FBCODE
+    LOG(INFO) << "TBE actual used_path: " << used_path;
+#endif
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards);
     ro_.verify_checksums = false;
     ro_.async_io = true;
@@ -247,9 +335,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
-  void set(const Tensor& indices, const Tensor& weights, const Tensor& count)
-      override {
+  void set(
+      const Tensor& indices,
+      const Tensor& weights,
+      const Tensor& count,
+      const bool isBwd = true) override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::set");
+    auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     std::vector<folly::Future<folly::Unit>> futures;
     auto count_ = count.item().toLong();
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
@@ -289,11 +381,20 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       futures.push_back(std::move(f));
     }
     folly::collect(futures).wait();
+    auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+    if (isBwd) {
+      bwd_write_total_duration_ += duration;
+    } else {
+      fwd_write_total_duration_ += duration;
+    }
   }
 
   void get(const Tensor& indices, const Tensor& weights, const Tensor& count)
       override {
-    RECORD_USER_SCOPE("EmbeddingRocksDB::get");
+    // auto rec = torch::autograd::profiler::record_function_enter_new(
+    //     "EmbeddingRocksDB::get");
+    // RECORD_USER_SCOPE("EmbeddingRocksDB::get");
+    auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     std::vector<folly::Future<folly::Unit>> futures;
     auto count_ = count.item().toLong();
 
@@ -407,6 +508,49 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       futures.push_back(std::move(f));
     }
     folly::collect(futures).wait();
+    auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+    read_total_duration_ += duration;
+    // rec->record.end();
+  }
+
+  // collect mem usage on all db shards, checkout rocks_db_mem_properties
+  std::vector<int64_t> get_mem_usage() {
+    int num_mem_component = rocks_db_mem_properties.size();
+    std::vector<int64_t> mem_usages(num_mem_component);
+    for (auto& db : dbs_) {
+      for (int i = 0; i < num_mem_component; i++) {
+        std::string property = rocks_db_mem_properties[i];
+        std::string val;
+        db->GetProperty(property, &val);
+        if (val != "") {
+          if (i != 0) {
+            mem_usages[i] += folly::to<int64_t>(val);
+          } else {
+            mem_usages[i] = folly::to<int64_t>(val);
+          }
+        }
+      }
+    }
+    return mem_usages;
+  }
+
+  std::vector<double> get_io_duration(
+      const int64_t step,
+      const int64_t interval) {
+    std::vector<double> ret;
+    ret.reserve(3);
+    if (step > 0 && step % interval == 0) {
+      auto read_dur = read_total_duration_.load();
+      auto fwd_write_dur = fwd_write_total_duration_.load();
+      auto bwd_write_dur = bwd_write_total_duration_.load();
+      ret.push_back(double(read_dur / interval));
+      ret.push_back(double(fwd_write_dur / interval));
+      ret.push_back(double(bwd_write_dur / interval));
+      read_total_duration_ = 0;
+      fwd_write_total_duration_ = 0;
+      bwd_write_total_duration_ = 0;
+    }
+    return ret;
   }
 
   void compact() override {
@@ -483,6 +627,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t memtable_flush_period_;
   int64_t compaction_period_;
   int64_t l0_files_per_compact_;
+  std::atomic<int64_t> read_total_duration_{0};
+  std::atomic<int64_t> fwd_write_total_duration_{0};
+  std::atomic<int64_t> bwd_write_total_duration_{0};
 };
 
 } // namespace ssd

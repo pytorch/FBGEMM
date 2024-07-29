@@ -61,6 +61,7 @@ class TestingStatsReporter(TBEStatsReporter):
         duration_ms: float,
         embedding_id: str = "",
         tbe_id: str = "",
+        time_unit: str = "ms",
     ) -> None:
         self.reported_data.setdefault(event_name, [])
         self.reported_data[event_name].append(
