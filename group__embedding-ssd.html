@@ -79,11 +79,113 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:ga8a561f5585f09252076650c0d34457d7" id="r_ga8a561f5585f09252076650c0d34457d7"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga8a561f5585f09252076650c0d34457d7">masked_index_put_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count)</td></tr>
+<tr class="separator:ga8a561f5585f09252076650c0d34457d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga1b0baea42aa4a092e32976f24c246465" id="r_ga1b0baea42aa4a092e32976f24c246465"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga1b0baea42aa4a092e32976f24c246465">masked_index_select_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count)</td></tr>
+<tr class="separator:ga1b0baea42aa4a092e32976f24c246465"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6c17fd18abf27a7776661565e7f1e011" id="r_ga6c17fd18abf27a7776661565e7f1e011"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga6c17fd18abf27a7776661565e7f1e011">ssd_generate_row_addrs_cuda</a> (const Tensor &amp;lxu_cache_locations, const Tensor &amp;assigned_cache_slots, const Tensor &amp;linear_index_inverse_indices, const Tensor &amp;unique_indices_count_cumsum, const Tensor &amp;cache_set_inverse_indices, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights, const Tensor &amp;unique_indices_length, const Tensor &amp;cache_set_sorted_unique_indices)</td></tr>
 <tr class="separator:ga6c17fd18abf27a7776661565e7f1e011"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
+<a id="ga8a561f5585f09252076650c0d34457d7" name="ga8a561f5585f09252076650c0d34457d7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga8a561f5585f09252076650c0d34457d7">&#9670;&#160;</a></span>masked_index_put_cuda()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor masked_index_put_cuda </td>
+          <td>(</td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>self</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>values</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Similar to <code>torch.Tensor.index_put</code> but ignore <code>indices &lt; 0</code> </p>
+<p><code>masked_index_put_cuda</code> only supports 2D input <code>values</code>. It puts <code>count</code> rows in <code>values</code> into <code>self</code> using the row indices that are &gt;= 0 in <code>indices</code>.</p>
+<div class="fragment"><div class="line"><span class="comment"># Equivalent PyTorch Python code</span></div>
+<div class="line">indices = indices[:count]</div>
+<div class="line">filter_ = indices &gt;= 0</div>
+<div class="line">indices_ = indices[filter_]</div>
+<div class="line">self[indices_] = values[filter_.nonzero().flatten()]</div>
+</div><!-- fragment --><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">self</td><td>The 2D output tensor (the tensor that is indexed) </td></tr>
+    <tr><td class="paramname">indices</td><td>The 1D index tensor </td></tr>
+    <tr><td class="paramname">values</td><td>The 2D input tensor </td></tr>
+    <tr><td class="paramname">count</td><td>The tensor that contains the length of <code>indices</code> to process</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>The <code>self</code> tensor </dd></dl>
+
+</div>
+</div>
+<a id="ga1b0baea42aa4a092e32976f24c246465" name="ga1b0baea42aa4a092e32976f24c246465"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga1b0baea42aa4a092e32976f24c246465">&#9670;&#160;</a></span>masked_index_select_cuda()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor masked_index_select_cuda </td>
+          <td>(</td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>self</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>values</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Similar to <code>torch.index_select</code> but ignore <code>indices &lt; 0</code> </p>
+<p><code>masked_index_select_cuda</code> only supports 2D input <code>values</code>. It puts <code>count</code> rows that are specified in <code>indices</code> (where <code>indices</code> &gt;= 0) from <code>values</code> into <code>self</code></p>
+<div class="fragment"><div class="line"><span class="comment"># Equivalent PyTorch Python code</span></div>
+<div class="line">indices = indices[:count]</div>
+<div class="line">filter_ = indices &gt;= 0</div>
+<div class="line">indices_ = indices[filter_]</div>
+<div class="line">self[filter_.nonzero().flatten()] = values[indices_]</div>
+</div><!-- fragment --><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">self</td><td>The 2D output tensor </td></tr>
+    <tr><td class="paramname">indices</td><td>The 1D index tensor </td></tr>
+    <tr><td class="paramname">values</td><td>The 2D input tensor (the tensor that is indexed) </td></tr>
+    <tr><td class="paramname">count</td><td>The tensor that contains the length of <code>indices</code> to process</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>The <code>self</code> tensor </dd></dl>
+
+</div>
+</div>
 <a id="ga6c17fd18abf27a7776661565e7f1e011" name="ga6c17fd18abf27a7776661565e7f1e011"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ga6c17fd18abf27a7776661565e7f1e011">&#9670;&#160;</a></span>ssd_generate_row_addrs_cuda()</h2>
 
