@@ -22,7 +22,6 @@
 
 #include <folly/Random.h>
 #include <folly/concurrency/UnboundedQueue.h>
-#include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/hash/Hash.h>
 
@@ -40,11 +39,6 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
 namespace kv_db {
-
-class CudaExecutor {
- public:
-  static folly::CPUThreadPoolExecutor* get_executor();
-};
 
 class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
  public:

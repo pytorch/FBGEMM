@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <folly/executors/CPUThreadPoolExecutor.h>
 #include <torch/nn/init.h>
 #include <iostream>
 #ifdef FBGEMM_FBCODE
