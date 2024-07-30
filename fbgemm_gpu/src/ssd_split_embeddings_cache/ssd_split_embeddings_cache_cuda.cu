@@ -49,8 +49,8 @@ vec4_copy(uint8_t* dst, const uint8_t* src, const int32_t D) {
   }
 }
 
-template <typename scalar_t>
-__global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
+template <typename scalar_t, bool is_index_put>
+__global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
     pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> self,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         indices,
@@ -67,20 +67,27 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
   if (n >= count_) {
     return;
   }
+  // idx == -1 if it is conflict miss
   const auto idx = indices[n];
   if (idx < 0) {
     return;
   }
   const auto D = self.size(1);
-  vec4_copy(&self[idx][0], &values[n][0], D);
+  const auto self_idx = is_index_put ? idx : n;
+  const auto values_idx = is_index_put ? n : idx;
+  vec4_copy(&self[self_idx][0], &values[values_idx][0], D);
 }
 
-Tensor masked_index_put_cuda(
-    Tensor self,
-    Tensor indices,
-    Tensor values,
-    Tensor count) {
+template <bool is_index_put>
+Tensor masked_index_impl(
+    const Tensor& self,
+    const Tensor& indices,
+    const Tensor& values,
+    const Tensor& count) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(self, indices, values, count);
+  TENSOR_CONTIGUOUS(self);
+  TENSOR_CONTIGUOUS(indices);
+  TENSOR_CONTIGUOUS(values);
 
   CUDA_DEVICE_GUARD(self);
 
@@ -93,17 +100,18 @@ Tensor masked_index_put_cuda(
 
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       self.scalar_type(),
-      "masked_index_put",
+      is_index_put ? "masked_index_put" : "masked_index_select",
       [&] {
         const int32_t tx = std::min<int32_t>(D / 4, kMaxThreads);
         const dim3 threads(tx, kMaxThreads / tx);
 #ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "masked_index_put_kernel";
+        const auto func_name = is_index_put ? "masked_index_put_kernel"
+                                            : "masked_index_select_kernel";
 #endif
         if (std::is_same_v<scalar_t, uint8_t>) {
           TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16")
         }
-        masked_index_put_kernel<scalar_t>
+        masked_index_kernel<scalar_t, is_index_put>
             <<<div_round_up(N, kMaxThreads / tx),
                dim3(tx, kMaxThreads / tx),
                0,
@@ -117,6 +125,23 @@ Tensor masked_index_put_cuda(
   );
 
   return self;
+}
+
+Tensor masked_index_put_cuda(
+    Tensor self,
+    Tensor indices,
+    Tensor values,
+    Tensor count) {
+  return masked_index_impl</*is_index_put=*/true>(self, indices, values, count);
+}
+
+Tensor masked_index_select_cuda(
+    Tensor self,
+    Tensor indices,
+    Tensor values,
+    Tensor count) {
+  return masked_index_impl</*is_index_put=*/false>(
+      self, indices, values, count);
 }
 
 __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
