@@ -104,6 +104,7 @@ def _kernel_quantize_mx4(
     out,
     M,
     K,
+    O,
     rand_bits,
     GROUP_SIZE: tl.constexpr,
     EBITS: tl.constexpr,
@@ -121,6 +122,7 @@ def _kernel_quantize_mx4(
         out (Tensor): [M / 2 + M / GROUP_SIZE] output containing packed mx4 values.
         M (int): Total number of elements.
         K (int): Number of elements to process in each thread.
+        O (int): Total number of expected output elements.
         rand_bits (Optional Tensor): [M, K / 2] random integers used for stochastic rounding.
         ROUNDING_MODE (int): Which rounding method to use when calculating shared exponent.
         GROUP_SIZE (int): Size of chunks that use the same shared exponent.
@@ -147,7 +149,7 @@ def _kernel_quantize_mx4(
     RAND_MASK: tl.constexpr = (1 << (FP32_EXP_OFFSET - MBITS)) - 1  # type: ignore[Incompatible variable type]
     # Boundaries for writing to output tensor.
     OUTPUT_LIMIT: tl.constexpr = K // 2 + K // GROUP_SIZE  # type: ignore[Incompatible variable type]
-    OUTPUT_SIZE: tl.constexpr = M // 2 + M // GROUP_SIZE  # type: ignore[Incompatible variable type]
+    OUTPUT_SIZE: tl.constexpr = O  # type: ignore[Incompatible variable type]
     PACKED_GROUP_SIZE: tl.constexpr = GROUP_SIZE // 2 + 1  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
@@ -375,32 +377,37 @@ def triton_quantize_mx4(
     # If given an empty shape, return an empty tensor.
     if a.numel() == 0:
         return torch.empty(a.shape, device=a.device, dtype=torch.uint8)
-    # For now, only tensors with total elements that are a multiple of 32
-    # are supported. This can be improved in the future.
-    if a.numel() % group_size != 0:
-        raise RuntimeError(
-            f"Input must have total elements that are a multiple of group_size={group_size}, but got {a.numel()} elements."
-        )
+
+    # Keep track of original shape.
     orig_shape = a.shape
+    num_elements = a.numel()
+    # If the number of elements in A is not a multiple of group_size, we need to pad.
+    # Note that this will effect the output size.
+    if a.numel() % group_size != 0:
+        num_elements += group_size - (a.numel() % group_size)
+
     # Find a shape that distributes work evenly over threads.
     # We do this by finding the power of two that is closest to
     # the sqrt of the number of elements.
-    num_threads = int(2 ** round(math.log2(math.sqrt(a.numel()))))
+    num_threads = int(2 ** round(math.log2(math.sqrt(num_elements))))
     # Make sure that the number of elements per row is a multiple of group_size.
-    K = a.numel() // num_threads
+    K = num_elements // num_threads
     K = (K // group_size) * group_size
     # If K is less than group_size, we compute a single group per row.
     if K == 0:
         K = group_size
     # We want to divide the input into chunks of size K. If that cant be done
     # evenly, its ok for one chunk to be smaller.
-    M = int(math.ceil(a.numel() / K))
+    M = int(math.ceil(num_elements / K))
     # Flatten input.
     a = a.flatten()
 
     # Create output tensor.
+    output_elements = num_elements // 2 + num_elements // group_size
     out = torch.empty(
-        [a.numel() // 2 + a.numel() // group_size], device=a.device, dtype=torch.uint8
+        [output_elements],
+        device=a.device,
+        dtype=torch.uint8,
     )
 
     # If using stochastic rounding, create random noise for each group.
@@ -410,7 +417,7 @@ def triton_quantize_mx4(
         rand_bits = torch.randint(
             low=0,
             high=2**31 - 1,
-            size=(a.numel() // group_size,),
+            size=(num_elements // group_size,),
             dtype=torch.int32,
             device=a.device,
         )
@@ -424,6 +431,7 @@ def triton_quantize_mx4(
         out,
         a.numel(),
         K,
+        output_elements,
         rand_bits=rand_bits,
         GROUP_SIZE=group_size,
         EBITS=ebits,
@@ -434,11 +442,11 @@ def triton_quantize_mx4(
     )
     # Inputs are now fully quantized and ready to return.
     # Try to return in the original shape if possible.
-    if orig_shape[-1] % group_size == 0:
+    try:
         output_shape = list(orig_shape[:-1]) + [-1]
         return out.view(output_shape)
     # If we cant, return as a flat array.
-    else:
+    except RuntimeError:
         return out.view(-1)
 
 

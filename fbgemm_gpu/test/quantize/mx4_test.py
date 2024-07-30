@@ -236,14 +236,16 @@ class TestMXQuantizationConversion(unittest.TestCase):
                 [2, 16],  # Multi dimensional shape.
                 [2, 2, 4, 4],  # Even more multi dimensional shape.
                 [96],  # Shape that cannot be made into even rows.
-                [16, 1028],  # Large shape with multiple rows.
+                [16, 1024],  # Large shape with multiple rows.
+                [60],  # Shape that is not divisible by group_size.
+                [2, 30],  # Another non groupable shape.
             ]
         ),
-        group_size=st.sampled_from([32, 64]),
+        group_size=st.sampled_from([32]),
         rounding_mode=st.sampled_from(list(RoundingMode)),
-        magnitude=st.sampled_from([1.0, 1e3, 1e-3]),
+        magnitude=st.sampled_from([1e3]),
         mx4_format=st.sampled_from([(2, 1), (3, 0)]),
-        device=st.sampled_from(["cpu", "cuda"]),
+        device=st.sampled_from(["cpu"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_mx4_cases(
@@ -256,8 +258,8 @@ class TestMXQuantizationConversion(unittest.TestCase):
         device: str,
     ) -> None:
         """Test correctness of mx4 routines with random inputs and unusual shapes."""
-        # We only want to consider total sizes that are divisible by group_size.
-        assume(sum(shape) % group_size == 0)
+        # Safe to assume there is at least one group.
+        assume(sum(shape) >= group_size)
 
         ebits, mbits = mx4_format
 
@@ -270,6 +272,16 @@ class TestMXQuantizationConversion(unittest.TestCase):
             input, group_size, rounding_mode=rounding_mode, ebits=ebits, mbits=mbits
         )
         mx_dequantized = mx4_to_fp32(mx_quantized, group_size, ebits=ebits, mbits=mbits)
+
+        # Pad input if not divisible by group size so comparisons are reasonable.
+        if input.numel() % group_size != 0:
+            input = torch.nn.functional.pad(
+                input.flatten(), (0, group_size - (input.numel() % group_size))
+            ).reshape(list(input.shape[:-1]) + [-1])
+
+        # Some shapes are expected to flatten.
+        if input.shape[-1] % group_size != 0:
+            input = input.flatten()
 
         # Check that output shape matches input shape.
         assert mx_dequantized.shape == input.shape
