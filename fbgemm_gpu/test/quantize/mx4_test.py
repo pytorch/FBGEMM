@@ -7,7 +7,7 @@
 # pyre-strict
 
 import unittest
-from typing import List
+from typing import List, Tuple
 
 import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 import hypothesis.strategies as st
@@ -242,6 +242,8 @@ class TestMXQuantizationConversion(unittest.TestCase):
         group_size=st.sampled_from([32, 64]),
         rounding_mode=st.sampled_from(list(RoundingMode)),
         magnitude=st.sampled_from([1.0, 1e3, 1e-3]),
+        mx4_format=st.sampled_from([(2, 1), (3, 0)]),
+        device=st.sampled_from(["cpu", "cuda"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_mx4_cases(
@@ -250,18 +252,24 @@ class TestMXQuantizationConversion(unittest.TestCase):
         group_size: int,
         rounding_mode: RoundingMode,
         magnitude: int,
+        mx4_format: Tuple[int, int],
+        device: str,
     ) -> None:
         """Test correctness of mx4 routines with random inputs and unusual shapes."""
         # We only want to consider total sizes that are divisible by group_size.
         assume(sum(shape) % group_size == 0)
 
+        ebits, mbits = mx4_format
+
         # Generate a random input with the specified magnitude.
-        input = torch.randn(shape, device="cuda", dtype=torch.float32) * magnitude
+        input = torch.randn(shape, device=device, dtype=torch.float32) * magnitude
 
         # Perform quant then dequant to check that proper shape is maintained and
         # outputs are reasonably correct.
-        mx_quantized = fp32_to_mx4(input, group_size, rounding_mode=rounding_mode)
-        mx_dequantized = mx4_to_fp32(mx_quantized, group_size)
+        mx_quantized = fp32_to_mx4(
+            input, group_size, rounding_mode=rounding_mode, ebits=ebits, mbits=mbits
+        )
+        mx_dequantized = mx4_to_fp32(mx_quantized, group_size, ebits=ebits, mbits=mbits)
 
         # Check that output shape matches input shape.
         assert mx_dequantized.shape == input.shape

@@ -10,26 +10,27 @@ from typing import Union
 
 import torch
 
-from .common import RoundingMode
+from .common import get_mx4_exp_bias, get_mx4_lookup_table, RoundingMode
 
 
 def _compute_exp(
     group_max,
     rounding_mode,
+    mbits,
 ):
     """Compute shared exponent of group using specified rounding mode.
 
     Args:
         group_max (Tensor): Group of values to compute exponent of.
         rounding_mode (int or RoundingMode): Which rounding mode to use.
+        mbits (int): Number of mantissa bits in target mx4 format.
 
     Returns:
         Tensor: Shared exponent of group.
     """
     # Helpful constants.
     MBITS_FP32 = 23
-    MBITS_E2M1 = 1
-    RAND_MASK = (1 << (MBITS_FP32 - MBITS_E2M1)) - 1
+    RAND_MASK = (1 << (MBITS_FP32 - mbits)) - 1
     # Nearest rounding mode.
     if rounding_mode == 0:
         return torch.floor(torch.log2(group_max) + 0.5)
@@ -39,7 +40,7 @@ def _compute_exp(
     # Even pre-rounding mode.
     elif rounding_mode == 2:
         # First round to nearest even integer.
-        M_ROUND = (1 << (MBITS_FP32 - MBITS_E2M1 - 1)) - 1
+        M_ROUND = (1 << (MBITS_FP32 - mbits - 1)) - 1
         group_max = group_max.view(dtype=torch.int32) + M_ROUND
         # Then perform floor rounding of log.
         return torch.floor(torch.log2(group_max.view(dtype=torch.float32)))
@@ -58,6 +59,8 @@ def _compute_exp(
 def py_quantize_mx4(
     a: torch.Tensor,
     group_size: int = 32,
+    ebits: int = 2,
+    mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
 ) -> torch.Tensor:
@@ -67,6 +70,8 @@ def py_quantize_mx4(
     Args:
         a (Tensor): [M] higher precision input tensor.
         group_size (int): Size of chunks that will use the same shared exponent.
+        ebits (int): Number of exponent bits in target mx4 format.
+        mbits (int): Number of mantissa bits in target mx4 format.
         rounding_mode (int or RoundingMode): Which type of rounding to use when
         calculating shared exponent.
         stochastic_casting (bool): Whether to use stochastic rounding when downcasting.
@@ -87,15 +92,17 @@ def py_quantize_mx4(
     FP32_EXP_MASK = 0x7F800000
     FP32_EXP_OFFSET = 23
     FP32_MANTISSA_MASK = 0x007FFFFF
-    # Fp4 has 2 mantissa bits, one explicit, one implicit.
-    MBITS = 2
+    # Set number of exponent bits and mantissa (plus implicit) bits.
+    EBITS = ebits
+    MBITS = mbits + 1
     # FP32 and and FP4 have very different exponent biases, adjust to fp4.
     FP32_EXP_BIAS = 127
-    FP4_EXP_BIAS = 1
+    FP4_EXP_BIAS = get_mx4_exp_bias(EBITS)
     MAX_FP32_MANTISSA_BITS = 24
-    RAND_MASK = (1 << (FP32_EXP_OFFSET - FP4_EXP_BIAS)) - 1
-    OVERFLOW_THRESHOLD = 4
-    IMPLICIT_1_MASK = 0x1
+    RAND_MASK = (1 << (FP32_EXP_OFFSET - mbits)) - 1
+    MANTISSA_OVERFLOW_THRESHOLD = (1 << MBITS) - 1
+    EXPONENT_OVERFLOW_THRESHOLD = (1 << EBITS) - 1
+    IMPLICIT_1_MASK = (1 << (MBITS - 1)) - 1
 
     # Make sure input has a supported shape.
     # If given an empty shape, return an empty tensor.
@@ -115,9 +122,9 @@ def py_quantize_mx4(
     # Replace zero values with the minimum expressible normal value.
     shared_exp = torch.where(shared_exp == 0, FP32_MIN_NORMAL, shared_exp)
     # Convert max into an integer exponent.
-    shared_exp = _compute_exp(shared_exp, rounding_mode)
+    shared_exp = _compute_exp(shared_exp, rounding_mode, mbits)
     # Offset exponent by largest exponent in target datatype.
-    shared_exp = shared_exp - 2
+    shared_exp = shared_exp - EBITS
     # Restrict to range expressible as int8.
     shared_exp = torch.clamp(shared_exp, min=-127, max=125)
     # Convert exponent to scale and apply to input.
@@ -169,7 +176,7 @@ def py_quantize_mx4(
     mantissa = torch.bitwise_right_shift(mantissa, 1)
 
     # Check for overflow and adjust exponent accordingly.
-    overflow = mantissa >= OVERFLOW_THRESHOLD
+    overflow = mantissa > MANTISSA_OVERFLOW_THRESHOLD
     # Allow subnorms to overflow into normals, otherwise shift off overflow.
     mantissa = torch.where(
         torch.bitwise_and(overflow, torch.bitwise_not(is_subnorm)),
@@ -185,12 +192,16 @@ def py_quantize_mx4(
     # Add overflow to exponent.
     new_biased_exp = torch.where(overflow, new_biased_exp + 1, new_biased_exp)
     # If exp overflows, set mantissa so we're at max representable value.
-    mantissa = torch.where(new_biased_exp >= OVERFLOW_THRESHOLD, 1, mantissa)
+    mantissa = torch.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
 
     # Construct fp4 value from components.
-    new_biased_exp = torch.clamp(new_biased_exp, min=0, max=3)
-    mx4_value = torch.bitwise_or(torch.bitwise_left_shift(new_biased_exp, 1), mantissa)
-    mx4_value = torch.bitwise_or(torch.bitwise_left_shift(sign_bit, 3), mx4_value)
+    new_biased_exp = torch.clamp(new_biased_exp, min=0, max=EXPONENT_OVERFLOW_THRESHOLD)
+    mx4_value = torch.bitwise_or(
+        torch.bitwise_left_shift(new_biased_exp, MBITS - 1), mantissa
+    )
+    mx4_value = torch.bitwise_or(
+        torch.bitwise_left_shift(sign_bit, EBITS + MBITS - 1), mx4_value
+    )
 
     # Pack int4 values into single int8 outputs.
     low_mx4 = mx4_value[:, ::2]
@@ -217,7 +228,9 @@ def py_quantize_mx4(
         return packed_mx4.view(-1).view(torch.uint8)
 
 
-def py_dequantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
+def py_dequantize_mx4(
+    a: torch.Tensor, group_size: int = 32, ebits: int = 2, mbits: int = 1
+) -> torch.Tensor:
     """
     Dequantize a tensor from mx4 format to fp32.
 
@@ -225,6 +238,8 @@ def py_dequantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
         a (Tensor): [M / 2 + M / group_size] MX4 tensor packed into int8 values
         with group exponents attached to end of each row.
         group_size (int): Size of chunks that use the same shared exponent.
+        ebits (int): Number of exponent bits in target mx4 format.
+        mbits (int): Number of mantissa bits in target mx4 format.
 
     Returns:
         torch.Tensor: [M] dequantized fp32 tensor.
@@ -257,7 +272,7 @@ def py_dequantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
 
     # Use a lookup table to convert
     mx4_to_fp_values = torch.tensor(
-        [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0, -0.5, -1, -1.5, -2, -3, -4, -6],
+        get_mx4_lookup_table(ebits, mbits),
         device=device,
         dtype=torch.float,
     )

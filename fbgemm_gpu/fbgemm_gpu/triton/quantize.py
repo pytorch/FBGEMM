@@ -15,7 +15,7 @@ import triton  # @manual
 import triton.language as tl  # @manual
 from triton import Config  # @manual
 
-from .common import RoundingMode
+from .common import get_mx4_exp_bias, get_mx4_lookup_table, RoundingMode
 
 
 @triton.jit
@@ -46,6 +46,7 @@ def _compute_exp(
     group_max,
     rounding_mode,
     rand_bits,
+    MBITS: tl.constexpr,
 ):
     """Compute shared exponent of group using specified rounding mode.
 
@@ -53,13 +54,16 @@ def _compute_exp(
         group_max (Tensor): Group of values to compute exponent of.
         rounding_mode (int or RoundingMode): Which rounding mode to use.
         rand_bits (int): Random integer values used for stochastic rounding.
+        mbits (int): Number of mantissa bits in target mx4 format.
 
     Returns:
         Tensor: Shared exponent of group.
     """
     # Define some helpful constants.
     MBITS_FP32: tl.constexpr = 23  # type: ignore[Incompatible variable type]
-    MBITS_E2M1: tl.constexpr = 1  # type: ignore[Incompatible variable type]
+    M_ROUND: tl.constexpr = (1 << (MBITS_FP32 - MBITS - 1)) - 1  # type: ignore[Incompatible variable type]
+    RAND_MASK: tl.constexpr = (1 << (MBITS_FP32 - MBITS)) - 1  # type: ignore[Incompatible variable type]
+
     # Nearest rounding mode.
     if rounding_mode == 0:
         return tl.floor(tl.log2(group_max) + 0.5)
@@ -68,17 +72,12 @@ def _compute_exp(
         return _floor_log2(group_max)
     # Even pre-rounding mode.
     elif rounding_mode == 2:
-        # Add fixed amount of rounding to mantissa so that they are clipped
-        # to the closest integer.
-        M_ROUND: tl.constexpr = (1 << (MBITS_FP32 - MBITS_E2M1 - 1)) - 1
-        # Add them to the mantissa bits of the input to round during truncation.
+        # Add fixed rounding to the mantissa bits of the input to round during truncation.
         group_max = group_max.to(tl.int32, bitcast=True) + M_ROUND
         # Then perform floor rounding of log.
         return _floor_log2(group_max)
     # Stochastic rounding mode.
     elif rounding_mode == 3:
-        # Define constants needed for stochastic rounding.
-        RAND_MASK: tl.constexpr = (1 << (MBITS_FP32 - MBITS_E2M1)) - 1  # type: ignore[Incompatible variable type]
         # Use random bits to add noise to mantissa that would otherwise
         # be rounded away.
         group_max = group_max.to(tl.int32, bitcast=True) + (RAND_MASK & rand_bits)
@@ -106,9 +105,12 @@ def _kernel_quantize_mx4(
     M,
     K,
     rand_bits,
-    ROUNDING_MODE: tl.constexpr,
     GROUP_SIZE: tl.constexpr,
+    EBITS: tl.constexpr,
+    MBITS: tl.constexpr,
+    ROUNDING_MODE: tl.constexpr,
     STOCHASTIC_CASTING: tl.constexpr,
+    FP4_EXP_BIAS: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
@@ -122,6 +124,8 @@ def _kernel_quantize_mx4(
         rand_bits (Optional Tensor): [M, K / 2] random integers used for stochastic rounding.
         ROUNDING_MODE (int): Which rounding method to use when calculating shared exponent.
         GROUP_SIZE (int): Size of chunks that use the same shared exponent.
+        EBITS (int): Number of exponent bits in target mx4 format.
+        MBITS (int): Number of mantissa bits in target mx4 format.
         GROUP_LOAD (int): Number of groups to process simultaneously.
         STOCHASTIC_CASTING (bool): Whether to use stochastic rounding when downcasting.
     """
@@ -133,13 +137,14 @@ def _kernel_quantize_mx4(
     SIGN_MASK: tl.constexpr = 0x1  # type: ignore[Incompatible variable type]
     FP32_MANTISSA_MASK: tl.constexpr = 0x007FFFFF  # type: ignore[Incompatible variable type]
     # FP4 has 2 mantissa bits, one explicit one implicit.
-    MBITS: tl.constexpr = 2  # type: ignore[Incompatible variable type]
-    FP4_EXP_BIAS: tl.constexpr = 1  # type: ignore[Incompatible variable type]
+    MBITS_IMPLICIT: tl.constexpr = MBITS + 1  # type: ignore[Incompatible variable type]
     MAX_FP32_MANTISSA_BITS: tl.constexpr = 24  # type: ignore[Incompatible variable type]
     IMPLIED_1_BIT: tl.constexpr = 1 << 23  # type: ignore[Incompatible variable type]
-    OVERFLOW_THRESHOLD: tl.constexpr = 4  # type: ignore[Incompatible variable type]
     FP32_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
-    RAND_MASK: tl.constexpr = (1 << (FP32_EXP_OFFSET - FP4_EXP_BIAS)) - 1  # type: ignore[Incompatible variable type]
+    MANTISSA_OVERFLOW_THRESHOLD: tl.constexpr = (1 << MBITS_IMPLICIT) - 1  # type: ignore[Incompatible variable type]
+    EXPONENT_OVERFLOW_THRESHOLD: tl.constexpr = (1 << EBITS) - 1  # type: ignore[Incompatible variable type]
+    IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
+    RAND_MASK: tl.constexpr = (1 << (FP32_EXP_OFFSET - MBITS)) - 1  # type: ignore[Incompatible variable type]
     # Boundaries for writing to output tensor.
     OUTPUT_LIMIT: tl.constexpr = K // 2 + K // GROUP_SIZE  # type: ignore[Incompatible variable type]
     OUTPUT_SIZE: tl.constexpr = M // 2 + M // GROUP_SIZE  # type: ignore[Incompatible variable type]
@@ -195,9 +200,9 @@ def _kernel_quantize_mx4(
             )
             rand_bits_offset += GROUP_LOAD
         # Compute shared exponent using specified rounding mode.
-        group_exp = _compute_exp(group_max, ROUNDING_MODE, group_rand_bits)
+        group_exp = _compute_exp(group_max, ROUNDING_MODE, group_rand_bits, MBITS)
         # Subtract largest exponent in target datatype and remove bias.
-        group_exp = group_exp - 2
+        group_exp = group_exp - EBITS
         # Make sure exponent is in valid range.
         group_exp = tl.clamp(group_exp, -127, 125)
 
@@ -290,12 +295,12 @@ def _kernel_quantize_mx4(
         # since implied one is included in exp_diff.
         fp32_sig_bits = tl.where(is_subnorm, 23, 24).to(tl.int32)
         # Now we're ready to shift down to target bitwidth (with an extra bit for rounding).
-        mantissa = mantissa >> (fp32_sig_bits + exp_diff - MBITS - 1)
+        mantissa = mantissa >> (fp32_sig_bits + exp_diff - MBITS_IMPLICIT - 1)
         # Perform rounding by adding 1 and shifting down.
         mantissa = (mantissa + 1) >> 1
 
         # Check for overflow and adjust exponent accordingly.
-        overflow = mantissa >= OVERFLOW_THRESHOLD
+        overflow = mantissa > MANTISSA_OVERFLOW_THRESHOLD
         # Allow subnorms to overflow into normals, otherwise shift away overflow.
         mantissa = tl.where(overflow and (not is_subnorm), mantissa >> 1, mantissa)
         # Special case where a value is subnormal and has a large mantissa, overflow it.
@@ -303,16 +308,18 @@ def _kernel_quantize_mx4(
             (new_biased_exp <= 0) and (mantissa == 2), 1, new_biased_exp
         )
         # Remove implicit 1.
-        mantissa = mantissa & 0x1
+        mantissa = mantissa & IMPLICIT_1_MASK
         # Add overflow to exponent.
         new_biased_exp = tl.where(overflow, new_biased_exp + 1, new_biased_exp)
         # If exp overflows, set mantissa to maximum value (equivalent to clamping).
-        mantissa = tl.where(new_biased_exp >= OVERFLOW_THRESHOLD, 1, mantissa)
+        mantissa = tl.where(new_biased_exp > EXPONENT_OVERFLOW_THRESHOLD, 1, mantissa)
 
         # Construct FP4 value from components.
-        new_biased_exp = tl.maximum(tl.minimum(new_biased_exp, 3), 0)
-        mx4_value = (new_biased_exp << 1) | mantissa
-        mx4_value = (sign_bit << 3) | mx4_value
+        new_biased_exp = tl.maximum(
+            tl.minimum(new_biased_exp, EXPONENT_OVERFLOW_THRESHOLD), 0
+        )
+        mx4_value = (new_biased_exp << (MBITS_IMPLICIT - 1)) | mantissa
+        mx4_value = (sign_bit << (EBITS + MBITS)) | mx4_value
 
         # Extract low and high bits from values.
         low_mx4, high_mx4 = tl.split(
@@ -339,6 +346,8 @@ def _kernel_quantize_mx4(
 def triton_quantize_mx4(
     a: torch.Tensor,
     group_size: int = 32,
+    ebits: int = 2,
+    mbits: int = 1,
     rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
     stochastic_casting: bool = False,
 ) -> torch.Tensor:
@@ -348,6 +357,8 @@ def triton_quantize_mx4(
     Args:
         a (Tensor): [M] higher precision input tensor.
         group_size (int): Size of chunks that will use the same shared exponent.
+        ebits (int): Number of bits to use for exponent in target mx4 format.
+        mbits (int): Number of bits to use for mantissa in target mx4 format.
         rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
         when calculating shared exponent. Defaults to pre-rounding to nearest even int.
         stochastic_casting (bool): Whether to use stochastic casting.
@@ -414,9 +425,12 @@ def triton_quantize_mx4(
         a.numel(),
         K,
         rand_bits=rand_bits,
-        ROUNDING_MODE=rounding_mode,
         GROUP_SIZE=group_size,
+        EBITS=ebits,
+        MBITS=mbits,
+        ROUNDING_MODE=rounding_mode,
         STOCHASTIC_CASTING=stochastic_casting,
+        FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
     )
     # Inputs are now fully quantized and ready to return.
     # Try to return in the original shape if possible.
@@ -536,7 +550,9 @@ def _kernel_dequantize_mx4(
         output_offset += GROUP_LOAD * GROUP_SIZE
 
 
-def triton_dequantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor:
+def triton_dequantize_mx4(
+    a: torch.Tensor, group_size: int = 32, ebits: int = 2, mbits: int = 1
+) -> torch.Tensor:
     """
     Dequantize a tensor from mx4 format to fp32.
 
@@ -544,6 +560,8 @@ def triton_dequantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor
         a (Tensor): [M / 2 + M / group_size] MX4 tensor packed into int8 values
         with group exponents attached to end of each row.
         group_size (int): Size of chunks that use the same shared exponent.
+        ebits (int): Number of bits to use for exponent in target mx4 format.
+        mbits (int): Number of bits to use for mantissa in target mx4 format.
 
     Returns:
         torch.Tensor: [M, K] dequantized fp32 tensor.
@@ -570,7 +588,7 @@ def triton_dequantize_mx4(a: torch.Tensor, group_size: int = 32) -> torch.Tensor
 
     # Use a lookup table to convert
     mx4_to_fp_values = torch.tensor(
-        [0, 0.5, 1, 1.5, 2, 3, 4, 6, -0, -0.5, -1, -1.5, -2, -3, -4, -6],
+        get_mx4_lookup_table(ebits, mbits),
         device="cuda",
         dtype=torch.float,
     )
