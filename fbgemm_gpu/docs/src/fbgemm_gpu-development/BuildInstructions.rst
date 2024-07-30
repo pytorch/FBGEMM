@@ -281,7 +281,7 @@ toolchain **that supports C++20**:
 .. code:: sh
 
   # Use a recent version of LLVM+Clang
-  llvm_version=15.0.7
+  llvm_version=16.0.6
 
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number

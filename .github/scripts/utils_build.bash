@@ -77,9 +77,13 @@ __conda_install_gcc () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Installing GCC through Conda (architecture = ${archname}) ..."
+  # shellcheck disable=SC2155
+  local gcc_version=10.4.0
+
+  echo "[INSTALL] Installing GCC (${gcc_version}, ${archname}) through Conda ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y "gxx_linux-${archname}"=10.4.0 ) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+    "gxx_linux-${archname}"=${gcc_version}) || return 1
 
   # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
   # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
@@ -101,9 +105,9 @@ __conda_install_clang () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # shellcheck disable=SC2155
-  local llvm_version=15.0.7
+  local llvm_version=16.0.6
 
-  echo "[INSTALL] Installing Clang and relevant libraries through Conda ..."
+  echo "[INSTALL] Installing Clang (${llvm_version}, ${archname}) and relevant libraries through Conda ..."
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number
   #
