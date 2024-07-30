@@ -216,7 +216,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_upper=0.1,
             learning_rate=lr,
             eps=eps,
-            ssd_shards=ssd_shards,
+            ssd_rocksdb_shards=ssd_shards,
             optimizer=optimizer,
             pooling_mode=pooling_mode,
             weights_precision=weights_precision,
