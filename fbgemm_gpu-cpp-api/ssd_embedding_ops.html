@@ -6,10 +6,11 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  
+  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Python Module Index &mdash; FBGEMM 0.8.0 documentation</title>
+  <title>SSD Embedding Operators &mdash; FBGEMM 0.8.0 documentation</title>
   
 
   
@@ -25,14 +26,15 @@
 
   
 
-  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="_static/graphviz.css" type="text/css" />
-    <link rel="index" title="Index" href="genindex.html" />
-    <link rel="search" title="Search" href="search.html" />
-
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Experimental Operators" href="experimental_ops.html" />
+    <link rel="prev" title="Embedding Operators" href="embedding_ops.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -42,23 +44,17 @@
     <!-- End Google Tag Manager -->
   
 
-    <script>
-      DOCUMENTATION_OPTIONS.COLLAPSE_INDEX = true;
-    </script>
-
-
-
   
-  <script src="_static/js/modernizr.min.js"></script>
+  <script src="../_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -285,7 +281,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -303,47 +299,47 @@
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="general/Contributing.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="general/documentation/Overview.html">Documentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="general/ContactUs.html">Contact Us</a></li>
-<li class="toctree-l1"><a class="reference internal" href="general/License.html">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/documentation/Overview.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/ssd_embedding_ops.html">SSD Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">SSD Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="experimental_ops.html">Experimental Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
 
             
@@ -376,7 +372,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="index.html">
+        <a href="../index.html">
           
             Docs
           
@@ -384,10 +380,14 @@
       </li>
 
         
-      <li>Python Module Index</li>
+      <li>SSD Embedding Operators</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/fbgemm_gpu-cpp-api/ssd_embedding_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+          
         
       </li>
     
@@ -416,29 +416,53 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
+  <section id="ssd-embedding-operators">
+<h1>SSD Embedding Operators<a class="headerlink" href="#ssd-embedding-operators" title="Permalink to this heading">¶</a></h1>
+<section id="cuda-operators">
+<h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv427ssd_generate_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor">
+<span id="_CPPv327ssd_generate_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor"></span><span id="_CPPv227ssd_generate_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor"></span><span id="ssd_generate_row_addrs_cuda__TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR"></span><span class="target" id="group__embedding-ssd_1ga6c17fd18abf27a7776661565e7f1e011"></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">tuple</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">ssd_generate_row_addrs_cuda</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">lxu_cache_locations</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">assigned_cache_slots</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">linear_index_inverse_indices</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">unique_indices_count_cumsum</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cache_set_inverse_indices</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">lxu_cache_weights</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">inserted_ssd_weights</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">unique_indices_length</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cache_set_sorted_unique_indices</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv427ssd_generate_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Generate memory addresses for SSD TBE data. </p>
+<p>The data retrieved from SSD can be stored in either a scratch pad (HBM) or LXU cache (also HBM). <code class="docutils literal notranslate"><span class="pre">lxu_cache_locations</span></code> is used to specify the location of the data. If the location is -1, the data for the associated index is in the scratch pad; otherwise, it is in the cache. To enable TBE kernels to access the data conveniently, this operator generates memory addresses of the first byte for each index. When accessing data, a TBE kernel only needs to convert addresses into pointers.</p>
+<p>Moreover, this operator also generate the list of post backward evicted indices which are basically the indices that their data is in the scratch pad.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lxu_cache_locations</strong> – The tensor that contains cache slots where data is stored for the <em>full</em> list of indices. -1 is a sentinel value that indicates that data is not in cache. </p></li>
+<li><p><strong>assigned_cache_slots</strong> – The tensor that contains cache slots for the <em>unique</em> list of indices. -1 indicates that data is not in cache </p></li>
+<li><p><strong>linear_index_inverse_indices</strong> – The tensor that contains the original position of linear indices before being sorted </p></li>
+<li><p><strong>unique_indices_count_cumsum</strong> – The tensor that contains the the exclusive prefix sum results of the counts of unique indices </p></li>
+<li><p><strong>cache_set_inverse_indices</strong> – The tensor that contains the original positions of cache sets before being sorted </p></li>
+<li><p><strong>lxu_cache_weights</strong> – The LXU cache tensor </p></li>
+<li><p><strong>inserted_ssd_weights</strong> – The scratch pad tensor </p></li>
+<li><p><strong>unique_indices_length</strong> – The tensor that contains the number of unique indices (GPU tensor) </p></li>
+<li><p><strong>cache_set_sorted_unique_indices</strong> – The tensor that contains associated unique indices for the sorted unique cache sets</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A tuple of tensors (the SSD row address tensor and the post backward evicted index tensor) </p>
+</dd>
+</dl>
+</dd></dl>
 
-   <h1>Python Module Index</h1>
-
-   <div class="modindex-jumpbox">
-   <a href="#cap-f"><strong>f</strong></a>
-   </div>
-
-   <table class="indextable modindextable">
-     <tr class="pcap"><td></td><td>&#160;</td><td></td></tr>
-     <tr class="cap" id="cap-f"><td></td><td>
-       <strong>f</strong></td><td></td></tr>
-     <tr>
-       <td></td>
-       <td>
-       <a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#module-fbgemm_gpu"><code class="xref">fbgemm_gpu</code></a></td><td>
-       <em></em></td></tr>
-   </table>
+</section>
+</section>
 
 
              </article>
              
             </div>
             <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="experimental_ops.html" class="btn btn-neutral float-right" title="Experimental Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+      
+      
+        <a href="embedding_ops.html" class="btn btn-neutral" title="Embedding Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+      
+    </div>
   
 
   
@@ -467,7 +491,13 @@
         <div class="pytorch-content-right" id="pytorch-content-right">
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
-              
+              <ul>
+<li><a class="reference internal" href="#">SSD Embedding Operators</a><ul>
+<li><a class="reference internal" href="#cuda-operators">CUDA Operators</a></li>
+</ul>
+</li>
+</ul>
+
             </div>
           </div>
         </div>
@@ -480,18 +510,18 @@
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
-         <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
-         <script src="_static/doctools.js"></script>
-         <script src="_static/sphinx_highlight.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   
 
-  <script type="text/javascript" src="_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="_static/js/theme.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -596,7 +626,7 @@
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="_static/images/pytorch-x.svg">
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -729,7 +759,7 @@
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {
