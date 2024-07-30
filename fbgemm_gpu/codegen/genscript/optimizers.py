@@ -188,6 +188,8 @@ def rowwise_adagrad() -> Dict[str, Any]:
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
+    multiplier = 0.0;
+    correction = 0.0;
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
@@ -506,6 +508,8 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
 
     at::acc_type<cache_t, true> adjusted_multiplier;
     at::acc_type<cache_t, true> exp_reg_correction;
+    adjusted_multiplier = 0.0;
+    exp_reg_correction = 0.0;
 
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
@@ -885,6 +889,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> m2;
+    m2  = 0.0;
     if (threadIdx.x == 0) {
         m2 = beta2 * momentum2[idx] + (1.0 - beta2) * g_avg_square;
         momentum2[idx] = m2;
@@ -1035,6 +1040,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> v_hat_t;
+    v_hat_t = 0.0;
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> v_t = momentum2[idx] * beta2 + g_avg_square * (1.0 - beta2);
         momentum2[idx] = v_t;
