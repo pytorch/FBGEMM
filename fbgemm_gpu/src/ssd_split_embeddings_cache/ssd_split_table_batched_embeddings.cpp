@@ -28,8 +28,60 @@ ssd_cache_populate_actions_cuda(
     int64_t prefetch_dist,
     Tensor lru_state);
 
+/// @ingroup embedding-ssd
+///
+/// @brief Similar to `torch.Tensor.index_put` but ignore `indices < 0`
+///
+/// `masked_index_put_cuda` only supports 2D input `values`. It puts
+/// `count` rows in `values` into `self` using the row indices that
+/// are >= 0 in `indices`.
+///
+/// ```python
+/// # Equivalent PyTorch Python code
+/// indices = indices[:count]
+/// filter_ = indices >= 0
+/// indices_ = indices[filter_]
+/// self[indices_] = values[filter_.nonzero().flatten()]
+/// ```
+///
+/// @param self The 2D output tensor (the tensor that is indexed)
+/// @param indices The 1D index tensor
+/// @param values The 2D input tensor
+/// @param count The tensor that contains the length of `indices` to
+/// process
+///
+/// @return The `self` tensor
 Tensor
 masked_index_put_cuda(Tensor self, Tensor indices, Tensor values, Tensor count);
+
+/// @ingroup embedding-ssd
+///
+/// @brief Similar to `torch.index_select` but ignore `indices < 0`
+///
+/// `masked_index_select_cuda` only supports 2D input `values`. It
+/// puts `count` rows that are specified in `indices` (where `indices`
+/// >= 0) from `values` into `self`
+///
+/// ```python
+/// # Equivalent PyTorch Python code
+/// indices = indices[:count]
+/// filter_ = indices >= 0
+/// indices_ = indices[filter_]
+/// self[filter_.nonzero().flatten()] = values[indices_]
+/// ```
+///
+/// @param self The 2D output tensor
+/// @param indices The 1D index tensor
+/// @param values The 2D input tensor (the tensor that is indexed)
+/// @param count The tensor that contains the length of `indices` to
+/// process
+///
+/// @return The `self` tensor
+Tensor masked_index_select_cuda(
+    Tensor self,
+    Tensor indices,
+    Tensor values,
+    Tensor count);
 
 Tensor masked_index_put_byte_cuda(
     Tensor self,
@@ -221,6 +273,14 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor count"
       ") -> Tensor");
   DISPATCH_TO_CUDA("masked_index_put", masked_index_put_cuda);
+  m.def(
+      "masked_index_select("
+      "    Tensor self, "
+      "    Tensor indices, "
+      "    Tensor values, "
+      "    Tensor count"
+      ") -> Tensor");
+  DISPATCH_TO_CUDA("masked_index_select", masked_index_select_cuda);
   m.def(
       "ssd_cache_populate_actions("
       "    Tensor linear_indices, "
