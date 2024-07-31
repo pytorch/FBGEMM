@@ -186,10 +186,8 @@ def rowwise_adagrad() -> Dict[str, Any]:
     const at::acc_type<cache_t, true> g_avg_square =
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
-    at::acc_type<cache_t, true> multiplier;
-    at::acc_type<cache_t, true> correction;
-    multiplier = 0.0;
-    correction = 0.0;
+    at::acc_type<cache_t, true> multiplier = 0.0;
+    at::acc_type<cache_t, true> correction = 0.0;
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
