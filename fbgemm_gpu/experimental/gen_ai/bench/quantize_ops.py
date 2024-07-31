@@ -47,7 +47,7 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
 
         # torch.cuda.get_device_properties does not have L2 cache size,
         # so hard code an overapproximation of L2 cache size to ensure L2 cache flush
-        total_buffer_size = 16 * 1024 * 1024
+        total_buffer_size = 10000 * 1024 * 1024
 
         # Use pickle to serialize model input to estimate total sizes of input
         input_sizes = len(pickle.dumps(args))
