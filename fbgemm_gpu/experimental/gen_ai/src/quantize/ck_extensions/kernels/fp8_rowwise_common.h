@@ -101,7 +101,7 @@ template <
     ck::BlockGemmPipelineScheduler LOOP_SCHED,
     ck::BlockGemmPipelineVersion PIPELINE_VERSION,
     ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
-        ck::tensor_operation::device::GemmSpecialization::MNKPadding>
+        ck::tensor_operation::device::GemmSpecialization::MNPadding>
 using DeviceGemmHelper =
     ck::tensor_operation::device::DeviceGemmMultiD_Xdl_CShuffle_V3<
         ALayout,
@@ -175,8 +175,6 @@ at::Tensor f8f8bf16_rowwise_impl(
   auto cde_element_op = CDEElementOp{};
 
   constexpr ck::index_t NumDTensor = ck::Number<2>{};
-  constexpr auto I0 =
-      ck::Number<0>{}; // Used to indicate 0 stride for row and col broadcast.
 
   auto argument = gemm.MakeArgument(
       reinterpret_cast<ADataType*>(XQ.data_ptr()),
@@ -190,7 +188,7 @@ at::Tensor f8f8bf16_rowwise_impl(
       K,
       StrideA,
       StrideB,
-      std::array<ck::index_t, NumDTensor>{I0, I0},
+      std::array<ck::index_t, NumDTensor>{0, 0},
       StrideE,
       a_element_op,
       b_element_op,
