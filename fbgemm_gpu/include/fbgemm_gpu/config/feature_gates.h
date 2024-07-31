@@ -10,6 +10,10 @@
 
 #include <string>
 
+#ifdef FBGEMM_FBCODE
+#include "fbgemm_gpu/config/feature_gates_fb.h"
+#endif
+
 /// @defgroup fbgemm-gpu-config FBGEMM_GPU Configuration
 /// FBGEMM_GPU runtime configuration and settings
 
@@ -79,5 +83,9 @@ bool check_feature_gate_key(const std::string& key);
 /// @brief For the given `FeatureGateName`, check if the corresponding feature
 /// is enabled.
 bool is_feature_enabled(const FeatureGateName& feature);
+
+#ifdef FBGEMM_FBCODE
+bool is_feature_enabled(const FbFeatureGateName& feature);
+#endif
 
 } // namespace fbgemm_gpu::config
