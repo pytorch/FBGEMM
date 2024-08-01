@@ -19,6 +19,7 @@ from typing import Any, Callable, List, Optional, Tuple, Type
 import torch  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
@@ -30,10 +31,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     apply_split_helper,
     CounterBasedRegularizationDefinition,
     CowClipDefinition,
+    UVMCacheStatsIndex,
     WeightDecayMode,
 )
 
 from torch import distributed as dist, nn, Tensor  # usort:skip
+from pyre_extensions import none_throws
 from torch.autograd.profiler import record_function
 
 from .common import ASSOC
@@ -105,6 +108,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # in local test we need to use the pass in path for rocksdb creation
         # in production we need to do it inside SSD mount path which will ignores the passed in path
         use_passed_in_path: int = True,
+        gather_ssd_cache_stats: Optional[bool] = False,
+        stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -180,6 +185,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.register_buffer(
             "lru_state", torch.zeros(cache_sets, ASSOC, dtype=torch.int64)
         )
+
+        self.step = 0
 
         assert ssd_cache_location in (
             EmbeddingLocation.MANAGED,
@@ -413,6 +420,39 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
         self.optimizer = optimizer
 
+        # stats reporter
+        self.gather_ssd_cache_stats = gather_ssd_cache_stats
+        self.stats_reporter: Optional[TBEStatsReporter] = (
+            stats_reporter_config.create_reporter() if stats_reporter_config else None
+        )
+        self.ssd_cache_stats_size = 6
+        # 0: N_calls, 1: N_requested_indices, 2: N_unique_indices, 3: N_unique_misses,
+        # 4: N_conflict_unique_misses, 5: N_conflict_misses
+        self.last_reported_ssd_stats: List[float] = []
+        self.last_reported_step = 0
+
+        self.register_buffer(
+            "ssd_cache_stats",
+            torch.zeros(
+                size=(self.ssd_cache_stats_size,),
+                device=self.current_device,
+                dtype=torch.int64,
+            ),
+        )
+
+        self.register_buffer(
+            "local_ssd_cache_stats",
+            torch.zeros(
+                self.ssd_cache_stats_size,
+                device=self.current_device,
+                dtype=torch.int32,
+            ),
+        )
+        logging.info(
+            f"logging stats reporter setup, {self.gather_ssd_cache_stats=}, "
+            f"stats_reporter:{none_throws(self.stats_reporter) if self.stats_reporter else 'none'}, "
+        )
+
     # pyre-ignore[3]
     def record_function_via_dummy_profile_factory(
         self,
@@ -600,14 +640,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         unique_indices_length: torch.Tensor,
         inserted_indices: torch.Tensor,
         actions_count_cpu: torch.Tensor,
+        lxu_cache_locations: torch.Tensor,
     ) -> torch.Tensor:
-        with record_function("## ssd_tbe_lxu_cache_lookup ##"):
-            lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-                linear_cache_indices,
-                self.lxu_cache_state,
-                self.total_hash_size,
-            )
-
         with record_function("## ssd_generate_row_addrs ##"):
             lxu_cache_ptrs, post_bwd_evicted_indices = (
                 torch.ops.fbgemm.ssd_generate_row_addrs(
@@ -655,6 +689,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     def prefetch(self, indices: Tensor, offsets: Tensor) -> Optional[Tensor]:
         with record_function("## ssd_prefetch ##"):
+            if self.gather_ssd_cache_stats:
+                self.local_ssd_cache_stats.zero_()
             (indices, offsets) = indices.long(), offsets.long()
 
             linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
@@ -680,6 +716,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.timestep,
                 1,  # for now assume prefetch_dist == 1
                 self.lru_state,
+                self.gather_ssd_cache_stats,
+                self.local_ssd_cache_stats,
             )
             # Transfer evicted indices from GPU to CPU right away to increase a
             # chance of overlapping with compute on the default stream
@@ -762,6 +800,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     name="cache",
                 )
 
+            with record_function("## ssd_tbe_lxu_cache_lookup ##"):
+                lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_hash_size,
+                    self.gather_ssd_cache_stats,
+                    self.local_ssd_cache_stats,
+                )
+
             # TODO: keep only necessary tensors
             self.ssd_prefetch_data.append(
                 (
@@ -774,8 +821,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     unique_indices_length,
                     inserted_indices,
                     actions_count_cpu,
+                    lxu_cache_locations,
                 )
             )
+
+        if self.gather_ssd_cache_stats:
+            self.ssd_cache_stats = torch.add(
+                self.ssd_cache_stats, self.local_ssd_cache_stats
+            )
+            self._report_ssd_stats()
 
     def forward(
         self,
@@ -844,6 +898,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         self.timesteps_prefetched.pop(0)
+        self.step += 1
 
         if self.optimizer == OptimType.EXACT_SGD:
             raise AssertionError(
@@ -967,3 +1022,50 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.tensor([active_ids.numel()]),
             self.timestep,
         )
+
+    @torch.jit.ignore
+    def _report_ssd_stats(self) -> None:
+        """
+        Each iteration we will record cache stats about L1 SSD cache in ssd_cache_stats tensor
+        this function extract those stats and report it with stats_reporter
+        """
+        if self.stats_reporter is None:
+            return
+
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        passed_steps = self.step - self.last_reported_step
+        if passed_steps == 0:
+            return
+        if not stats_reporter.should_report(self.step):
+            return
+
+        # ssd hbm cache stats
+
+        ssd_cache_stats = self.ssd_cache_stats.tolist()
+        if len(self.last_reported_ssd_stats) == 0:
+            self.last_reported_ssd_stats = [0.0] * len(ssd_cache_stats)
+        ssd_cache_stats_delta: List[float] = [0.0] * len(ssd_cache_stats)
+        for i in range(len(ssd_cache_stats)):
+            ssd_cache_stats_delta[i] = (
+                ssd_cache_stats[i] - self.last_reported_ssd_stats[i]
+            )
+        self.last_reported_step = self.step
+        self.last_reported_ssd_stats = ssd_cache_stats
+        element_size = self.lxu_cache_weights.element_size()
+
+        for stat_index in UVMCacheStatsIndex:
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"ssd_tbe.prefetch.cache_stats_by_data_size.{stat_index.name.lower()}",
+                data_bytes=int(
+                    ssd_cache_stats_delta[stat_index.value]
+                    * element_size
+                    * self.max_D
+                    / passed_steps
+                ),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"ssd_tbe.prefetch.cache_stats.{stat_index.name.lower()}",
+                data_bytes=int(ssd_cache_stats_delta[stat_index.value] / passed_steps),
+            )
