@@ -278,7 +278,9 @@ ssd_cache_populate_actions_cuda(
     Tensor lxu_cache_state,
     int64_t time_stamp,
     int64_t prefetch_dist,
-    Tensor lru_state) {
+    Tensor lru_state,
+    bool gather_cache_stats,
+    std::optional<Tensor> ssd_cache_stats) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       linear_indices, lxu_cache_state, lru_state);
 
@@ -309,6 +311,13 @@ ssd_cache_populate_actions_cuda(
   const auto int_options = unique_indices.options().dtype(at::kInt);
   auto assigned_cache_slots = empty_like(unique_indices, int_options);
 
+  Tensor ssd_cache_stats_ = at::empty({0}, int_options);
+  if (gather_cache_stats) {
+    TORCH_CHECK(ssd_cache_stats.has_value());
+    ssd_cache_stats_ = ssd_cache_stats.value();
+    TENSOR_ON_CUDA_GPU(ssd_cache_stats_);
+  }
+
   if (unique_indices.numel() == 0) {
     auto actions_count = at::zeros({1}, int_options);
     // these are all of length zero
@@ -325,7 +334,6 @@ ssd_cache_populate_actions_cuda(
 
   auto actions_count = at::empty({1}, int_options);
   // Find uncached indices
-  Tensor uvm_cache_stats = at::empty({0}, int_options);
   Tensor lxu_cache_locking_counter = at::empty({0, 0}, int_options);
   auto
       [sorted_cache_sets,
@@ -338,8 +346,8 @@ ssd_cache_populate_actions_cuda(
               lxu_cache_state,
               time_stamp,
               lru_state,
-              /*gather_cache_stats=*/false,
-              uvm_cache_stats,
+              gather_cache_stats,
+              ssd_cache_stats_,
               /*lock_cache_line=*/false,
               lxu_cache_locking_counter,
               /*compute_inverse_indices=*/true);
