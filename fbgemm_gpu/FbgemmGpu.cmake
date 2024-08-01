@@ -32,6 +32,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
   ${THIRDPARTY}/json/include
+  ${CUDA_HOME}/include
   ${THIRDPARTY}/cudnn-frontend/include
   ${NCCL_INCLUDE_DIRS})
 
