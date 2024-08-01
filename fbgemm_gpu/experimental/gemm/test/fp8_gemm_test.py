@@ -101,9 +101,13 @@ class TestFp8Matmul(unittest.TestCase):
             device: torch.device,
             fp8_fast_accum: bool,
             use_bias: bool = False,
+            transpose_input: bool = False,
         ) -> None:
             M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+            # Make a non-contiguous tensor and check that we still get proper results.
+            if transpose_input:
+                a = a.t()
             b = torch.randn(N, K, dtype=torch.bfloat16, device=device)
             bias = (
                 torch.randn(N, dtype=torch.float32, device=device) if use_bias else None
@@ -126,6 +130,9 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True)
+        _test_matmul_fp8_row(
+            (5, 4, 5), torch.device("cuda"), True, transpose_input=True
+        )
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True, True)
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), False)
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), False, True)
@@ -171,11 +178,15 @@ class TestFp8Matmul(unittest.TestCase):
             shape: Tuple[int, int, int],
             block_shape: Tuple[int, int, int],
             fp8_fast_accum: bool,
+            transpose_input: bool = False,
             device: str = "cuda",
         ) -> None:
             M, N, K = shape
             BLOCK_M, BLOCK_N, BLOCK_K = block_shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+            # Make a non-contiguous tensor and check that we still get proper results.
+            if transpose_input:
+                a = a.t()
             b = torch.randn(N, K, dtype=torch.bfloat16, device=device)
 
             # Quantize inputs.
@@ -205,8 +216,9 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
         _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), True)
+        _test_matmul_fp8_block((5, 4, 5), (256, 256, 256), True, transpose_input=True)
         _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), True)
         _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), False)
         _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), False)
-        _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), True, "cpu")
-        _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), True, "cpu")
+        _test_matmul_fp8_block((3, 4, 5), (256, 256, 256), True, device="cpu")
+        _test_matmul_fp8_block((1024, 2048, 4096), (256, 512, 1024), True, device="cpu")
