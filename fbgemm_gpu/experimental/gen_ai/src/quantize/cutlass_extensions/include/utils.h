@@ -20,7 +20,7 @@ namespace cutlass_extensions {
 //                                 Enumerations for reflection
 /////////////////////////////////////////////////////////////////////////////////////////////////
 /// Fusion type identifier
-enum class FusionKind {
+enum class FusionKind { // TODO: Change FusionKind to ScalingKind
   kNone,
   kTensorwiseScaling,
   kRowwiseScaling,
