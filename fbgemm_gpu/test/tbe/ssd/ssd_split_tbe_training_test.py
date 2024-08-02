@@ -193,6 +193,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.half() for emb in emb_ref]
 
+        # Init weights
+        [emb.weight.data.uniform_(-2.0, 2.0) for emb in emb_ref]
+
         # Construct feature_table_map
         feature_table_map = list(range(T))
         table_to_replicate = -1
@@ -224,16 +227,24 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             stochastic_rounding=stochastic_rounding,
         ).cuda()
 
+        # A list to keep the CPU tensor alive until `set` (called inside
+        # `set_cuda`) is complete. Note that `set_cuda` is non-blocking
+        # asynchronous
+        emb_ref_cpu = []
+
         # Initialize TBE SSD weights
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-            emb_r = emb_ref[f]
-            emb_r.weight.data.uniform_(-2.0, 2.0)
+            emb_ref_ = emb_ref[f].weight.clone().detach().cpu()
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
-                emb_r.weight.cpu(),
+                emb_ref_,
                 torch.as_tensor([E]),
                 t,
             )
+            emb_ref_cpu.append(emb_ref_)
+
+        # Ensure that `set` (invoked by `set_cuda`) is done
+        torch.cuda.synchronize()
 
         # Convert back to float (to make sure that accumulation is done
         # in FP32 -- like TBE)
