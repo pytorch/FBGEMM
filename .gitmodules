@@ -1,0 +1,18 @@
+[submodule "external/asmjit"]
+	path = external/asmjit
+	url = https://github.com/asmjit/asmjit.git
+[submodule "external/cpuinfo"]
+	path = external/cpuinfo
+	url = https://github.com/pytorch/cpuinfo
+[submodule "external/googletest"]
+	path = external/googletest
+	url = https://github.com/google/googletest
+[submodule "external/hipify_torch"]
+	path = external/hipify_torch
+	url = https://github.com/ROCmSoftwarePlatform/hipify_torch.git
+[submodule "external/cutlass"]
+	path = external/cutlass
+	url = https://github.com/NVIDIA/cutlass.git
+[submodule "external/json"]
+	path = external/json
+	url = https://github.com/nlohmann/json.git

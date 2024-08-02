@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# All optimizers
+import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_args as lookup_args  # noqa: F401
+{%- for optim in all_optimizers %}
+import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_{{ optim }} as lookup_{{optim}}  # noqa: F401
+{%- endfor %}
+
+# SSD optimizers (putting them under try-except for BC as they are
+# experimental ops which can be removed/updated in the future)
+try:
+    import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_args_ssd as lookup_args_ssd
+    {%- for optim in ssd_optimizers %}
+    import fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_{{ optim }}_ssd as lookup_{{ optim }}_ssd
+    {%- endfor %}
+except:
+    import logging
+    logging.warn("fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_args_ssd import failed")
+    {%- for optim in ssd_optims %}
+    logging.warn("fbgemm_gpu.split_embedding_codegen_lookup_invokers.lookup_{{ optim }}_ssd import failed")
+    {%- endfor %}
