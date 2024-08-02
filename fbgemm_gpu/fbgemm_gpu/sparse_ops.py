@@ -254,7 +254,7 @@ def tbe_input_combine_abstract(
         torch._check(index.is_contiguous())
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -291,7 +291,7 @@ def tbe_input_combine_with_length_abstract(
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
         total_offsets = total_offsets + offset.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
