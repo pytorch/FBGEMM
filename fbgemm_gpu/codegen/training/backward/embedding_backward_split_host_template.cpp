@@ -15,6 +15,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/config/feature_gates.h"
 
 using Tensor = at::Tensor;
 
@@ -1012,7 +1013,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const c10::SymInt max_B_feature_rank = -1,
     {%- if not dense %}
     const c10::SymInt vbe_output_size = -1,
-    const bool is_experimental = false,
+    const bool is_experimental_tbe = false, // formerly named is_experimental
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
     const std::optional<Tensor>& uvm_cache_stats = c10::nullopt,
@@ -1033,6 +1034,14 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
+
+    {%- if not dense %}
+    // Load the config value from JK once
+    static auto is_tbev2_enabled = config::is_feature_enabled(config::FeatureGateName::TBE_V2);
+
+    // Set to experimental if either the feature is enabled in JK, or the user specifies to use TBEv2
+    const auto is_experimental = is_tbev2_enabled || is_experimental_tbe;
+    {%- endif %}
 
     {%- if not ssd %}
     {%- if has_vbe_support %}
