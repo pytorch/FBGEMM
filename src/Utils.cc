@@ -801,6 +801,7 @@ std::pair<K*, V*> radix_sort_parallel(
       std::swap(input_keys, output_keys);
       std::swap(input_values, output_values);
 #pragma omp barrier
+      {}
     }
   }
 #ifdef _MSC_VER
