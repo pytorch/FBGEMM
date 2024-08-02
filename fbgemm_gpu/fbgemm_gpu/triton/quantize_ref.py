@@ -108,13 +108,13 @@ def py_quantize_mx4(
     # If given an empty shape, return an empty tensor.
     if a.numel() == 0:
         return torch.empty(a.shape, device=a.device, dtype=torch.uint8)
-    # Make sure input has a supported shape.
-    if a.numel() % 32 != 0:
-        raise RuntimeError(
-            f"Input must have total elements that are a multiple of 32, but got {a.numel()} elements."
-        )
     # Keep track of original shape.
     orig_shape = a.shape
+    # Make sure input has a supported shape. If not, pad to make it valid.
+    if a.numel() % group_size != 0:
+        a = torch.nn.functional.pad(
+            a.flatten(), (0, group_size - (a.numel() % group_size))
+        )
     # Prepare for grouping by subdiving the last axis.
     a = a.view(a.numel() // group_size, group_size)
     # Now we can easily compute the shared exponents for each group.
@@ -213,18 +213,18 @@ def py_quantize_mx4(
     packed_mx4 = torch.concat(
         [
             packed_mx4.view(-1, group_size // 2),
-            (shared_exp + FP32_EXP_BIAS).to(torch.int8).view(-1, 1),
+            (shared_exp + FP32_EXP_BIAS).to(torch.uint8).to(torch.int8).view(-1, 1),
         ],
         dim=1,
     )
 
     # Inputs are now fully quantized and ready to return.
     # Try to return in the original shape if possible.
-    if orig_shape[-1] % group_size == 0:
+    try:
         output_shape = list(orig_shape[:-1]) + [-1]
         return packed_mx4.view(output_shape).view(torch.uint8)
     # If we cant, return as a flat array.
-    else:
+    except RuntimeError:
         return packed_mx4.view(-1).view(torch.uint8)
 
 
