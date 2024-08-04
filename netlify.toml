@@ -29,5 +29,11 @@
 
     # Build the docs
     cd docs
+    # print_exec uname -a
+    # print_exec ldd --version
+    # yum install sudo
+    ls -la /root/miniconda/envs/$BUILD_ENV/lib
+    # print_exec export LD_LIBRARY_PATH=/root/miniconda/envs/$BUILD_ENV/lib
+    print_exec export LD_PRELOAD=/opt/buildhome/miniconda/envs/build_docs/x86_64-conda-linux-gnu/lib/libstdc++.so.6.0.30
     build_fbgemm_gpu_docs       $BUILD_ENV
     """

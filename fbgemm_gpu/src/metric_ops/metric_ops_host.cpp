@@ -7,12 +7,17 @@
  */
 
 #include <ATen/core/op_registration/op_registration.h>
+// #include <folly/hash/Checksum.h>
 #include <torch/library.h>
 
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "metric_ops.h"
 
 namespace fbgemm_gpu {
+
+// uint32_t example_folly_code(const std::vector<uint8_t>& buffer) {
+//   return folly::crc32c(buffer.data(), buffer.size());
+// }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(

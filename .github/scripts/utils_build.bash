@@ -78,7 +78,7 @@ __conda_install_gcc () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # shellcheck disable=SC2155
-  local gcc_version=10.4.0
+  local gcc_version=12.4.0
 
   echo "[INSTALL] Installing GCC (${gcc_version}, ${archname}) through Conda ..."
   # shellcheck disable=SC2086
@@ -211,7 +211,27 @@ install_cxx_compiler () {
 
   # Run post-install checks
   __compiler_post_install_checks
+
+
+  # print_exec sudo ln -fs /root/miniconda/$env_name/build_docs/lib/libstdc++.so.6 /usr/lib64/libstdc++.so.6
+  echo $LD_LIBRARY_PATH
+  echo $LIBRARY_PATH
+
+  __show_glibcxx_info
+
   echo "[INSTALL] Successfully installed C/C++ compilers"
+}
+
+__show_glibcxx_info () {
+  echo "[TEST] Enumerating libstdc++.so files ..."
+
+  # shellcheck disable=SC2155
+  local all_libcxx_libs=$(find / -type f -name 'libstdc++.so*' -print | sort)
+  for f in $all_libcxx_libs; do
+    echo "$f";
+    objdump -TC "$f" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+    echo ""
+  done
 }
 
 install_build_tools () {
@@ -249,6 +269,7 @@ install_build_tools () {
     build \
     click \
     cmake \
+    folly \
     hypothesis \
     jinja2 \
     make \
