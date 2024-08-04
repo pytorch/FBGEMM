@@ -258,9 +258,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             prefix="ssd_table_batched_embeddings", dir=ssd_storage_directory
         )
         # logging.info("DEBUG: weights_precision {}".format(weights_precision))
+
+        # create tbe unique id using rank index | local tbe idx
+        if tbe_unique_id == -1:
+            SSDTableBatchedEmbeddingBags._local_instance_index += 1
+            if dist.is_initialized():
+                assert (
+                    SSDTableBatchedEmbeddingBags._local_instance_index < 1024
+                ), f"{SSDTableBatchedEmbeddingBags._local_instance_index}, more than 1024 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
+                tbe_unique_id = (
+                    dist.get_rank() << 10
+                    | SSDTableBatchedEmbeddingBags._local_instance_index
+                )
+            else:
+                logging.warning("dist is not initialized, treating as single gpu cases")
+                tbe_unique_id = SSDTableBatchedEmbeddingBags._local_instance_index
+        logging.info(f"tbe_unique_id: {tbe_unique_id}")
         if not ps_hosts:
             logging.info(
-                f"Logging SSD offloading setup "
+                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id},"
                 f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
                 f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
                 f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},rate_limit_mbps={ssd_rate_limit_mbps},"
@@ -290,19 +306,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 weights_precision.bit_rate(),  # row_storage_bitwidth
                 ssd_block_cache_size_per_tbe,
                 use_passed_in_path,
+                tbe_unique_id,
             )
         else:
-            # create tbe unique id using rank index | local tbe idx
-            if tbe_unique_id == -1:
-                SSDTableBatchedEmbeddingBags._local_instance_index += 1
-                assert (
-                    SSDTableBatchedEmbeddingBags._local_instance_index < 8
-                ), f"{SSDTableBatchedEmbeddingBags._local_instance_index}, more than 8 TBE instance is created in one rank, the tbe unique id won't be unique in this case."
-                tbe_unique_id = (
-                    dist.get_rank() << 3
-                    | SSDTableBatchedEmbeddingBags._local_instance_index
-                )
-            logging.info(f"tbe_unique_id: {tbe_unique_id}")
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
             self.ssd_db = torch.classes.fbgemm.EmbeddingParameterServerWrapper(
