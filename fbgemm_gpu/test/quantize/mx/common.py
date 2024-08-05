@@ -407,6 +407,7 @@ def _round_mantissa(
 def _shared_exponents(
     A: torch.Tensor,
     method: str = "max",
+    rounding_mode: str = "even",
     axes: Optional[List[int]] = None,
     ebits: int = 0,
 ) -> torch.Tensor:
@@ -435,12 +436,41 @@ def _shared_exponents(
     else:
         raise Exception("Unrecognized shared exponent selection method %s" % (method))
 
-    # log2(shared_exp) and truncate to integer
-    shared_exp = torch.floor(
-        torch.log2(
-            shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+    if rounding_mode == "even":
+        SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
+        shared_exp = shared_exp.to(torch.float32).view(torch.int32)
+        val_to_add = 1 << (MBITS_F32 - 1)
+        mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
+        shared_exp = (shared_exp + val_to_add) & mask
+        shared_exp = shared_exp.view(torch.float32)
+
+        shared_exp = torch.floor(
+            torch.log2(
+                shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+            )
         )
-    )
+        """
+        roundup_idx = (shared_exp_old != shared_exp).nonzero()
+        if roundup_idx.numel() > 0:
+            idx = roundup_idx[0]
+            raise Exception(
+                f"{roundup_idx.numel() / len(shared_exp.shape) / shared_exp.numel() * 100}% exp round up: {idx=} {shared_exp.shape=} {(shared_exp - shared_exp_old)[idx]=}"
+            )
+        """
+    elif rounding_mode == "ceil":
+        shared_exp = torch.ceil(
+            torch.log2(
+                shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+            )
+        )
+    elif rounding_mode == "floor":
+        shared_exp = torch.floor(
+            torch.log2(
+                shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+            )
+        )
+    else:
+        raise Exception("Unrecognized rounding mode %s" % (rounding_mode))
 
     # Restrict to [-emax, emax] range
     if ebits > 0:
