@@ -23,7 +23,8 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
   ${THIRDPARTY}/json/include
-  ${NCCL_INCLUDE_DIRS})
+  ${NCCL_INCLUDE_DIRS}
+  ${FOLLY_INCLUDE_DIRS})
 
 set(attention_ops_sources
     src/attention/attention.cpp
@@ -103,11 +104,13 @@ endif()
 
 target_include_directories(fbgemm_gpu_experimental_gen_ai_py PRIVATE
   ${TORCH_INCLUDE_DIRS}
-  ${NCCL_INCLUDE_DIRS})
+  ${NCCL_INCLUDE_DIRS}
+  ${FOLLY_INCLUDE_DIRS})
 
 target_link_libraries(fbgemm_gpu_experimental_gen_ai_py
   ${TORCH_LIBRARIES}
   ${NCCL_LIBRARIES}
+  ${FOLLY_LIBRARIES}
   ${CUDA_DRIVER_LIBRARIES})
 
 # Remove `lib` from the output artifact name

@@ -168,6 +168,9 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
+    - name: Install Build Tools for LIBFOLLY
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 

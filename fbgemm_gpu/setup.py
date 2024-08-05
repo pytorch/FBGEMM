@@ -77,6 +77,12 @@ class FbgemmGpuBuild:
             help="NCCL (libnccl.so.2) filepath. This is required for building certain targets.",
         )
         parser.add_argument(
+            "--folly_lib_path",
+            type=str,
+            default=None,
+            help="Folly (libfolly.so) filepath. This is required for building certain targets.",
+        )
+        parser.add_argument(
             "--cxxprefix",
             type=str,
             default=None,
@@ -273,6 +279,16 @@ class FbgemmGpuBuild:
                 [
                     f"-DNCCL_INCLUDE_DIRS={nccl_root}/include",
                     f"-DNCCL_LIBRARIES={self.args.nccl_lib_path}",
+                ]
+            )
+
+        if self.args.folly_lib_path:
+            folly_root = os.path.dirname(os.path.dirname(self.args.folly_lib_path))
+            cxx_flags.extend([f"-L{folly_root}/lib"])
+            cmake_args.extend(
+                [
+                    f"-DFOLLY_INCLUDE_DIRS={folly_root}/include",
+                    f"-DFOLLY_LIBRARIES={self.args.folly_lib_path}",
                 ]
             )
 

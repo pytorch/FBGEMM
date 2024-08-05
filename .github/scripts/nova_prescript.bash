@@ -28,7 +28,7 @@ print_conda_info
 print_gpu_info
 
 # Install C/C++ Compilers
-install_cxx_compiler "${BUILD_ENV_NAME}"
+install_cxx_compiler "${BUILD_ENV_NAME}" clang
 
 # Install Build Tools
 install_build_tools "${BUILD_ENV_NAME}"

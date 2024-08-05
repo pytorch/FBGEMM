@@ -244,6 +244,19 @@ __configure_fbgemm_gpu_build_genai () {
   done
 }
 
+__configure_folly_flags () {
+  echo "[BUILD] Looking up Folly library filepath ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155,SC2086
+  local folly_lib_path=$(conda run ${env_prefix} find ${conda_prefix} -name "libfolly.so")
+
+  echo "[BUILD] Setting CUDA build args ..."
+  build_args+=(
+    --folly_lib_path="${folly_lib_path}"
+  )
+}
+
 # shellcheck disable=SC2120
 __configure_fbgemm_gpu_build () {
   echo "################################################################################"
@@ -277,6 +290,9 @@ __configure_fbgemm_gpu_build () {
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     __configure_fbgemm_gpu_build_clang
   fi
+
+  # Add build flags to support building against Folly
+  __configure_folly_flags
 
   # Set verbosity
   build_args+=(

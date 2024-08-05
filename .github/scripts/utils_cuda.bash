@@ -96,6 +96,12 @@ install_cuda () {
     local cxx_path=$(conda run ${env_prefix} which c++)
     # shellcheck disable=SC2086
     print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
+
+  else
+    echo "[BUILD] Setting default flags for NVCC ..."
+
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-allow-unsupported-compiler\"
   fi
 
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
