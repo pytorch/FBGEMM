@@ -477,9 +477,12 @@ off, simply set <code class="docutils literal notranslate"><span class="pre">FBG
 <h3>C/C++ Compiler<a class="headerlink" href="#c-c-compiler" title="Permalink to this heading">¶</a></h3>
 <p>For Linux and macOS platforms, follow the instructions in
 <a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-tools-install-compiler-gcc"><span class="std std-ref">C/C++ Compiler (GCC)</span></a> to install the GCC
-toolchain.  For Clang-based builds, follow the instructions in
+toolchain.  The recommended version of GCC for installation is <strong>10.4.0</strong>, or
+higher.  Note, however, that newer versions of GCC have been observed to run
+into build issues when built through Bazel.</p>
+<p>For Clang-based builds, follow the instructions in
 <a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-tools-install-compiler-clang"><span class="std std-ref">C/C++ Compiler (Clang)</span></a> to install the Clang
-toolchain.</p>
+toolchain.  The recommended version of Clang is <strong>15 or higher</strong>.</p>
 <p>For builds on Windows machines, Microsoft Visual Studio 2019 or newer is
 recommended.  Follow the installation instructions provided by Microsoft
 <a class="reference external" href="https://visualstudio.microsoft.com/vs/older-downloads/">here</a>.</p>
