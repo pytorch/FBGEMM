@@ -27,8 +27,8 @@ print_conda_info
 # Display GPU Info
 print_gpu_info
 
-# Install C/C++ Compilers
-install_cxx_compiler "${BUILD_ENV_NAME}" clang
+# Install C/C++ Compilers and Set libstdc++ Preload Option
+SET_GLIBCXX_PRELOAD=1 install_cxx_compiler "${BUILD_ENV_NAME}"
 
 # Install Build Tools
 install_build_tools "${BUILD_ENV_NAME}"

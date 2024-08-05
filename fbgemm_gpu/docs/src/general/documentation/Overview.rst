@@ -73,6 +73,14 @@ correctly.  Follow the instructions in
 :ref:`fbgemm-gpu.build.setup.tools.install`, followed by
 :ref:`fbgemm-gpu.build.process.cpu`, to build FBGEMM_GPU (CPU variant).
 
+After installing the C/C++ compiler, ``LD_PRELOAD`` will need to be updated with
+the path to the version of ``libstdc++.so`` packaged with the compiler so that
+FBGEMM_GPU can be correctly pre-loaded under Sphinx:
+
+.. code:: sh
+
+  export LD_PRELOAD=/path/to/libstdc++.so:$LD_PRELOAD
+
 Set Up the Documentation Toolchain
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
