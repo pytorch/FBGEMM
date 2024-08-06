@@ -25,7 +25,7 @@ from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 
-# from fbgemm_gpu.config import FeatureGateName
+from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
     TBEStatsReporter,
@@ -1576,17 +1576,24 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets=self.row_counter_offsets,
             placements=self.row_counter_placements,
         )
+
         if self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
-            return self._report_io_size_count(
-                "fwd_output",
-                invokers.lookup_ensemble_rowwise_adagrad.invoke(
-                    common_args,
-                    self.optimizer_args,
-                    momentum1,
-                    momentum2,
-                    row_counter,
-                ),
-            )
+            if FeatureGate.is_enabled(FeatureGateName.ENSEMBLE_ROWWISE_ADAGRAD):
+                return self._report_io_size_count(
+                    "fwd_output",
+                    invokers.lookup_ensemble_rowwise_adagrad.invoke(
+                        common_args,
+                        self.optimizer_args,
+                        momentum1,
+                        momentum2,
+                        row_counter,
+                    ),
+                )
+            else:
+                logging.info(
+                    "ENSEMBLE_ROWWISE_ADAGRAD is an inactive or has been deprecated!"
+                )
+
         if self._used_rowwise_adagrad_with_counter:
             if (
                 self._max_counter_update_freq > 0

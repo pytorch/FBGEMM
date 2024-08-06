@@ -46,6 +46,13 @@ class FeatureGateName(Enum):
     """
 
     TBE_V2 = auto()
+    ENSEMBLE_ROWWISE_ADAGRAD = auto()
 
     def is_enabled(self) -> bool:
-        return torch.ops.fbgemm.check_feature_gate_key(self.name)
+        return FeatureGate.is_enabled(self)
+
+
+class FeatureGate:
+    @classmethod
+    def is_enabled(cls, feature: FeatureGateName) -> bool:
+        return torch.ops.fbgemm.check_feature_gate_key(feature.name)
