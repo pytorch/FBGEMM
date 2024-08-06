@@ -36,7 +36,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 )
 
 from torch import distributed as dist, nn, Tensor  # usort:skip
-from pyre_extensions import none_throws
 from torch.autograd.profiler import record_function
 
 from .common import ASSOC
@@ -450,7 +449,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         logging.info(
             f"logging stats reporter setup, {self.gather_ssd_cache_stats=}, "
-            f"stats_reporter:{none_throws(self.stats_reporter) if self.stats_reporter else 'none'}, "
+            f"stats_reporter:{self.stats_reporter if self.stats_reporter else 'none'}, "
         )
 
     # pyre-ignore[3]
