@@ -12,7 +12,6 @@
 #include <torch/nn/init.h>
 #include <iostream>
 #ifdef FBGEMM_FBCODE
-#include "common/network/PortUtil.h"
 #include "common/strings/UUID.h"
 #include "fb_rocksdb/DBMonitor/DBMonitor.h"
 #include "fb_rocksdb/FbRocksDb.h"
@@ -40,6 +39,7 @@ constexpr size_t kRowInitBufferSize = 32 * 1024;
 #ifdef FBGEMM_FBCODE
 constexpr size_t num_ssd_drives = 8;
 const std::string ssd_mount_point = "/data00_nvidia";
+const size_t base_port = 136000;
 #endif
 
 class Initializer {
@@ -132,7 +132,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       float uniform_init_upper,
       int64_t row_storage_bitwidth = 32,
       int64_t cache_size = 0,
-      bool use_passed_in_path = false) {
+      bool use_passed_in_path = false,
+      int64_t tbe_unqiue_id = 0) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
     options.create_if_missing = true;
@@ -256,7 +257,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       rocksdb::DB* db;
 
 #ifdef FBGEMM_FBCODE
-      db_monitor_options.port = facebook::network::getFreePort();
+      db_monitor_options.port = base_port + tbe_unqiue_id;
       auto s = facebook::fb_rocksdb::openRocksDB(
           options,
           shard_path,
