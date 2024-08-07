@@ -45,24 +45,79 @@ static const std::unordered_map<
     IntTupleHash>
     rowwise_lookup_dispatch = {
         // LLama 70B Decode shapes.
-        {{1, 1280, 8192},
-         fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
-        {{1, 8192, 1024},
-         fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
-        {{1, 7168, 8192},
-         fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
-        {{1, 8192, 3584},
+        // Support for decode across batch sizes for [1280, 8192]
+        {{16, 1280, 8192},
          fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
-        // Llama 405B Decode Shapes.
-        {{1, 13312, 6656},
-         fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1},
-        {{1, 13312, 16384},
-         //fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1},
-         fp8_rowwise_64x16x16x512_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2},
-        {{1, 16384, 6656},
-         fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1},
-        {{1, 16384, 16384},
+        {{32, 1280, 8192},
          fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+        {{64, 1280, 8192},
+         fp8_rowwise_128x64x32x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+        {{128, 1280, 8192},
+         fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+        // Support for decode across batch sizes for [8192, 1024]
+        {{16, 8192, 1024},
+         fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+        {{32, 8192, 1024},
+         fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+        {{64, 8192, 1024},
+         fp8_rowwise_128x64x32x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+        {{128, 8192, 1024},
+         fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        // Support for decode across batch sizes for [7168, 8192]
+        {{16, 7168, 8192},
+         fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+        {{32, 7168, 8192},
+         fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+        {{64, 7168, 8192},
+         fp8_rowwise_128x64x32x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+        {{128, 7168, 8192},
+         fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        // Support for decode across batch sizes for [8192, 3584]
+        {{16, 8192, 3584},
+         fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+        {{32, 8192, 3584},
+         fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+        {{64, 8192, 3584},
+         fp8_rowwise_128x64x32x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+        {{128, 8192, 3584},
+         fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        // Llama 405B Decode Shapes.
+        // Support for decode across batch sizes for [13312, 6656].
+        {{16, 13312, 6656},
+         fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1},
+        {{32, 13312, 6656},
+         fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2},
+        {{64, 13312, 6656},
+         fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        {{128, 13312, 6656},
+         fp8_rowwise_256x128x64x128_32x32_2x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        // Support for decode across batch sizes for [13312, 16384].
+        {{16, 13312, 16384},
+         fp8_rowwise_64x16x16x512_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2},
+        {{32, 13312, 16384},
+         fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2},
+        {{64, 13312, 16384},
+         fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        {{128, 13312, 16384},
+         fp8_rowwise_256x128x64x128_32x32_2x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        // Support for decode across batch sizes for [16384, 6656].
+        {{16, 16384, 6656},
+         fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1},
+        {{32, 16384, 6656},
+         fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2},
+        {{64, 16384, 6656},
+         fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        {{128, 16384, 6656},
+         fp8_rowwise_256x128x64x128_32x32_2x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        // Support for decode across batch sizes for [16384, 16384].
+        {{16, 16384, 16384},
+         fp8_rowwise_64x16x16x512_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2},
+        {{32, 16384, 16384},
+         fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2},
+        {{64, 16384, 16384},
+         fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+        {{128, 16384, 16384},
+         fp8_rowwise_256x128x64x128_32x32_2x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
         // EMU 1.6 Shapes.
         {{1536, 3584, 3584},
          fp8_rowwise_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1},
@@ -117,8 +172,20 @@ RowwiseKernel rowwise_heuristic_dispatch(int M, int N, int K) {
 
 RowwiseKernel rowwise_dispatch(int M, int N, int K) {
   // For a given shape, either find the best kernel via lookup or heuristic.
+  // For many small M shapes, we bucket them to the next largest kernel.
+  // This is fine since kernels are padded anyway.
+  int padded_m = M;
+  if (M <= 16) {
+    padded_m = 16;
+  } else if (M <= 32) {
+    padded_m = 32;
+  } else if (M <= 64) {
+    padded_m = 64;
+  } else if (M <= 128) {
+    padded_m = 128;
+  }
   // First check if this shape is available in the direct lookup.
-  auto it = rowwise_lookup_dispatch.find({M, N, K});
+  auto it = rowwise_lookup_dispatch.find({padded_m, N, K});
   // If we found an optimal kernel, use it.
   if (it != rowwise_lookup_dispatch.end()) {
     return it->second;

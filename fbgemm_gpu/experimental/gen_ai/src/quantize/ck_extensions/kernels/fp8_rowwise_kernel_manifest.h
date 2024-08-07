@@ -89,9 +89,27 @@ fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v
     at::Tensor w_scale,
     at::Tensor Y);
 
+// Alternate split k tiny kernel that seems to do well when M and N are small.
+at::Tensor
+fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2_16(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
 // Small kernel for small shapes with a little beef to them.
 at::Tensor
 fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+// Small kernel for small shapes with a little beef to them.
+at::Tensor
+fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -155,6 +173,33 @@ fp8_rowwise_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave
 // Kernel that seems optimal for highly compute bound problems.
 at::Tensor
 fp8_rowwise_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+// Kernel for medium batch sizes.
+at::Tensor
+fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+// Kernel for larger batch sizes.
+at::Tensor
+fp8_rowwise_256x128x64x128_32x32_2x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+// Larger batch size with small tensors kernel.
+at::Tensor
+fp8_rowwise_128x64x32x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
