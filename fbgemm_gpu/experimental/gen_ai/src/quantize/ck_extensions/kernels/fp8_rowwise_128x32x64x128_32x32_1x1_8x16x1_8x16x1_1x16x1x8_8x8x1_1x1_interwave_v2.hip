@@ -9,7 +9,7 @@
 #include "fp8_rowwise_common.h"
 
 at::Tensor
-fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2(
+fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -39,7 +39,7 @@ fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v
         S<8, 8, 1>,
         1,
         1,
-        ck::BlockGemmPipelineScheduler::Intrawave,
+        ck::BlockGemmPipelineScheduler::Interwave,
         ck::BlockGemmPipelineVersion::v2>;
     // Run kernel instance.
     return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
@@ -59,7 +59,7 @@ fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v
         S<8, 8, 1>,
         1,
         1,
-        ck::BlockGemmPipelineScheduler::Intrawave,
+        ck::BlockGemmPipelineScheduler::Interwave,
         ck::BlockGemmPipelineVersion::v2,
         ck::tensor_operation::device::GemmSpecialization::Default>;
     // Run kernel instance.
