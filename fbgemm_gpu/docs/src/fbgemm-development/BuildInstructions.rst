@@ -75,13 +75,9 @@ C/C++ Compiler
 
 For Linux and macOS platforms, follow the instructions in
 :ref:`fbgemm-gpu.build.setup.tools.install.compiler.gcc` to install the GCC
-toolchain.  The recommended version of GCC for installation is **10.4.0**, or
-higher.  Note, however, that newer versions of GCC have been observed to run
-into build issues when built through Bazel.
-
-For Clang-based builds, follow the instructions in
+toolchain.  For Clang-based builds, follow the instructions in
 :ref:`fbgemm-gpu.build.setup.tools.install.compiler.clang` to install the Clang
-toolchain.  The recommended version of Clang is **15 or higher**.
+toolchain.
 
 For builds on Windows machines, Microsoft Visual Studio 2019 or newer is
 recommended.  Follow the installation instructions provided by Microsoft
