@@ -164,10 +164,7 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install C/C++ Compilers for Updated LIBGCC
-      run: . $PRELUDE; SET_GLIBCXX_PRELOAD=1 install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
-
-    - name: Install Build Tools for LIBFOLLY
-      run: . $PRELUDE; install_build_tools $BUILD_ENV
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
 
     - name: Install PyTorch-CPU Nightly
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cpu
