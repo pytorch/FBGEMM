@@ -94,6 +94,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
+        step_ema: float = 100,  # used by ENSEMBLE_ROWWISE_ADAGRAD
+        step_swap: float = 100,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
         ] = None,  # used by Rowwise Adagrad
@@ -362,6 +364,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             eps=eps,
             beta1=beta1,
             beta2=beta2,
+            step_ema=step_ema,
+            step_swap=step_swap,
             weight_decay=weight_decay,
             weight_decay_mode=weight_decay_mode.value,
             eta=eta,

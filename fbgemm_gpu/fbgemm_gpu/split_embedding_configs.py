@@ -28,6 +28,7 @@ class EmbOptimType(enum.Enum):
     LARS_SGD = "lars_sgd"
     PARTIAL_ROWWISE_ADAM = "partial_row_wise_adam"
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
+    ENSEMBLE_ROWWISE_ADAGRAD = "ensemble_row_wise_adagrad"
     ROWWISE_ADAGRAD = "row_wise_adagrad"
     SHAMPOO = "shampoo"  # not currently supported for sparse embedding tables
     SHAMPOO_V2 = "shampoo_v2"  # not currently supported for sparse embedding tables

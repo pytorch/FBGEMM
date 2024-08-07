@@ -60,6 +60,8 @@ class OptimizerArgs(NamedTuple):
     eps: float
     beta1: float
     beta2: float
+    step_ema: float
+    step_swap: float
     weight_decay: float
     weight_decay_mode: int
     eta: float
