@@ -12,19 +12,15 @@
     export BUILD_ENV=build_docs
     . ../../.github/scripts/setup_env.bash
 
-    # Print system info
-    print_exec uname -a
-    print_exec ldd --version
-
     # Set up Conda environment
     setup_miniconda             $HOME/miniconda
     create_conda_environment    $BUILD_ENV 3.12
 
     # Install tools
-    SET_GLIBCXX_PRELOAD=1 install_cxx_compiler  $BUILD_ENV
-    install_build_tools                         $BUILD_ENV
-    install_docs_tools                          $BUILD_ENV
-    install_pytorch_pip                         $BUILD_ENV nightly cpu
+    install_cxx_compiler        $BUILD_ENV
+    install_build_tools         $BUILD_ENV
+    install_docs_tools          $BUILD_ENV
+    install_pytorch_pip         $BUILD_ENV nightly cpu
 
     # Build the code
     cd ..

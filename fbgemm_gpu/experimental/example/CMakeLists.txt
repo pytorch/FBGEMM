@@ -25,13 +25,11 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
   ${THIRDPARTY}/json/include
-  ${NCCL_INCLUDE_DIRS}
-  ${FOLLY_INCLUDE_DIRS})
+  ${NCCL_INCLUDE_DIRS})
 
 set(experimental_example_cpp_source_files
     src/cutlass_sgemm_nn.cu
     src/example_ops.cpp
-    src/folly_example.cpp
     src/nccl_example.cpp)
 
 set_source_files_properties(${experimental_example_cpp_source_files}
@@ -52,13 +50,11 @@ add_library(fbgemm_gpu_experimental_example_py MODULE
 
 target_include_directories(fbgemm_gpu_experimental_example_py PRIVATE
     ${TORCH_INCLUDE_DIRS}
-    ${NCCL_INCLUDE_DIRS}
-    ${FOLLY_INCLUDE_DIRS})
+    ${NCCL_INCLUDE_DIRS})
 
 target_link_libraries(fbgemm_gpu_experimental_example_py
     ${TORCH_LIBRARIES}
     ${NCCL_LIBRARIES}
-    ${FOLLY_LIBRARIES}
     ${CUDA_DRIVER_LIBRARIES})
 
 # Remove `lib` from the output artifact name
