@@ -245,16 +245,11 @@ symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
 
 .. code:: sh
 
-  # Set GCC to 11.4, as the packaged libstdc++ version is the minimum version
-  # that references GLIBCXX_3.4.30, which is required for libfolly runtime
-  # compatibility.
+  # Set GCC to 10.4.0 to keep compatibility with older versions of GLIBCXX
   #
-  # For compatibility with older versions of GLIBCXX, 10.4.0 will be needed, but
-  # libfolly-based code wlll need to be disabled.
-  #
-  # A newer versions of GCC also works, but may need to be accompanied by an
+  # A newer versions of GCC also works, but will need to be accompanied by an
   # appropriate updated version of the sysroot_linux package.
-  gcc_version=11.4.0
+  gcc_version=10.4.0
 
   conda install -n ${env_name} -c conda-forge -y gxx_linux-64=${gcc_version} sysroot_linux-64=2.17
 
@@ -285,7 +280,7 @@ toolchain **that supports C++20**:
 
 .. code:: sh
 
-  # Minimum LLVM+Clang version required for FBGEMM_GPU
+  # Use a recent version of LLVM+Clang
   llvm_version=16.0.6
 
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
@@ -340,7 +335,6 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
   conda install -n ${env_name} -y \
       click \
       cmake \
-      folly \
       hypothesis \
       jinja2 \
       make \
@@ -531,19 +525,15 @@ For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
 
   # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
-  FOLLY_LIB_PATH=/path/to/libfolly.so
-
   # Build the wheel artifact only
   python setup.py bdist_wheel \
       --package_variant=cpu \
       --python-tag="${python_tag}" \
-      --plat-name="${python_plat_name}" \
-      --folly_lib_path=${FOLLY_LIB_PATH}
+      --plat-name="${python_plat_name}"
 
   # Build and install the library into the Conda environment (GCC)
   python setup.py install \
-      --package_variant=cpu \
-      --folly_lib_path=${FOLLY_LIB_PATH}
+      --package_variant=cpu
 
 To build using Clang + ``libstdc++`` instead of GCC, simply append the
 ``--cxxprefix`` flag:
@@ -557,21 +547,16 @@ To build using Clang + ``libstdc++`` instead of GCC, simply append the
       --package_variant=cpu \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
-      --cxxprefix=$CONDA_PREFIX \
-      --folly_lib_path=${FOLLY_LIB_PATH}
+      --cxxprefix=$CONDA_PREFIX
 
   # Build and install the library into the Conda environment (Clang)
   python setup.py install \
-      --package_variant=cpu \
-      --cxxprefix=$CONDA_PREFIX \
-      --folly_lib_path=${FOLLY_LIB_PATH}
+      --package_variant=cpu
+      --cxxprefix=$CONDA_PREFIX
 
 Note that this presumes the Clang toolchain is properly installed along with the
 GCC toolchain, and is made available as ``${cxxprefix}/bin/cc`` and
 ``${cxxprefix}/bin/c++``.
-
-To enable runtime debug features, such as device-side assertions in CUDA and
-HIP, simply append the ``--debug`` flag when invoking ``setup.py``.
 
 .. _fbgemm-gpu.build.process.cuda:
 
@@ -624,7 +609,6 @@ toolchains have been properly installed.
       --plat-name="${python_plat_name}" \
       --nvml_lib_path=${NVML_LIB_PATH} \
       --nccl_lib_path=${NCCL_LIB_PATH} \
-      --folly_lib_path=${FOLLY_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
   # Build and install the library into the Conda environment
@@ -632,7 +616,6 @@ toolchains have been properly installed.
       --package_variant=cuda \
       --nvml_lib_path=${NVML_LIB_PATH} \
       --nccl_lib_path=${NCCL_LIB_PATH} \
-      --folly_lib_path=${FOLLY_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
 .. _fbgemm-gpu.build.process.genai:
@@ -654,7 +637,6 @@ experimental modules are the same as those for a CUDA build, but with specifying
       --plat-name="${python_plat_name}" \
       --nvml_lib_path=${NVML_LIB_PATH} \
       --nccl_lib_path=${NCCL_LIB_PATH} \
-      --folly_lib_path=${FOLLY_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
   # Build and install the library into the Conda environment
@@ -662,7 +644,6 @@ experimental modules are the same as those for a CUDA build, but with specifying
       --package_variant=genai \
       --nvml_lib_path=${NVML_LIB_PATH} \
       --nccl_lib_path=${NCCL_LIB_PATH} \
-      --folly_lib_path=${FOLLY_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
 Note that currently, only CUDA is supported for the experimental modules.
@@ -696,13 +677,15 @@ presuming the toolchains have been properly installed.
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
-      --folly_lib_path=${FOLLY_LIB_PATH}
+      -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
+      -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
 
   # Build and install the library into the Conda environment
   python setup.py install \
       --package_variant=rocm \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
-      --folly_lib_path=${FOLLY_LIB_PATH}
+      -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
+      -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
 
 Post-Build Checks (For Developers)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
