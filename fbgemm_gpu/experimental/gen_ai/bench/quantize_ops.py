@@ -70,7 +70,7 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
             # so divide time accordingly
             return triton.testing.do_bench_cudagraph(
                 lambda: rotating_buffer_fn(self.compute, args_list, copy_cnt + 1),
-                rep=500,
+                rep=200,
             ) / (copy_cnt + 1)
 
     def benchmark(
@@ -259,7 +259,7 @@ class ScaledMMRowwise(QuantizeOpBase):
             use_fast_accum=True,
         )
         # Apply separate rowwise scaling.
-        output = output * x_scale[:, None] * w_scale[None, :]
+        output = scale_fp8_row(output, x_scale, w_scale)
         return output
 
     def quantize_and_compute(self, x, w):

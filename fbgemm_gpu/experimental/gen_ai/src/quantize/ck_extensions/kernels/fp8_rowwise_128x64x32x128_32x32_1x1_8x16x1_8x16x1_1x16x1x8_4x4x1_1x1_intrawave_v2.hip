@@ -9,25 +9,25 @@
 #include "fp8_rowwise_common.h"
 
 at::Tensor
-fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2(
+fp8_rowwise_128x64x32x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
-  // A kernel that works well on small but not super tiny shapes.
+  // A small kernel for small but not tiny shapes.
 
-  // Check if this input needs to be padded.
+    // Check if this input needs to be padded.
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
   int K = WQ.size(1);
-  bool pad = (M % 32 != 0) || (N % 64 != 0) || (K % 128 != 0);
+  bool pad = (M % 64 != 0) || (N % 32 != 0) || (K % 128 != 0);
 
   if (pad) {
     using DeviceGemmInstance = DeviceGemmHelper<
         128,
-        32,
         64,
+        32,
         128,
         32,
         32,
@@ -36,7 +36,7 @@ fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v
         S<8, 16, 1>,
         S<8, 16, 1>,
         S<1, 16, 1, 8>,
-        S<8, 8, 1>,
+        S<4, 4, 1>,
         1,
         1,
         ck::BlockGemmPipelineScheduler::Intrawave,
@@ -46,8 +46,8 @@ fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v
   } else {
     using DeviceGemmInstance = DeviceGemmHelper<
         128,
-        32,
         64,
+        32,
         128,
         32,
         32,
@@ -56,7 +56,7 @@ fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v
         S<8, 16, 1>,
         S<8, 16, 1>,
         S<1, 16, 1, 8>,
-        S<8, 8, 1>,
+        S<4, 4, 1>,
         1,
         1,
         ck::BlockGemmPipelineScheduler::Intrawave,

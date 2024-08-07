@@ -34,7 +34,7 @@ def get_llama_shapes() -> List[Tuple[int, int, int]]:
     # Helper function that returns a list of shapes relevant to llama.
 
     llama_shapes = []
-    for M in [1, 16384]:
+    for M in [1, 16, 32, 64, 96, 128, 16384]:
         # Add shapes for llama 70B
         llama_shapes += [
             (M, 1280, 8192),
