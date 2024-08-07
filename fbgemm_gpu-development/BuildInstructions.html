@@ -610,16 +610,11 @@ installed:</p>
 <p>Install a version of the GCC toolchain <strong>that supports C++20</strong>.  The <code class="docutils literal notranslate"><span class="pre">sysroot</span></code>
 package will also need to be installed to avoid issues with missing versioned
 symbols with <code class="docutils literal notranslate"><span class="pre">GLIBCXX</span></code> when compiling FBGEMM_CPU:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Set GCC to 11.4, as the packaged libstdc++ version is the minimum version</span>
-<span class="c1"># that references GLIBCXX_3.4.30, which is required for libfolly runtime</span>
-<span class="c1"># compatibility.</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Set GCC to 10.4.0 to keep compatibility with older versions of GLIBCXX</span>
 <span class="c1">#</span>
-<span class="c1"># For compatibility with older versions of GLIBCXX, 10.4.0 will be needed, but</span>
-<span class="c1"># libfolly-based code wlll need to be disabled.</span>
-<span class="c1">#</span>
-<span class="c1"># A newer versions of GCC also works, but may need to be accompanied by an</span>
+<span class="c1"># A newer versions of GCC also works, but will need to be accompanied by an</span>
 <span class="c1"># appropriate updated version of the sysroot_linux package.</span>
-<span class="nv">gcc_version</span><span class="o">=</span><span class="m">11</span>.4.0
+<span class="nv">gcc_version</span><span class="o">=</span><span class="m">10</span>.4.0
 
 conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="si">${</span><span class="nv">gcc_version</span><span class="si">}</span><span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17
 </pre></div>
@@ -644,7 +639,7 @@ objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot
 <p>It is possible to build FBGEMM and FBGEMM_GPU (just the CPU and CUDA variants)
 using Clang as the host compiler.  To do so, install a version of the Clang
 toolchain <strong>that supports C++20</strong>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Minimum LLVM+Clang version required for FBGEMM_GPU</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use a recent version of LLVM+Clang</span>
 <span class="nv">llvm_version</span><span class="o">=</span><span class="m">16</span>.0.6
 
 <span class="c1"># NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot</span>
@@ -692,7 +687,6 @@ ln<span class="w"> </span>-sf<span class="w"> </span><span class="s2">&quot;</sp
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>click<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>folly<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>jinja2<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>make<span class="w"> </span><span class="se">\</span>
@@ -854,19 +848,15 @@ Python platform name must first be properly set:</p>
 <p>For CPU-only builds, the <code class="docutils literal notranslate"><span class="pre">--cpu_only</span></code> flag needs to be specified.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
-<span class="nv">FOLLY_LIB_PATH</span><span class="o">=</span>/path/to/libfolly.so
-
 <span class="c1"># Build the wheel artifact only</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span>
+<span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Build and install the library into the Conda environment (GCC)</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cpu
 </pre></div>
 </div>
 <p>To build using Clang + <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> instead of GCC, simply append the
@@ -878,21 +868,17 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--cxxprefix<span class="o">=</span><span class="nv">$CONDA_PREFIX</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span>
+<span class="w">    </span>--cxxprefix<span class="o">=</span><span class="nv">$CONDA_PREFIX</span>
 
 <span class="c1"># Build and install the library into the Conda environment (Clang)</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--package_variant<span class="o">=</span>cpu<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--cxxprefix<span class="o">=</span><span class="nv">$CONDA_PREFIX</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span>
+<span class="w">    </span>--package_variant<span class="o">=</span>cpu
+<span class="w">    </span>--cxxprefix<span class="o">=</span><span class="nv">$CONDA_PREFIX</span>
 </pre></div>
 </div>
 <p>Note that this presumes the Clang toolchain is properly installed along with the
 GCC toolchain, and is made available as <code class="docutils literal notranslate"><span class="pre">${cxxprefix}/bin/cc</span></code> and
 <code class="docutils literal notranslate"><span class="pre">${cxxprefix}/bin/c++</span></code>.</p>
-<p>To enable runtime debug features, such as device-side assertions in CUDA and
-HIP, simply append the <code class="docutils literal notranslate"><span class="pre">--debug</span></code> flag when invoking <code class="docutils literal notranslate"><span class="pre">setup.py</span></code>.</p>
 </section>
 <section id="cuda-build">
 <span id="fbgemm-gpu-build-process-cuda"></span><h3>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this heading">¶</a></h3>
@@ -938,7 +924,6 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Build and install the library into the Conda environment</span>
@@ -946,7 +931,6 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <span class="w">    </span>--package_variant<span class="o">=</span>cuda<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
@@ -964,7 +948,6 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Build and install the library into the Conda environment</span>
@@ -972,7 +955,6 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <span class="w">    </span>--package_variant<span class="o">=</span>genai<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nvml_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NVML_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--nccl_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">NCCL_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DTORCH_CUDA_ARCH_LIST<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">cuda_arch_list</span><span class="si">}</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
@@ -1000,13 +982,15 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span>
+<span class="w">    </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span>
 
 <span class="c1"># Build and install the library into the Conda environment</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>rocm<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--folly_lib_path<span class="o">=</span><span class="si">${</span><span class="nv">FOLLY_LIB_PATH</span><span class="si">}</span>
+<span class="w">    </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span>
 </pre></div>
 </div>
 </section>

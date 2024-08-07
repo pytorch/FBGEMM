@@ -478,12 +478,6 @@ follows:</p>
 correctly.  Follow the instructions in
 <a class="reference internal" href="../../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-setup-tools-install"><span class="std std-ref">Install the Build Tools</span></a>, followed by
 <a class="reference internal" href="../../fbgemm_gpu-development/BuildInstructions.html#fbgemm-gpu-build-process-cpu"><span class="std std-ref">CPU-Only Build</span></a>, to build FBGEMM_GPU (CPU variant).</p>
-<p>After installing the C/C++ compiler, <code class="docutils literal notranslate"><span class="pre">LD_PRELOAD</span></code> will need to be updated with
-the path to the version of <code class="docutils literal notranslate"><span class="pre">libstdc++.so</span></code> packaged with the compiler so that
-FBGEMM_GPU can be correctly pre-loaded under Sphinx:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">LD_PRELOAD</span><span class="o">=</span>/path/to/libstdc++.so:<span class="nv">$LD_PRELOAD</span>
-</pre></div>
-</div>
 </section>
 <section id="set-up-the-documentation-toolchain">
 <h3>Set Up the Documentation Toolchain<a class="headerlink" href="#set-up-the-documentation-toolchain" title="Permalink to this heading">¶</a></h3>
