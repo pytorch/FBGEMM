@@ -15,6 +15,7 @@ set(fbgemm_sources_include_directories
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
   ${CMAKE_CURRENT_SOURCE_DIR}/../../include
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
   # PyTorch
   ${TORCH_INCLUDE_DIRS}
   # Third-party
@@ -31,6 +32,8 @@ set(attention_ops_sources
 
 set(quantize_ops_sources
     src/quantize/cutlass_extensions.cu
+    src/quantize/cutlass_extensions/i8i8bf16.cu
+    src/quantize/cutlass_extensions/i8i8bf16_dynamic.cu
     src/quantize/quantize.cu
     src/quantize/quantize.cpp)
 
