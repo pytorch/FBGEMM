@@ -60,6 +60,7 @@ set(GPU_ONLY_OPTIMIZERS
     lamb
     partial_rowwise_adam
     partial_rowwise_lamb
+    ensemble_rowwise_adagrad
     lars_sgd
     none
     rowwise_adagrad_with_counter)
@@ -86,6 +87,7 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 set(VBE_OPTIMIZERS
     rowwise_adagrad
     rowwise_adagrad_with_counter
+    ensemble_rowwise_adagrad
     sgd
     dense)
 
