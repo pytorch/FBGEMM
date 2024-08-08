@@ -919,7 +919,7 @@ static inline void transpose_contiguous_16x2_block(
     float* dst,
     int64_t ld_dst,
     int mrem = 16) {
-  __m512i r[2], d[2];
+  __m512i r[2] = { 0, }, d[2];
   int i = 0;
   for (; (i + 1) * 16 <= mrem * 2; i++) {
     // normal load

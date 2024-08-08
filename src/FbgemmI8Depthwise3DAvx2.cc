@@ -185,7 +185,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
   fbgemmPartition1D(
       th_info.n_thread_id, th_info.n_num_threads, H_OUT, h_begin, h_end);
 
-  GenI8Depthwise::jit_kernel_signature middle_kernel;
+  GenI8Depthwise::jit_kernel_signature middle_kernel = nullptr;
 
   for (int n = n_begin; n < n_end; ++n) {
     const uint8_t* A_base = A + n * T * H * W * IC;
@@ -264,7 +264,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
               act_times_w_scale);
         } // w
 
-        GenI8Depthwise::jit_kernel_signature kernel;
+        GenI8Depthwise::jit_kernel_signature kernel = nullptr;
         for (; w < W_OUT - PAD_R - stride_w + 1; ++w) {
           if (w == PAD_L) {
             int remainder = OC % 32;
@@ -654,7 +654,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
               act_times_w_scale);
         } // w
 
-        GenI8Depthwise::jit_kernel_signature kernel;
+        GenI8Depthwise::jit_kernel_signature kernel = nullptr;
         for (; w < W_OUT - PAD_R - stride_w + 1; ++w) {
           if (w == PAD_L) {
             int remainder = OC % 32;
