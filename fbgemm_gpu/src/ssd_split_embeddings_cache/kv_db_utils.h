@@ -6,11 +6,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+/// @defgroup embedding-ssd Embedding SSD Operators
+
 #include <cuda_runtime.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 
 namespace kv_db_utils {
 
+/// @ingroup embedding-ssd
+///
 /// @brief A callback function for `cudaStreamAddCallback`
 ///
 /// A common callback function for `cudaStreamAddCallback`, i.e.,
@@ -18,10 +22,9 @@ namespace kv_db_utils {
 /// into a void function, invokes it and then delete it (the deletion
 /// occurs in another thread)
 ///
-/// @param stream (`cudaStream_t`) CUDA stream that
-///               `cudaStreamAddCallback` operates on
-/// @param status (`cudaError_t`) CUDA status
-/// @param functor (`void*`) A functor that will be called
+/// @param stream CUDA stream that `cudaStreamAddCallback` operates on
+/// @param status CUDA status
+/// @param functor A functor that will be called
 ///
 /// @return None
 void cuda_callback_func(cudaStream_t stream, cudaError_t status, void* functor);

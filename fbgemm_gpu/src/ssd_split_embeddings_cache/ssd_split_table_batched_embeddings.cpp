@@ -6,8 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-/// @defgroup embedding-ssd Embedding SSD Operators
-
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
