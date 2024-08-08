@@ -103,6 +103,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         pooling_mode: PoolingMode = PoolingMode.SUM,
         # Parameter Server Configs
         ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
+        ps_max_key_per_request: Optional[int] = None,
+        ps_client_thread_num: Optional[int] = None,
+        ps_max_local_index_length: Optional[int] = None,
         tbe_unique_id: int = -1,
         # in local test we need to use the pass in path for rocksdb creation
         # in production we need to do it inside SSD mount path which will ignores the passed in path
@@ -314,8 +317,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 [host[0] for host in ps_hosts],
                 [host[1] for host in ps_hosts],
                 tbe_unique_id,
-                54,
-                32,
+                (
+                    ps_max_local_index_length
+                    if ps_max_local_index_length is not None
+                    else 54
+                ),
+                ps_client_thread_num if ps_client_thread_num is not None else 32,
+                ps_max_key_per_request if ps_max_key_per_request is not None else 500,
             )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()

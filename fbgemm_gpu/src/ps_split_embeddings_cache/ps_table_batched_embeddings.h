@@ -20,14 +20,16 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
       std::vector<std::pair<std::string, int>>&& tps_hosts,
       int64_t tbe_id,
       int64_t maxLocalIndexLength = 54,
-      int64_t num_threads = 32)
+      int64_t num_threads = 32,
+      int64_t maxKeysPerRequest = 500)
       : tps_client_(
             std::make_shared<mvai_infra::experimental::ps_training::tps_client::
                                  TrainingParameterServiceClient>(
                 std::move(tps_hosts),
                 tbe_id,
                 maxLocalIndexLength,
-                num_threads)) {}
+                num_threads,
+                maxKeysPerRequest)) {}
 
   void set(
       const at::Tensor& indices,
