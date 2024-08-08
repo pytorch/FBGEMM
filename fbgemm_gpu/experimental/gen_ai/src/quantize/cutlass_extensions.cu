@@ -824,7 +824,11 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor w_scale, // FP32
     std::optional<at::Tensor> bias = c10::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = c10::nullopt,
+    std::optional<std::string> kernel_name = c10::nullopt) {
+  TORCH_CHECK(
+      !kernel_name.has_value(),
+      "Specific kernel dispatch not yet supported in cuda.");
   // Check datatypes.
   TORCH_CHECK(
       x_scale.dtype() == at::kFloat && w_scale.dtype() == at::kFloat,
@@ -1929,7 +1933,8 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = c10::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = c10::nullopt,
+    std::optional<std::string> kernel_name = c10::nullopt) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
