@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cassert>
 #include <cmath>
+#include <string>
 #include <vector>
 #include "c10/util/Exception.h"
 
@@ -56,7 +57,8 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = c10::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt);
+    std::optional<at::Tensor> output = c10::nullopt,
+    std::optional<std::string> kernel_name = c10::nullopt);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -144,7 +146,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor");
   m.def(
-      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
+      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None, str? kernel_name=None) -> Tensor");
   m.def(
       "f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
   m.def("per_tensor_quantize_i8(Tensor X, float scale) -> Tensor");
@@ -209,7 +211,8 @@ at::Tensor f8f8bf16_rowwise_meta(
     at::Tensor /* w_scale */,
     std::optional<at::Tensor> /* bias = c10::nullopt */,
     bool /* use_fast_accum = true */,
-    std::optional<at::Tensor> /* output = c10::nullopt */) {
+    std::optional<at::Tensor> /* output = c10::nullopt */,
+    std::optional<std::string> /* output = c10::nullopt */) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
