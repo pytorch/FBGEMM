@@ -74,6 +74,9 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
         ssd_uniform_init_upper: float = 0.01,
         # Parameter Server Configs
         ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
+        ps_max_key_per_request: Optional[int] = None,
+        ps_client_thread_num: Optional[int] = None,
+        ps_max_local_index_length: Optional[int] = None,
         tbe_unique_id: int = -1,  # unique id for this embedding, if not set, will derive based on current rank and tbe index id
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(SSDIntNBitTableBatchedEmbeddingBags, self).__init__()
@@ -291,8 +294,13 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 [host[0] for host in ps_hosts],
                 [host[1] for host in ps_hosts],
                 tbe_unique_id,
-                54,
-                32,
+                (
+                    ps_max_local_index_length
+                    if ps_max_local_index_length is not None
+                    else 54
+                ),
+                ps_client_thread_num if ps_client_thread_num is not None else 32,
+                ps_max_key_per_request if ps_max_key_per_request is not None else 500,
             )
 
         # pyre-fixme[20]: Argument `self` expected.
