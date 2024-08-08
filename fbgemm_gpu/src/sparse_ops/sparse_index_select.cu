@@ -70,26 +70,28 @@ DLL_PUBLIC Tensor index_select_cuda(
   Tensor output = at::empty({N, D}, input_reshaped.options());
 
   const int UNROLL_FACTOR = 2;
+  const auto dummy_orig_indices =
+      at::empty({0}, at::TensorOptions().dtype(at::kLong));
 
-#define LAUNCH_INDEX_SELECT(INDICES_SORTED)                                 \
-  {                                                                         \
-    [[maybe_unused]] const auto func_name = "index_select_2d_kernel";       \
-    TORCH_DSA_KERNEL_LAUNCH(                                                \
-        (index_select_2d_kernel<                                            \
-            index_t,                                                        \
-            scalar_t,                                                       \
-            UNROLL_FACTOR,                                                  \
-            INDICES_SORTED>),                                               \
-        cuda_calc_xblock_count(N, 1),                                       \
-        std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads),              \
-        0,                                                                  \
-        at::cuda::getCurrentCUDAStream(),                                   \
-        MAKE_PTA_WITH_NAME(func_name, input_reshaped, scalar_t, 2, 64),     \
-        MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 64),             \
-        INDICES_SORTED                                                      \
-            ? MAKE_PTA_WITH_NAME(func_name, orig_indices, int64_t, 1, 64)   \
-            : dummy_packed_accessor64<int64_t, 1, at::RestrictPtrTraits>(), \
-        MAKE_PTA_WITH_NAME(func_name, output, scalar_t, 2, 64));            \
+#define LAUNCH_INDEX_SELECT(INDICES_SORTED)                             \
+  {                                                                     \
+    const auto orig_indices_ =                                          \
+        INDICES_SORTED ? orig_indices : dummy_orig_indices;             \
+    [[maybe_unused]] const auto func_name = "index_select_2d_kernel";   \
+    TORCH_DSA_KERNEL_LAUNCH(                                            \
+        (index_select_2d_kernel<                                        \
+            index_t,                                                    \
+            scalar_t,                                                   \
+            UNROLL_FACTOR,                                              \
+            INDICES_SORTED>),                                           \
+        cuda_calc_xblock_count(N, 1),                                   \
+        std::min(div_round_up(D, UNROLL_FACTOR), kMaxThreads),          \
+        0,                                                              \
+        at::cuda::getCurrentCUDAStream(),                               \
+        MAKE_PTA_WITH_NAME(func_name, input_reshaped, scalar_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 64),         \
+        MAKE_PTA_WITH_NAME(func_name, orig_indices_, int64_t, 1, 64),   \
+        MAKE_PTA_WITH_NAME(func_name, output, scalar_t, 2, 64));        \
   }
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "index_add_2d_kernel_1", [&] {

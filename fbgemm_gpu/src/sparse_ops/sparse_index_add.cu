@@ -153,6 +153,13 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
 #ifdef FBGEMM_GPU_MEMCHECK
               const auto func_name = "index_add_2d_with_unique_indices_kernel";
 #endif
+              const auto unique_indices_ = consecutive_indices
+                  ? at::empty(
+                        {0},
+                        at::TensorOptions().dtype(
+                            std::is_same_v<index_t, int64_t> ? at::kLong
+                                                             : at::kInt))
+                  : unique_indices;
               index_add_2d_with_unique_indices_kernel<
                   index_t,
                   scalar_t,
@@ -163,13 +170,8 @@ DLL_PUBLIC Tensor index_add_with_unique_indices_cuda(
                      at::cuda::getCurrentCUDAStream()>>>(
                       MAKE_PTA_WITH_NAME(
                           func_name, grad_output_reshaped, scalar_t, 2, 32),
-                      consecutive_indices
-                          ? dummy_packed_accessor32<
-                                index_t,
-                                1,
-                                at::RestrictPtrTraits>()
-                          : MAKE_PTA_WITH_NAME(
-                                func_name, unique_indices, index_t, 1, 32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name, unique_indices_, index_t, 1, 32),
                       MAKE_PTA_WITH_NAME(
                           func_name, orig_indices, int64_t, 1, 32),
                       MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
