@@ -421,6 +421,25 @@
 <section id="cuda-operators">
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv">
+<span id="_CPPv318cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="_CPPv218cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="cuda_callback_func__cudaStream_t.cudaError_t.voidP"></span><span class="target" id="group__embedding-ssd_1ga14b70f98db5378da5071b9049b7356db"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">cuda_callback_func</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">cudaStream_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">stream</span></span>, <span class="n"><span class="pre">cudaError_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">status</span></span>, <span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">functor</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>A callback function for <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code></p>
+<p>A common callback function for <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code>, i.e., <code class="docutils literal notranslate"><span class="pre">cudaStreamCallback_t</span> <span class="pre">callback</span></code>. This function casts <code class="docutils literal notranslate"><span class="pre">functor</span></code> into a void function, invokes it and then delete it (the deletion occurs in another thread)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>stream</strong> – CUDA stream that <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code> operates on </p></li>
+<li><p><strong>status</strong> – CUDA status </p></li>
+<li><p><strong>functor</strong> – A functor that will be called</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>None </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv421masked_index_put_cuda6Tensor6Tensor6Tensor6Tensor">
 <span id="_CPPv321masked_index_put_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="_CPPv221masked_index_put_cuda6Tensor6Tensor6Tensor6Tensor"></span><span id="masked_index_put_cuda__Tensor.Tensor.Tensor.Tensor"></span><span class="target" id="group__embedding-ssd_1ga8a561f5585f09252076650c0d34457d7"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">masked_index_put_cuda</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">self</span></span>, <span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">indices</span></span>, <span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">values</span></span>, <span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">count</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv421masked_index_put_cuda6Tensor6Tensor6Tensor6Tensor" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>Similar to <code class="docutils literal notranslate"><span class="pre">torch.Tensor.index_put</span></code> but ignore <code class="docutils literal notranslate"><span class="pre">indices</span> <span class="pre">&lt;</span> <span class="pre">0</span></code></p>

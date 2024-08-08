@@ -79,6 +79,8 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:ga14b70f98db5378da5071b9049b7356db" id="r_ga14b70f98db5378da5071b9049b7356db"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga14b70f98db5378da5071b9049b7356db">cuda_callback_func</a> (cudaStream_t stream, cudaError_t status, void *functor)</td></tr>
+<tr class="separator:ga14b70f98db5378da5071b9049b7356db"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga8a561f5585f09252076650c0d34457d7" id="r_ga8a561f5585f09252076650c0d34457d7"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga8a561f5585f09252076650c0d34457d7">masked_index_put_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count)</td></tr>
 <tr class="separator:ga8a561f5585f09252076650c0d34457d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga1b0baea42aa4a092e32976f24c246465" id="r_ga1b0baea42aa4a092e32976f24c246465"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga1b0baea42aa4a092e32976f24c246465">masked_index_select_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count)</td></tr>
@@ -88,6 +90,44 @@ Functions</h2></td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
+<a id="ga14b70f98db5378da5071b9049b7356db" name="ga14b70f98db5378da5071b9049b7356db"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga14b70f98db5378da5071b9049b7356db">&#9670;&#160;</a></span>cuda_callback_func()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void cuda_callback_func </td>
+          <td>(</td>
+          <td class="paramtype">cudaStream_t</td>          <td class="paramname"><span class="paramname"><em>stream</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">cudaError_t</td>          <td class="paramname"><span class="paramname"><em>status</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">void *</td>          <td class="paramname"><span class="paramname"><em>functor</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>A callback function for <code>cudaStreamAddCallback</code> </p>
+<p>A common callback function for <code>cudaStreamAddCallback</code>, i.e., <code>cudaStreamCallback_t callback</code>. This function casts <code>functor</code> into a void function, invokes it and then delete it (the deletion occurs in another thread)</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">stream</td><td>CUDA stream that <code>cudaStreamAddCallback</code> operates on </td></tr>
+    <tr><td class="paramname">status</td><td>CUDA status </td></tr>
+    <tr><td class="paramname">functor</td><td>A functor that will be called</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
+
+</div>
+</div>
 <a id="ga8a561f5585f09252076650c0d34457d7" name="ga8a561f5585f09252076650c0d34457d7"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ga8a561f5585f09252076650c0d34457d7">&#9670;&#160;</a></span>masked_index_put_cuda()</h2>
 
