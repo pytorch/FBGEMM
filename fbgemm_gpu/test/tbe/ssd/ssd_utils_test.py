@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import random
 import unittest
 from typing import Callable
 
@@ -154,3 +155,161 @@ class SSDUtilsTest(unittest.TestCase):
             test_fn=torch.ops.fbgemm.masked_index_select,
             is_index_put=False,
         )
+
+    def expand_tensor(
+        self, tensor: torch.Tensor, size: int, max_val: int
+    ) -> torch.Tensor:
+        return torch.cat(
+            [
+                tensor,
+                torch.randint(
+                    low=0, high=max_val, size=(size - tensor.numel(),), dtype=torch.long
+                ),
+            ]
+        )
+
+    # pyre-ignore [56]
+    @given(
+        hash_size=st.integers(min_value=10, max_value=100),
+        iters=st.integers(min_value=1, max_value=5),
+        total_to_uniq_ratio=st.integers(min_value=1, max_value=5),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_scratch_pad_indices_queue(
+        self,
+        hash_size: int,
+        iters: int,
+        total_to_uniq_ratio: int,
+    ) -> None:
+        """
+        Test correctness of
+        `torch.classes.fbgemm.SSDScratchPadIndicesQueue` against the
+        Python implementation.
+
+        This test inserts a bunch of indices into
+        `SSDScratchPadIndicesQueue` and then performs lookup
+        """
+        # Unique indices have to be between 0 and hash_size
+        num_uniq_indices = random.randint(0, hash_size)
+        num_uniq_lookup_indices = random.randint(0, hash_size)
+
+        # The total number of indices can be arbitrary
+        num_indices = num_uniq_indices * total_to_uniq_ratio
+        num_lookup_indices = num_uniq_lookup_indices * total_to_uniq_ratio
+
+        # Always -1 in SSD TBE
+        sentinel_value = -1
+
+        # Instantiate the SSDScratchPadIndicesQueue object
+        sp_idx_queue = torch.classes.fbgemm.SSDScratchPadIndicesQueue(sentinel_value)
+
+        all_indices = []
+        all_counts = []
+        all_lookup_indices = []
+        all_lookup_counts = []
+        for _ in range(iters):
+            # Generate the scratch pad indices (conflict missed indices)
+            indices = torch.randperm(hash_size, dtype=torch.long)
+            masks = torch.randperm(hash_size, dtype=torch.long)[
+                : max(num_uniq_indices // 5, 1)
+            ]
+            # Mark some indices to the sentinel value to indicate that
+            # they are not missing indices
+            indices[masks] = sentinel_value
+            indices = self.expand_tensor(
+                indices[:num_uniq_indices], size=num_indices, max_val=hash_size
+            )
+
+            # Generate the SSD indices (all missed indices)
+            lookup_indices = self.expand_tensor(
+                torch.randperm(hash_size)[:num_uniq_lookup_indices],
+                size=num_lookup_indices,
+                max_val=hash_size,
+            )
+
+            # Generate count for scratch pad indices
+            count = torch.randint(
+                low=1, high=num_uniq_indices + 1, size=(1,), dtype=torch.long
+            )
+
+            # Generate count for the SSD indices
+            lookup_count = torch.randint(
+                low=1, high=num_uniq_lookup_indices + 1, size=(1,), dtype=torch.long
+            )
+
+            # Insert scratch pad indices into the scratch pad index
+            # queue
+            sp_idx_queue.insert_cuda(indices, count)
+
+            all_indices.append(indices)
+            all_lookup_indices.append(lookup_indices)
+            all_counts.append(count)
+            all_lookup_counts.append(lookup_count)
+
+        # Ensure that the insertions are done
+        torch.cuda.synchronize()
+
+        all_lookup_outputs = []
+        all_lookup_outputs_ref = []
+        for indices, lookup_indices, count, lookup_count in zip(
+            all_indices, all_lookup_indices, all_counts, all_lookup_counts
+        ):
+
+            # Run reference
+            # Prepare inputs for the reference run
+            sp_locations_ref = torch.zeros_like(lookup_indices)
+            sp_indices = indices.clone().tolist()
+            ssd_indices = lookup_indices.clone().tolist()
+
+            # Insert indices into the map
+            sp_map = {}
+            for i, idx in enumerate(sp_indices[: count.item()]):
+                sp_map[idx] = i
+
+            # Lookup
+            for i in range(lookup_count.item()):
+                ssd_idx = ssd_indices[i]
+                if ssd_idx in sp_map:
+                    loc = sp_map[ssd_idx]
+                    sp_locations_ref[i] = loc
+                    sp_indices[loc] = sentinel_value
+                    ssd_indices[i] = sentinel_value
+                else:
+                    sp_locations_ref[i] = sentinel_value
+
+            all_lookup_outputs_ref.append(
+                (
+                    sp_locations_ref,
+                    torch.as_tensor(sp_indices),
+                    torch.as_tensor(ssd_indices),
+                )
+            )
+
+            # Run test
+            sp_locations = torch.zeros_like(lookup_indices)
+            sp_idx_queue.lookup_mask_and_pop_front_cuda(
+                sp_locations,
+                indices,
+                lookup_indices,
+                lookup_count,
+            )
+
+            all_lookup_outputs.append((sp_locations, indices, lookup_indices))
+
+        # Ensure that the lookups are done
+        torch.cuda.synchronize()
+
+        # Compare results
+        for test, ref in zip(all_lookup_outputs, all_lookup_outputs_ref):
+            for name, test_, ref_ in zip(
+                ["scratch_pad_locations", "scratch_pad_indices", "ssd_indices"],
+                test,
+                ref,
+            ):
+                assert torch.equal(test_, ref_), (
+                    f"{name} fails: hash_size {hash_size}, "
+                    f"num_uniq_indices {num_uniq_indices}, "
+                    f"num_uniq_lookup_indices {num_uniq_lookup_indices}, "
+                    f"iters {iters}, "
+                    f"total_to_uniq_ratio {total_to_uniq_ratio}"
+                )
