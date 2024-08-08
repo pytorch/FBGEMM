@@ -217,7 +217,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
 // TODO: support nobag (Notably int64_t sorted_infos)
 // avbokovoy: WIP
 {%- if is_rocm and optimizer == "rowwise_adagrad" and not dense and not is_index_select %}
-#include "fbgemm_gpu/hip_kernel_inc/split_tbe_common.h"
+#include "fbgemm_gpu/hip_kernel_inc/split_embeddings_common.h"
 template <
     typename emb_t,
     typename grad_t,
