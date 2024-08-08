@@ -7,7 +7,6 @@
  */
 
 #include "kv_db_table_batched_embeddings.h"
-#include "kv_db_utils.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 
 namespace kv_db {

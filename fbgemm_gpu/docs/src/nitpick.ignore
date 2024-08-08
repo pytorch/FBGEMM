@@ -29,6 +29,8 @@ cpp:identifier Tensor
 cpp:identifier TensorQuantizationParams
 cpp:identifier uint32_t
 cpp:identifier uint8_t
+cpp:identifier cudaStream_t
+cpp:identifier cudaError_t
 
 py:class BoundsCheckMode
 py:class c_size_t
