@@ -166,6 +166,9 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
         evicted_indices,
     pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         actions_count,
+    const bool lock_cache_line,
+    pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+        lxu_cache_locking_counter,
     TORCH_DSA_KERNEL_ARGS) {
   // Number of cache sets
   const int32_t C = lxu_cache_state.size(0);
@@ -216,51 +219,65 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
     SL += 1;
   }
 
-  // now, we need to insert the (unique!) values in indices[n:n + SL] into
+  // Now, we need to insert the (unique!) values in indices[n:n + SL] into
   // our slots.
   const int32_t slot = threadIdx.x;
   const int64_t slot_time = lru_state[cache_set][slot];
-  int64_t costs[1] = {slot_time};
+
+  // Check if the slot is locked
+  const bool is_slot_locked =
+      lock_cache_line && (lxu_cache_locking_counter[cache_set][slot] > 0);
+  // Check if the slot has the inserted row that was a cache hit.
+  const int64_t slot_idx = lxu_cache_state[cache_set][slot];
+  const bool slot_has_idx = slot_idx != -1 && slot_time == time_stamp;
+  // Check if the slot is unavailable: either it is locked or contains
+  // a cache hit inserted row
+  const bool is_slot_unavailable = is_slot_locked || slot_has_idx;
+
+  // Set the slot cost: if the slot is not available, set it to the
+  // maximum timestamp which is the current timestamp. After sorting,
+  // the unavailable slots will be in the bottom, while the available
+  // slots will be bubbled to the top
+  const int64_t slot_cost = is_slot_unavailable ? time_stamp : slot_time;
+
+  // Prepare key-value pair for sorting
+  int64_t costs[1] = {slot_cost};
   int32_t slots[1] = {slot};
 
+  // Sort the slots based on their costs
   BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-  const int32_t sorted_slot = slots[0];
-  const int64_t sorted_time = costs[0];
+
+  // Get the sorted results
+  const int32_t insert_slot = slots[0];
+  const int64_t insert_cost = costs[0];
 
   auto l = threadIdx.x;
+
+  // Get the current index
+  const int64_t current_idx = shfl_sync(slot_idx, insert_slot);
 
   // Insert rows
   if (l < SL) {
     // Insert indices
-    const int32_t insert_slot = sorted_slot;
-    const int64_t insert_time = sorted_time;
-
     const int64_t insert_idx = cache_set_sorted_indices[n + l];
-    const int64_t current_idx = lxu_cache_state[cache_set][insert_slot];
 
-#if 0
-    // TODO: Check whether to uncomment this
-    // Only check insert_time if tag is for valid entry
-    if (current_idx != -1) {
-      // We need to ensure if prefetching (prefetch_dist) batches ahead
-      // No entries that are younger than (time_stamp - prefetch_dist) are
-      // evicted from the cache. This will break the guarantees required
-      // for the SSD embedding.
-      // If you hit this assert, increase the cache size.
-      CUDA_KERNEL_ASSERT2(insert_time < (time_stamp - prefetch_dist));
-    }
-#endif
-
-    if (current_idx != -1 && insert_time == time_stamp) {
-      // Skip this slot as the inserted row was a cache hit
-      // This is conflict miss
+    if (insert_cost == time_stamp) {
+      // Skip this slot as it is not available
       evicted_indices[n + l] = -1;
       assigned_cache_slots[n + l] = -1;
     } else {
       evicted_indices[n + l] = current_idx; // -1 if not set, >= 0 if valid.
       assigned_cache_slots[n + l] = cache_set * kWarpSize + insert_slot;
+
+      // TODO: Check if we can do contiguous writes here.
+      // Update cache states
       lxu_cache_state[cache_set][insert_slot] = insert_idx;
       lru_state[cache_set][insert_slot] = time_stamp;
+
+      // Lock cache line
+      if (lock_cache_line) {
+        lxu_cache_locking_counter[cache_set][insert_slot] += 1;
+      }
     }
   }
 
@@ -280,9 +297,11 @@ ssd_cache_populate_actions_cuda(
     int64_t prefetch_dist,
     Tensor lru_state,
     bool gather_cache_stats,
-    std::optional<Tensor> ssd_cache_stats) {
+    std::optional<Tensor> ssd_cache_stats,
+    const bool lock_cache_line,
+    const c10::optional<Tensor>& lxu_cache_locking_counter) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      linear_indices, lxu_cache_state, lru_state);
+      linear_indices, lxu_cache_state, lru_state, lxu_cache_locking_counter);
 
   CUDA_DEVICE_GUARD(linear_indices);
 
@@ -332,9 +351,17 @@ ssd_cache_populate_actions_cuda(
         /*cache_set_inverse_indices=*/at::empty({0}, int_options));
   }
 
+  Tensor lxu_cache_locking_counter_;
+  if (lock_cache_line) {
+    TORCH_CHECK(lxu_cache_locking_counter.has_value());
+    lxu_cache_locking_counter_ = lxu_cache_locking_counter.value();
+  } else {
+    lxu_cache_locking_counter_ =
+        at::empty({0, 0}, lxu_cache_state.options().dtype(at::kInt));
+  }
+
   auto actions_count = at::empty({1}, int_options);
   // Find uncached indices
-  Tensor lxu_cache_locking_counter = at::empty({0, 0}, int_options);
   auto
       [sorted_cache_sets,
        cache_set_sorted_unique_indices,
@@ -348,8 +375,8 @@ ssd_cache_populate_actions_cuda(
               lru_state,
               gather_cache_stats,
               ssd_cache_stats_,
-              /*lock_cache_line=*/false,
-              lxu_cache_locking_counter,
+              lock_cache_line,
+              lxu_cache_locking_counter_,
               /*compute_inverse_indices=*/true);
 
   TORCH_CHECK(cache_set_inverse_indices.has_value());
@@ -373,7 +400,10 @@ ssd_cache_populate_actions_cuda(
       MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
       MAKE_PTA_WITH_NAME(func_name, assigned_cache_slots, int32_t, 1, 32),
       MAKE_PTA_WITH_NAME(func_name, evicted_indices, int64_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, actions_count, int32_t, 1, 32));
+      MAKE_PTA_WITH_NAME(func_name, actions_count, int32_t, 1, 32),
+      lock_cache_line,
+      MAKE_PTA_WITH_NAME(
+          func_name, lxu_cache_locking_counter_, int32_t, 2, 32));
 
   return std::make_tuple(
       cache_set_sorted_unique_indices,
@@ -507,4 +537,113 @@ std::tuple<Tensor, Tensor> ssd_generate_row_addrs_cuda(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return {ssd_row_addrs, post_bwd_evicted_indices};
+}
+
+__global__ __launch_bounds__(kMaxThreads) void ssd_update_row_addrs_kernel(
+    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+        ssd_row_addrs_curr,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        ssd_curr_next_map,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        lxu_cache_locations_curr,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        linear_index_inverse_indices_curr,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        unique_indices_count_cumsum_curr,
+    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        cache_set_inverse_indices_curr,
+    const uint64_t lxu_cache_weights_addr,
+    const uint64_t inserted_ssd_weights_addr_next,
+    const int* N_unique_curr,
+    const uint64_t cache_row_bytes // has to be 64 bits to prevent overflow
+) {
+  const auto n_curr = blockDim.y * blockIdx.x + threadIdx.y;
+  if (n_curr >= *N_unique_curr) {
+    return;
+  }
+
+  // Find mapping between n_curr and n_next
+  const auto n_next = ssd_curr_next_map[n_curr];
+
+  // Return if the row is not used in both previous and next iterations
+  if (n_next < 0) {
+    return;
+  }
+
+  // Find out if the row gets moved to the nextent iteration's scratch pad or
+  // L1 by checking the lxu_cache_locations_curr
+  const auto cache_set_id_curr = cache_set_inverse_indices_curr[n_curr];
+  const auto segment_start_curr =
+      unique_indices_count_cumsum_curr[cache_set_id_curr];
+  const auto segment_end_curr =
+      unique_indices_count_cumsum_curr[cache_set_id_curr + 1];
+  const auto cache_loc_curr = lxu_cache_locations_curr
+      [linear_index_inverse_indices_curr[segment_start_curr]];
+
+  const uint64_t ptr_addr = (cache_loc_curr == -1)
+      // The row is moved from the previous iteration's scratch pad to the
+      // next iteration's scratch pad
+      ? (inserted_ssd_weights_addr_next + (n_next * cache_row_bytes))
+      // The row is moved from the previous iteration's scratch pad to L1 cache
+      : (lxu_cache_weights_addr + (cache_loc_curr * cache_row_bytes));
+
+  // Set pointer address
+  for (auto l = segment_start_curr + threadIdx.x; l < segment_end_curr;
+       l += blockDim.x) {
+    auto dst = linear_index_inverse_indices_curr[l];
+    *reinterpret_cast<uint64_t*>(&ssd_row_addrs_curr[dst]) = ptr_addr;
+  }
+}
+
+void ssd_update_row_addrs_cuda(
+    const Tensor& ssd_row_addrs_curr,
+    const Tensor& ssd_curr_next_map,
+    const Tensor& lxu_cache_locations_curr,
+    const Tensor& linear_index_inverse_indices_curr,
+    const Tensor& unique_indices_count_cumsum_curr,
+    const Tensor& cache_set_inverse_indices_curr,
+    const Tensor& lxu_cache_weights,
+    const Tensor& inserted_ssd_weights_next,
+    const Tensor& unique_indices_length_curr) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
+      ssd_row_addrs_curr,
+      ssd_curr_next_map,
+      lxu_cache_locations_curr,
+      linear_index_inverse_indices_curr,
+      unique_indices_count_cumsum_curr,
+      cache_set_inverse_indices_curr,
+      lxu_cache_weights,
+      inserted_ssd_weights_next,
+      unique_indices_length_curr);
+
+  CUDA_DEVICE_GUARD(ssd_row_addrs_curr);
+
+  const auto lxu_cache_weights_addr =
+      reinterpret_cast<uint64_t>(lxu_cache_weights.data_ptr());
+  const auto inserted_ssd_weights_addr_next =
+      reinterpret_cast<uint64_t>(inserted_ssd_weights_next.data_ptr());
+  const auto cache_row_bytes =
+      lxu_cache_weights.size(1) * lxu_cache_weights.element_size();
+  constexpr auto kNumWarps = kMaxThreads / kWarpSize;
+
+  ssd_update_row_addrs_kernel<<<
+      div_round_up(ssd_row_addrs_curr.numel(), kNumWarps),
+      dim3(kWarpSize, kNumWarps),
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      ssd_row_addrs_curr.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+      ssd_curr_next_map.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      lxu_cache_locations_curr
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      linear_index_inverse_indices_curr
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      unique_indices_count_cumsum_curr
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      cache_set_inverse_indices_curr
+          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      lxu_cache_weights_addr,
+      inserted_ssd_weights_addr_next,
+      unique_indices_length_curr.data_ptr<int32_t>(),
+      cache_row_bytes);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
