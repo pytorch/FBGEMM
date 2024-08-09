@@ -7,19 +7,7 @@
  */
 
 #include <ATen/ATen.h>
-
-// clang-format off
-// The fixed ordering of the headers is required for CUTLASS 3.2+
-#include <cute/tensor.hpp>
-#include <cutlass/gemm/collective/collective_builder.hpp>     // @manual
-#include <cutlass/gemm/device/gemm_universal_adapter.h>       // @manual
-#include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
-// clang-format on
-
-#include <cute/atom/mma_atom.hpp>
-#include <cutlass/gemm/dispatch_policy.hpp>
-#include <cutlass/gemm/kernel/gemm_universal.hpp>
-#include <cutlass/util/packed_stride.hpp>
+#include <ATen/cuda/CUDAContext.h>
 
 #include "cutlass_extensions/include/threadblock.h"
 
