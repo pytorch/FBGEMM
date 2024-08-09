@@ -10,6 +10,7 @@
 #include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
 
 #include <folly/experimental/coro/BlockingWait.h>
+#include <folly/experimental/coro/Task.h>
 #include "mvai_infra/experimental/ps_training/tps_client/TrainingParameterServiceClient.h"
 
 namespace ps {
@@ -21,8 +22,10 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
       int64_t tbe_id,
       int64_t maxLocalIndexLength = 54,
       int64_t num_threads = 32,
-      int64_t maxKeysPerRequest = 500)
-      : tps_client_(
+      int64_t maxKeysPerRequest = 500,
+      int64_t l2_cache_size_gb = 0)
+      : kv_db::EmbeddingKVDB(l2_cache_size_gb),
+        tps_client_(
             std::make_shared<mvai_infra::experimental::ps_training::tps_client::
                                  TrainingParameterServiceClient>(
                 std::move(tps_hosts),
@@ -31,21 +34,19 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
                 num_threads,
                 maxKeysPerRequest)) {}
 
-  void set(
+  folly::coro::Task<void> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
     RECORD_USER_SCOPE("EmbeddingParameterServer::set");
-    folly::coro::blockingWait(
-        tps_client_->set(indices, weights, count.item().toLong()));
+    co_await tps_client_->set(indices, weights, count.item().toLong());
   }
-  void get(
+  folly::coro::Task<void> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
     RECORD_USER_SCOPE("EmbeddingParameterServer::get");
-    folly::coro::blockingWait(
-        tps_client_->get(indices, weights, count.item().toLong()));
+    co_await tps_client_->get(indices, weights, count.item().toLong());
   }
   void flush() override {}
   void compact() override {}

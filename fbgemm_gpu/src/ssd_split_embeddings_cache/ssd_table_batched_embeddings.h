@@ -9,6 +9,8 @@
 #pragma once
 
 #include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/experimental/coro/Collect.h>
+#include <folly/experimental/coro/Task.h>
 #include <torch/nn/init.h>
 #include <iostream>
 #ifdef FBGEMM_FBCODE
@@ -115,7 +117,7 @@ class Initializer {
 
 class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
  public:
-  EmbeddingRocksDB(
+  explicit EmbeddingRocksDB(
       std::string path,
       int64_t num_shards,
       int64_t num_threads,
@@ -133,7 +135,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t row_storage_bitwidth = 32,
       int64_t cache_size = 0,
       bool use_passed_in_path = false,
-      int64_t tbe_unqiue_id = 0) {
+      int64_t tbe_unqiue_id = 0,
+      int64_t l2_cache_size_gb = 0)
+      : kv_db::EmbeddingKVDB(l2_cache_size_gb) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
     options.create_if_missing = true;
@@ -323,15 +327,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
-  void set(const Tensor& indices, const Tensor& weights, const Tensor& count)
-      override {
+  folly::coro::Task<void> set_kv_db_async(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count) override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::set");
-    std::vector<folly::Future<folly::Unit>> futures;
+    std::vector<folly::coro::TaskWithExecutor<void>> tasks;
     auto count_ = count.item().toLong();
+
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
-      auto f =
-          folly::via(executor_.get())
-              .thenValue([=, &indices, &weights](folly::Unit) {
+      tasks.emplace_back(
+          folly::coro::co_invoke(
+              [this, &indices, &weights, count_, shard]() mutable
+              -> folly::coro::Task<void> {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_set", [&] {
                       CHECK(indices.is_contiguous());
@@ -361,22 +369,26 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                         CHECK(s.ok());
                       }
                     });
-              });
-      futures.push_back(std::move(f));
+                co_return;
+              })
+              .scheduleOn(executor_.get()));
     }
-    folly::collect(futures).wait();
+    co_await folly::coro::collectAllRange(std::move(tasks));
   }
 
-  void get(const Tensor& indices, const Tensor& weights, const Tensor& count)
-      override {
+  folly::coro::Task<void> get_kv_db_async(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count) override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::get");
-    std::vector<folly::Future<folly::Unit>> futures;
+    std::vector<folly::coro::TaskWithExecutor<void>> tasks;
     auto count_ = count.item().toLong();
 
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
-      auto f =
-          folly::via(executor_.get())
-              .thenValue([=, &indices, &weights](folly::Unit) {
+      tasks.emplace_back(
+          folly::coro::co_invoke(
+              [this, &indices, &weights, count_, shard]() mutable
+              -> folly::coro::Task<void> {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_get", [&] {
                       CHECK(indices.is_contiguous());
@@ -479,10 +491,11 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                         }
                       }
                     });
-              });
-      futures.push_back(std::move(f));
+                co_return;
+              })
+              .scheduleOn(executor_.get()));
     }
-    folly::collect(futures).wait();
+    co_await folly::coro::collectAllRange(std::move(tasks));
   }
 
   void compact() override {
@@ -559,6 +572,6 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t memtable_flush_period_;
   int64_t compaction_period_;
   int64_t l0_files_per_compact_;
-};
+}; // class EmbeddingKVDB
 
 } // namespace ssd
