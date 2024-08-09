@@ -122,7 +122,9 @@ Tensor _fusednbitrowwise_to_float_cpu(
 
   const auto input_sizes = input.sizes();
   const int64_t nrows = input_sizes[0];
-  const int32_t ncols = input_sizes[1];
+  const int32_t ncols = (input.dtype() == at::kQUInt4x2)
+      ? fbgemm::div_up(input_sizes[1], 2)
+      : input_sizes[1];
   const int32_t num_elem_per_byte = 8 / bit_rate;
   const int32_t output_columns =
       (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
@@ -144,6 +146,41 @@ Tensor _fusednbitrowwise_to_float_cpu(
 
   fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<output_t>(
       bit_rate, input.data_ptr<uint8_t>(), nrows, ncols, output_data);
+
+  return output;
+}
+
+Tensor _fusednbitrowwise_sbfront_to_float_cpu(
+    const Tensor& input,
+    const int64_t bit_rate) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  const auto input_sizes = input.sizes();
+  const int64_t nrows = input_sizes[0];
+  const int32_t ncols = (input.dtype() == at::kQUInt4x2)
+      ? fbgemm::div_up(input_sizes[1], 2)
+      : input_sizes[1];
+  const int32_t num_elem_per_byte = 8 / bit_rate;
+  const int32_t output_columns =
+      (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
+
+  Tensor output;
+  output = at::empty(
+      {nrows, output_columns}, // 4 = sizeof(float)
+      input.options().dtype(at::kFloat));
+
+  float* output_data = static_cast<float*>(
+      output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
+                          // unresolved data_ptr symbol.
+
+  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float>(
+      bit_rate,
+      input.data_ptr<uint8_t>(),
+      nrows,
+      ncols,
+      output_data,
+      /*scale_bias_last=*/false);
 
   return output;
 }
@@ -271,6 +308,15 @@ Tensor fusednbitrowwise_to_float_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_cpu<float>(input, bit_rate);
+}
+
+/// @ingroup quantize-data-cpu
+/// Dequantize int4/int2 rows with scale and bias stored in the front into
+/// float32. Backed by ref kernel, only recommended to use in testing
+Tensor fusednbitrowwise_sbfront_to_float_cpu(
+    const Tensor& input,
+    const int64_t bit_rate) {
+  return _fusednbitrowwise_sbfront_to_float_cpu(input, bit_rate);
 }
 
 /// @ingroup quantize-data-cpu
@@ -458,6 +504,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> Tensor");
   m.def(
+      "FusedNBitRowwiseQuantizedSBHalfFrontToFloat(Tensor input, int bit_rate) -> Tensor");
+  m.def(
       "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0) -> Tensor");
@@ -474,6 +522,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "quantize_mx_cuda(Tensor input, int scale_bits, int elem_ebits, int elem_mbits, float elem_max_norm, int mx_group_size, bool flush_fp32_subnorms=False, int rounding_mode=0) -> Tensor");
   m.def("dequantize_mx_cuda(Tensor input, int mx_group_size) -> Tensor");
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, QuantizedCPU, m) {
+  DISPATCH_TO_QUANTIZED_CPU(
+      "FusedNBitRowwiseQuantizedSBHalfFrontToFloat",
+      fbgemm_gpu::fusednbitrowwise_sbfront_to_float_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

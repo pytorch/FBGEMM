@@ -51,7 +51,8 @@ template <
     typename OffsetType = std::int32_t,
     typename OutType = float>
 FBGEMM_API bool EmbeddingSpMDMNBit_autovec(
-    const int bit_rate,
+    const int input_bit_rate,
+    const int output_bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -67,6 +68,7 @@ FBGEMM_API bool EmbeddingSpMDMNBit_autovec(
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
     const bool scale_bias_last = true,
+    const bool no_bag = false,
     const bool is_bf16_out = false);
 
 } // namespace fbgemm
