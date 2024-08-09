@@ -7,55 +7,9 @@
  */
 
 #include <ATen/ATen.h>
-#include <ATen/DeviceGuard.h>
-#include <ATen/Dispatch.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <ATen/cuda/Atomic.cuh>
-#if !(                                                  \
-    defined(USE_ROCM) ||                                \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
-#include <cublasLt.h>
-#include <cuda_bf16.h>
-#include <cuda_fp16.h>
-#include <cuda/atomic>
-#elif (defined(USE_ROCM))
-#include <hip/hip_bf16.h>
-#include <hip/hip_fp16.h>
-#include <hipblaslt/hipblaslt.h>
-#endif
-#include <c10/core/ScalarType.h>
-#include <c10/cuda/CUDAGuard.h>
-#include <cutlass/core_io.h>
-#include <cutlass/cutlass.h>
-#include <cutlass/gemm/device/gemm.h>
-#include <cutlass/half.h>
-#include <cutlass/numeric_types.h>
-#include <cutlass/trace.h>
-#include <cutlass/util/host_tensor.h>
-#include "cublas_utils.h"
 
-#if CUDART_VERSION >= 12000
-#include <cuda_fp8.h>
-#endif
-
-// clang-format off
-// The fixed ordering of the headers is required for CUTLASS 3.2+
-#include <cute/tensor.hpp>
-#include <cutlass/gemm/collective/collective_builder.hpp>     // @manual
-#include <cutlass/gemm/device/gemm_universal_adapter.h>       // @manual
-#include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
-// clang-format on
-
-#include <cute/atom/mma_atom.hpp>
-#include <cutlass/gemm/dispatch_policy.hpp>
-#include <cutlass/gemm/kernel/gemm_universal.hpp>
-#include <cutlass/util/packed_stride.hpp>
-
-#include "cutlass_extensions/include/kernel_mode.h"
 #include "cutlass_extensions/include/threadblock.h"
-#include "fp8_blockwise_cutlass_helpers.h"
 
 namespace fbgemm_gpu {
 
