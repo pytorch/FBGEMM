@@ -45,7 +45,32 @@ class FeatureGateName(Enum):
 
     """
 
+    # Enable TBE V2 APIs
     TBE_V2 = auto()
 
+    # Enable Ensemble Rowwise Adagrad (D60189486 stack)
+    TBE_ENSEMBLE_ROWWISE_ADAGRAD = auto()
+
     def is_enabled(self) -> bool:
-        return torch.ops.fbgemm.check_feature_gate_key(self.name)
+        return FeatureGate.is_enabled(self)
+
+
+class FeatureGate:
+    """
+    FBGEMM_GPU feature gate.
+
+    This class exists because methods defined on enums cannot be invoked when
+    the enum is packaged into a model (the mechanism is unclear).
+
+    **Code Example:**
+
+    .. code-block:: python
+
+        from deeplearning.fbgemm.fbgemm_gpu.config import FeatureGate, FeatureGateName
+
+        FeatureGate.is_enabled(FeatureGateName.TBE_V2)
+    """
+
+    @classmethod
+    def is_enabled(cls, feature: FeatureGateName) -> bool:
+        return torch.ops.fbgemm.check_feature_gate_key(feature.name)

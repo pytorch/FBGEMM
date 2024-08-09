@@ -6,4 +6,4 @@
 
 # pyre-strict
 
-from .feature_list import FeatureGateName  # noqa F401
+from .feature_list import FeatureGate, FeatureGateName  # noqa F401
