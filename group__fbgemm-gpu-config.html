@@ -79,7 +79,7 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
 Macros</h2></td></tr>
-<tr class="memitem:gac42b789c9026f13d4c8bc000f5bd5edc" id="r_gac42b789c9026f13d4c8bc000f5bd5edc"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gac42b789c9026f13d4c8bc000f5bd5edc">ENUMERATE_ALL_FEATURE_FLAGS</a>&#160;&#160;&#160;X(TBE_V2)</td></tr>
+<tr class="memitem:gac42b789c9026f13d4c8bc000f5bd5edc" id="r_gac42b789c9026f13d4c8bc000f5bd5edc"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gac42b789c9026f13d4c8bc000f5bd5edc">ENUMERATE_ALL_FEATURE_FLAGS</a></td></tr>
 <tr class="separator:gac42b789c9026f13d4c8bc000f5bd5edc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
@@ -92,11 +92,13 @@ Macros</h2></td></tr>
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define ENUMERATE_ALL_FEATURE_FLAGS&#160;&#160;&#160;X(TBE_V2)</td>
+          <td class="memname">#define ENUMERATE_ALL_FEATURE_FLAGS</td>
         </tr>
       </table>
 </div><div class="memdoc">
-
+<b>Value:</b><div class="fragment"><div class="line">  X(TBE_V2)                         \</div>
+<div class="line">  X(TBE_ENSEMBLE_ROWWISE_ADAGRAD)</div>
+</div><!-- fragment -->
 <p>FBGEMM_GPU feature gates enum (C++). </p>
 <p>Feature gates are used to enable/disable experimental features based on environment settings.</p>
 <p>ENUMs are defined using the X-macro pattern. To add a feature gate, simply append <code>X(FEATURE_NAME)</code> to the <code>ENUMERATE_ALL_FEATURE_FLAGS</code> macro. Then, to use the feature gate, see example below.</p>
