@@ -259,13 +259,29 @@ struct store_row_per_warp<half, 256, float>
     }
 };
 
+// Helper function to pack fp16 and fp32 into int to further pass
+// into mov_dpp and readfirstlane()
 template <typename to_t, typename from_t>
-__device__ to_t bit_cast(const from_t& v)
+requires((sizeof(to_t) == 4 || sizeof(to_t) == 2) && (sizeof(from_t) == 4 || sizeof(from_t) == 2))
+__device__ to_t pack(const from_t& v)
 {
-    // TODO: how to deal with sizeof(to_t) larger than sizeof(from_t)
-    static_assert(sizeof(to_t) == sizeof(from_t), "");
-    return __builtin_bit_cast(to_t, v);
+    if constexpr(sizeof(to_t) == sizeof(from_t))
+    {
+        return std::bit_cast<to_t>(v);
+    }
+
+    to_t result = 0;
+    memcpy(&result, &v, 2);
+
+    return result;
 }
+
+namespace reduce_op{
+    struct sum{};
+    struct sub{};
+    struct mul{};
+    struct div{};
+}//namespace reduce_op
 
 template <typename data_t>
 struct reduce_op_sum_t
@@ -273,32 +289,63 @@ struct reduce_op_sum_t
     __device__ data_t operator()(const data_t& a, const data_t& b) { return a + b; }
 };
 
-template <typename reduce_op_t, typename data_t, int wave_size>
-__device__ inline data_t wave_reduce(const data_t& thread_data)
+#define DPP_REDUCE(OP, TYPE) \
+    __asm__ volatile("v_"#OP"_"#TYPE"_dpp %0 %0 %0 quad_perm:[1,0,3,2]\n" \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 quad_perm:[2,3,0,1]\n" \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_shr:4\n"           \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_shr:8\n"           \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_bcast:15\n"        \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_bcast:31\n"        \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     : "=v"(result)                                       \
+                     : "0"(result))
+
+#define DPP_REDUCE_F16_F32(OP)                       \
+    if constexpr (std::is_same_v<data_t, float>)     \
+    {                                                \
+        DPP_REDUCE(add, f32);                        \
+    }                                                \
+                                                     \
+    if constexpr (std::is_same_v<data_t, c10::Half>) \
+    {                                                \
+        DPP_REDUCE(add, f16);                        \
+    }
+                     
+template<typename data_t, typename reduce_op_t, int wave_size>
+__device__ __forceinline__ void generic_dpp_reduction(data_t& result)
 {
-    // wave_size must be power of 2
     constexpr int row_mask    = 0xf;
     constexpr int bank_mask   = 0xf;
     constexpr bool bound_ctrl = false;
-
+    
     reduce_op_t reduce_op;
-    data_t result = thread_data;
 
     if constexpr(wave_size > 1)
     {
         result = reduce_op(
             result,
-            bit_cast<data_t, int>(__builtin_amdgcn_mov_dpp(bit_cast<int, data_t>(result),
-                                                           0xb1,
-                                                           row_mask,
-                                                           bank_mask,
-                                                           bound_ctrl))); // quad_perm:[1,0,3,2]
+            pack<data_t, int>(__builtin_amdgcn_mov_dpp(pack<int, data_t>(result),
+                                                       0xb1,
+                                                       row_mask,
+                                                       bank_mask,
+                                                       bound_ctrl))); // quad_perm:[1,0,3,2]
     }
     if constexpr(wave_size > 2)
     {
         result = reduce_op(
             result,
-            bit_cast<data_t, int>(__builtin_amdgcn_mov_dpp(bit_cast<int, data_t>(result),
+            pack<data_t, int>(__builtin_amdgcn_mov_dpp(pack<int, data_t>(result),
                                                            0x4e,
                                                            row_mask,
                                                            bank_mask,
@@ -307,8 +354,8 @@ __device__ inline data_t wave_reduce(const data_t& thread_data)
     if constexpr(wave_size > 4)
     {
         result =
-            reduce_op(result,
-                      bit_cast<data_t, int>(__builtin_amdgcn_mov_dpp(bit_cast<int, data_t>(result),
+            pack(result,
+                      pack<data_t, int>(__builtin_amdgcn_mov_dpp(pack<int, data_t>(result),
                                                                      0x114,
                                                                      row_mask,
                                                                      bank_mask,
@@ -318,7 +365,7 @@ __device__ inline data_t wave_reduce(const data_t& thread_data)
     {
         result =
             reduce_op(result,
-                      bit_cast<data_t, int>(__builtin_amdgcn_mov_dpp(bit_cast<int, data_t>(result),
+                      pack<data_t, int>(__builtin_amdgcn_mov_dpp(pack<int, data_t>(result),
                                                                      0x118,
                                                                      row_mask,
                                                                      bank_mask,
@@ -341,7 +388,7 @@ __device__ inline data_t wave_reduce(const data_t& thread_data)
     {
         result =
             reduce_op(result,
-                      bit_cast<data_t, int>(__builtin_amdgcn_mov_dpp(bit_cast<int, data_t>(result),
+                      pack<data_t, int>(__builtin_amdgcn_mov_dpp(pack<int, data_t>(result),
                                                                      0x142,
                                                                      row_mask,
                                                                      bank_mask,
@@ -351,16 +398,55 @@ __device__ inline data_t wave_reduce(const data_t& thread_data)
     {
         result =
             reduce_op(result,
-                      bit_cast<data_t, int>(__builtin_amdgcn_mov_dpp(bit_cast<int, data_t>(result),
+                      pack<data_t, int>(__builtin_amdgcn_mov_dpp(pack<int, data_t>(result),
                                                                      0x143,
                                                                      row_mask,
                                                                      bank_mask,
                                                                      bound_ctrl))); // row_bcast:31
     }
 #endif
+}
+
+// Use corresponding assebly instruction for dpp reduction in case
+// of trivial operation with an option to use custom operation
+template<typename data_t, typename reduce_op_t, int wave_size = 64>
+__device__ __forceinline__ void dpp_reduction(data_t& result)
+{
+    if constexpr (std::is_same_v<reduce_op_t, reduce_op::sum>)
+    {
+        DPP_REDUCE_F16_F32(add);
+        return;
+    }
+    else if constexpr (std::is_same_v<reduce_op_t, reduce_op::sub>)
+    {
+        DPP_REDUCE_F16_F32(sub);
+        return;
+    }
+    else if constexpr (std::is_same_v<reduce_op_t, reduce_op::mul>)
+    {
+        DPP_REDUCE_F16_F32(mul);
+        return;
+    }
+    else if constexpr (std::is_same_v<reduce_op_t, reduce_op::div>)
+    {
+        DPP_REDUCE_F16_F32(div);
+        return;
+    }
+    else
+    {
+        generic_dpp_reduction<data_t, reduce_op_t, wave_size>(result);
+    }
+}
+
+template <typename reduce_op_t, typename data_t, int wave_size>
+__device__ inline data_t wave_reduce(const data_t& thread_data)
+{
+    data_t result = thread_data;
+
     // now the reduced value is in the last lane of wave
-    return bit_cast<data_t, int>(
-        __builtin_amdgcn_readlane(bit_cast<int, data_t>(result), wave_size - 1));
+    dpp_reduction<data_t, reduce_op::sum, wave_size>(result);
+    return pack<data_t, int>(
+        __builtin_amdgcn_readlane(pack<int, data_t>(result), wave_size - 1));
 }
 
 struct rowwise_adagrad_kernel_arg_t
