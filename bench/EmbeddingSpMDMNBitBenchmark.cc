@@ -178,6 +178,7 @@ int run_benchmark(
             if (use_32_bit_indices) {
               success_ref = EmbeddingSpMDMNBit_ref(
                   bit_rate,
+                  sizeof(OutType) * 8,
                   embedding_dim,
                   batch_size,
                   lengths_sum,
@@ -197,6 +198,7 @@ int run_benchmark(
             } else {
               success_ref = EmbeddingSpMDMNBit_ref(
                   bit_rate,
+                  sizeof(OutType) * 8,
                   embedding_dim,
                   batch_size,
                   lengths_sum,
@@ -234,6 +236,7 @@ int run_benchmark(
             if (use_32_bit_indices) {
               success_autovec = EmbeddingSpMDMNBit_autovec(
                   bit_rate,
+                  sizeof(OutType) * 8,
                   embedding_dim,
                   batch_size,
                   lengths_sum,
@@ -253,6 +256,7 @@ int run_benchmark(
             } else {
               success_autovec = EmbeddingSpMDMNBit_autovec(
                   bit_rate,
+                  sizeof(OutType) * 8,
                   embedding_dim,
                   batch_size,
                   lengths_sum,

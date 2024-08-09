@@ -102,6 +102,11 @@ inline bool torch_tensor_empty_or_on_cpu_check(
 #define DISPATCH_TO_CPU(name, function) \
   m.impl(name, torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(function)))
 
+#define DISPATCH_TO_QUANTIZED_CPU(name, function) \
+  m.impl(                                         \
+      name,                                       \
+      torch::dispatch(c10::DispatchKey::QuantizedCPU, TORCH_FN(function)))
+
 #define DISPATCH_TO_META(name, function) \
   m.impl(name, torch::dispatch(c10::DispatchKey::Meta, TORCH_FN(function)))
 

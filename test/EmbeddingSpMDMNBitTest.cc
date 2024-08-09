@@ -211,6 +211,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
     THREAD_LOCAL)                                                       \
   success_ref = EmbeddingSpMDMNBit_ref<IndexType, OffsetType, OutType>( \
       bit_rate,                                                         \
+      sizeof(OutType) * 8,                                              \
       embedding_dim,                                                    \
       batch_size,                                                       \
       lengths_sum,                                                      \
@@ -226,6 +227,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       /*output_stride=*/-1,                                             \
       /*input_stride=*/-1,                                              \
       scale_bias_last,                                                  \
+      /*no_bag=*/false,                                                 \
       is_bf16_out);                                                     \
                                                                         \
   auto kernel = GenerateEmbeddingSpMDMNBitWithStrides<                  \
@@ -234,6 +236,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       OutType,                                                          \
       THREAD_LOCAL>(                                                    \
       bit_rate,                                                         \
+      sizeof(OutType) * 8,                                              \
       embedding_dim,                                                    \
       use_weight,                                                       \
       normalize_by_lengths,                                             \
@@ -243,6 +246,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       /*output_stride=*/-1,                                             \
       /*input_stride=*/-1,                                              \
       scale_bias_last,                                                  \
+      /*no_bag=*/false,                                                 \
       is_bf16_out);                                                     \
   success = kernel(                                                     \
       batch_size,                                                       \
