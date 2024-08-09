@@ -8,33 +8,11 @@
 
 #pragma once
 
-#if !(                                                  \
-    defined(USE_ROCM) ||                                \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
-#include <cublasLt.h>
-#include <cuda_bf16.h>
-#include <cuda_fp16.h>
-#include <cuda/atomic>
-#elif (defined(USE_ROCM))
-#include <hip/hip_bf16.h>
-#include <hip/hip_fp16.h>
-#include <hipblaslt/hipblaslt.h>
-#endif
-#include <c10/core/ScalarType.h>
-#include <c10/cuda/CUDAGuard.h>
-#include <cutlass/core_io.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/gemm/device/gemm.h>
 #include <cutlass/half.h>
-#include <cutlass/numeric_types.h>
-#include <cutlass/trace.h>
 #include <cutlass/util/host_tensor.h>
-#include "cublas_utils.h"
-
-#if CUDART_VERSION >= 12000
-#include <cuda_fp8.h>
-#endif
+#include <cutlass/util/packed_stride.hpp>
 
 // clang-format off
 // The fixed ordering of the headers is required for CUTLASS 3.2+
@@ -44,16 +22,7 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
-#include <cute/atom/mma_atom.hpp>
-#include <cutlass/gemm/dispatch_policy.hpp>
-#include <cutlass/gemm/kernel/gemm_universal.hpp>
-#include <cutlass/util/packed_stride.hpp>
-
-#include "cutlass_extensions/include/kernel_mode.h"
-#include "fp8_blockwise_cutlass_helpers.h"
-
 // Each block handles a single batch and head
-
 // Each warp handles separate D dimension.
 
 // Load Q into registers in all warps.
@@ -62,8 +31,7 @@
 // Use shared reduction to compute max and compute softmax on shared memory.
 
 // Split T across warps in a block
-
-// each warp compute sum(t_subset) P[t] * V[t_subset, d]
+// Each warp compute sum(t_subset) P[t] * V[t_subset, d]
 // outputs are of size float[D]
 
 namespace cutlass::epilogue::threadblock::detail {
