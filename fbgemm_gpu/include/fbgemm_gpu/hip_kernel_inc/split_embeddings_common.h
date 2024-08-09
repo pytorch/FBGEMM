@@ -302,6 +302,12 @@ struct reduce_op_sum_t
                      "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_shr:8\n"           \
                      "v_nop\n"                                            \
                      "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_bcast:15\n"        \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_bcast:31\n"        \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
                      : "=v"(result)                                       \
                      : "0"(result))
 
