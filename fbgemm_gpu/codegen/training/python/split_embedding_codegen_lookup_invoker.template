@@ -38,7 +38,12 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_updat
 
 {%- endif %}
 
-
+{%- if is_prototype_optimizer %}
+# Decorate the prototype optimizers which may be deprecated in the future with jit.ignore to avoid
+# possible errors from torch.jit.script. 
+# Note that backends can be removed but the lookup invoker is still needed for backward compatibility
+@torch.jit.ignore
+{%- endif %}
 def invoke(
     common_args: CommonArgs,
     optimizer_args: OptimizerArgs,
