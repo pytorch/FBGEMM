@@ -267,7 +267,7 @@ __device__ to_t pack(const from_t& v)
 {
     if constexpr(sizeof(to_t) == sizeof(from_t))
     {
-        return std::bit_cast<to_t>(v);
+        return __builtin_bit_cast(to_t, v);
     }
 
     to_t result = 0;
