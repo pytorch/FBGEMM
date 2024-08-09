@@ -112,6 +112,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         use_passed_in_path: int = True,
         gather_ssd_cache_stats: Optional[bool] = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
+        l2_cache_size: int = 0,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -309,6 +310,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ssd_block_cache_size_per_tbe,
                 use_passed_in_path,
                 tbe_unique_id,
+                l2_cache_size,
             )
         else:
             # pyre-fixme[4]: Attribute must be annotated.
@@ -324,6 +326,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ),
                 ps_client_thread_num if ps_client_thread_num is not None else 32,
                 ps_max_key_per_request if ps_max_key_per_request is not None else 500,
+                l2_cache_size,
             )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
