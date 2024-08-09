@@ -302,24 +302,18 @@ struct reduce_op_sum_t
                      "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_shr:8\n"           \
                      "v_nop\n"                                            \
                      "v_nop\n"                                            \
-                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_bcast:15\n"        \
-                     "v_nop\n"                                            \
-                     "v_nop\n"                                            \
-                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 row_bcast:31\n"        \
-                     "v_nop\n"                                            \
-                     "v_nop\n"                                            \
                      : "=v"(result)                                       \
                      : "0"(result))
 
 #define DPP_REDUCE_F16_F32(OP)                       \
     if constexpr (std::is_same_v<data_t, float>)     \
     {                                                \
-        DPP_REDUCE(add, f32);                        \
+        DPP_REDUCE(OP, f32);                        \
     }                                                \
                                                      \
     if constexpr (std::is_same_v<data_t, c10::Half>) \
     {                                                \
-        DPP_REDUCE(add, f16);                        \
+        DPP_REDUCE(OP, f16);                        \
     }
                      
 template<typename data_t, typename reduce_op_t, int wave_size>
