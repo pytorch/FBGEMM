@@ -28,10 +28,19 @@ set(attention_ops_sources
     src/attention/attention.cpp
     src/attention/gqa_attn_splitk.cu)
 
-set(quantize_ops_sources
-    src/quantize/cutlass_extensions.cu
-    src/quantize/quantize.cu
-    src/quantize/quantize.cpp)
+if(USE_ROCM)
+	set(quantize_ops_sources
+		src/quantize/ck_extensions/fp8_tensorwise_gemm.hip
+		src/quantize/ck_extensions/fp8_rowwise_gemm.hip
+		src/quantize/ck_extensions/fp8_blockwise_gemm.hip
+		src/quantize/quantize.cu
+		src/quantize/quantize.cpp)
+else()
+	set(quantize_ops_sources
+		src/quantize/cutlass_extensions.cu
+		src/quantize/quantize.cu
+		src/quantize/quantize.cpp)
+endif()
 
 set(comm_ops_sources
     src/comm/car.cu
