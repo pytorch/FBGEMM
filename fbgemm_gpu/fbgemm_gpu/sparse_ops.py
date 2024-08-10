@@ -953,6 +953,19 @@ def permute_pooled_embs_split_abstract(
     return torch.empty_like(pooled_embs)
 
 
+def histogram_binning_calibration_abstract(
+    logit: Tensor,
+    bin_num_examples: Tensor,
+    bin_num_positives: Tensor,
+    positive_weight: float,
+    lower_bound: float,
+    upper_bound: float,
+    bin_ctr_in_use_after: int,
+    bin_ctr_weight_value: float,
+) -> Tuple[Tensor, Tensor]:
+    return torch.empty_like(logit), torch.empty([logit.numel()], dtype=torch.int64)
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1074,6 +1087,10 @@ def _setup() -> None:
         )
         impl_abstract(
             "fbgemm::permute_pooled_embs_split", permute_pooled_embs_split_abstract
+        )
+        impl_abstract(
+            "fbgemm::histogram_binning_calibration",
+            histogram_binning_calibration_abstract,
         )
         _setup.done = True
 
