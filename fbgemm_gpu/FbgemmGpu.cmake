@@ -171,6 +171,11 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_ssd_unweighted_nobag_kernel_small.cu"
 )
 
+list(APPEND gen_gpu_host_source_files
+    "gen_embedding_forward_split_unweighted_vbe_codegen_meta.cpp"
+    "gen_embedding_backward_sgd_split_unweighted_vbe_meta.cpp"
+  )
+
 if(NOT USE_ROCM)
   list(APPEND gen_gpu_kernel_source_files
     "gen_embedding_forward_split_weighted_v2_kernel.cu"
