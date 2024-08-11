@@ -110,7 +110,7 @@ test_network_connection () {
   else
     echo "[CHECK] Network check exit status: ${exit_status}"
     echo "[CHECK] Network appears to be blocked or suffering from poor connection."
-    echo "[CHECK] Please remember to proxy the network connetions if needed, i.e. re-run the command prefixed with 'with-proxy'."
+    echo "[CHECK] Please remember to proxy the network connections if needed, i.e. re-run the command prefixed with 'with-proxy'."
     return 1
   fi
 }

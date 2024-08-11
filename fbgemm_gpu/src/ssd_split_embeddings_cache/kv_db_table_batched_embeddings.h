@@ -22,7 +22,6 @@
 
 #include <folly/Random.h>
 #include <folly/concurrency/UnboundedQueue.h>
-#include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/hash/Hash.h>
 
@@ -37,25 +36,44 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
-#include "fbgemm_gpu/dispatch_macros.h"
+#include <folly/experimental/coro/Task.h>
+#include "deeplearning/fbgemm/fbgemm_gpu/src/split_embeddings_cache/CacheLibCache.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "kv_db_utils.h"
 
 namespace kv_db {
 
-class CudaExecutor {
- public:
-  static folly::CPUThreadPoolExecutor* get_executor();
-};
-
 class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
  public:
-  virtual ~EmbeddingKVDB() {}
+  struct CacheContext {
+    std::vector<int64_t> missed_indices;
+    std::unordered_map<int64_t, int> missed_indices_map;
+    // pair: start address, data size
+    std::unordered_map<int, std::pair<void*, uint32_t>> cached_address_pairs;
+  };
+  explicit EmbeddingKVDB(int64_t cache_size_gb = 0) {
+    l2Cache_ = cache_size_gb > 0 ? std::make_unique<l2_cache::CacheLibCache>(
+                                       cache_size_gb * 1024 * 1024 * 1024)
+                                 : nullptr;
+  }
+  virtual ~EmbeddingKVDB() = default;
 
-  virtual void set(
+  void set(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count);
+
+  void get(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count);
+
+  virtual folly::coro::Task<void> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) = 0;
 
-  virtual void get(
+  virtual folly::coro::Task<void> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) = 0;
@@ -79,7 +97,30 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const int64_t timestep);
 
  private:
+  std::shared_ptr<CacheContext> get_cache(
+      const at::Tensor& indices,
+      const at::Tensor& count);
+  std::shared_ptr<CacheContext> set_cache(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count);
+  folly::coro::Task<void> cache_memcpy(
+      const at::Tensor& weights,
+      std::unordered_map<int, std::pair<void*, uint32_t>>& address_pairs);
+  void lookup_memcpy(
+      const at::Tensor& src_weights,
+      const at::Tensor& dst_weights,
+      const std::unordered_map<int64_t, int>& indices_map);
+  void from_cache_miss(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      at::Tensor& missed_indices,
+      at::Tensor& missed_weights,
+      at::Tensor& missed_count,
+      std::shared_ptr<CacheContext>& cache_context);
   virtual void flush_or_compact(const int64_t timestep) = 0;
+  std::unique_ptr<l2_cache::CacheLibCache> l2Cache_;
 }; // class EmbeddingKVDB
 
 } // namespace kv_db

@@ -78,10 +78,11 @@ class BlockBucketizeTest(unittest.TestCase):
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
+        keep_orig_idx=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_long_indices(
-        self, long_indices: bool, use_cpu: bool
+        self, long_indices: bool, use_cpu: bool, keep_orig_idx: bool
     ) -> None:
         bucketize_pos = False
         sequence = False
@@ -110,17 +111,24 @@ class BlockBucketizeTest(unittest.TestCase):
             new_lengths_ref = torch.tensor(
                 [0, 2, 0, 0, 0, 0, 0, 1, 2, 0, 1, 1, 0, 0, 0, 0, 0, 3], dtype=index_type
             )
+
             new_indices_ref = torch.tensor(
                 [
                     1,
                     2,
                     0,
-                    33353942375786,  # 100061827127359/3 = 33353942375786
+                    (
+                        100061827127359 if keep_orig_idx else 33353942375786
+                    ),  # 100061827127359/3 = 33353942375786
                     1,
                     1,
                     2,
-                    6148914691236517202,  # -8 cast to 18446644015555759292, 18446644015555759292 /3 = 6148914691236517202
-                    33352717930774,  # 100058153792324/3 = 33352717930774
+                    (
+                        -8 if keep_orig_idx else 6148914691236517202
+                    ),  # -8 cast to 18446644015555759292, 18446644015555759292 /3 = 6148914691236517202
+                    (
+                        100058153792324 if keep_orig_idx else 33352717930774
+                    ),  # 100058153792324/3 = 33352717930774
                     0,
                 ],
                 dtype=index_type,
@@ -140,9 +148,14 @@ class BlockBucketizeTest(unittest.TestCase):
             block_sizes,
             my_size,
             None,
+            maybe_keep_orig_idx=keep_orig_idx,
         )
         torch.testing.assert_close(new_lengths_cpu, new_lengths_ref)
-        torch.testing.assert_close(new_indices_cpu, new_indices_ref)
+        torch.testing.assert_close(
+            new_indices_cpu,
+            new_indices_ref,
+            msg=f"{new_indices_cpu=} != {new_indices_ref=}",
+        )
 
         if not use_cpu:
             (
@@ -159,6 +172,7 @@ class BlockBucketizeTest(unittest.TestCase):
                 block_sizes.cuda(),
                 my_size,
                 None,
+                maybe_keep_orig_idx=keep_orig_idx,
             )
 
             torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)

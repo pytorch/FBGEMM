@@ -5,7 +5,11 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-unsafe
+
 # Attempt to import triton kernels, fallback to reference if we cannot.
+from .common import RoundingMode  # noqa
+
 try:
     from .quantize import (
         triton_dequantize_mx4 as dequantize_mx4,

@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <ATen/AccumulateType.h>
 #include <ATen/ceil_div.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
@@ -13,8 +14,8 @@
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
 
-#include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
 #include "metric_ops.h"
 

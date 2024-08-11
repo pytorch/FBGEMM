@@ -41,12 +41,57 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
         """Function which quantizes inputs and performs main compute operation."""
         pass
 
-    def benchmark(self, *args, bench_quantize: bool = False) -> float:
+    def bench_with_rotating_buffer(self, fn, args):
+        import copy
+        import pickle
+
+        # torch.cuda.get_device_properties does not have L2/L3 cache size,
+        # so hard code an overapproximation of L2/L3 cache size to ensure L2/L3 cache flush
+        total_buffer_size = 512 * 1024 * 1024
+
+        # Use pickle to serialize model input to estimate total sizes of input
+        input_sizes = len(pickle.dumps(args))
+
+        # Make at least one copy of the inputs
+        copy_cnt = total_buffer_size // input_sizes
+        if copy_cnt == 0:
+            copy_cnt = 1
+
+        args_list = [args]
+        for _ in range(copy_cnt):
+            args_list.append(copy.deepcopy(args))
+
+        def rotating_buffer_fn(fn, args_list, copy_cnt):
+            for i in range(copy_cnt):
+                fn(*(args_list[i]))
+
+        with torch.cuda.stream(torch.cuda.Stream()):
+            # A rotating_buffer_fn contains multiple runs of the fn to benchmark,
+            # so divide time accordingly
+            return triton.testing.do_bench_cudagraph(
+                lambda: rotating_buffer_fn(self.compute, args_list, copy_cnt + 1),
+                rep=200,
+            ) / (copy_cnt + 1)
+
+    def benchmark(
+        self,
+        *args,
+        bench_quantize: bool = False,
+        use_rotating_buffer_bench: bool = False
+    ) -> float:
         """Benchmark runtime of this operator."""
         if bench_quantize:
-            return triton.testing.do_bench(lambda: self.quantize_and_compute(*args))
+            with torch.cuda.stream(torch.cuda.Stream()):
+                t = triton.testing.do_bench_cudagraph(
+                    lambda: self.quantize_and_compute(*args)
+                )
         else:
-            return triton.testing.do_bench(lambda: self.compute(*args))
+            if use_rotating_buffer_bench:
+                t = self.bench_with_rotating_buffer(self.compute, args)
+            else:
+                with torch.cuda.stream(torch.cuda.Stream()):
+                    t = triton.testing.do_bench_cudagraph(lambda: self.compute(*args))
+        return t
 
     @abc.abstractproperty
     def name(self) -> str:
@@ -195,6 +240,45 @@ class ScaledMMBaseline(QuantizeOpBase):
 
 
 @register_quantize_op
+class ScaledMMRowwise(QuantizeOpBase):
+    def quantize(self, x, w):
+        xq, x_scale = quantize_fp8_row(x)
+        wq, w_scale = quantize_fp8_row(w)
+        dummy_scale = torch.tensor([1.0], device=x.device, dtype=torch.float32)
+        return xq, wq.t(), x_scale, w_scale, dummy_scale
+
+    def compute(self, xq, wq, x_scale, w_scale, dummy_scale):
+        output = torch._scaled_mm(
+            xq,
+            wq,
+            bias=None,
+            out_dtype=torch.bfloat16,
+            scale_a=dummy_scale,
+            scale_b=dummy_scale,
+            scale_result=None,
+            use_fast_accum=True,
+        )
+        # Apply separate rowwise scaling.
+        output = scale_fp8_row(output, x_scale, w_scale)
+        return output
+
+    def quantize_and_compute(self, x, w):
+        return self.compute(*self.quantize(x, w))
+
+    @property
+    def name(self) -> str:
+        return "scaled_mm_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class FP8TensorwiseGemm(QuantizeOpBase):
     """
     FP8 matmul with tensorwise scaling.
@@ -308,10 +392,11 @@ class TritonFP8RowwiseGemm(QuantizeOpBase):
         # Quantize both input tensors.
         xq, x_scale = quantize_fp8_row(x)
         wq, w_scale = quantize_fp8_row(w)
-        return xq, wq, x_scale, w_scale
+        bias = torch.randn(w.shape[0], device=x.device, dtype=torch.float32)
+        return xq, wq, x_scale, w_scale, bias
 
-    def compute(self, xq, wq, x_scale, w_scale):
-        return matmul_fp8_row(xq, wq, x_scale, w_scale)
+    def compute(self, xq, wq, x_scale, w_scale, bias):
+        return matmul_fp8_row(xq, wq, x_scale, w_scale, bias=bias)
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale = self.quantize(x, w)
@@ -399,3 +484,41 @@ class FP8CutlassBlockwiseGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+# CUTLASS kernel v2
+@register_quantize_op
+class CutlassFP8TensorwiseGemm_v2(QuantizeOpBase):
+    """
+    FP8 matmul with tensorwise scaling.
+    """
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f8f8bf16_v2(xq, wq, x_scale * w_scale)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_tensorwise_v2"
+
+    @property
+    def hip(self) -> bool:
+        # Need to add support for better quantize kernel.
+        # Also may have an issue with cuda graphs.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+##################################################################################

@@ -19,6 +19,12 @@
 #include <vector>
 #include "c10/util/Exception.h"
 
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+#define torch_fp8_e4m3 at::kFloat8_e4m3fnuz
+#else
+#define torch_fp8_e4m3 at::kFloat8_e4m3fn
+#endif
+
 namespace fbgemm_gpu {
 
 // SmoothQuant kernels
@@ -56,9 +62,9 @@ at::Tensor f8f8bf16_blockwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    int64_t block_m = 256,
-    int64_t block_n = 256,
-    int64_t block_k = 256);
+    int64_t block_m = 128,
+    int64_t block_n = 128,
+    int64_t block_k = 128);
 at::Tensor f8f8bf16_cublas(
     at::Tensor A,
     at::Tensor B,
@@ -94,12 +100,10 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     std::optional<c10::ScalarType> output_dtype, // output dtype
     bool stochastic_rounding); // whether apply stochastic rounding
 
-#if CUDART_VERSION >= 12000
 std::vector<at::Tensor> quantize_fp8_per_col(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size
     std::optional<at::Tensor> scale_ub); // scale upperbound
-#endif
 
 at::Tensor quantize_fp8_per_tensor_fixed_scale(
     at::Tensor input,
@@ -138,7 +142,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
 #endif
   m.def(
-      "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=256, int block_n=256, int block_k=256) -> Tensor");
+      "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor");
   m.def(
       "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
@@ -151,25 +155,16 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("silu_mul_quantize_i8(Tensor X1, Tensor X2, float scale) -> Tensor");
   m.impl("silu_mul_quantize_i8", silu_mul_quantize_i8);
 
-#ifndef USE_ROCM
-  // TODO: On AMD this throws "undefined symbol:
-  // _ZN8facebook6gen_ai13llm_inference23quantize_fp8_per_tensorEN2at6TensorEN3c108optionalIS3_EE"
-  // i.e. facebook::gen_ai::llm_inference::quantize_fp8_per_tensor(at::Tensor,
-  // std::optional<at::Tensor>) when loading
-  // quantize_ops with
-  // torch.ops.load_library
   m.def(
       "quantize_fp8_per_tensor(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, bool stochastic_rounding=False) -> Tensor[]");
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.def(
-      "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None, bool stochastic_rounding=False) -> Tensor[]");
+      "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None, bool stochastic_rounding = False) -> Tensor[] ");
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
 
-#if CUDART_VERSION >= 12000
   m.def(
       "quantize_fp8_per_col(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]");
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
-#endif
 
   m.def(
       "get_fp8_per_tensor_scale(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor");
@@ -180,19 +175,19 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl(
       "quantize_fp8_per_tensor_fixed_scale",
       quantize_fp8_per_tensor_fixed_scale);
-#endif
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
+  m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
+  m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
+  m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16);
-  m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
-  m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
 #endif
 }
 
@@ -226,9 +221,9 @@ at::Tensor f8f8bf16_blockwise_meta(
     at::Tensor WQ, // FP8
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
-    int64_t /* block_m = 256*/,
-    int64_t /* block_n = 256*/,
-    int64_t /* block_k = 256*/) {
+    int64_t /* block_m = 128*/,
+    int64_t /* block_n = 128*/,
+    int64_t /* block_k = 128*/) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
@@ -240,7 +235,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
     std::optional<at::Tensor> bs,
     std::optional<at::Tensor> /*scale_ub*/,
     const bool /*stochastic_rounding*/) {
-  auto Y = at::empty_like(X, X.options().dtype(at::kFloat8_e4m3fn));
+  auto Y = at::empty_like(X, X.options().dtype(torch_fp8_e4m3));
   auto scale = at::empty({}, X.options().dtype(at::kBFloat16));
   return {Y, scale};
 }
@@ -310,7 +305,17 @@ std::vector<at::Tensor> quantize_fp8_per_row_meta(
     std::optional<c10::ScalarType> /* output_dtype */,
     bool /* stochastic_rounding */) {
   const at::SymInt M = input.sym_size(0);
-  auto Y = at::empty_like(input, input.options().dtype(at::kFloat8_e4m3fn));
+  auto Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  auto scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  return {Y, scale};
+}
+
+std::vector<at::Tensor> quantize_fp8_per_col_meta(
+    at::Tensor input,
+    std::optional<at::Tensor> /* bs */,
+    std::optional<at::Tensor> /* scale_ub */) {
+  const at::SymInt M = input.sym_size(0);
+  auto Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
   auto scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
   return {Y, scale};
 }
@@ -319,13 +324,14 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise_meta);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
+  m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
+  m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
+  m.impl("quantize_fp8_per_col", quantize_fp8_per_col_meta);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16_meta);
-  m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
   m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
-  m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
 #endif
 }

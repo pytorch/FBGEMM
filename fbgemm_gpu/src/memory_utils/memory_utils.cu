@@ -7,7 +7,7 @@
  */
 
 #include "common.cuh"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
 
 using namespace at;
 

@@ -6,8 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-/// @defgroup embedding-ssd Embedding SSD Operators
-
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
@@ -26,10 +24,64 @@ ssd_cache_populate_actions_cuda(
     Tensor lxu_cache_state,
     int64_t time_stamp,
     int64_t prefetch_dist,
-    Tensor lru_state);
+    Tensor lru_state,
+    bool gather_cache_stats,
+    std::optional<Tensor> ssd_cache_stats);
 
+/// @ingroup embedding-ssd
+///
+/// @brief Similar to `torch.Tensor.index_put` but ignore `indices < 0`
+///
+/// `masked_index_put_cuda` only supports 2D input `values`. It puts
+/// `count` rows in `values` into `self` using the row indices that
+/// are >= 0 in `indices`.
+///
+/// ```python
+/// # Equivalent PyTorch Python code
+/// indices = indices[:count]
+/// filter_ = indices >= 0
+/// indices_ = indices[filter_]
+/// self[indices_] = values[filter_.nonzero().flatten()]
+/// ```
+///
+/// @param self The 2D output tensor (the tensor that is indexed)
+/// @param indices The 1D index tensor
+/// @param values The 2D input tensor
+/// @param count The tensor that contains the length of `indices` to
+/// process
+///
+/// @return The `self` tensor
 Tensor
 masked_index_put_cuda(Tensor self, Tensor indices, Tensor values, Tensor count);
+
+/// @ingroup embedding-ssd
+///
+/// @brief Similar to `torch.index_select` but ignore `indices < 0`
+///
+/// `masked_index_select_cuda` only supports 2D input `values`. It
+/// puts `count` rows that are specified in `indices` (where `indices`
+/// >= 0) from `values` into `self`
+///
+/// ```python
+/// # Equivalent PyTorch Python code
+/// indices = indices[:count]
+/// filter_ = indices >= 0
+/// indices_ = indices[filter_]
+/// self[filter_.nonzero().flatten()] = values[indices_]
+/// ```
+///
+/// @param self The 2D output tensor
+/// @param indices The 1D index tensor
+/// @param values The 2D input tensor (the tensor that is indexed)
+/// @param count The tensor that contains the length of `indices` to
+/// process
+///
+/// @return The `self` tensor
+Tensor masked_index_select_cuda(
+    Tensor self,
+    Tensor indices,
+    Tensor values,
+    Tensor count);
 
 Tensor masked_index_put_byte_cuda(
     Tensor self,
@@ -113,7 +165,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       double uniform_init_lower,
       double uniform_init_upper,
       int64_t row_storage_bitwidth = 32,
-      int64_t cache_size = 0)
+      int64_t cache_size = 0,
+      bool use_passed_in_path = false,
+      int64_t tbe_unique_id = 0,
+      int64_t l2_cache_size_gb = 0)
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -130,7 +185,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             uniform_init_lower,
             uniform_init_upper,
             row_storage_bitwidth,
-            cache_size)) {}
+            cache_size,
+            use_passed_in_path,
+            tbe_unique_id,
+            l2_cache_size_gb)) {}
 
   void
   set_cuda(Tensor indices, Tensor weights, Tensor count, int64_t timestep) {
@@ -164,23 +222,49 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
 static auto embedding_rocks_db_wrapper =
     torch::class_<EmbeddingRocksDBWrapper>("fbgemm", "EmbeddingRocksDBWrapper")
-        .def(torch::init<
-             std::string,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             int64_t,
-             double,
-             double,
-             int64_t,
-             int64_t>())
+        .def(
+            torch::init<
+                std::string,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t,
+                double,
+                double,
+                int64_t,
+                int64_t,
+                bool,
+                int64_t,
+                int64_t>(),
+            "",
+            {
+                torch::arg("path"),
+                torch::arg("num_shards"),
+                torch::arg("num_threads"),
+                torch::arg("memtable_flush_period"),
+                torch::arg("memtable_flush_offset"),
+                torch::arg("l0_files_per_compact"),
+                torch::arg("max_D"),
+                torch::arg("rate_limit_mbps"),
+                torch::arg("size_ratio"),
+                torch::arg("compaction_ratio"),
+                torch::arg("write_buffer_size"),
+                torch::arg("max_write_buffer_num"),
+                torch::arg("uniform_init_lower"),
+                torch::arg("uniform_init_upper"),
+                torch::arg("row_storage_bitwidth"),
+                torch::arg("cache_size"),
+                torch::arg("use_passed_in_path") = true,
+                torch::arg("tbe_unique_id") = 0,
+                torch::arg("l2_cache_size_gb") = 0,
+            })
         .def("set_cuda", &EmbeddingRocksDBWrapper::set_cuda)
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
         .def("compact", &EmbeddingRocksDBWrapper::compact)
@@ -198,13 +282,23 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       ") -> Tensor");
   DISPATCH_TO_CUDA("masked_index_put", masked_index_put_cuda);
   m.def(
+      "masked_index_select("
+      "    Tensor self, "
+      "    Tensor indices, "
+      "    Tensor values, "
+      "    Tensor count"
+      ") -> Tensor");
+  DISPATCH_TO_CUDA("masked_index_select", masked_index_select_cuda);
+  m.def(
       "ssd_cache_populate_actions("
       "    Tensor linear_indices, "
       "    int total_hash_size, "
       "    Tensor lxu_cache_state, "
       "    int time_stamp, "
       "    int prefetch_dist, "
-      "    Tensor lru_state"
+      "    Tensor lru_state, "
+      "    bool gather_cache_stats=False, "
+      "    Tensor? ssd_cache_stats=None"
       ") -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
   DISPATCH_TO_CUDA(
       "ssd_cache_populate_actions", ssd_cache_populate_actions_cuda);

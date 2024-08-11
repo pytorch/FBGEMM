@@ -13,28 +13,51 @@
 #include <c10/cuda/CUDADeviceAssertionHost.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/Atomic.cuh>
-#include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/bitonic_sort.cuh"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/vec4.cuh"
 
 using Tensor = at::Tensor;
 
 using namespace fbgemm_gpu;
 
 template <typename scalar_t>
-__global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
+DEVICE_INLINE void
+vec4_copy(scalar_t* dst, const scalar_t* src, const int32_t D) {
+  constexpr int32_t VEC_SIZE = 4;
+  const scalar_t* __restrict__ src_ = src;
+  scalar_t* __restrict__ dst_ = dst;
+  for (int32_t d = threadIdx.x * VEC_SIZE; d < D; d += blockDim.x * VEC_SIZE) {
+    Vec4T<scalar_t>::copy(&src_[d], &dst_[d]);
+  }
+}
+
+template <>
+DEVICE_INLINE void
+vec4_copy(uint8_t* dst, const uint8_t* src, const int32_t D) {
+  // each row is padded with row_alignment (16 bytes on GPUs), so each row will
+  // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
+  const uint4* __restrict__ src_ = reinterpret_cast<const uint4*>(src);
+  uint4* __restrict__ dst_ = reinterpret_cast<uint4*>(dst);
+  for (int32_t d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
+    dst_[d] = src_[d];
+  }
+}
+
+template <typename scalar_t, bool is_index_put>
+__global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
     pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> self,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         indices,
     const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
         values,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count,
-    TORCH_DSA_KERNEL_ARGS) {
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        count) {
   const int32_t N = indices.size(0);
   const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= N) {
@@ -44,55 +67,27 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
   if (n >= count_) {
     return;
   }
+  // idx == -1 if it is conflict miss
   const auto idx = indices[n];
   if (idx < 0) {
     return;
   }
   const auto D = self.size(1);
-  for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
-    Vec4T<scalar_t>::copy((&values[n][0]) + d * 4, (&self[idx][0]) + d * 4);
-  }
+  const auto self_idx = is_index_put ? idx : n;
+  const auto values_idx = is_index_put ? n : idx;
+  vec4_copy(&self[self_idx][0], &values[values_idx][0], D);
 }
 
-template <>
-__global__ __launch_bounds__(kMaxThreads) void masked_index_put_kernel(
-    pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> self,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
-        indices,
-    const pta::PackedTensorAccessor32<uint8_t, 2, at::RestrictPtrTraits> values,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> count,
-    TORCH_DSA_KERNEL_ARGS) {
-  const int32_t N = indices.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
-    return;
-  }
-  const auto count_ = count[0];
-  if (n >= count_) {
-    return;
-  }
-  const auto idx = indices[n];
-  if (idx < 0) {
-    return;
-  }
-  const auto D = self.size(1);
-  // each row is padded with row_alignment (16 bytes on GPUs), so each row will
-  // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
-  CUDA_KERNEL_ASSERT2(
-      D % 16 == 0 && "D needs to be padded to be multiple of 16");
-  auto vec_self = reinterpret_cast<uint4*>(&self[idx][0]);
-  auto vec_values = reinterpret_cast<const uint4*>(&values[n][0]);
-  for (int32_t d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
-    vec_self[d] = vec_values[d];
-  }
-}
-
-Tensor masked_index_put_cuda(
-    Tensor self,
-    Tensor indices,
-    Tensor values,
-    Tensor count) {
+template <bool is_index_put>
+Tensor masked_index_impl(
+    const Tensor& self,
+    const Tensor& indices,
+    const Tensor& values,
+    const Tensor& count) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(self, indices, values, count);
+  TENSOR_CONTIGUOUS(self);
+  TENSOR_CONTIGUOUS(indices);
+  TENSOR_CONTIGUOUS(values);
 
   CUDA_DEVICE_GUARD(self);
 
@@ -105,27 +100,48 @@ Tensor masked_index_put_cuda(
 
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       self.scalar_type(),
-      "masked_index_put",
+      is_index_put ? "masked_index_put" : "masked_index_select",
       [&] {
         const int32_t tx = std::min<int32_t>(D / 4, kMaxThreads);
         const dim3 threads(tx, kMaxThreads / tx);
 #ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "masked_index_put_kernel";
+        const auto func_name = is_index_put ? "masked_index_put_kernel"
+                                            : "masked_index_select_kernel";
 #endif
-        TORCH_DSA_KERNEL_LAUNCH(
-            masked_index_put_kernel<scalar_t>,
-            div_round_up(N, kMaxThreads / tx),
-            dim3(tx, kMaxThreads / tx),
-            0,
-            at::cuda::getCurrentCUDAStream(),
-            MAKE_PTA_WITH_NAME(func_name, self, scalar_t, 2, 64),
-            MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 32),
-            MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
+        if (std::is_same_v<scalar_t, uint8_t>) {
+          TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16")
+        }
+        masked_index_kernel<scalar_t, is_index_put>
+            <<<div_round_up(N, kMaxThreads / tx),
+               dim3(tx, kMaxThreads / tx),
+               0,
+               at::cuda::getCurrentCUDAStream()>>>(
+                MAKE_PTA_WITH_NAME(func_name, self, scalar_t, 2, 64),
+                MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 32),
+                MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       } // lambda
   );
 
   return self;
+}
+
+Tensor masked_index_put_cuda(
+    Tensor self,
+    Tensor indices,
+    Tensor values,
+    Tensor count) {
+  return masked_index_impl</*is_index_put=*/true>(self, indices, values, count);
+}
+
+Tensor masked_index_select_cuda(
+    Tensor self,
+    Tensor indices,
+    Tensor values,
+    Tensor count) {
+  return masked_index_impl</*is_index_put=*/false>(
+      self, indices, values, count);
 }
 
 __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
@@ -262,7 +278,9 @@ ssd_cache_populate_actions_cuda(
     Tensor lxu_cache_state,
     int64_t time_stamp,
     int64_t prefetch_dist,
-    Tensor lru_state) {
+    Tensor lru_state,
+    bool gather_cache_stats,
+    std::optional<Tensor> ssd_cache_stats) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       linear_indices, lxu_cache_state, lru_state);
 
@@ -293,6 +311,13 @@ ssd_cache_populate_actions_cuda(
   const auto int_options = unique_indices.options().dtype(at::kInt);
   auto assigned_cache_slots = empty_like(unique_indices, int_options);
 
+  Tensor ssd_cache_stats_ = at::empty({0}, int_options);
+  if (gather_cache_stats) {
+    TORCH_CHECK(ssd_cache_stats.has_value());
+    ssd_cache_stats_ = ssd_cache_stats.value();
+    TENSOR_ON_CUDA_GPU(ssd_cache_stats_);
+  }
+
   if (unique_indices.numel() == 0) {
     auto actions_count = at::zeros({1}, int_options);
     // these are all of length zero
@@ -309,7 +334,6 @@ ssd_cache_populate_actions_cuda(
 
   auto actions_count = at::empty({1}, int_options);
   // Find uncached indices
-  Tensor uvm_cache_stats = at::empty({0}, int_options);
   Tensor lxu_cache_locking_counter = at::empty({0, 0}, int_options);
   auto
       [sorted_cache_sets,
@@ -322,8 +346,8 @@ ssd_cache_populate_actions_cuda(
               lxu_cache_state,
               time_stamp,
               lru_state,
-              /*gather_cache_stats=*/false,
-              uvm_cache_stats,
+              gather_cache_stats,
+              ssd_cache_stats_,
               /*lock_cache_line=*/false,
               lxu_cache_locking_counter,
               /*compute_inverse_indices=*/true);

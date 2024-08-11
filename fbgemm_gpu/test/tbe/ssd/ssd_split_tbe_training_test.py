@@ -146,6 +146,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         ssd_shards: int = 1,  # from SSDTableBatchedEmbeddingBags
         optimizer: OptimType = OptimType.EXACT_ROWWISE_ADAGRAD,
         cache_set_scale: float = 1.0,
+        # pyre-fixme[9]: pooling_mode has type `bool`; used as `PoolingMode`.
         pooling_mode: bool = PoolingMode.SUM,
         weights_precision: SparseType = SparseType.FP32,
         output_dtype: SparseType = SparseType.FP32,
@@ -192,6 +193,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.half() for emb in emb_ref]
 
+        # Init weights
+        [emb.weight.data.uniform_(-2.0, 2.0) for emb in emb_ref]
+
         # Construct feature_table_map
         feature_table_map = list(range(T))
         table_to_replicate = -1
@@ -215,7 +219,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_upper=0.1,
             learning_rate=lr,
             eps=eps,
-            ssd_shards=ssd_shards,
+            ssd_rocksdb_shards=ssd_shards,
             optimizer=optimizer,
             pooling_mode=pooling_mode,
             weights_precision=weights_precision,
@@ -223,22 +227,34 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             stochastic_rounding=stochastic_rounding,
         ).cuda()
 
+        # A list to keep the CPU tensor alive until `set` (called inside
+        # `set_cuda`) is complete. Note that `set_cuda` is non-blocking
+        # asynchronous
+        emb_ref_cpu = []
+
         # Initialize TBE SSD weights
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-            emb_r = emb_ref[f]
-            emb_r.weight.data.uniform_(-2.0, 2.0)
+            emb_ref_ = emb_ref[f].weight.clone().detach().cpu()
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
-                emb_r.weight.cpu(),
+                emb_ref_,
                 torch.as_tensor([E]),
                 t,
             )
+            emb_ref_cpu.append(emb_ref_)
+
+        # Ensure that `set` (invoked by `set_cuda`) is done
+        torch.cuda.synchronize()
 
         # Convert back to float (to make sure that accumulation is done
         # in FP32 -- like TBE)
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.float() for emb in emb_ref]
 
+        # pyre-fixme[7]: Expected `Tuple[SSDTableBatchedEmbeddingBags,
+        #  List[EmbeddingBag]]` but got `Tuple[SSDTableBatchedEmbeddingBags,
+        #  Union[List[Union[Embedding, EmbeddingBag]], List[Embedding],
+        #  List[EmbeddingBag]]]`.
         return emb, emb_ref
 
     def concat_ref_tensors(
@@ -724,7 +740,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
                 # pyre-fixme[16]: Optional type has no attribute `float`.
                 optim_state_r.add_(
-                    emb_r.weight.grad.float().to_dense().pow(2).mean(dim=1)
+                    # pyre-fixme[16]: `Optional` has no attribute `float`.
+                    emb_r.weight.grad.float()
+                    .to_dense()
+                    .pow(2)
+                    .mean(dim=1)
                 )
                 torch.testing.assert_close(
                     optim_state_t.float(),

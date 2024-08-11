@@ -31,6 +31,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 
 
@@ -39,12 +40,7 @@ set(fbgemm_sources_include_directories
 ################################################################################
 
 file(GLOB_RECURSE asmjit_sources
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/asmjit/src/asmjit/*/*.cpp")
-
-set(third_party_include_directories
-  ${THIRDPARTY}/asmjit/src
-  ${THIRDPARTY}/cpuinfo/include
-  ${THIRDPARTY}/cutlass/include)
+  "${CMAKE_CURRENT_SOURCE_DIR}/../external/asmjit/src/asmjit/*/*.cpp")
 
 
 ################################################################################
@@ -454,7 +450,10 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
     codegen/utils/embedding_bounds_check_host_cpu.cpp
+    src/config/feature_gates.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
+    src/permute_multi_embedding_ops/permute_multi_embedding_function.cpp
+    src/permute_multi_embedding_ops/permute_multi_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_function.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_cpu.cpp
@@ -547,6 +546,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/metric_ops/metric_ops.cu
       src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split.cu
       src/permute_pooled_embedding_ops/permute_pooled_embedding_ops.cu
+      src/permute_multi_embedding_ops/permute_multi_embedding_ops.cu
       src/quantize_ops/quantize_bfloat16.cu
       src/quantize_ops/quantize_fp8_rowwise.cu
       src/quantize_ops/quantize_fused_8bit_rowwise.cu

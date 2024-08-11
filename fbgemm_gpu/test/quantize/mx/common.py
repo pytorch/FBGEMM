@@ -142,6 +142,8 @@ def _get_format_params(  # noqa
 
     min_norm = _get_min_norm(ebits)
 
+    # pyre-fixme[6]: For 1st argument expected `ElemFormat` but got `Union[None,
+    #  ElemFormat, int]`.
     _FORMAT_CACHE[fmt] = (ebits, mbits, emax, max_norm, min_norm)
 
     return ebits, mbits, emax, max_norm, min_norm
@@ -308,6 +310,7 @@ def check_diff_quantize(
         raise IndexError
 
     # Convert to numpy
+    # pyre-fixme[9]: x has type `Tensor`; used as `Union[ndarray, Tensor]`.
     x = np.array(x) if type(x) is list else x
     x = x.cpu().numpy() if type(x) is torch.Tensor else x
     y1 = y1.detach().cpu().numpy()
@@ -404,6 +407,7 @@ def _round_mantissa(
 def _shared_exponents(
     A: torch.Tensor,
     method: str = "max",
+    rounding_mode: str = "even",
     axes: Optional[List[int]] = None,
     ebits: int = 0,
 ) -> torch.Tensor:
@@ -432,12 +436,41 @@ def _shared_exponents(
     else:
         raise Exception("Unrecognized shared exponent selection method %s" % (method))
 
-    # log2(shared_exp) and truncate to integer
-    shared_exp = torch.floor(
-        torch.log2(
-            shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+    if rounding_mode == "even":
+        SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
+        shared_exp = shared_exp.to(torch.float32).view(torch.int32)
+        val_to_add = 1 << (MBITS_F32 - 1)
+        mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
+        shared_exp = (shared_exp + val_to_add) & mask
+        shared_exp = shared_exp.view(torch.float32)
+
+        shared_exp = torch.floor(
+            torch.log2(
+                shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+            )
         )
-    )
+        """
+        roundup_idx = (shared_exp_old != shared_exp).nonzero()
+        if roundup_idx.numel() > 0:
+            idx = roundup_idx[0]
+            raise Exception(
+                f"{roundup_idx.numel() / len(shared_exp.shape) / shared_exp.numel() * 100}% exp round up: {idx=} {shared_exp.shape=} {(shared_exp - shared_exp_old)[idx]=}"
+            )
+        """
+    elif rounding_mode == "ceil":
+        shared_exp = torch.ceil(
+            torch.log2(
+                shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+            )
+        )
+    elif rounding_mode == "floor":
+        shared_exp = torch.floor(
+            torch.log2(
+                shared_exp + FP32_MIN_NORMAL * (shared_exp == 0).type(shared_exp.dtype)
+            )
+        )
+    else:
+        raise Exception("Unrecognized rounding mode %s" % (rounding_mode))
 
     # Restrict to [-emax, emax] range
     if ebits > 0:
@@ -510,11 +543,16 @@ def _quantize_elemwise_core(
         private_exp = None
 
     # Scale up so appropriate number of bits are in the integer portion of the number
+    # pyre-fixme[6]: For 3rd argument expected `Optional[int]` but got
+    #  `Optional[Tensor]`.
     out = _safe_lshift(out, bits - 2, private_exp)
 
+    # pyre-fixme[6]: For 3rd argument expected `RoundingMode` but got `str`.
     out = _round_mantissa(out, bits, round, clamp=False)
 
     # Undo scaling
+    # pyre-fixme[6]: For 3rd argument expected `Optional[int]` but got
+    #  `Optional[Tensor]`.
     out = _safe_rshift(out, bits - 2, private_exp)
 
     # Set values > max_norm to Inf if desired, else clamp them

@@ -11,12 +11,12 @@
 #include "common.h"
 
 // clang-format off
-#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_select.cuh>
 #include <cub/block/block_reduce.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
 
 #include <ATen/cuda/CUDAContext.h>
@@ -28,13 +28,16 @@
 #include <curand_kernel.h>
 #include <ATen/cuda/Atomic.cuh>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/bitonic_sort.cuh"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/find_qparams.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
+#include "fbgemm_gpu/utils/stochastic_rounding.cuh"
+#include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/vec4acc.cuh"
+#include "fbgemm_gpu/utils/weight_row.cuh"
 
 using Tensor = at::Tensor;
 

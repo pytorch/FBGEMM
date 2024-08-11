@@ -10,12 +10,13 @@
 
 #include <ATen/ATen.h>
 
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
 namespace fbgemm_gpu {
 
 ////////////////////////////////////////////////////////////////////////////////
-// Find Quantization Parameters
+// Find Quantization Parameters (Thrust)
 ////////////////////////////////////////////////////////////////////////////////
 
 template <typename scalar_t>
@@ -52,6 +53,46 @@ thrust_find_qparams(fbgemm_gpu::Vec4T<scalar_t>* input_row, int D) {
   }
   qparams.x = (max_val - min_val) / 255.0f;
   qparams.y = min_val;
+  return qparams;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Find Quantization Parameters (Warp)
+////////////////////////////////////////////////////////////////////////////////
+
+// Min a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize>
+DEVICE_INLINE T warp_reduce_min(T val) {
+#pragma unroll
+  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+    val = std::min(val, shfl_xor(val, mask));
+  }
+  return val;
+}
+
+// Max a register value across all warp threads
+template <typename T, int ReduceWidth = kWarpSize>
+DEVICE_INLINE T warp_reduce_max(T val) {
+#pragma unroll
+  for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
+    val = std::max(val, shfl_xor(val, mask));
+  }
+  return val;
+}
+
+template <typename scalar_t>
+DEVICE_INLINE float2 warp_find_qparams(scalar_t local_min, scalar_t local_max) {
+  float2 qparams;
+  qparams.x = 0.0f;
+  qparams.y = 0.0f;
+  local_min = warp_reduce_min<scalar_t>(local_min);
+  local_max = warp_reduce_max<scalar_t>(local_max);
+  if (threadIdx.x == 0) {
+    qparams.x = (local_max - local_min) / 255.0f;
+    qparams.y = local_min;
+  }
+  qparams.x = shfl_sync(qparams.x, 0);
+  qparams.y = shfl_sync(qparams.y, 0);
   return qparams;
 }
 

@@ -333,7 +333,7 @@ def bench_mx4(
             enable_trace_profile, activities, "MX4 triton quantize", input_size
         ):
             q_average_time, dequant_data = benchmark(
-                fp32_to_mx4, (input_data, group_size, True)
+                fp32_to_mx4, (input_data, group_size)
             )
 
         with _create_profile(
@@ -341,7 +341,7 @@ def bench_mx4(
         ):
             d_average_time, _ = benchmark(
                 mx4_to_fp32,
-                (dequant_data, group_size, True),
+                (dequant_data, group_size),
             )
         print(
             f"input_size={input_size} MX4 triton quantized time per iter: {q_average_time * 1.0e6:.0f}us"

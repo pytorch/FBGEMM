@@ -9,7 +9,7 @@
 // clang-format off
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using namespace fbgemm_gpu;

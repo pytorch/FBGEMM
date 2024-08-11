@@ -12,9 +12,10 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/config/feature_gates.h"
 
 using Tensor = at::Tensor;
 
@@ -681,9 +682,11 @@ class {{ autograd_func }} :
         /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %}
+
     {%- if is_gwd %}
     const auto prev_iter_dev_ = prev_iter_dev.value_or(Tensor());
     {%- endif %}
+
     ctx->save_for_backward({
         dev_weights,
         {%- if not dense %}
@@ -796,9 +799,6 @@ class {{ autograd_func }} :
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
-    // backward impl does mutation of weights, which are allowed in aot autograd only in no_grad mode
-    at::AutoGradMode m(false);
-
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
     auto dev_weights = *savedItr++;
@@ -1013,7 +1013,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const c10::SymInt max_B_feature_rank = -1,
     {%- if not dense %}
     const c10::SymInt vbe_output_size = -1,
-    const bool is_experimental = false,
+    const bool is_experimental_tbe = false, // formerly named is_experimental
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
     const std::optional<Tensor>& uvm_cache_stats = c10::nullopt,
@@ -1034,6 +1034,14 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
+
+    {%- if not dense %}
+    // Load the config value from JK once
+    static auto is_tbev2_enabled = config::is_feature_enabled(config::FeatureGateName::TBE_V2);
+
+    // Set to experimental if either the feature is enabled in JK, or the user specifies to use TBEv2
+    const auto is_experimental = is_tbev2_enabled || is_experimental_tbe;
+    {%- endif %}
 
     {%- if not ssd %}
     {%- if has_vbe_support %}

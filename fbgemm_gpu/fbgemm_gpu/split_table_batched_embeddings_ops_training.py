@@ -24,6 +24,8 @@ import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+
+# from fbgemm_gpu.config import FeatureGateName
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
     TBEStatsReporter,
@@ -96,6 +98,7 @@ class WeightDecayMode(enum.IntEnum):
     DECOUPLE = 2
     COUNTER = 3
     COWCLIP = 4
+    DECOUPLE_GLOBAL = 5
 
 
 class CounterWeightDecayMode(enum.IntEnum):
@@ -116,13 +119,13 @@ class GradSumDecay(enum.IntEnum):
     CTR_DECAY = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class TailIdThreshold:
     val: float = 0
     is_ratio: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class CounterBasedRegularizationDefinition:
     counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE
     counter_halflife: int = -1
@@ -134,11 +137,17 @@ class CounterBasedRegularizationDefinition:
     max_counter_update_freq: int = 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class CowClipDefinition:
     counter_weight_decay_mode: CounterWeightDecayMode = CounterWeightDecayMode.NONE
     counter_halflife: int = -1
     weight_norm_coefficient: float = 0.0
+    lower_bound: float = 0.0
+
+
+@dataclass(frozen=True)
+class GlobalWeightDecayDefinition:
+    start_iter: int = 0
     lower_bound: float = 0.0
 
 
@@ -321,7 +330,7 @@ def generate_vbe_metadata(
     batch_size_per_feature_per_rank: Optional[List[List[int]]],
     optimizer: OptimType,
     pooling_mode: PoolingMode,
-    feature_dims: Tensor,
+    feature_dims_cpu: Tensor,
     device: torch.device,
 ) -> invokers.lookup_args.VBEMetadata:
     """
@@ -374,11 +383,9 @@ def generate_vbe_metadata(
         if not torch.jit.is_scripting() and is_torchdynamo_compiling():
             torch._check_is_size(max_B_feature_rank)
             torch._check(max_B_feature_rank <= offsets.size(0))
-        # D->H only once
-        feature_dims = feature_dims.cpu()
-        output_sizes_feature_rank = B_feature_rank.transpose(0, 1) * feature_dims.view(
-            1, -1
-        )
+        output_sizes_feature_rank = B_feature_rank.transpose(
+            0, 1
+        ) * feature_dims_cpu.view(1, -1)
         output_offsets_feature_rank = torch.concat(
             [
                 zero_tensor.to(torch.int64),
@@ -520,9 +527,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         table_names: Optional[List[str]] = None,
         optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
         multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
+        # Global weight decay params
+        global_weight_decay: Optional[GlobalWeightDecayDefinition] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
         self.uuid = str(uuid.uuid4())
+        self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.weights_precision = weights_precision
@@ -793,6 +803,30 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
+        if weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL and (
+            not optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            or global_weight_decay is None
+        ):
+            raise AssertionError(
+                """weight_decay_mode=WeightDecayMode.DECOUPLE_GLOBAL is supported for
+                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD and global_weight_decay cannot be None.
+                """
+            )
+
+        self._used_rowwise_adagrad_with_global_weight_decay: bool = (
+            optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            and (weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL)
+        )
+        logging.info(
+            f"Using global weight decay = {self._used_rowwise_adagrad_with_global_weight_decay}"
+        )
+        # Declare GWD params here to avoid torch.jit.script error
+        if global_weight_decay is None:
+            global_weight_decay = GlobalWeightDecayDefinition()
+
+        self.gwd_start_iter: int = global_weight_decay.start_iter
+        self.gwd_lower_bound: float = global_weight_decay.lower_bound
+
         if counter_based_regularization is None:
             counter_based_regularization = CounterBasedRegularizationDefinition()
         if cowclip_regularization is None:
@@ -952,6 +986,27 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.register_buffer(
                     "max_counter", torch.tensor([1], dtype=torch.float32)
                 )
+            elif self._used_rowwise_adagrad_with_global_weight_decay:
+                self._apply_split(
+                    construct_split_state(
+                        embedding_specs,
+                        rowwise=True,
+                        cacheable=False,
+                    ),
+                    prefix="prev_iter",
+                    # TODO: ideally we should use int64 to track iter but it failed to compile.
+                    # It may be related to low precision training code. Currently using float32
+                    # as a workaround while investigating the issue.
+                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
+                    #  but got `Type[torch.float32]`.
+                    dtype=torch.float32,
+                )
+                self._register_nonpersistent_buffers("row_counter")
+                self.register_buffer(
+                    "max_counter",
+                    torch.ones(1, dtype=torch.float32, device=self.current_device),
+                    persistent=False,
+                )
             else:
                 self._register_nonpersistent_buffers("prev_iter")
                 self._register_nonpersistent_buffers("row_counter")
@@ -960,11 +1015,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     torch.ones(1, dtype=torch.float32, device=self.current_device),
                     persistent=False,
                 )
-            if optimizer in (
-                OptimType.ADAM,
-                OptimType.LAMB,
-                OptimType.PARTIAL_ROWWISE_ADAM,
-                OptimType.PARTIAL_ROWWISE_LAMB,
+            if (
+                optimizer
+                in (
+                    OptimType.ADAM,
+                    OptimType.LAMB,
+                    OptimType.PARTIAL_ROWWISE_ADAM,
+                    OptimType.PARTIAL_ROWWISE_LAMB,
+                )
+                or self._used_rowwise_adagrad_with_global_weight_decay
             ):
                 self.register_buffer(
                     "iter",
@@ -1032,16 +1091,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         # Check whether to use TBE v2
         is_experimental = False
-        fbgemm_exp_tbe = os.environ.get("FBGEMM_EXPERIMENTAL_TBE")
         if use_experimental_tbe:
             is_experimental = True
-            self.log("use_experimental_tbe is set to True; Use experimental TBE: True")
-        elif fbgemm_exp_tbe is not None:
-            is_experimental = int(fbgemm_exp_tbe) == 1
-            self.log(
-                f"FBGEMM_EXPERIMENTAL_TBE is set to {fbgemm_exp_tbe}; "
-                f"Use experimental TBE: {is_experimental}"
-            )
+            self.log("use_experimental_tbe is set to True; Using experimental TBE")
+
+        elif int(os.environ.get("FBGEMM_EXPERIMENTAL_TBE", "0")) == 1:
+            # Keep the old feature enablement mechanism to ensure no negative impact on models that have already adopted TBE v2
+            is_experimental = True
+            self.log("FBGEMM_EXPERIMENTAL_TBE is set to True; Using experimental TBE")
+
+        # NOTE: Keep this disabled for now until the backend lands into Pyper
+        # elif FeatureGateName.TBE_V2.is_enabled():
+        #     is_experimental = True
+        #     self.log("TBE_V2 Knob is set to True; Using experimental TBE")
+
         self.is_experimental: bool = is_experimental
 
     @torch.jit.ignore
@@ -1076,6 +1139,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.zeros(1, dtype=torch.int64, device=self.current_device),
             persistent=False,
         )
+
+    @staticmethod
+    def get_table_name_for_logging(table_names: Optional[List[str]]) -> str:
+        """
+        Given list of all table names in the TBE, generate a string to represent
+        them in logging. If there's more than one table, this method will count
+        them than list them.
+        """
+        if table_names is None:
+            return "<Unknown>"
+        # Do this because sometimes multiple shards of the same table could appear
+        # in one TBE.
+        table_name_set = set(table_names)
+        if len(table_name_set) == 1:
+            return next(iter(table_name_set))
+        return f"<{len(table_name_set)} tables>"
 
     @staticmethod
     def get_prefetch_passes(
@@ -1163,7 +1242,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.stats_reporter
         ), "We should not be here. AsyncTimer only happens with reporter present."
-        self.stats_reporter.report_duration(it_step, event_name, dur_ms)
+        self.stats_reporter.report_duration(
+            iteration_step=it_step,
+            event_name=event_name,
+            duration_ms=dur_ms,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
+        )
 
     @torch.jit.ignore
     def _report_tbe_mem_usage(
@@ -1196,11 +1281,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             iteration_step=self.step,
             event_name="tbe.total_hbm_usage",
             data_bytes=total_hbm_usage,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="tbe.total_uvm_usage",
             data_bytes=total_uvm_usage,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
         )
 
     @torch.jit.ignore
@@ -1213,11 +1302,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 iteration_step=self.step,
                 event_name=f"tbe.{event}_size",
                 data_bytes=data.element_size() * data.numel(),
+                embedding_id=self.logging_table_name,
+                tbe_id=self.uuid,
             )
             stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=f"tbe.{event}_count",
                 data_bytes=data.numel(),
+                embedding_id=self.logging_table_name,
+                tbe_id=self.uuid,
             )
         return data
 
@@ -1227,6 +1320,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         batch_size_per_feature_per_rank: Optional[List[List[int]]],
     ) -> invokers.lookup_args.VBEMetadata:
+        # Blocking D2H copy, but only runs at first call
+        self.feature_dims = self.feature_dims.cpu()
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
@@ -1475,16 +1570,35 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         momentum1,
                         prev_iter,
                         row_counter,
-                        # pyre-fixme[6]: Expected `int` for 6th param but got `Union[float, int]`.
-                        self.iter.item(),
+                        int(
+                            self.iter.item()
+                        ),  # Cast to int to suppress pyre type error
                         self.max_counter.item(),
+                    ),
+                )
+            elif self._used_rowwise_adagrad_with_global_weight_decay:
+                apply_global_weight_decay = (
+                    self.step >= self.gwd_start_iter and self.training
+                )
+                return self._report_io_size_count(
+                    "fwd_output",
+                    invokers.lookup_rowwise_adagrad.invoke(
+                        common_args,
+                        self.optimizer_args,
+                        momentum1,
+                        iter=int(self.iter.item()),
+                        apply_global_weight_decay=apply_global_weight_decay,
+                        prev_iter_dev=self.prev_iter_dev,
+                        gwd_lower_bound=self.gwd_lower_bound,
                     ),
                 )
             else:
                 return self._report_io_size_count(
                     "fwd_output",
                     invokers.lookup_rowwise_adagrad.invoke(
-                        common_args, self.optimizer_args, momentum1
+                        common_args,
+                        self.optimizer_args,
+                        momentum1,
                     ),
                 )
 
@@ -1585,6 +1699,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     * self.max_D_cache
                     / passed_steps
                 ),
+                embedding_id=self.logging_table_name,
+                tbe_id=self.uuid,
             )
 
     def prefetch(
@@ -1861,7 +1977,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 (
                     {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
                     if self._used_rowwise_adagrad_with_counter
-                    else {"sum": states[0]}
+                    else (
+                        {"sum": states[0], "prev_iter": states[1]}
+                        if self._used_rowwise_adagrad_with_global_weight_decay
+                        else {"sum": states[0]}
+                    )
                 )
                 for states in split_optimizer_states
             ]
@@ -1956,6 +2076,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.PARTIAL_ROWWISE_LAMB),
                 )
             )
+        if self._used_rowwise_adagrad_with_global_weight_decay:
+            states.append(
+                get_optimizer_states(
+                    self.prev_iter_dev,
+                    self.prev_iter_host,
+                    self.prev_iter_uvm,
+                    self.prev_iter_physical_offsets,
+                    self.prev_iter_physical_placements,
+                    rowwise=True,
+                )
+            )
         if self._used_rowwise_adagrad_with_counter:
             states.append(
                 get_optimizer_states(
@@ -2000,11 +2131,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
         return 0.0
 
-    @torch.jit.export
+    @torch.jit.ignore
     def set_optimizer_step(self, step: int) -> None:
         """
         Sets the optimizer step.
         """
+        self.log(f"set_optimizer_step from {self.iter[0]} to {step}")
         if self.optimizer == OptimType.NONE:
             raise NotImplementedError(
                 f"Setting optimizer step is not supported for {self.optimizer}"
@@ -2586,6 +2718,8 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         offsets: Tensor,
         batch_size_per_feature_per_rank: Optional[List[List[int]]],
     ) -> invokers.lookup_args.VBEMetadata:
+        # Blocking D2H copy, but only runs at first call
+        self.feature_dims = self.feature_dims.cpu()
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,

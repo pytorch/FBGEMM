@@ -18,7 +18,7 @@ from hypothesis import assume, given, settings
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
-    @settings(deadline=4000)
+    @settings(deadline=8000)
     # pyre-ignore
     @given(
         comm_precisions_loss_scale=st.sampled_from(

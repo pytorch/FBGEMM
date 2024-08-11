@@ -26,11 +26,15 @@ from fbgemm_gpu.quantize_utils import (
     fp32_to_mx4,
     hfp8_to_fp32,
     mx4_to_fp32,
+    RoundingMode,
 )
+
 from fbgemm_gpu.split_embedding_configs import SparseType
+
 from torch.autograd.profiler import record_function  # usort:skip
 from dataclasses import dataclass
 
+import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 
 logger: logging.Logger = logging.getLogger()
 
@@ -58,6 +62,7 @@ class QuantizationContext:
     row_dim: int = ROW_DIM_DEFAULT
     row_dim_quant: int = -1
     mx_group_size: int = MX_GROUP_SIZE_DEFAULT
+    rounding_mode: RoundingMode = RoundingMode.ceil
 
 
 def _quantize_tensor(
@@ -100,7 +105,8 @@ def _quantize_tensor(
         return input_quant_all2all
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
-        return fp32_to_mx4(input_tensor, mx_group_size)
+        rounding_mode = ctx.rounding_mode if ctx is not None else RoundingMode.ceil
+        return fp32_to_mx4(input_tensor, mx_group_size, rounding_mode=rounding_mode)
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -231,7 +237,10 @@ class QuantizedCommCodec:
 
     def create_context(self) -> Optional[QuantizationContext]:
         # fp8 rowwise is activated when row_dim > 0
-        if self._comm_precision == SparseType.FP8:
+        if (
+            self._comm_precision == SparseType.FP8
+            or self._comm_precision == SparseType.MX4
+        ):
             return QuantizationContext(self._row_dim)
         # int8 rowwise is default
         return QuantizationContext()

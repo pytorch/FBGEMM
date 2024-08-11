@@ -28,13 +28,13 @@
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 {%- if not dense and not nobag and not vbe %}
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 {%- endif %}
 
 {%- if not is_index_select %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "fbgemm_gpu/embedding_op_registration.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 ////////////////////////////////////////////////////////////////////////////////
 {%- endif %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"

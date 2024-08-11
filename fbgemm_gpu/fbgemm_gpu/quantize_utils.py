@@ -8,10 +8,11 @@
 # pyre-strict
 
 import logging
+from typing import Optional, Union
 
 import torch
 
-from fbgemm_gpu.triton import dequantize_mx4, quantize_mx4
+from fbgemm_gpu.triton import dequantize_mx4, quantize_mx4, RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
 logger: logging.Logger = logging.getLogger()
@@ -31,26 +32,58 @@ TORCH_BFLOAT16_MAX: float = torch.finfo(torch.bfloat16).max
 
 
 def fp32_to_mx4(
-    tensor: torch.Tensor, group_size: int = 32, use_triton: bool = True
+    tensor: torch.Tensor,
+    group_size: int = 32,
+    ebits: int = 2,
+    mbits: int = 1,
+    rounding_mode: Optional[Union[RoundingMode, int]] = RoundingMode.ceil,
+    stochastic_casting: bool = False,
+    use_triton: bool = True,
 ) -> torch.Tensor:
     """Quantize an FP32 tensor to MX4 with triton or native cuda impl.
 
     Args:
         tensor (torch.Tensor): FP32 tensor to quantize with M total elements.
         group_size (int): Compute scale in chunks of group_size.
+        ebits (int): Number of exponent bits in target mx4 format.
+        mbits (int): Number of mantissa bits in target mx4 format.
+        rounding_mode (RoundingMode or int): Which type of rounding to use when computing exponent.
+        Only supported with use_triton=True.
+        stochastic_casting (bool): Whether to use stochastic casting when downcasting.
         use_triton (bool): If set, use triton quantization, otherwise cuda.
 
     Return:
         output: MX4 tensor packed into int8 values with total elements (M / 2 + M / groupsize)
     """
     # Accelerated MX4 is only available on cuda, if input is on cpu, use python.
+    # Operate on flattened input.
+    input = tensor.flatten()
+
+    if rounding_mode is None:
+        rounding_mode = RoundingMode.ceil
+
     if not tensor.is_cuda:
-        return py_quantize_mx4(tensor, group_size)
+        return py_quantize_mx4(
+            input,
+            group_size,
+            ebits=ebits,
+            mbits=mbits,
+            rounding_mode=rounding_mode,
+            stochastic_casting=stochastic_casting,
+        )
+
     if use_triton:
-        return quantize_mx4(tensor, group_size)
+        return quantize_mx4(
+            input,
+            group_size,
+            ebits=ebits,
+            mbits=mbits,
+            rounding_mode=rounding_mode,
+            stochastic_casting=stochastic_casting,
+        )
     else:
         out = torch.ops.fbgemm.quantize_mx_cuda(
-            tensor.view(-1),
+            input,
             scale_bits=8,
             elem_ebits=2,
             elem_mbits=3,
@@ -63,7 +96,11 @@ def fp32_to_mx4(
 
 
 def mx4_to_fp32(
-    tensor: torch.Tensor, group_size: int = 32, use_triton: bool = False
+    tensor: torch.Tensor,
+    group_size: int = 32,
+    use_triton: bool = True,
+    ebits: int = 2,
+    mbits: int = 1,
 ) -> torch.Tensor:
     """Dequantize an MX4 tensor to FP32 with triton or native cuda impl.
 
@@ -71,20 +108,20 @@ def mx4_to_fp32(
         tensor (torch.Tensor): MX4 packed tensor with total elements (M / 2 + M / groupsize)
         group_size (int): Compute scale in chunks of group_size.
         use_triton (bool): If set, use triton quantization, otherwise cuda.
+        ebits (int): Number of exponent bits in target mx4 format.
+        mbits (int): Number of mantissa bits in target mx4 format.
 
     Return:
         output: FP32 tensor with total elements (M).
     """
+    flatten_tensor = tensor.view(-1)
     # Accelerated MX4 dequantize is only available on cuda, if input is on cpu, use python.
     if not tensor.is_cuda:
-        return py_dequantize_mx4(tensor, group_size)
+        return py_dequantize_mx4(flatten_tensor, group_size, ebits=ebits, mbits=mbits)
     if use_triton:
-        return dequantize_mx4(tensor, group_size)
+        return dequantize_mx4(flatten_tensor, group_size, ebits=ebits, mbits=mbits)
     else:
-        out = torch.ops.fbgemm.dequantize_mx_cuda(tensor.view(-1), group_size)
-        # Perserve input dimensions.
-        output_shape = list(tensor.shape[:-1]) + [-1]
-        return out.view(output_shape)
+        return torch.ops.fbgemm.dequantize_mx_cuda(flatten_tensor, group_size)
 
 
 def fp32_to_fp16_with_clamp(tensor: torch.Tensor) -> torch.Tensor:

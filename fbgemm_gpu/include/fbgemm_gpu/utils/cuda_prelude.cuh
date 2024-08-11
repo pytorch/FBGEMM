@@ -10,19 +10,8 @@
 
 #include <ATen/ATen.h>
 #include <cuda.h>
-#if !(                                                  \
-    defined(USE_ROCM) ||                                \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
-#include <cuda_bf16.h>
-#elif (defined(USE_ROCM))
-#include <hip/hip_bfloat16.h>
-#endif
-#include <cuda_fp16.h>
-
-#if !defined(USE_ROCM) && defined(CUDA_VERSION) && CUDA_VERSION >= 9000
-#define FBGEMM_USE_SUBWARP_SHUFFLE
-#endif
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
+#include <cassert>
 
 namespace {
 
@@ -36,11 +25,21 @@ int get_device_sm_cnt_() {
 
 namespace fbgemm_gpu {
 
+#if !defined(USE_ROCM) && defined(CUDA_VERSION) && CUDA_VERSION >= 9000
+#define FBGEMM_USE_SUBWARP_SHUFFLE
+#endif
+
 #define DEVICE_INLINE __device__ inline __attribute__((always_inline))
 
 #define CUDA_DEVICE_GUARD(TENSOR)           \
   at::cuda::OptionalCUDAGuard device_guard; \
   device_guard.set_index(TENSOR.get_device())
+
+#define FBGEMM_CUDA_CHECK(X)               \
+  do {                                     \
+    cudaError_t err = X;                   \
+    assert(err == cudaError::cudaSuccess); \
+  } while (0)
 
 // Warp size
 #ifdef USE_ROCM

@@ -30,9 +30,9 @@
 #include <ATen/TypeDefault.h>
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations and dispatchers
-#include "fbgemm_gpu/embedding_op_registration.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include <torch/script.h>
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 ////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
@@ -365,9 +365,6 @@ class {{ autograd_func }} :
 static torch::autograd::variable_list backward(
     torch::autograd::AutogradContext* ctx,
     torch::autograd::variable_list grad_outputs) {
-    // backward does weights mutation, allowed in aot_autograd only with no_grad
-    at::AutoGradMode m(false);
-
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
     auto host_weights = *savedItr++;

@@ -10,7 +10,7 @@
 
 #include <ATen/ATen.h>
 
-#include "fbgemm_gpu/utils/vec4acc.cuh"
+#include "fbgemm_gpu/utils/vec4.cuh"
 
 namespace fbgemm_gpu {
 

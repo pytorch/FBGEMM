@@ -21,9 +21,9 @@
 {%- if has_gpu_support %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations and dispatchers
-#include "fbgemm_gpu/embedding_op_registration.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include <torch/script.h>
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 ////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"

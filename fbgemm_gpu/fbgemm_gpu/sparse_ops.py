@@ -26,7 +26,6 @@ except Exception:
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip"
         )
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops_hip"
         )
@@ -36,7 +35,8 @@ except Exception:
             "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
         )
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
+
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library(
@@ -254,7 +254,7 @@ def tbe_input_combine_abstract(
         torch._check(index.is_contiguous())
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -291,7 +291,7 @@ def tbe_input_combine_with_length_abstract(
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
         total_offsets = total_offsets + offset.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -464,6 +464,8 @@ def block_bucketize_sparse_features_meta(
     weights: Optional[torch.Tensor] = None,
     batch_size_per_feature: Optional[torch.Tensor] = None,
     max_B: int = -1,
+    block_bucketize_pos: Optional[torch.Tensor] = None,
+    maybe_keep_orig_idx: bool = False,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -951,14 +953,17 @@ def permute_pooled_embs_split_abstract(
     return torch.empty_like(pooled_embs)
 
 
-def permute_duplicate_pooled_embs_split_abstract(
-    pooled_embs: Tensor,
-    offset_dim_list: Tensor,
-    permute_list: Tensor,
-    inv_offset_dim_list: Tensor,
-    inv_permute_list: Tensor,
-) -> Tensor:
-    return torch.empty_like(pooled_embs)
+def histogram_binning_calibration_abstract(
+    logit: Tensor,
+    bin_num_examples: Tensor,
+    bin_num_positives: Tensor,
+    positive_weight: float,
+    lower_bound: float,
+    upper_bound: float,
+    bin_ctr_in_use_after: int,
+    bin_ctr_weight_value: float,
+) -> Tuple[Tensor, Tensor]:
+    return torch.empty_like(logit), torch.empty([logit.numel()], dtype=torch.int64)
 
 
 def _setup() -> None:
@@ -1084,10 +1089,9 @@ def _setup() -> None:
             "fbgemm::permute_pooled_embs_split", permute_pooled_embs_split_abstract
         )
         impl_abstract(
-            "fbgemm::permute_duplicate_pooled_embs_split",
-            permute_duplicate_pooled_embs_split_abstract,
+            "fbgemm::histogram_binning_calibration",
+            histogram_binning_calibration_abstract,
         )
-
         _setup.done = True
 
 

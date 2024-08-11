@@ -15,6 +15,7 @@ set(fbgemm_sources_include_directories
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
   ${CMAKE_CURRENT_SOURCE_DIR}/../../include
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
   # PyTorch
   ${TORCH_INCLUDE_DIRS}
   # Third-party
@@ -22,6 +23,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 
 set(attention_ops_sources
@@ -36,10 +38,15 @@ if(USE_ROCM)
 		src/quantize/quantize.cu
 		src/quantize/quantize.cpp)
 else()
-	set(quantize_ops_sources
-		src/quantize/cutlass_extensions.cu
-		src/quantize/quantize.cu
-		src/quantize/quantize.cpp)
+  set(quantize_ops_sources
+    src/quantize/cutlass_extensions.cu
+    src/quantize/cutlass_extensions/f8f8bf16_blockwise.cu
+    src/quantize/cutlass_extensions/f8f8bf16_cublas.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise.cu
+    src/quantize/cutlass_extensions/i8i8bf16.cu
+    src/quantize/cutlass_extensions/i8i8bf16_dynamic.cu
+    src/quantize/quantize.cu
+    src/quantize/quantize.cpp)
 endif()
 
 set(comm_ops_sources

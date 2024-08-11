@@ -9,7 +9,6 @@
 #ifndef PYT_MX_MX_CUH
 #define PYT_MX_MX_CUH
 
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
 #include "mx_common.cuh"
 
 //-----------------------------------------------------------------------
