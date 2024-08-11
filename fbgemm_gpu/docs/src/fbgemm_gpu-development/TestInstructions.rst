@@ -90,3 +90,26 @@ To run the benchmarks:
   cd bench
 
   python split_table_batched_embeddings_benchmark.py uvm
+
+Testing the forward pass functionality
+--------------------------------------
+
+To test the basic forwarding operation, there are two separate files: one to test the default or reference version, and one to test the autovectorized version, if available.
+These unit tests verify the correctness of the operations against a reference and can be easily extended to test for new autovectorized implementations.
+
+To run the tests:
+
+.. code:: sh
+
+  # !! Run inside the Conda environment !!
+
+  # From the /fbgemm_gpu/ directory
+  cd test
+
+  # Test reference version
+  python -m tbe.inference.nbit_forward_test
+
+  # Test autovectorized version
+  python -m tbe.inference.nbit_forward_autovec_test
+
+  # The corresponding pytest command may also be used, as detailed in previous sections
