@@ -273,7 +273,8 @@ INSTANTIATE_SPMDM_INDEX_T()
 
 template <typename IndexType, typename OffsetType, typename OutType>
 bool EmbeddingSpMDMNBit_autovec(
-    const int bit_rate,
+    const int input_bit_rate,
+    [[maybe_unused]] const int output_bit_rate,
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -289,9 +290,21 @@ bool EmbeddingSpMDMNBit_autovec(
     int64_t output_stride /*=-1*/,
     int64_t input_stride /*=-1*/,
     const bool scale_bias_last /*=true*/,
+    const bool no_bag /*=false*/,
     const bool is_bf16_out /*=false*/) {
-  assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
-  const int num_elem_per_byte = 8 / bit_rate;
+  assert(
+      (input_bit_rate == 2 || input_bit_rate == 4) &&
+      "input_bit_rate must be 2 or 4");
+  if (std::is_same<OutType, uint8_t>::value) {
+    assert(
+        (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
+        "we currently only support int4 to int4 for sequential TBE");
+  } else {
+    assert(
+        (output_bit_rate == 8 * sizeof(OutType)) &&
+        "output_bit_rate should be equal to 8 * sizeof(OutType)");
+  }
+  const int num_elem_per_byte = 8 / input_bit_rate;
 
   if (output_stride == -1) {
     output_stride = block_size;
@@ -333,6 +346,19 @@ bool EmbeddingSpMDMNBit_autovec(
             0);
       }
     }
+  }
+
+  if (no_bag) {
+    for (int64_t i = 0; i < output_size; ++i) {
+      const auto idx = indices[i];
+      if (idx < 0 || idx > data_size) {
+        return false;
+      }
+      const uint8_t* input_row = input + input_stride * idx;
+      memcpy(out, input_row, sizeof(uint8_t) * input_stride);
+      out += input_stride;
+    }
+    return true;
   }
 
   int64_t current = 0;
@@ -387,7 +413,7 @@ bool EmbeddingSpMDMNBit_autovec(
       const int64_t offset =
           input_stride * idx + (scale_bias_last ? 0 : scale_bias_offset);
       const uint8_t* input_row = input + offset;
-      if (bit_rate == 4) {
+      if (input_bit_rate == 4) {
         const size_t halfbufsz = (block_size + 1) / 2;
         for (size_t j = 0; j < halfbufsz; ++j) {
           float quantized1 = float(input_row[j] & 0xf);
@@ -395,7 +421,7 @@ bool EmbeddingSpMDMNBit_autovec(
           buf[j * 2] = std::fma(scale, quantized1, buf[j * 2] + bias);
           buf[j * 2 + 1] = std::fma(scale, quantized2, buf[j * 2 + 1] + bias);
         }
-      } else if (bit_rate == 2) {
+      } else if (input_bit_rate == 2) {
         size_t qbufsz = (block_size + 3) / 4;
         const uint8_t mask1 = 0x3;
         const uint8_t mask2 = 0xC;
@@ -445,7 +471,8 @@ bool EmbeddingSpMDMNBit_autovec(
 
 #define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   template FBGEMM_API bool EmbeddingSpMDMNBit_autovec(            \
-      const int bit_rate,                                         \
+      const int input_bit_rate,                                   \
+      const int output_bit_rate,                                  \
       const int64_t block_size,                                   \
       const int64_t output_size,                                  \
       const int64_t index_size,                                   \
@@ -461,11 +488,13 @@ bool EmbeddingSpMDMNBit_autovec(
       int64_t output_stride,                                      \
       int64_t input_stride,                                       \
       const bool scale_bias_last,                                 \
+      const bool no_bag,                                          \
       const bool is_bf16_out);
 
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE) \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float) \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16)
+#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
+  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, uint8_t)
 
 #define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE) \
   INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, int32_t) \

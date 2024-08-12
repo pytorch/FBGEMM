@@ -729,7 +729,8 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     const uint8_t* input,
     size_t input_rows,
     int input_columns,
-    OutputType* output) {
+    OutputType* output,
+    bool scale_bias_last) {
   static_assert(
       std::is_same<OutputType, float>() || std::is_same<OutputType, float16>(),
       "Only float and float16 types are allowed.");
@@ -742,13 +743,17 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     const std::uint8_t* input_row = input + row * input_columns;
     const float16* input_row_scale_bias = reinterpret_cast<const float16*>(
         input_row +
-        (output_columns + num_elem_per_byte - 1) / num_elem_per_byte);
+        (scale_bias_last
+             ? (output_columns + num_elem_per_byte - 1) / num_elem_per_byte
+             : 0));
     float scale = cpu_half2float(input_row_scale_bias[0]);
     float bias = cpu_half2float(input_row_scale_bias[1]);
+    const std::uint8_t* nums =
+        (scale_bias_last) ? input_row : input_row + 2 * sizeof(float16);
     OutputType* output_row = output + row * output_columns;
 
     for (int64_t col = 0; col < output_columns; ++col) {
-      std::uint8_t quantized = input_row[col / num_elem_per_byte];
+      std::uint8_t quantized = nums[col / num_elem_per_byte];
       quantized >>= (col % num_elem_per_byte) * bit_rate;
       quantized &= (1 << bit_rate) - 1;
       float output_value = scale * quantized + bias;
@@ -857,7 +862,8 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
       const uint8_t* input,                                                    \
       size_t input_rows,                                                       \
       int input_columns,                                                       \
-      type* output);                                                           \
+      type* output,                                                            \
+      bool scale_bias_last);                                                   \
   template FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<type>( \
       int bit_rate,                                                            \
       const uint8_t* input,                                                    \
