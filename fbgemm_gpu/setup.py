@@ -77,6 +77,11 @@ class FbgemmGpuBuild:
             help="NCCL (libnccl.so.2) filepath. This is required for building certain targets.",
         )
         parser.add_argument(
+            "--use_fb_only",
+            action="store_true",
+            help="Build FB only operators.",
+        )
+        parser.add_argument(
             "--cxxprefix",
             type=str,
             default=None,
@@ -275,6 +280,10 @@ class FbgemmGpuBuild:
                     f"-DNCCL_LIBRARIES={self.args.nccl_lib_path}",
                 ]
             )
+
+        if self.args.use_fb_only:
+            print("[SETUP.PY] Building the FB ONLY operators of FBGEMM_GPU ...")
+            cmake_args.append("-DUSE_FB_ONLY=ON")
 
         if self.args.cxxprefix:
             print("[SETUP.PY] Setting CMake flags ...")
