@@ -108,7 +108,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: fbgemm_gpu_release_cpu_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu_cpu-*.whl
+        path: fbgemm_gpu/dist/*.whl
+        if-no-files-found: error
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
@@ -182,4 +183,4 @@ jobs:
       if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_cpu-*.whl "$PYPI_TOKEN"
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV *.whl "$PYPI_TOKEN"
