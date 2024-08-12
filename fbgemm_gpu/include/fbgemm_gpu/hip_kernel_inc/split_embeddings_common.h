@@ -265,12 +265,13 @@ template <typename to_t, typename from_t>
 requires((sizeof(to_t) == 4 || sizeof(to_t) == 2) && (sizeof(from_t) == 4 || sizeof(from_t) == 2))
 __device__ to_t pack(const from_t& v)
 {
+    to_t result = 0;
     if constexpr(sizeof(to_t) == sizeof(from_t))
     {
-        return __builtin_bit_cast(to_t, v);
+        result = __builtin_bit_cast(to_t, v);
+        return result;
     }
 
-    to_t result = 0;
     memcpy(&result, &v, 2);
 
     return result;
