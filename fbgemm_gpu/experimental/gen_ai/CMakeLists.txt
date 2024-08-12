@@ -58,6 +58,14 @@ set(experimental_gen_ai_cpp_source_files
     ${quantize_ops_sources}
     ${comm_ops_sources})
 
+# Set the source file for FB only CPP
+if(USE_FB_ONLY)
+  file(GLOB fb_only_ops_sources
+      fb/src/*/*.cu
+      fb/src/*/*.cpp)
+  list(APPEND experimental_gen_ai_cpp_source_files ${fb_only_ops_sources})
+endif()
+
 set_source_files_properties(${experimental_gen_ai_cpp_source_files}
     PROPERTIES INCLUDE_DIRECTORIES
     "${fbgemm_sources_include_directories}")

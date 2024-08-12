@@ -27,6 +27,9 @@ if open_source:
     torch.ops.load_library(
         os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_gen_ai_py.so")
     )
+    torch.classes.load_library(
+        os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_gen_ai_py.so")
+    )
 else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:attention_ops"
