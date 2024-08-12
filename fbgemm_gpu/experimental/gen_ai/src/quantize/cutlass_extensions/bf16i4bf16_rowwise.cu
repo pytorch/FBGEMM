@@ -8,7 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <cutlass/util/host_tensor.h>
+#include <cutlass/util/device_memory.h>
 #include <cutlass/util/packed_stride.hpp>
 
 // clang-format off
@@ -19,11 +19,12 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
+#include "cutlass_extensions/include/kernel_mode.h"
+
 namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
 
-// Cutlass tensorwise kernel
 template <
     int TB_M,
     int TB_N,
@@ -31,42 +32,49 @@ template <
     int TBS_M,
     int TBS_N,
     int TBS_K,
-    bool FAST_ACCUM>
-at::Tensor f8f8bf16_impl(
-    at::Tensor XQ, // FP8
-    at::Tensor WQ, // FP8
-    at::Tensor scale) {
-  // XQ: M x K
-  // WQ: N x K
-  // output: M x N
-  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+    bool PONG,
+    typename WEIGHT_SCALE_DTYPE>
+at::Tensor bf16i4bf16_rowwise_impl(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor w_scale,
+    at::Tensor w_zp) {
+  int M = X.size(0);
   int N = WQ.size(0);
-  int K = WQ.size(1);
-  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
-  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
-  auto out_sizes = XQ.sizes().vec();
-  out_sizes.back() = N;
+  int K = X.size(1);
 
-  TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
+  int num_groups = w_scale.size(0);
+
+  TORCH_CHECK(X.is_cuda() && X.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
+  TORCH_CHECK(w_scale.is_cuda() && w_scale.is_contiguous());
+  TORCH_CHECK(w_zp.is_cuda() && w_zp.is_contiguous());
+  TORCH_CHECK(K >= num_groups && K % num_groups == 0);
 
-  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
+  int group_size = K / num_groups;
 
-  using ElementInputA = cutlass::float_e4m3_t;
-  using LayoutInputA = cutlass::layout::RowMajor;
+  auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
+
+  using ElementInputA = cutlass::bfloat16_t;
+  using LayoutInputA = cutlass::layout::ColumnMajor;
   constexpr int AlignmentInputA =
       128 /
       cutlass::sizeof_bits<
           ElementInputA>::value; // Memory access granularity/alignment of A
                                  // matrix in units of elements (up to 16 bytes)
 
-  using ElementInputB = cutlass::float_e4m3_t;
-  using LayoutInputB = cutlass::layout::ColumnMajor;
+  using ElementInputB = cutlass::int4b_t;
+  using LayoutInputB = cutlass::layout::RowMajor;
   constexpr int AlignmentInputB =
       128 /
       cutlass::sizeof_bits<
           ElementInputB>::value; // Memory access granularity/alignment of B
                                  // matrix in units of elements (up to 16 bytes)
+
+  using ElementScale = WEIGHT_SCALE_DTYPE;
+  using ElementZeroPoint = WEIGHT_SCALE_DTYPE;
+  using ElementComputeEpilogue = float;
+  using ElementAccumulator = float;
 
   using ElementOutput = cutlass::bfloat16_t;
   using LayoutOutput = cutlass::layout::ColumnMajor;
@@ -76,8 +84,6 @@ at::Tensor f8f8bf16_impl(
           ElementOutput>::value; // Memory access granularity/alignment of C
                                  // matrix in units of elements (up to 16 bytes)
 
-  using ElementAccumulator = float;
-  using ElementComputeEpilogue = float;
   using ArchTag = cutlass::arch::Sm90; // Tag indicating the minimum SM that
                                        // supports the intended feature
   using OperatorClass = cutlass::arch::OpClassTensorOp;
@@ -92,33 +98,13 @@ at::Tensor f8f8bf16_impl(
       cute::Int<TBS_K>>; // Shape of the
                          // threadblocks in a
                          // cluster
-  using StageCountType =
-      cutlass::gemm::collective::StageCountAuto; // Stage count maximized
-                                                 // based on the tile size
-  using KernelSchedule = cutlass::gemm::collective::
-      KernelScheduleAuto; // Kernel to launch based on the default setting in
-                          // the Collective Builder
-
-  using MainLoopSchedule = cute::conditional_t<
-      FAST_ACCUM,
-      cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum,
-      cutlass::gemm::KernelTmaWarpSpecialized>;
-
-  using CollectiveMainloop =
-      typename cutlass::gemm::collective::CollectiveBuilder<
-          ArchTag,
-          OperatorClass,
-          ElementInputA,
-          LayoutInputA,
-          AlignmentInputA,
-          ElementInputB,
-          LayoutInputB,
-          AlignmentInputB,
-          ElementAccumulator,
-          TileShape,
-          ClusterShape,
-          cutlass::gemm::collective::StageCountAuto,
-          MainLoopSchedule>::CollectiveOp;
+  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecializedMixedInput;
+  using PongSchedule =
+      cutlass::gemm::KernelTmaWarpSpecializedPingpongMixedInput;
+  using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+  using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
+  using MainLoopSchedule =
+      cute::conditional_t<PONG, PongSchedule, DefaultSchedule>;
 
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
@@ -126,16 +112,33 @@ at::Tensor f8f8bf16_impl(
           cutlass::arch::OpClassTensorOp,
           TileShape,
           ClusterShape,
-          cutlass::epilogue::collective::EpilogueTileAuto,
+          EpilogueTileType,
           ElementAccumulator,
-          ElementComputeEpilogue,
+          ElementAccumulator,
           ElementOutput,
           LayoutOutput,
           AlignmentOutput,
           ElementOutput,
           LayoutOutput,
           AlignmentOutput,
-          cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
+          EpilogueSchedule>::CollectiveOp;
+
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          cute::tuple<ElementInputB, ElementScale, ElementZeroPoint>,
+          LayoutInputB,
+          AlignmentInputB,
+          ElementInputA,
+          LayoutInputA,
+          AlignmentInputA,
+          ElementAccumulator,
+          TileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+              sizeof(typename CollectiveEpilogue::SharedStorage))>,
+          MainLoopSchedule>::CollectiveOp;
 
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
       cute::Shape<int, int, int>,
@@ -147,6 +150,7 @@ at::Tensor f8f8bf16_impl(
   using StrideInputA = typename Gemm::GemmKernel::StrideA;
   using StrideInputB = typename Gemm::GemmKernel::StrideB;
   using StrideOutput = typename Gemm::GemmKernel::StrideC;
+  using StrideS = typename CollectiveMainloop::StrideScale;
 
   StrideInputA stride_a = cutlass::make_cute_packed_stride(
       StrideInputA{}, cute::make_shape(M, K, cute::Int<1>{}));
@@ -154,19 +158,26 @@ at::Tensor f8f8bf16_impl(
       StrideInputB{}, cute::make_shape(N, K, cute::Int<1>{}));
   StrideOutput stride_output = cutlass::make_cute_packed_stride(
       StrideOutput{}, cute::make_shape(N, M, cute::Int<1>{}));
+  StrideS stride_S = cutlass::make_cute_packed_stride(
+      StrideS{}, cute::make_shape(N, num_groups, cute::Int<1>{}));
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
       {N, M, K},
       {reinterpret_cast<ElementInputB*>(WQ.data_ptr()),
        stride_b,
-       reinterpret_cast<ElementInputA*>(XQ.data_ptr()),
-       stride_a},
-      {{scale.data_ptr<float>(), 0},
+       reinterpret_cast<ElementInputA*>(X.data_ptr()),
+       stride_a,
+       reinterpret_cast<ElementScale*>(w_scale.data_ptr()),
+       stride_S,
+       group_size,
+       reinterpret_cast<ElementZeroPoint*>(w_zp.data_ptr())},
+      {{1.0, 0.0},
        (ElementOutput*)Y.data_ptr<at::BFloat16>(),
        stride_output,
        (ElementOutput*)Y.data_ptr<at::BFloat16>(),
        stride_output}};
+
   Gemm gemm;
 
   // Using the arguments, query for extra workspace required for matrix
@@ -189,6 +200,7 @@ at::Tensor f8f8bf16_impl(
   }
 
   status = gemm(at::cuda::getCurrentCUDAStream());
+
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error(
         std::string("cutlass cannot run") +
@@ -199,36 +211,79 @@ at::Tensor f8f8bf16_impl(
   return Y;
 }
 
-at::Tensor f8f8bf16(
-    at::Tensor XQ, // FP8
-    at::Tensor WQ, // FP8
-    at::Tensor scale,
-    bool use_fast_accum) {
-  auto M = XQ.size(0);
-  // auto K = XQ.size(1);
-  // auto N = WQ.size(0);
-  if (use_fast_accum) {
-    if (M <= 128) {
-      return f8f8bf16_impl<64, 128, 128, 2, 1, 1, true>(XQ, WQ, scale);
-    } else {
-      return f8f8bf16_impl<128, 128, 128, 1, 2, 1, true>(XQ, WQ, scale);
-    }
+template <typename WEIGHT_SCALE_DTYPE>
+at::Tensor dispatch_bf16i4bf16_rowwise_kernel(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor w_scale,
+    at::Tensor w_zp) {
+  KernelMode kernel = get_kernel_mode(X, WQ);
+  if (kernel == KernelMode::Small) {
+    return bf16i4bf16_rowwise_impl<
+        64,
+        128,
+        128,
+        1,
+        1,
+        1,
+        false,
+        WEIGHT_SCALE_DTYPE>(X, WQ, w_scale, w_zp);
+  } else if (kernel == KernelMode::Large) {
+    return bf16i4bf16_rowwise_impl<
+        64,
+        256,
+        128,
+        1,
+        1,
+        1,
+        true,
+        WEIGHT_SCALE_DTYPE>(X, WQ, w_scale, w_zp);
   } else {
-    if (M <= 128) {
-      return f8f8bf16_impl<64, 128, 128, 2, 1, 1, false>(XQ, WQ, scale);
-    } else {
-      return f8f8bf16_impl<128, 128, 128, 1, 2, 1, false>(XQ, WQ, scale);
-    }
+    return bf16i4bf16_rowwise_impl<
+        64,
+        256,
+        128,
+        1,
+        1,
+        1,
+        false,
+        WEIGHT_SCALE_DTYPE>(X, WQ, w_scale, w_zp);
+  }
+}
+
+at::Tensor bf16i4bf16_rowwise(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor w_scale,
+    at::Tensor w_zp) {
+  // Check datatypes.
+  TORCH_CHECK(
+      (w_scale.dtype() == at::kFloat && w_zp.dtype() == at::kFloat) ||
+          (w_scale.dtype() == at::kHalf && w_zp.dtype() == at::kHalf) ||
+          (w_scale.dtype() == at::kBFloat16 && w_zp.dtype() == at::kBFloat16),
+      "Weight scale and zero point tensors must be float32, bfloat16, or float16, and dtype of weight scale and zero point tensors must be the same .");
+
+  if (w_scale.dtype() == at::kFloat) {
+    return dispatch_bf16i4bf16_rowwise_kernel<float>(X, WQ, w_scale, w_zp);
+  } else if (w_scale.dtype() == at::kHalf) {
+    return dispatch_bf16i4bf16_rowwise_kernel<cutlass::half_t>(
+        X, WQ, w_scale, w_zp);
+  } else if (w_scale.dtype() == at::kBFloat16) {
+    return dispatch_bf16i4bf16_rowwise_kernel<cutlass::bfloat16_t>(
+        X, WQ, w_scale, w_zp);
+  } else {
+    throw std::runtime_error(
+        "Weight scale and zero point data type not supported in bf16i4bf16_rowwise");
   }
 }
 
 #else
 
-at::Tensor f8f8bf16(
-    at::Tensor XQ, // FP8
-    at::Tensor WQ, // FP8
-    at::Tensor scale,
-    bool use_fast_accum) {
+at::Tensor bf16i4bf16_rowwise(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor w_scale,
+    at::Tensor w_zp) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
