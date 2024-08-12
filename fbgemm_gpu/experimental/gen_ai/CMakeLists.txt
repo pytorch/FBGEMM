@@ -40,11 +40,14 @@ if(USE_ROCM)
 else()
   set(quantize_ops_sources
     src/quantize/cutlass_extensions.cu
+    src/quantize/cutlass_extensions/f8f8bf16.cu
     src/quantize/cutlass_extensions/f8f8bf16_blockwise.cu
     src/quantize/cutlass_extensions/f8f8bf16_cublas.cu
     src/quantize/cutlass_extensions/f8f8bf16_rowwise.cu
     src/quantize/cutlass_extensions/i8i8bf16.cu
+    src/quantize/cutlass_extensions/f8i4bf16_rowwise.cu
     src/quantize/cutlass_extensions/i8i8bf16_dynamic.cu
+    src/quantize/cutlass_extensions/bf16i4bf16_rowwise.cu
     src/quantize/quantize.cu
     src/quantize/quantize.cpp)
 endif()
