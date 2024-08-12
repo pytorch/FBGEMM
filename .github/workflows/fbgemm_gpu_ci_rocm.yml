@@ -119,7 +119,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu_nightly_rocm-*.whl
+        path: fbgemm_gpu/dist/*.whl
+        if-no-files-found: error
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI

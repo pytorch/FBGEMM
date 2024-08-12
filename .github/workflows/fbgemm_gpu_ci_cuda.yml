@@ -121,7 +121,8 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu_nightly-*.whl
+        path: fbgemm_gpu/dist/*.whl
+        if-no-files-found: error
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
@@ -211,4 +212,4 @@ jobs:
       if: ${{ (github.event_name == 'schedule' && matrix.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == matrix.cuda-version-publish) }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_nightly-*.whl "$PYPI_TOKEN"
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV *.whl "$PYPI_TOKEN"
