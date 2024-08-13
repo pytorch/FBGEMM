@@ -54,7 +54,7 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
     pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> self,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor32<scalar_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits>
         values,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         count) {
@@ -118,7 +118,7 @@ Tensor masked_index_impl(
                at::cuda::getCurrentCUDAStream()>>>(
                 MAKE_PTA_WITH_NAME(func_name, self, scalar_t, 2, 64),
                 MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 32),
+                MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 64),
                 MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       } // lambda
