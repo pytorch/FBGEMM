@@ -19,8 +19,8 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
+#include "cutlass_extensions/include/fp8_blockwise_cutlass_helpers.h"
 #include "cutlass_extensions/include/kernel_mode.h"
-#include "fp8_blockwise_cutlass_helpers.h"
 
 namespace {
 
