@@ -21,7 +21,7 @@ fp8_rowwise_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
   int K = WQ.size(1);
-  bool pad = (M % 128 != 0) || (N % 128 != 0) || (K % 128 != 0);
+  bool pad = (K % 128 != 0);
 
   // Dispatch based on whether padding is needed or not.
   if (pad) {
@@ -41,9 +41,11 @@ fp8_rowwise_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave
         1,
         1,
         ck::BlockGemmPipelineScheduler::Interwave,
-        ck::BlockGemmPipelineVersion::v1>;
+        ck::BlockGemmPipelineVersion::v1,
+        ck::tensor_operation::device::GemmSpecialization::KPadding>;
     // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
+    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
+        XQ, WQ, x_scale, w_scale, Y);
   } else {
     using DeviceGemmInstance = DeviceGemmHelper<
         256,
@@ -64,6 +66,7 @@ fp8_rowwise_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave
         ck::BlockGemmPipelineVersion::v1,
         ck::tensor_operation::device::GemmSpecialization::Default>;
     // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
+    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
+        XQ, WQ, x_scale, w_scale, Y);
   }
 }

@@ -9,7 +9,7 @@
 #include "fp8_rowwise_common.h"
 
 at::Tensor
-fp8_rowwise_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v4(
+fp8_rowwise_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -21,7 +21,7 @@ fp8_rowwise_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
   int K = WQ.size(1);
-  bool pad = (K % 64 != 0);
+  bool pad = (K % 128 != 0);
 
   // Dispatch based on whether padding is needed or not.
   if (pad) {
@@ -29,19 +29,19 @@ fp8_rowwise_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_
         256,
         256,
         256,
-        64,
-        32,
-        32,
-        4,
-        4,
-        S<4, 64, 1>,
-        S<4, 64, 1>,
+        128,
+        16,
+        16,
+        8,
+        8,
+        S<8, 32, 1>,
+        S<8, 32, 1>,
         S<1, 32, 1, 8>,
         S<8, 8, 1>,
         1,
-        1,
+        2,
         ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v4,
+        ck::BlockGemmPipelineVersion::v3,
         ck::tensor_operation::device::GemmSpecialization::KPadding>;
     // Run kernel instance.
     return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
@@ -51,19 +51,19 @@ fp8_rowwise_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_
         256,
         256,
         256,
-        64,
-        32,
-        32,
-        4,
-        4,
-        S<4, 64, 1>,
-        S<4, 64, 1>,
+        128,
+        16,
+        16,
+        8,
+        8,
+        S<8, 32, 1>,
+        S<8, 32, 1>,
         S<1, 32, 1, 8>,
         S<8, 8, 1>,
         1,
-        1,
+        2,
         ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v4,
+        ck::BlockGemmPipelineVersion::v3,
         ck::tensor_operation::device::GemmSpecialization::Default>;
     // Run kernel instance.
     return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
