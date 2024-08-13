@@ -808,6 +808,7 @@ def _kernel_matmul_fp8_row_tma_persistent(
             acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
 
 
+@torch.library.custom_op("triton::matmul_fp8_row", mutates_args=())
 def matmul_fp8_row(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -1063,6 +1064,25 @@ def matmul_fp8_row(
             NUM_SMS=NUM_SMS,
         )
     return c.view(output_shape)
+
+
+@matmul_fp8_row.register_fake
+def matmul_fp8_row_meta(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_scale: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    dot_out_dtype: Optional[torch.dtype] = None,
+    allow_tf32: bool = True,
+    fp8_fast_accum: bool = True,
+    imprecise_acc: bool = False,
+    tma_persistent: bool = False,
+) -> torch.Tensor:
+    """Shape function for torch compile."""
+    M, K = a.shape
+    N, K = b.shape
+    return torch.empty((M, N), device=a.device, dtype=torch.bfloat16)
 
 
 # pruned some unreasonable config
@@ -1794,6 +1814,7 @@ def triton_quantize_fp8_row(
     return a_fp8.view(a_shape), a_scale
 
 
+@torch.library.custom_op("triton::quantize_fp8_row", mutates_args=())
 def quantize_fp8_row(
     a: Tensor,
     scale_ub: Optional[Tensor] = None,
@@ -1843,6 +1864,23 @@ def quantize_fp8_row(
     a_scale = a_scale.to(output_device)  # pyre-ignore
     del a
     return a_fp8.view(a_shape), 1 / a_scale  # pyre-ignore
+
+
+@quantize_fp8_row.register_fake
+def quantize_fp8_row_meta(
+    a: Tensor,
+    scale_ub: Optional[Tensor] = None,
+    use_triton: bool = True,
+    output_device: Optional[torch.device] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Shape function for torch compile."""
+    if output_device is None:
+        output_device = a.device
+    M, K = a.shape
+    dtype = get_fp8_constants()[0]
+    fake_out = torch.empty((M, K), device=output_device, dtype=dtype)
+    fake_scale = torch.empty((M), device=output_device, dtype=torch.float32)
+    return fake_out, fake_scale
 
 
 @triton.autotune(
