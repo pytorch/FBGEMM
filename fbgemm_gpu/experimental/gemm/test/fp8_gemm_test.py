@@ -102,6 +102,7 @@ class TestFp8Matmul(unittest.TestCase):
             fp8_fast_accum: bool,
             use_bias: bool = False,
             transpose_input: bool = False,
+            compile: bool = False,
         ) -> None:
             M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -113,13 +114,42 @@ class TestFp8Matmul(unittest.TestCase):
                 torch.randn(N, dtype=torch.float32, device=device) if use_bias else None
             )
 
-            # Quantize inputs.
-            a_fp8, a_scale = quantize_fp8_row(a)
-            b_fp8, b_scale = quantize_fp8_row(b)
+            # Test that we can compile the full fp8 matmul operation.
+            if compile:
 
-            result = matmul_fp8_row(
-                a_fp8, b_fp8, a_scale, b_scale, bias=bias, fp8_fast_accum=fp8_fast_accum
-            )
+                @torch.compile(fullgraph=True)
+                def _quantize_matmul_fp8(
+                    a: torch.Tensor,
+                    b: torch.Tensor,
+                    bias: Optional[torch.Tensor],
+                    fp8_fast_accum: bool,
+                ) -> torch.Tensor:
+                    a_fp8, a_scale = quantize_fp8_row(a)
+                    b_fp8, b_scale = quantize_fp8_row(b)
+                    return matmul_fp8_row(
+                        a_fp8,
+                        b_fp8,
+                        a_scale,
+                        b_scale,
+                        bias=bias,
+                        fp8_fast_accum=fp8_fast_accum,
+                    )
+
+                result = _quantize_matmul_fp8(a, b, bias, fp8_fast_accum)
+            # Otherwise run normally.
+            else:
+                # Quantize inputs.
+                a_fp8, a_scale = quantize_fp8_row(a)
+                b_fp8, b_scale = quantize_fp8_row(b)
+
+                result = matmul_fp8_row(
+                    a_fp8,
+                    b_fp8,
+                    a_scale,
+                    b_scale,
+                    bias=bias,
+                    fp8_fast_accum=fp8_fast_accum,
+                )
             self.assertTrue(result.shape == (M, N))
 
             expected_result = a @ b.T
@@ -130,6 +160,7 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
         _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True)
+        _test_matmul_fp8_row((3, 4, 5), torch.device("cuda"), True, compile=True)
         _test_matmul_fp8_row(
             (5, 4, 5), torch.device("cuda"), True, transpose_input=True
         )
