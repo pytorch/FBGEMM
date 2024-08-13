@@ -87,6 +87,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga1b0baea42aa4a092e32976f24c246465"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6c17fd18abf27a7776661565e7f1e011" id="r_ga6c17fd18abf27a7776661565e7f1e011"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga6c17fd18abf27a7776661565e7f1e011">ssd_generate_row_addrs_cuda</a> (const Tensor &amp;lxu_cache_locations, const Tensor &amp;assigned_cache_slots, const Tensor &amp;linear_index_inverse_indices, const Tensor &amp;unique_indices_count_cumsum, const Tensor &amp;cache_set_inverse_indices, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights, const Tensor &amp;unique_indices_length, const Tensor &amp;cache_set_sorted_unique_indices)</td></tr>
 <tr class="separator:ga6c17fd18abf27a7776661565e7f1e011"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gabac3e6cc0bdc3bd2306604a7eeabc88c" id="r_gabac3e6cc0bdc3bd2306604a7eeabc88c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gabac3e6cc0bdc3bd2306604a7eeabc88c">ssd_update_row_addrs_cuda</a> (const Tensor &amp;ssd_row_addrs_curr, const Tensor &amp;inserted_ssd_weights_curr_next_map, const Tensor &amp;lxu_cache_locations_curr, const Tensor &amp;linear_index_inverse_indices_curr, const Tensor &amp;unique_indices_count_cumsum_curr, const Tensor &amp;cache_set_inverse_indices_curr, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights_next, const Tensor &amp;unique_indices_length_curr)</td></tr>
+<tr class="separator:gabac3e6cc0bdc3bd2306604a7eeabc88c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
@@ -298,6 +300,80 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>A tuple of tensors (the SSD row address tensor and the post backward evicted index tensor) </dd></dl>
+
+</div>
+</div>
+<a id="gabac3e6cc0bdc3bd2306604a7eeabc88c" name="gabac3e6cc0bdc3bd2306604a7eeabc88c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gabac3e6cc0bdc3bd2306604a7eeabc88c">&#9670;&#160;</a></span>ssd_update_row_addrs_cuda()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void ssd_update_row_addrs_cuda </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>ssd_row_addrs_curr</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>inserted_ssd_weights_curr_next_map</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations_curr</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>linear_index_inverse_indices_curr</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>unique_indices_count_cumsum_curr</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>cache_set_inverse_indices_curr</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_weights</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>inserted_ssd_weights_next</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>unique_indices_length_curr</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Update memory addresses for SSD TBE data. </p>
+<p>When pipeline prefetching is enabled, data in a scratch pad of the current iteration can be moved to L1 or a scratch pad of the next iteration during the prefetch step. This operator updates the memory addresses of data that is relocated to the correct location.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">ssd_row_addrs_curr</td><td>The tensor that contains the row address of the current iteration </td></tr>
+    <tr><td class="paramname">inserted_ssd_weights_curr_next_map</td><td>The tensor that contains mapping between the location of each index in the current iteration in the scratch pad of the next iteration. (-1 = the data has not been moved). inserted_ssd_weights_curr_next_map[i] is the location </td></tr>
+    <tr><td class="paramname">lxu_cache_locations_curr</td><td>The tensor that contains cache slots where data is stored for the <em>full</em> list of indices for the current iteration. -1 is a sentinel value that indicates that data is not in cache. </td></tr>
+    <tr><td class="paramname">linear_index_inverse_indices_curr</td><td>The tensor that contains the original position of linear indices before being sorted for the current iteration </td></tr>
+    <tr><td class="paramname">unique_indices_count_cumsum_curr</td><td>The tensor that contains the the exclusive prefix sum results of the counts of unique indices for the current iteration </td></tr>
+    <tr><td class="paramname">cache_set_inverse_indices_curr</td><td>The tensor that contains the original positions of cache sets before being sorted for the current iteration </td></tr>
+    <tr><td class="paramname">lxu_cache_weights</td><td>The LXU cache tensor </td></tr>
+    <tr><td class="paramname">inserted_ssd_weights_next</td><td>The scratch pad tensor for the next iteration </td></tr>
+    <tr><td class="paramname">unique_indices_length_curr</td><td>The tensor that contains the number of unique indices (GPU tensor) for the current iteration</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
 
 </div>
 </div>

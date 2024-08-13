@@ -519,6 +519,31 @@
 </dl>
 </dd></dl>
 
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv425ssd_update_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor">
+<span id="_CPPv325ssd_update_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor"></span><span id="_CPPv225ssd_update_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor"></span><span id="ssd_update_row_addrs_cuda__TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR.TensorCR"></span><span class="target" id="group__embedding-ssd_1gabac3e6cc0bdc3bd2306604a7eeabc88c"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">ssd_update_row_addrs_cuda</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">ssd_row_addrs_curr</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">inserted_ssd_weights_curr_next_map</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">lxu_cache_locations_curr</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">linear_index_inverse_indices_curr</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">unique_indices_count_cumsum_curr</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cache_set_inverse_indices_curr</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">lxu_cache_weights</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">inserted_ssd_weights_next</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">unique_indices_length_curr</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv425ssd_update_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Update memory addresses for SSD TBE data. </p>
+<p>When pipeline prefetching is enabled, data in a scratch pad of the current iteration can be moved to L1 or a scratch pad of the next iteration during the prefetch step. This operator updates the memory addresses of data that is relocated to the correct location.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ssd_row_addrs_curr</strong> – The tensor that contains the row address of the current iteration </p></li>
+<li><p><strong>inserted_ssd_weights_curr_next_map</strong> – The tensor that contains mapping between the location of each index in the current iteration in the scratch pad of the next iteration. (-1 = the data has not been moved). inserted_ssd_weights_curr_next_map[i] is the location </p></li>
+<li><p><strong>lxu_cache_locations_curr</strong> – The tensor that contains cache slots where data is stored for the <em>full</em> list of indices for the current iteration. -1 is a sentinel value that indicates that data is not in cache. </p></li>
+<li><p><strong>linear_index_inverse_indices_curr</strong> – The tensor that contains the original position of linear indices before being sorted for the current iteration </p></li>
+<li><p><strong>unique_indices_count_cumsum_curr</strong> – The tensor that contains the the exclusive prefix sum results of the counts of unique indices for the current iteration </p></li>
+<li><p><strong>cache_set_inverse_indices_curr</strong> – The tensor that contains the original positions of cache sets before being sorted for the current iteration </p></li>
+<li><p><strong>lxu_cache_weights</strong> – The LXU cache tensor </p></li>
+<li><p><strong>inserted_ssd_weights_next</strong> – The scratch pad tensor for the next iteration </p></li>
+<li><p><strong>unique_indices_length_curr</strong> – The tensor that contains the number of unique indices (GPU tensor) for the current iteration</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>None </p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 </section>
 
