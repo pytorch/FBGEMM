@@ -67,6 +67,15 @@ class SplitEmbedding{{ optimizer_class_name }}(Optimizer):
         {%- if "beta2" in args.split_function_arg_names %}
         beta2: float = 0.999,
         {%- endif %}
+        {%- if "step_ema" in args.split_function_arg_names %}
+        step_ema: float = 10000,
+        {%- endif %}
+        {%- if "step_swap" in args.split_function_arg_names %}
+        step_swap: float = 10000,
+        {%- endif %}
+        {%- if "step_start" in args.split_function_arg_names %}
+        step_start: float = 0,
+        {%- endif %}
         {%- if "weight_decay" in args.split_function_arg_names %}
         weight_decay: float = 0.0,
         {%- endif %}
@@ -94,6 +103,15 @@ class SplitEmbedding{{ optimizer_class_name }}(Optimizer):
             {%- endif %}
             {%- if "beta2" in args.split_function_arg_names %}
             beta2=beta2,
+            {%- endif %}
+            {%- if "step_ema" in args.split_function_arg_names %}
+            step_ema=step_ema,
+            {%- endif %}
+            {%- if "step_swap" in args.split_function_arg_names %}
+            step_swap=step_swap,
+            {%- endif %}
+            {%- if "step_start" in args.split_function_arg_names %}
+            step_start=step_start,
             {%- endif %}
             {%- if "weight_decay" in args.split_function_arg_names %}
             weight_decay=weight_decay,
@@ -139,7 +157,7 @@ class SplitEmbedding{{ optimizer_class_name }}(Optimizer):
                     rowwise = False
                     {% endif %}
                     {% elif state_tensor == "momentum2" %}
-                    {% if optimizer in ["partial_rowwise_adam", "partial_rowwise_lamb"] %}
+                    {% if optimizer in ["partial_rowwise_adam", "partial_rowwise_lamb", "ensemble_rowwise_adagrad"] %}
                     rowwise = True
                     {% else %}
                     rowwise = False
@@ -188,6 +206,15 @@ class SplitEmbedding{{ optimizer_class_name }}(Optimizer):
         {%- endif %}
         {%- if "beta2" in args.split_function_arg_names %}
         self.beta2 = beta2
+        {%- endif %}
+        {%- if "step_ema" in args.split_function_arg_names %}
+        self.step_ema = step_ema
+        {%- endif %}
+        {%- if "step_swap" in args.split_function_arg_names %}
+        self.step_swap = step_swap
+        {%- endif %}
+        {%- if "step_start" in args.split_function_arg_names %}
+        self.step_start = step_start
         {%- endif %}
         {%- if "weight_decay" in args.split_function_arg_names %}
         self.weight_decay = weight_decay
