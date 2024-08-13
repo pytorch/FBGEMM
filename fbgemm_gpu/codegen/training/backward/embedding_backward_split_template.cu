@@ -1263,10 +1263,7 @@ Tensor {{ embedding_cuda_op }}(
                     const static std::set<int> D_emb_s {64, 128, 192, 256};
                     hip_opt_kernel_supported = (D_emb_s.find(max_D) != D_emb_s.end());
                 }
-                // FIXME: support half as cache_t
-                if (lxu_cache_weights.scalar_type() != at::ScalarType::Float) {
-                    hip_opt_kernel_supported = false;
-                }
+
                 if (hip_opt_kernel_supported) {
                     auto batch_mdiv = [](uint32_t d) -> magic_div_u32_t {
                         assert(d >= 1 && d <= INT32_MAX);
