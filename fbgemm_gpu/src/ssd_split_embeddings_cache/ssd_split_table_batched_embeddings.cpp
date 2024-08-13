@@ -26,7 +26,9 @@ ssd_cache_populate_actions_cuda(
     int64_t prefetch_dist,
     Tensor lru_state,
     bool gather_cache_stats,
-    std::optional<Tensor> ssd_cache_stats);
+    std::optional<Tensor> ssd_cache_stats,
+    const bool lock_cache_line,
+    const c10::optional<Tensor>& lxu_cache_locking_counter);
 
 /// @ingroup embedding-ssd
 ///
@@ -298,7 +300,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    int prefetch_dist, "
       "    Tensor lru_state, "
       "    bool gather_cache_stats=False, "
-      "    Tensor? ssd_cache_stats=None"
+      "    Tensor? ssd_cache_stats=None, "
+      "    bool lock_cache_line=False, "
+      "    Tensor? lxu_cache_locking_counter=None"
       ") -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
   DISPATCH_TO_CUDA(
       "ssd_cache_populate_actions", ssd_cache_populate_actions_cuda);
