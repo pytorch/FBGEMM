@@ -148,6 +148,56 @@ std::tuple<Tensor, Tensor> ssd_generate_row_addrs_cuda(
     const Tensor& unique_indices_length,
     const Tensor& cache_set_sorted_unique_indices);
 
+/// @ingroup embedding-ssd
+///
+/// @brief Update memory addresses for SSD TBE data
+///
+/// When pipeline prefetching is enabled, data in a scratch pad of the
+/// current iteration can be moved to L1 or a scratch pad of the next
+/// iteration during the prefetch step. This operator updates the
+/// memory addresses of data that is relocated to the correct
+/// location.
+///
+/// @param ssd_row_addrs_curr The tensor that contains the row address
+///            of the current iteration
+/// @param inserted_ssd_weights_curr_next_map The tensor that contains
+///            mapping between the location of each index in the
+///            current iteration in the scratch pad of the next
+///            iteration. (-1 = the data has not been moved).
+///            inserted_ssd_weights_curr_next_map[i] is the location
+//             of index i in the next iteration's scratch pad.
+/// @param lxu_cache_locations_curr The tensor that contains cache
+///            slots where data is stored for the *full* list of
+///            indices for the current iteration. -1 is a sentinel
+///            value that indicates that data is not in cache.
+/// @param linear_index_inverse_indices_curr The tensor that contains
+///            the original position of linear indices before being
+///            sorted for the current iteration
+/// @param unique_indices_count_cumsum_curr The tensor that contains
+///            the the exclusive prefix sum results of the counts of
+///            unique indices for the current iteration
+/// @param cache_set_inverse_indices_curr The tensor that contains the
+///            original positions of cache sets before being sorted
+///            for the current iteration
+/// @param lxu_cache_weights The LXU cache tensor
+/// @param inserted_ssd_weights_next The scratch pad tensor for the
+///            next iteration
+/// @param unique_indices_length_curr The tensor that contains the
+///            number of unique indices (GPU tensor) for the current
+///            iteration
+///
+/// @return None
+void ssd_update_row_addrs_cuda(
+    const Tensor& ssd_row_addrs_curr,
+    const Tensor& inserted_ssd_weights_curr_next_map,
+    const Tensor& lxu_cache_locations_curr,
+    const Tensor& linear_index_inverse_indices_curr,
+    const Tensor& unique_indices_count_cumsum_curr,
+    const Tensor& cache_set_inverse_indices_curr,
+    const Tensor& lxu_cache_weights,
+    const Tensor& inserted_ssd_weights_next,
+    const Tensor& unique_indices_length_curr);
+
 namespace {
 class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
  public:
@@ -319,5 +369,18 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor cache_set_sorted_unique_indices"
       ") -> (Tensor, Tensor)");
   DISPATCH_TO_CUDA("ssd_generate_row_addrs", ssd_generate_row_addrs_cuda);
+  m.def(
+      "ssd_update_row_addrs("
+      "    Tensor ssd_row_addrs_curr, "
+      "    Tensor inserted_ssd_weights_curr_next_map, "
+      "    Tensor lxu_cache_locations_curr, "
+      "    Tensor linear_index_inverse_indices_curr, "
+      "    Tensor unique_indices_count_cumsum_curr, "
+      "    Tensor cache_set_inverse_indices_curr, "
+      "    Tensor lxu_cache_weights, "
+      "    Tensor inserted_ssd_weights_next, "
+      "    Tensor unique_indices_length_curr"
+      ") -> ()");
+  DISPATCH_TO_CUDA("ssd_update_row_addrs", ssd_update_row_addrs_cuda);
 }
 } // namespace
