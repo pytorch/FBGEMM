@@ -175,6 +175,7 @@ at::Tensor bf16_gemm_impl(at::Tensor A, at::Tensor B, std::optional<at::Tensor> 
       StrideB,
       DStrideArray,
       StrideC,
+      1,
       a_element_op,
       b_element_op,
       c_element_op);
