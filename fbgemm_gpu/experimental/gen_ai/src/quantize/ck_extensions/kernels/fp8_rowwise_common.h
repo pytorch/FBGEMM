@@ -190,6 +190,7 @@ at::Tensor f8f8bf16_rowwise_impl(
       StrideB,
       std::array<ck::index_t, NumDTensor>{0, 0},
       StrideE,
+      1,
       a_element_op,
       b_element_op,
       cde_element_op);
