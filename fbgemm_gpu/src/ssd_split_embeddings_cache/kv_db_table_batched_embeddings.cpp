@@ -79,8 +79,8 @@ void EmbeddingKVDB::set(
   } else { // no l2 cache
     folly::coro::blockingWait(set_kv_db_async(indices, weights, count));
   }
-  XLOG(INFO) << "set_cuda: finished set embeddings in "
-             << timer.elapsed().count() << "microseconds.";
+  XLOG_EVERY_N(INFO, 1000) << "set_cuda: finished set embeddings in "
+                           << timer.elapsed().count() << " us.";
 }
 
 void EmbeddingKVDB::get(
@@ -113,15 +113,15 @@ void EmbeddingKVDB::get(
       set_cache(missed_indices, missed_weights, missed_count);
       lookup_memcpy(missed_weights, weights, cacheContext->missed_indices_map);
     } else {
-      XLOG(INFO) << "cache hit 100%";
+      XLOG_EVERY_N(INFO, 1000) << "cache hit 100%";
       folly::coro::blockingWait(
           cache_memcpy(weights, cacheContext->cached_address_pairs));
     }
   } else { // no l2 cache
     folly::coro::blockingWait(get_kv_db_async(indices, weights, count));
   }
-  XLOG(INFO) << "get_cuda: finished get embeddings in "
-             << timer.elapsed().count() << "microseconds.";
+  XLOG_EVERY_N(INFO, 1000) << "get_cuda: finished get embeddings in "
+                           << timer.elapsed().count() << " us.";
 }
 
 std::shared_ptr<EmbeddingKVDB::CacheContext> EmbeddingKVDB::get_cache(
