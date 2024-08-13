@@ -146,6 +146,8 @@ jobs:
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.12" ]
         rocm-version: [ "6.0.2" ]
+        # Specify exactly ONE ROCm version for artifact publish
+        rocm-version-publish: [ "6.0.2" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
@@ -198,3 +200,9 @@ jobs:
     - name: Test with PyTest
       timeout-minutes: 20
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
+
+    - name: Push Wheel to PyPI
+      if: ${{ (github.event_name == 'schedule' && matrix.rocm-version == matrix.rocm-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.rocm-version == matrix.rocm-version-publish) }}
+      env:
+        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
