@@ -15,7 +15,6 @@ import os
 import tempfile
 from math import log2
 from typing import Any, Callable, List, Optional, Tuple, Type
-
 import torch  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
@@ -34,6 +33,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     UVMCacheStatsIndex,
     WeightDecayMode,
 )
+from ..cache import *  # noqa F403
 
 from torch import distributed as dist, nn, Tensor  # usort:skip
 from torch.autograd.profiler import record_function
