@@ -6,7 +6,7 @@
 
 # Keep a registry of all quantize operators.
 import abc
-from typing import List
+from typing import List, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -521,4 +521,77 @@ class CutlassFP8TensorwiseGemm_v2(QuantizeOpBase):
         return True
 
 
-##################################################################################
+@register_quantize_op
+class F8I4RowwiseGemm(QuantizeOpBase):
+    """
+    Mixed Precision FP8 Activations with Int4 Weights.
+    """
+
+    def _int4_row_quantize(
+        self,
+        x: torch.Tensor,
+        group_size: int = 128,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        n_bit = 4  # Number of target bits.
+        to_quant = x.reshape(-1, group_size).to(torch.float)
+
+        max_val = to_quant.amax(dim=1, keepdim=True)
+        min_val = to_quant.amin(dim=1, keepdim=True)
+        max_int = 2**n_bit - 1
+        min_int = 0
+        scales = (max_val - min_val).clamp(min=1e-6) / max_int
+
+        zeros = min_val + scales * (2 ** (n_bit - 1))
+
+        out = to_quant.sub(min_val).div(scales).round().clamp_(min_int, max_int)
+
+        # Recenter output and move to int8.
+        out = (out - 2 ** (n_bit - 1)).to(dtype=torch.int8).reshape(x.shape)
+
+        # Cutlass expects column major layout for scale and zero point,
+        # so we transpose here and make them contiguous.
+        scales = scales.view(x.shape[0], -1).t().contiguous()
+        zeros = zeros.view(x.shape[0], -1).t().contiguous()
+
+        return out, scales, zeros
+
+    def _pack_int4(self, x: torch.Tensor) -> torch.Tensor:
+        # Given int8 x, pack adjacent int4 values into a single int8.
+        low_x = x[:, ::2]
+        high_x = x[:, 1::2]
+
+        # High bits need to left shift, this also masks off extra bits.
+        high_x = torch.bitwise_left_shift(high_x, 4)
+        # Low bits need to have sign bits removed.
+        low_x = torch.bitwise_and(low_x, 0xF)
+
+        # Recombine into a single value with bitwise or.
+        return torch.bitwise_or(low_x, high_x).contiguous()
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = quantize_fp8_row(x)
+        wq, w_scale, w_zp = self._int4_row_quantize(w)
+        # Pack int4 values together.
+        wq = self._pack_int4(wq)
+        return xq, wq, x_scale, w_scale, w_zp
+
+    def compute(self, xq, wq, x_scale, w_scale, w_zp):
+        return torch.ops.fbgemm.f8i4bf16_rowwise(xq, wq, x_scale, w_scale, w_zp)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale, w_zp = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, w_zp)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_f8i4_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        # Not yet supported on AMD.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
