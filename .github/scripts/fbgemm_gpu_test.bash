@@ -121,6 +121,24 @@ __configure_fbgemm_gpu_test_rocm () {
   )
 }
 
+__set_feature_flags () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # NOTE: The full list of feature flags is defined (without the `FBGEMM_`
+  # prefix) in:
+  #   fbgemm_gpu/include/config/feature_gates.h
+  local feature_flags=(
+    FBGEMM_TBE_ENSEMBLE_ROWWISE_ADAGRAD
+  )
+
+  echo "[TEST] Setting feature flags ..."
+  for flag in "${feature_flags[@]}"; do
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} ${flag}=1
+  done
+}
+
 __setup_fbgemm_gpu_test () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
@@ -163,6 +181,9 @@ __setup_fbgemm_gpu_test () {
   if [ "$fbgemm_gpu_variant" != "genai" ]; then
     (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
   fi
+
+  # Set the feature flags to enable experimental features as needed
+  __set_feature_flags
 
   # Configure the PyTest args
   pytest_args=(
