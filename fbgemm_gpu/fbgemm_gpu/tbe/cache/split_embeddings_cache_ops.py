@@ -6,24 +6,12 @@
 
 # pyre-unsafe
 
+import logging
 from typing import Optional, Tuple, Union
 
 import torch
 
-lib = torch.library.Library("fbgemm", "FRAGMENT")
-lib.define(
-    """
-    get_unique_indices_v2(
-        Tensor linear_indices,
-        int max_indices,
-        bool compute_count=False,
-        bool compute_inverse_indices=False
-    ) -> (Tensor, Tensor, Tensor?, Tensor?)
-    """
-)
 
-
-@torch.library.impl(lib, "get_unique_indices_v2", "CUDA")
 def get_unique_indices_v2(
     linear_indices: torch.Tensor,
     max_indices: int,
@@ -60,3 +48,37 @@ def get_unique_indices_v2(
         return ret[0], ret[1], ret[3]
     # Return (unique_indices, length)
     return ret[:-2]
+
+
+class SplitEmbeddingsCacheOpsRegistry:
+    init = False
+
+    @staticmethod
+    def register():
+        """
+        Register ops in `torch.ops.fbgemm`
+        """
+        if not SplitEmbeddingsCacheOpsRegistry.init:
+            logging.info("Register split_embeddings_cache_ops")
+
+            for op_name, op_def, op_fn in (
+                (
+                    "get_unique_indices_v2",
+                    (
+                        "("
+                        "   Tensor linear_indices, "
+                        "   int max_indices, "
+                        "   bool compute_count=False, "
+                        "   bool compute_inverse_indices=False"
+                        ") -> (Tensor, Tensor, Tensor?, Tensor?)"
+                    ),
+                    get_unique_indices_v2,
+                ),
+            ):
+                fbgemm_op_name = "fbgemm::" + op_name
+                if fbgemm_op_name not in torch.library._defs:
+                    # Define and register op
+                    torch.library.define(fbgemm_op_name, op_def)
+                    torch.library.impl(fbgemm_op_name, "CUDA", op_fn)
+
+            SplitEmbeddingsCacheOpsRegistry.init = True
