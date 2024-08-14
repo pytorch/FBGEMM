@@ -223,27 +223,27 @@ at::Tensor dispatch_bf16i4bf16_rowwise_kernel(
         64,
         128,
         128,
+        2,
         1,
         1,
-        1,
-        false,
+        true,
         WEIGHT_SCALE_DTYPE>(X, WQ, w_scale, w_zp);
   } else if (kernel == KernelMode::Large) {
     return bf16i4bf16_rowwise_impl<
-        64,
-        256,
         128,
-        1,
+        128,
+        128,
+        2,
         1,
         1,
         true,
         WEIGHT_SCALE_DTYPE>(X, WQ, w_scale, w_zp);
   } else {
     return bf16i4bf16_rowwise_impl<
-        64,
-        256,
         128,
-        1,
+        128,
+        128,
+        2,
         1,
         1,
         false,

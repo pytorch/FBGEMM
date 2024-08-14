@@ -102,14 +102,25 @@ def benchmark(
 
             # Print out results for this op.
             tflops = 2 * m * n * k / (ms_runtime / 1e3) / 1e12
+            gbps = (
+                (
+                    quantized_vals[0].numel() * quantized_vals[0].element_size()
+                    + quantized_vals[1].numel() * quantized_vals[1].element_size()
+                    + output.numel() * output.element_size()
+                )
+                / (ms_runtime / 1e3)
+                / 1e9
+            )
             print(f"{quantize_op.name} sim: {sim_check:.3f}.")
             print(f"{quantize_op.name} ms: {ms_runtime:.3f}.")
             print(f"{quantize_op.name} TFLOPS: {tflops:.3f}.")
+            print(f"{quantize_op.name} GB/s: {gbps:.3f}.")
 
             # Save results for this operator.
             results[f"{quantize_op.name}_sim"] = sim_check.item()
             results[f"{quantize_op.name}_ms"] = ms_runtime
             results[f"{quantize_op.name}_tflops"] = tflops
+            results[f"{quantize_op.name}_gb/s"] = gbps
 
     return results
 
