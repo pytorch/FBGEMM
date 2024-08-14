@@ -619,13 +619,20 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     auto p_sorted_linear_indices_num_runs = sorted_linear_indices_num_runs.data();
     auto p_sorted_infos = sorted_infos.data();
     // max_segment_length_per_warp = max_segment_length_per_warp;
-    // indice_weights_sorted = indice_weights_sorted.packed_accessor32<float, 1, at::RestrictPtrTraits>().data();
+    {%- if weighted %}
+    auto p_indice_weights_sorted = sorted_indice_weights.data();
+    {%- endif %}
     auto emb_dim = embedding_dim;
     constexpr int32_t segment_prefetch = 2; // always 2 in split_bwd.hip
     constexpr int32_t segment_unroll = 8;   // always 8 in split_bwd.hip
     constexpr int32_t segment_split = 0;    // always 0 in split_bwd.hip
     // avbokovoy: num_rows and num_tables should come from outside
     // num_rows = dev_weights.numel() / T / max_D;
+    {%- if weighted %}
+    constexpr bool is_weighted = true;
+    {%- else %}
+    constexpr bool is_weighted = false;
+    {%- endif %}
     split_tbe_backward_hip_kernel_{{kdesc}}<
         {{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, weight_decay_mode>,
         {{optimizer}}_kernel_arg_t,
@@ -637,7 +644,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
         segment_prefetch,
         segment_unroll,
         segment_split,
-        false>(p_output_grad,
+        is_weighted>(p_output_grad,
                p_emb_table,
                p_hash_size_cumsum,
                p_sorted_linear_indices_run,
@@ -654,7 +661,10 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
                batch,
                num_rows,
                T,
-               opt_karg);
+               opt_karg
+               {%- if weighted %}
+               , p_indice_weights_sorted
+               {%- endif %});
 }
 
 {%- macro hip_template_instantiation(
