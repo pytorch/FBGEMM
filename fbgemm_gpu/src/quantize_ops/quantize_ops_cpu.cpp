@@ -428,6 +428,14 @@ at::Tensor _hfp8_to_float_cpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
+
+  m.set_python_module("fbgemm_gpu.sparse_ops");
+
   m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def(
       "FloatToFP8RowwiseQuantized(Tensor t, bool forward) -> Tensor",
