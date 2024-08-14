@@ -9,7 +9,9 @@
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh" // @manual
 #include "fbgemm_gpu/ops_utils.h" // @manual
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
+#ifdef USE_ROCM
 #include <rocprim/device/device_radix_sort.hpp>
+#endif
 // clang-format off
 #include "fbgemm_gpu/cub_namespace_prefix.cuh" // @manual
 #include <cub/device/device_radix_sort.cuh>
@@ -297,7 +299,7 @@ transpose_embedding_input(
               }
               {
                 size_t temp_storage_bytes = 0;
-#ifdef __HIP_PLATFORM_NVIDIA__ 
+#ifndef USE_ROCM
                 AT_CUDA_CHECK(
                     FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
                         nullptr,
