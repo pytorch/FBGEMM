@@ -877,7 +877,7 @@ Tensor {{ embedding_cuda_op }}(
 #define INVOKE_BACKWARD_WARP_PER_ROW_KERNEL() do {                                                                              \
                     hip_backward_warp_per_row_kernel                                                                            \
                         <<<warp_per_row_grid_size,                                                                              \
-                            dim3(kThreadGroupSize, num_warp_per_row_groups),                                                    \
+                            256,                                                    \
                             0,                                                                                                  \
                             at::cuda::getCurrentCUDAStream()>>>(                                                                \
                             grad_output_accessor,                                                                               \
@@ -1246,15 +1246,12 @@ Tensor {{ embedding_cuda_op }}(
                 const auto func_name4 = "{{ warp_kernel }}";
 #endif
                 int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
-                const int32_t warp_per_row_grid_size = std::min(
+                int32_t warp_per_row_grid_size = std::min(
                     div_round_up(total_unique_indices, num_warp_per_row_groups),
                     get_max_thread_blocks_());
 
                 // PR23: Call accelerated kernel if suitable
-                static bool once_file = [](){
                     std::cout << "Calling Kernel at file" << __FILE__ << " Line: " << __LINE__ << std::endl;
-                    return true;
-                } ();
 
                 {%- if is_rocm and not is_index_select %}
                 bool hip_opt_kernel_supported = false;      // TODO: figure out support range
@@ -1281,6 +1278,8 @@ Tensor {{ embedding_cuda_op }}(
                         result.shift = shift;
                         return result;
                     }(B);
+                    constexpr int segments_per_workgroup = 4;
+                    warp_per_row_grid_size = div_round_up(sorted_linear_indices_run.numel(), segments_per_workgroup);
                     // FIXME: The template if-endif below seems redudant. Consider removing it
                     {%- if optimizer == "rowwise_adagrad" and not dense %}
                     rowwise_adagrad_kernel_arg_t opt_karg;
@@ -1292,11 +1291,7 @@ Tensor {{ embedding_cuda_op }}(
                     opt_karg.weight_decay = weight_decay;
                     {%- endif %}
 
-                    // DEBUG
-                    static bool once = [](){
                         std::cout << "Calling HIP Perf Kernel" << std::endl;
-                        return true;
-                    } ();
                     {%- if nobag %}
                     std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
                     {%- endif %}
