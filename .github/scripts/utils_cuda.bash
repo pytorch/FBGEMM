@@ -78,6 +78,10 @@ install_cuda () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
 
+  local nvcc_prepend_flags=(
+    -allow-unsupported-compiler
+  )
+
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
     # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the
@@ -90,13 +94,20 @@ install_cuda () {
     # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
     #   https://github.com/ROCm/HIP/issues/931
     #
-    echo "[BUILD] Explicitly setting Clang as the host compiler for NVCC: ${cxx_path}"
+    echo "[BUILD] Setting Clang as the NVCC host compiler: ${cxx_path}"
 
     # shellcheck disable=SC2155,SC2086
     local cxx_path=$(conda run ${env_prefix} which c++)
-    # shellcheck disable=SC2086
-    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
+
+    nvcc_prepend_flags+=(
+      -Xcompiler -stdlib=libstdc++
+      -ccbin "${cxx_path}"
+    )
   fi
+
+  echo "[BUILD] Setting prepend flags for NVCC ..."
+  # shellcheck disable=SC2086,SC2145
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\""${nvcc_prepend_flags[@]}"\"
 
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."

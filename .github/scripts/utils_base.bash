@@ -87,17 +87,25 @@ env_name_or_prefix () {
   fi
 }
 
-append_to_library_path () {
-  local env=$1
-  local value="$2"
+append_to_envvar () {
+  local env_name="$1"
+  local key="$2"
+  local value="$3"
 
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Appending to LD_LIBRARY_PATH: ${value} ..."
+  echo "[ENV] Appending to ${key}: ${value} ..."
   # shellcheck disable=SC2155,SC2086
-  local ld_library_path=$(conda run ${env_prefix} printenv LD_LIBRARY_PATH)
+  local current_value=$(conda run ${env_prefix} printenv ${key})
   # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path:+${ld_library_path}:}${value}"
+  (print_exec conda env config vars set ${env_prefix} "${key}"="${current_value:+${current_value}:}${value}") || return 1
+}
+
+append_to_library_path () {
+  local env_name="$1"
+  local value="$2"
+
+  (append_to_envvar "${env_name}" LD_LIBRARY_PATH "${value}") || return 1
 }
 
 test_network_connection () {

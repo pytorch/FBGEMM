@@ -67,18 +67,45 @@ __conda_install_glibc () {
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y "sysroot_linux-${archname}"=2.17) || return 1
 }
 
+__set_glibcxx_preload () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+
+  echo "[TEST] Enumerating libstdc++.so files ..."
+  # shellcheck disable=SC2155
+  local all_libcxx_libs=$(find "${conda_prefix}/lib" -type f -name 'libstdc++.so*' -print | sort)
+  for f in $all_libcxx_libs; do
+    echo "$f";
+    objdump -TC "$f" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+    echo ""
+  done
+
+  # NOTE: This is needed to force FBGEMM_GPU from defaulting on loading the
+  # system-provided libstdc++, which may be older than the Conda-installed
+  # libstdc++ and thus might not support the GLIBCXX version required by
+  # FBGEMM_GPU.  This phenomenon is known to at least occur in the Netlify docs
+  # builds!
+  echo "[TEST] Appending the Conda-installed libstdc++ to LD_PRELOAD ..."
+  append_to_envvar "${env_name}" LD_PRELOAD "${all_libcxx_libs[0]}"
+}
+
 __conda_install_gcc () {
   # Install gxx_linux-<arch> from conda-forge instead of from anaconda channel.
-  #
-  # NOTE: We install g++ 10.x instead of 11.x becaue 11.x builds binaries that
-  # reference GLIBCXX_3.4.29, which may not be available on systems with older
-  # versions of libstdc++.so.6 such as CentOS Stream 8 and Ubuntu 20.04
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
+  # NOTE: g++ 10.x is installed by default instead of 11.x+ becaue 11.x+ builds
+  # binaries that reference GLIBCXX_3.4.29, which may not be available on
+  # systems  with older versions of libstdc++.so.6 such as CentOS Stream 8 and
+  # Ubuntu 20.04.  However, if libfolly is used, GLIBCXX_3.4.30+ will be
+  # required, which will require 11.x+.
+  #
   # shellcheck disable=SC2155
-  local gcc_version=10.4.0
+  local gcc_version="${GCC_VERSION:-10.4.0}"
 
   echo "[INSTALL] Installing GCC (${gcc_version}, ${archname}) through Conda ..."
   # shellcheck disable=SC2086
@@ -98,6 +125,11 @@ __conda_install_gcc () {
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
+
+  if [ "$SET_GLIBCXX_PRELOAD" == "1" ]; then
+    # Set libstdc++ preload options
+    __set_glibcxx_preload
+  fi
 }
 
 __conda_install_clang () {
@@ -105,7 +137,7 @@ __conda_install_clang () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # shellcheck disable=SC2155
-  local llvm_version=16.0.6
+  local llvm_version="${LLVM_VERSION:-16.0.6}"
 
   echo "[INSTALL] Installing Clang (${llvm_version}, ${archname}) and relevant libraries through Conda ..."
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
@@ -203,7 +235,7 @@ install_cxx_compiler () {
   #   https://forums.developer.nvidia.com/t/cuda-issues-with-clang-compiler/177589/8
   __conda_install_gcc
 
-  # Install the C/C++ compiler
+  # Install Clang if needed
   if [ "$compiler" == "clang" ]; then
     # Existing symlinks to cc / c++ / gcc / g++ will be overridden
     __conda_install_clang
