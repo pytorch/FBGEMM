@@ -56,7 +56,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
-      BUILD_VARIANT: cuda
+      BUILD_VARIANT: genai
     continue-on-error: true
     strategy:
       # Don't fast-fail all the other builds if one of the them fails
@@ -212,4 +212,4 @@ jobs:
       if: ${{ (github.event_name == 'schedule' && matrix.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == matrix.cuda-version-publish) }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV *.whl "$PYPI_TOKEN"
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl

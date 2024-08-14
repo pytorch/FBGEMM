@@ -265,6 +265,7 @@ test_all_fbgemm_gpu_modules () {
 
   # Determine the FBGEMM_GPU varaiant if needed
   if [ "$fbgemm_gpu_variant" == "" ]; then
+    echo "[TEST] FBGEMM_GPU variant not explicitly provided by user; will automatically determine from the FBGEMM_GPU installation ..."
     # shellcheck disable=SC2086
     fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
     echo "[TEST] Determined FBGEMM_GPU variant from installation: ${fbgemm_gpu_variant}"

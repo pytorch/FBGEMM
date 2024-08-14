@@ -293,14 +293,14 @@ download_from_pytorch_pip () {
 
 publish_to_pypi () {
   local env_name="$1"
-  local package_name="$2"
-  local pypi_token="$3"
-  if [ "$pypi_token" == "" ]; then
+  local pypi_token="$2"
+  local package_filepath="$3"
+  if [ "$pypi_token" == "" ] || [ "$package_filepath" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PYPI_TOKEN"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly-*.whl MY_TOKEN"
+    echo "    ${FUNCNAME[0]} build_env MY_TOKEN fbgemm_gpu_nightly-*.whl"
     echo ""
-    echo "PYPI_TOKEN is missing!"
+    echo "Either PYPI_TOKEN and/or package filepath is missing!"
     return 1
   else
     echo "################################################################################"
@@ -322,7 +322,7 @@ publish_to_pypi () {
   (test_python_import_package "${env_name}" twine) || return 1
   (test_python_import_package "${env_name}" OpenSSL) || return 1
 
-  echo "[PUBLISH] Uploading package(s) to PyPI: ${package_name} ..."
+  echo "[PUBLISH] Uploading package(s) to PyPI: ${package_filepath} ..."
   # shellcheck disable=SC2086
   conda run ${env_prefix} \
     python -m twine upload \
@@ -330,8 +330,8 @@ publish_to_pypi () {
       --password "${pypi_token}" \
       --skip-existing \
       --verbose \
-      "${package_name}"
+      "${package_filepath}"
 
-  echo "[PUBLISH] Successfully published package(s) to PyPI: ${package_name}"
+  echo "[PUBLISH] Successfully published package(s) to PyPI: ${package_filepath}"
   echo "[PUBLISH] NOTE: The publish command is a successful no-op if the wheel version already existed in PyPI; please double check!"
 }
