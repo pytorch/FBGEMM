@@ -164,7 +164,7 @@ RowwiseKernel rowwise_heuristic_dispatch(int M, int N, int K) {
   } else if (M < 1024) {
     // Kernel for generic medium batch sizes.
     return fp8_rowwise_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3;
-  } else if (M > 4096 && N > 4096 && K > 2048) {
+  } else if (M >= 1024 && N >= 1024 && K >= 1024) {
     // Kernel for very large gemm
     return fp8_rowwise_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3;
   } else {
