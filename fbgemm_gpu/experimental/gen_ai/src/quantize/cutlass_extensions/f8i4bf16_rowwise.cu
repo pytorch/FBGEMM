@@ -244,18 +244,18 @@ at::Tensor dispatch_f8i4bf16_rowwise_kernel(
         64,
         128,
         128,
+        2,
         1,
         1,
-        1,
-        false,
+        true,
         InputDType,
         WEIGHT_SCALE_DTYPE>(XQ, WQ, x_scale, w_scale, w_zp);
   } else if (kernel == KernelMode::Large) {
     return f8i4bf16_rowwise_impl<
-        64,
-        256,
         128,
-        1,
+        128,
+        128,
+        2,
         1,
         1,
         true,
@@ -263,10 +263,10 @@ at::Tensor dispatch_f8i4bf16_rowwise_kernel(
         WEIGHT_SCALE_DTYPE>(XQ, WQ, x_scale, w_scale, w_zp);
   } else {
     return f8i4bf16_rowwise_impl<
-        64,
-        256,
         128,
-        1,
+        128,
+        128,
+        2,
         1,
         1,
         false,
