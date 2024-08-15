@@ -47,6 +47,8 @@ try:
 except Exception:
     pass
 
+import fbgemm_gpu  # noqa
+
 
 def rounded_row_size_in_bytes(
     dim: int,
