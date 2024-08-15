@@ -484,8 +484,8 @@ conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </spa
 <a class="reference internal" href="#fbgemm-gpu-build-setup-env"><span class="std std-ref">Set Up an Isolated Build Environment</span></a>, followed by
 <a class="reference internal" href="#fbgemm-gpu-build-setup-tools-install"><span class="std std-ref">Install the Build Tools</span></a>.</p>
 </section>
-<section id="set-up-for-cuda-build">
-<h2>Set Up for CUDA Build<a class="headerlink" href="#set-up-for-cuda-build" title="Permalink to this heading">¶</a></h2>
+<section id="set-up-for-cuda-genai-only-build">
+<h2>Set Up for CUDA / GenAI-Only Build<a class="headerlink" href="#set-up-for-cuda-genai-only-build" title="Permalink to this heading">¶</a></h2>
 <p>The CUDA build of FBGEMM_GPU requires a recent version of <code class="docutils literal notranslate"><span class="pre">nvcc</span></code> <strong>that
 supports compute capability 3.5+</strong>. Setting the machine up for CUDA builds of
 FBGEMM_GPU can be done either through pre-built Docker images or through Conda
@@ -639,7 +639,7 @@ objdump<span class="w"> </span>-TC<span class="w"> </span><span class="s2">&quot
 <p>It is possible to build FBGEMM and FBGEMM_GPU (just the CPU and CUDA variants)
 using Clang as the host compiler.  To do so, install a version of the Clang
 toolchain <strong>that supports C++20</strong>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use a recent version of LLVM+Clang</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Minimum LLVM+Clang version required for FBGEMM_GPU</span>
 <span class="nv">llvm_version</span><span class="o">=</span><span class="m">16</span>.0.6
 
 <span class="c1"># NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot</span>
@@ -785,8 +785,8 @@ conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </spa
 </div>
 </section>
 </section>
-<section id="build-the-fbgemm-gpu-package">
-<h2>Build the FBGEMM_GPU Package<a class="headerlink" href="#build-the-fbgemm-gpu-package" title="Permalink to this heading">¶</a></h2>
+<section id="other-pre-build-setup">
+<h2>Other Pre-Build Setup<a class="headerlink" href="#other-pre-build-setup" title="Permalink to this heading">¶</a></h2>
 <section id="preparing-the-build">
 <span id="fbgemm-gpu-build-prepare"></span><h3>Preparing the Build<a class="headerlink" href="#preparing-the-build" title="Permalink to this heading">¶</a></h3>
 <p>Clone the repo along with its submodules, and install the
@@ -843,8 +843,9 @@ Python platform name must first be properly set:</p>
 </pre></div>
 </div>
 </section>
+</section>
 <section id="cpu-only-build">
-<span id="fbgemm-gpu-build-process-cpu"></span><h3>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this heading">¶</a></h3>
+<span id="fbgemm-gpu-build-process-cpu"></span><h2>CPU-Only Build<a class="headerlink" href="#cpu-only-build" title="Permalink to this heading">¶</a></h2>
 <p>For CPU-only builds, the <code class="docutils literal notranslate"><span class="pre">--cpu_only</span></code> flag needs to be specified.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
@@ -879,9 +880,11 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <p>Note that this presumes the Clang toolchain is properly installed along with the
 GCC toolchain, and is made available as <code class="docutils literal notranslate"><span class="pre">${cxxprefix}/bin/cc</span></code> and
 <code class="docutils literal notranslate"><span class="pre">${cxxprefix}/bin/c++</span></code>.</p>
+<p>To enable runtime debug features, such as device-side assertions in CUDA and
+HIP, simply append the <code class="docutils literal notranslate"><span class="pre">--debug</span></code> flag when invoking <code class="docutils literal notranslate"><span class="pre">setup.py</span></code>.</p>
 </section>
 <section id="cuda-build">
-<span id="fbgemm-gpu-build-process-cuda"></span><h3>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this heading">¶</a></h3>
+<span id="fbgemm-gpu-build-process-cuda"></span><h2>CUDA Build<a class="headerlink" href="#cuda-build" title="Permalink to this heading">¶</a></h2>
 <p>Building FBGEMM_GPU for CUDA requires both NVML and cuDNN to be installed and
 made available to the build through environment variables.  The presence of a
 CUDA device, however, is not required for building the package.</p>
@@ -897,6 +900,20 @@ toolchains have been properly installed.</p>
 
 <span class="c1"># [OPTIONAL] Provide the CUB installation directory (applicable only to CUDA versions prior to 11.1)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUB_DIR</span><span class="o">=</span>/path/to/cub
+
+<span class="c1"># [OPTIONAL] Allow NVCC to use host compilers that are newer than what NVCC officially supports</span>
+<span class="nv">nvcc_prepend_flags</span><span class="o">=(</span>
+<span class="w">  </span>-allow-unsupported-compiler
+<span class="o">)</span>
+
+<span class="c1"># [OPTIONAL] If clang is the host compiler, set NVCC to use libstdc++ since libc++ is not supported</span>
+<span class="nv">nvcc_prepend_flags</span><span class="o">+=(</span>
+<span class="w">  </span>-Xcompiler<span class="w"> </span>-stdlib<span class="o">=</span>libstdc++
+<span class="w">  </span>-ccbin<span class="w"> </span><span class="s2">&quot;/path/to/clang++&quot;</span>
+<span class="o">)</span>
+
+<span class="c1"># [OPTIONAL] Set NVCC_PREPEND_FLAGS as needed</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">NVCC_PREPEND_FLAGS</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">nvcc_prepend_flags</span><span class="p">[@]</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Specify cuDNN header and library paths</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUDNN_INCLUDE_DIR</span><span class="o">=</span>/path/to/cudnn/include
@@ -935,8 +952,8 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 </pre></div>
 </div>
 </section>
-<section id="experimental-only-genai-build">
-<span id="fbgemm-gpu-build-process-genai"></span><h3>Experimental-Only (GenAI) Build<a class="headerlink" href="#experimental-only-genai-build" title="Permalink to this heading">¶</a></h3>
+<section id="genai-only-build">
+<span id="fbgemm-gpu-build-process-genai"></span><h2>GenAI-Only Build<a class="headerlink" href="#genai-only-build" title="Permalink to this heading">¶</a></h2>
 <p>By default, the CUDA build of FBGEMM_GPU includes all experimental modules that
 are used for GenAI applications.  The instructions for building just the
 experimental modules are the same as those for a CUDA build, but with specifying
@@ -961,7 +978,7 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 <p>Note that currently, only CUDA is supported for the experimental modules.</p>
 </section>
 <section id="rocm-build">
-<span id="fbgemm-gpu-build-process-rocm"></span><h3>ROCm Build<a class="headerlink" href="#rocm-build" title="Permalink to this heading">¶</a></h3>
+<span id="fbgemm-gpu-build-process-rocm"></span><h2>ROCm Build<a class="headerlink" href="#rocm-build" title="Permalink to this heading">¶</a></h2>
 <p>For ROCm builds, <code class="docutils literal notranslate"><span class="pre">ROCM_PATH</span></code> and <code class="docutils literal notranslate"><span class="pre">PYTORCH_ROCM_ARCH</span></code> need to be specified.
 The presence of a ROCm device, however, is not required for building
 the package.</p>
@@ -995,11 +1012,11 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install<span class
 </div>
 </section>
 <section id="post-build-checks-for-developers">
-<h3>Post-Build Checks (For Developers)<a class="headerlink" href="#post-build-checks-for-developers" title="Permalink to this heading">¶</a></h3>
+<h2>Post-Build Checks (For Developers)<a class="headerlink" href="#post-build-checks-for-developers" title="Permalink to this heading">¶</a></h2>
 <p>After the build completes, it is useful to run some checks that verify
 that the build is actually correct.</p>
 <section id="undefined-symbols-check">
-<h4>Undefined Symbols Check<a class="headerlink" href="#undefined-symbols-check" title="Permalink to this heading">¶</a></h4>
+<h3>Undefined Symbols Check<a class="headerlink" href="#undefined-symbols-check" title="Permalink to this heading">¶</a></h3>
 <p>Because FBGEMM_GPU contains a lot of Jinja and C++ template instantiations, it
 is important to make sure that there are no undefined symbols that are
 accidentally generated over the course of development:</p>
@@ -1014,7 +1031,7 @@ nm<span class="w"> </span>-gDCu<span class="w"> </span><span class="s2">&quot;</
 </div>
 </section>
 <section id="glibc-version-compatibility-check">
-<h4>GLIBC Version Compatibility Check<a class="headerlink" href="#glibc-version-compatibility-check" title="Permalink to this heading">¶</a></h4>
+<h3>GLIBC Version Compatibility Check<a class="headerlink" href="#glibc-version-compatibility-check" title="Permalink to this heading">¶</a></h3>
 <p>It is also useful to verify that the version numbers of GLIBCXX
 referenced as well as the availability of certain function symbols:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
@@ -1031,7 +1048,6 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">fbgemm_gpu_lib_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">&quot; fbgemm_gpu::jagged_2d_to_dense(&quot;</span>
 </pre></div>
 </div>
-</section>
 </section>
 </section>
 </section>
@@ -1086,7 +1102,7 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 </ul>
 </li>
 <li><a class="reference internal" href="#set-up-for-cpu-only-build">Set Up for CPU-Only Build</a></li>
-<li><a class="reference internal" href="#set-up-for-cuda-build">Set Up for CUDA Build</a><ul>
+<li><a class="reference internal" href="#set-up-for-cuda-genai-only-build">Set Up for CUDA / GenAI-Only Build</a><ul>
 <li><a class="reference internal" href="#cuda-docker-image">CUDA Docker Image</a></li>
 <li><a class="reference internal" href="#install-cuda">Install CUDA</a></li>
 <li><a class="reference internal" href="#install-cudnn">Install cuDNN</a></li>
@@ -1113,19 +1129,19 @@ nm<span class="w"> </span>-gDC<span class="w"> </span><span class="s2">&quot;</s
 <li><a class="reference internal" href="#install-pytorch-triton">Install PyTorch-Triton</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#build-the-fbgemm-gpu-package">Build the FBGEMM_GPU Package</a><ul>
+<li><a class="reference internal" href="#other-pre-build-setup">Other Pre-Build Setup</a><ul>
 <li><a class="reference internal" href="#preparing-the-build">Preparing the Build</a></li>
 <li><a class="reference internal" href="#the-build-process">The Build Process</a></li>
 <li><a class="reference internal" href="#set-wheel-build-variables">Set Wheel Build Variables</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#cpu-only-build">CPU-Only Build</a></li>
 <li><a class="reference internal" href="#cuda-build">CUDA Build</a></li>
-<li><a class="reference internal" href="#experimental-only-genai-build">Experimental-Only (GenAI) Build</a></li>
+<li><a class="reference internal" href="#genai-only-build">GenAI-Only Build</a></li>
 <li><a class="reference internal" href="#rocm-build">ROCm Build</a></li>
 <li><a class="reference internal" href="#post-build-checks-for-developers">Post-Build Checks (For Developers)</a><ul>
 <li><a class="reference internal" href="#undefined-symbols-check">Undefined Symbols Check</a></li>
 <li><a class="reference internal" href="#glibc-version-compatibility-check">GLIBC Version Compatibility Check</a></li>
-</ul>
-</li>
 </ul>
 </li>
 </ul>
