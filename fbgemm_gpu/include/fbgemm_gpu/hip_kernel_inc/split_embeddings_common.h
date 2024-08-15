@@ -359,7 +359,7 @@ __device__ __forceinline__ void generic_dpp_reduction(data_t& result)
     if constexpr(wave_size > 4)
     {
         result =
-            pack(result,
+            reduce_op(result,
                       pack<data_t, int>(__builtin_amdgcn_mov_dpp(pack<int, data_t>(result),
                                                                      0x114,
                                                                      row_mask,
