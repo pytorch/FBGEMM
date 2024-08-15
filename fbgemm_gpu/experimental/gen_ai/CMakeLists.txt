@@ -56,10 +56,15 @@ set(comm_ops_sources
     src/comm/car.cu
     src/comm/car.cpp)
 
+set(kv_cache_ops_sources
+    src/kv_cache/kv_cache.cu
+    src/kv_cache/kv_cache.cpp)
+
 set(experimental_gen_ai_cpp_source_files
     ${attention_ops_sources}
     ${quantize_ops_sources}
-    ${comm_ops_sources})
+    ${comm_ops_sources}
+    ${kv_cache_ops_sources})
 
 # Set the source file for FB only CPP
 if(USE_FB_ONLY)
