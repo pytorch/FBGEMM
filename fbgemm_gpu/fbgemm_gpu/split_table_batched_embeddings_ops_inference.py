@@ -13,6 +13,7 @@ import logging
 from itertools import accumulate
 from typing import List, Optional, Tuple, Union
 
+import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
