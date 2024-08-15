@@ -173,12 +173,6 @@ Tensor new_managed_tensor(
   return t;
 }
 
-Tensor new_managed_tensor_meta(
-    const Tensor& self,
-    const std::vector<std::int64_t>& sizes) {
-  return at::empty(sizes, self.options());
-}
-
 // Allocate a cuda Tensor with unified managed memory (UVM) without the
 // additional steps taked by new_managed_tensor above
 Tensor new_vanilla_managed_tensor(
