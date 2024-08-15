@@ -1052,6 +1052,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         sp_prev_curr_map_gpu,
                         inserted_rows_prev,
                         actions_count_gpu,
+                        use_pipeline=self.prefetch_pipeline,
                     )
 
                     # Record the tensors that will be pushed into a queue
@@ -1093,6 +1094,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 assigned_cache_slots,
                 inserted_rows,
                 actions_count_gpu,
+                use_pipeline=self.prefetch_pipeline,
             )
 
             if linear_cache_indices.numel() > 0:
