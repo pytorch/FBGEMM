@@ -460,7 +460,6 @@ test_fbgemm_gpu_setup_and_pip_install () {
   }
 
   local python_versions=(
-    3.8
     3.9
     3.10
     3.11
