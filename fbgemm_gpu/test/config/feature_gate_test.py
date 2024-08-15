@@ -8,7 +8,6 @@
 # pyre-unsafe
 
 import unittest
-from contextlib import contextmanager
 
 # pyre-fixme[21]
 import fbgemm_gpu
@@ -17,21 +16,17 @@ from fbgemm_gpu.config import FeatureGate, FeatureGateName
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
-if not open_source:
+if open_source:
+    # pyre-ignore[21]
+    from test_utils import TestSuite
+
+else:
     # pyre-fixme[21]
     from fbgemm_gpu.fb.config import FeatureGateName as FbFeatureGateName
+    from fbgemm_gpu.test.test_utils import TestSuite
 
 
-class FeatureGateTest(unittest.TestCase):
-    @contextmanager
-    # pyre-ignore[2]
-    def assertNotRaised(self, exc_type) -> None:
-        try:
-            # pyre-ignore[7]
-            yield None
-        except exc_type as e:
-            raise self.failureException(e)
-
+class FeatureGateTest(TestSuite):  # pyre-ignore[11]
     def test_feature_gates(self) -> None:
         for feature in FeatureGateName:
             # pyre-ignore[16]
