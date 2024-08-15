@@ -10,6 +10,7 @@ import inspect
 import os
 import subprocess
 import unittest
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -162,6 +163,17 @@ class optests:
         import torch.testing._internal.optests as optests
 
         return optests.dontGenerateOpCheckTests(reason)
+
+
+class TestSuite(unittest.TestCase):
+    @contextmanager
+    # pyre-ignore[2]
+    def assertNotRaised(self, exc_type) -> None:
+        try:
+            # pyre-ignore[7]
+            yield None
+        except exc_type as e:
+            raise self.failureException(e)
 
 
 # Version of torch.autograd.gradcheck that works with generate_opcheck_tests.
