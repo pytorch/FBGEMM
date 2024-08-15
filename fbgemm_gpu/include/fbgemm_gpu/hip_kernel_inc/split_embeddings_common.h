@@ -291,7 +291,11 @@ struct reduce_op_sum_t
 };
 
 #define DPP_REDUCE(OP, TYPE) \
-    __asm__ volatile("v_"#OP"_"#TYPE"_dpp %0 %0 %0 quad_perm:[1,0,3,2]\n" \
+    __asm__ volatile("v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_nop\n"                                            \
+                     "v_"#OP"_"#TYPE"_dpp %0 %0 %0 quad_perm:[1,0,3,2]\n" \
                      "v_nop\n"                                            \
                      "v_nop\n"                                            \
                      "v_"#OP"_"#TYPE"_dpp %0 %0 %0 quad_perm:[2,3,0,1]\n" \
