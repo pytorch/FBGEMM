@@ -228,11 +228,21 @@ if constexpr (weighted) {
     // LOOP
     for(; itr < segment_length_mod; itr += segment_unroll)
     {
+        {%- if nobag %}
         magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
+        {%- else %}
+        table_index = infos[0] >> info_B_num_bits;
+        bag_index = infos[0] & info_B_mask;
+        {%- endif %}
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
             &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
+        {%- if nobag %}
         magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index, bag_index);
+        {%- else %}
+        table_index = infos[1] >> info_B_num_bits;
+        bag_index = infos[1] & info_B_mask;
+        {%- endif %}
         load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
             &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
         if constexpr (!weighted){
@@ -241,14 +251,23 @@ if constexpr (weighted) {
             {
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id);
+                {%- if nobag %}
                 magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
+                {%- else %}
+                table_index = infos[j] >> info_B_num_bits;
+                bag_index = infos[j] & info_B_mask;
+                {%- endif %}
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[dword_per_row], lane_id);
-                magic_div_u32_run_with_mod(
-                    batch_mdiv, infos[j + 1], batch, table_index, bag_index);
+                {%- if nobag %}
+                magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index, bag_index);
+                {%- else %}
+                table_index = infos[j + 1] >> info_B_num_bits;
+                bag_index = infos[j + 1] & info_B_mask;
+                {%- endif %}
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                     &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
             }
@@ -272,14 +291,23 @@ if constexpr (weighted) {
             {
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[0], lane_id, indice_weights[j-2]);
+                {%- if nobag %}
                 magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
+                {%- else %}
+                table_index = infos[j] >> info_B_num_bits;
+                bag_index = infos[j] & info_B_mask;
+                {%- endif %}
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                     &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[j-1]);
-                magic_div_u32_run_with_mod(
-                    batch_mdiv, infos[j + 1], batch, table_index, bag_index);
+                {%- if nobag %}
+                magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index, bag_index);
+                {%- else %}
+                table_index = infos[j + 1] >> info_B_num_bits;
+                bag_index = infos[j + 1] & info_B_mask;
+                {%- endif %}
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                     &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
             }
@@ -301,11 +329,21 @@ if constexpr (weighted) {
     }
 
     // LAST
+    {%- if nobag %}
     magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
+    {%- else %}
+    table_index = infos[0] >> info_B_num_bits;
+    bag_index = infos[0] & info_B_mask;
+    {%- endif %}
     load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
         &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
+    {%- if nobag %}
     magic_div_u32_run_with_mod(batch_mdiv, infos[1], batch, table_index, bag_index);
+    {%- else %}
+    table_index = infos[1] >> info_B_num_bits;
+    bag_index = infos[1] & info_B_mask;
+    {%- endif %}
     load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
         &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
@@ -315,13 +353,23 @@ if constexpr (weighted) {
         {
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                 &grad_acc[0], &grad_data[0], lane_id);
+            {%- if nobag %}
             magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
+            {%- else %}
+            table_index = infos[j] >> info_B_num_bits;
+            bag_index = infos[j] & info_B_mask;
+            {%- endif %}
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                 &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id);
+            {%- if nobag %}
             magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index, bag_index);
+            {%- else %}
+            table_index = infos[j + 1] >> info_B_num_bits;
+            bag_index = infos[j + 1] & info_B_mask;
+            {%- endif %}
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                 &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
         }
@@ -336,13 +384,23 @@ if constexpr (weighted) {
         {
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                 &grad_acc[0], &grad_data[0], lane_id, indice_weights[j-2]);
+            {%- if nobag %}
             magic_div_u32_run_with_mod(batch_mdiv, infos[j], batch, table_index, bag_index);
+            {%- else %}
+            table_index = infos[j] >> info_B_num_bits;
+            bag_index = infos[j] & info_B_mask;
+            {%- endif %}
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                 &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
 
             accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
                 &grad_acc[0], &grad_data[dword_per_row], lane_id, indice_weights[j-1]);
+            {%- if nobag %}
             magic_div_u32_run_with_mod(batch_mdiv, infos[j + 1], batch, table_index, bag_index);
+            {%- else %}
+            table_index = infos[j + 1] >> info_B_num_bits;
+            bag_index = infos[j + 1] & info_B_mask;
+            {%- endif %}
             load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                 &grad_data[dword_per_row], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
         }
@@ -363,7 +421,12 @@ L_tail_grad_acc:
                 infos[0] = p_sorted_infos[segment_start];
                 p_sorted_infos++;
 
+                {%- if nobag %}
                 magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
+                {%- else %}
+                table_index = infos[0] >> info_B_num_bits;
+                bag_index = infos[0] & info_B_mask;
+                {%- endif %}
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
@@ -379,7 +442,12 @@ L_tail_grad_acc:
                 p_sorted_infos++;
                 p_sorted_indice_weights++;
 
+                {%- if nobag %}
                 magic_div_u32_run_with_mod(batch_mdiv, infos[0], batch, table_index, bag_index);
+                {%- else %}
+                table_index = infos[0] >> info_B_num_bits;
+                bag_index = infos[0] & info_B_mask;
+                {%- endif %}
                 load_row_per_warp<grad_t, embedding_dim, int32_t>::run(
                     &grad_data[0], bag_index * num_tables, p_output_grad + table_index * embedding_dim, lane_id);
                 accumulate_row_per_warp<grad_t, embedding_dim, cache_t, weighted>::run(
