@@ -30,77 +30,14 @@
 #include <mma.h>
 #endif
 #include <cub/cub.cuh>
-// #include "cuda_dispatch_utils.h"
 
 #include <fbgemm_gpu/sparse_ops_utils.h>
 
 #include <torch/torch.h>
 
-#if (                         \
-    defined(__CUDA_ARCH__) && \
-    ((__CUDA_ARCH__ == 800) || (__CUDA_ARCH__ == 900)))
-#define USE_WMMA_FRAG
-#endif
+#include <fbgemm_gpu/utils/vec_quant.cuh>
 
 namespace fbgemm_gpu {
-
-#define DEVICE_INLINE __device__ inline __attribute__((always_inline))
-
-static __host__ DEVICE_INLINE int32_t div_up(int32_t a, int32_t b) {
-  return (a + b - 1) / b;
-};
-
-#ifdef __HIP_PLATFORM_AMD__
-constexpr int32_t kThreadsPerWarp = 64;
-#else
-constexpr int32_t kThreadsPerWarp = 32;
-#endif
-
-#ifdef __HIP_PLATFORM_AMD__
-using __nv_bfloat16 = hip_bfloat16;
-
-typedef struct __align__(4) {
-  uint16_t x;
-  uint16_t y;
-}
-__nv_bfloat162_raw;
-
-struct __align__(4) __nv_bfloat162 {
-  __nv_bfloat16 x;
-  __nv_bfloat16 y;
-};
-
-// the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
-// https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
-static __host__ __device__ __nv_bfloat16 __float2bfloat16(float f) {
-  __nv_bfloat16 output;
-  return output.round_to_bfloat16(f);
-}
-
-static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
-  __nv_bfloat16 output;
-  return output.round_to_bfloat16(f);
-}
-
-static __host__ __device__ float __bfloat162float(__nv_bfloat16 f) {
-  // float output;
-  // https://docs.amd.com/projects/HIP/en/docs-5.0.0/doxygen/html/hip__bfloat16_8h_source.html
-  return float(f);
-}
-
-static __host__ __device__ __nv_bfloat162
-__floats2bfloat162_rn(float x, float y) {
-  __nv_bfloat162 output;
-  output.x = __float2bfloat16_rn(x);
-  output.y = __float2bfloat16_rn(y);
-  return output;
-}
-
-#endif
-
-struct __align__(16) bf16x8 {
-  __nv_bfloat162 vals[4];
-};
 
 DEVICE_INLINE __nv_bfloat162
 bf16hadd2(const __nv_bfloat162 x, const __nv_bfloat162 y) {
@@ -545,14 +482,14 @@ void one_shot_car_allreduce(
   dim3 threads(0, 1, 1);
   dim3 blocks(0, 1, 1);
   if (N < N_per_thread * kThreadsPerBlock) {
-    threads.x = div_up(N, N_per_warp) * kThreadsPerWarp;
+    threads.x = div_round_up(N, N_per_warp) * kThreadsPerWarp;
     blocks.x = 1;
   } else {
-    auto warps_required = div_up(N, N_per_warp);
+    auto warps_required = div_round_up(N, N_per_warp);
     blocks.x = std::min<int32_t>(
-        cuda_calc_block_count(div_up(N, N_per_thread), kThreadsPerBlock),
+        cuda_calc_block_count(div_round_up(N, N_per_thread), kThreadsPerBlock),
         kMaxBlocks);
-    auto warps_per_block = div_up(warps_required, blocks.x);
+    auto warps_per_block = div_round_up(warps_required, blocks.x);
     auto threads_per_block =
         std::min<int32_t>(kThreadsPerBlock, warps_per_block * kThreadsPerWarp);
 
