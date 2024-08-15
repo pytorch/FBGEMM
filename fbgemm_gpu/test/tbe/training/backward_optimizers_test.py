@@ -305,6 +305,21 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["momentum"] = momentum
             optimizer_kwargs["eta"] = eta
 
+        if optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
+            (eps, step_ema, step_swap, step_start, momentum) = (
+                1e-4,
+                1.0,
+                1.0,
+                0.0,
+                0.8,
+            )
+            optimizer_kwargs["eps"] = eps
+            optimizer_kwargs["step_ema"] = step_ema
+            optimizer_kwargs["step_swap"] = step_swap
+            optimizer_kwargs["step_start"] = step_start
+            optimizer_kwargs["momentum"] = momentum
+            optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
+
         cc = emb_op(
             embedding_specs=[
                 (E, D, M, compute_device) for (E, D, M) in zip(Es, Ds, managed)
@@ -369,6 +384,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 OptimType.EXACT_SGD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_ADAGRAD,
+                OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
             )
 
         if optimizer in (OptimType.EXACT_ROWWISE_ADAGRAD, OptimType.EXACT_ADAGRAD):
@@ -531,6 +547,57 @@ class BackwardOptimizersTest(unittest.TestCase):
                     assert set(optimizer_states_dict.keys()) == {
                         "exp_avg",
                         "exp_avg_sq",
+                    }
+
+        if optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
+            for t in range(T):
+                iter_ = cc.iter.item()
+                (m1, m2, row_counter) = split_optimizer_states[t]
+                if (m1.dtype == torch.float) and (m2.dtype == torch.float):
+                    tol = 1.0e-4
+                else:
+                    tol = 1.0e-2
+                # Some optimizers have non-float momentums
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                m2_ref = dense_cpu_grad.pow(2).mean(dim=1)
+                torch.testing.assert_close(
+                    m2.float().cpu().index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    m2_ref.float()
+                    .cpu()
+                    .index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    atol=tol,
+                    rtol=tol,
+                )
+                v_hat_t = m2_ref.view(m2_ref.numel(), 1)
+                weights_new = split_weights[t]
+                weights_ref = torch.addcdiv(
+                    bs[t].weight.cpu(),
+                    value=-lr,
+                    tensor1=dense_cpu_grad,
+                    tensor2=v_hat_t.sqrt_().add_(eps),
+                )
+                m1_ref = torch.mul(weights_ref, 1.0 - momentum)
+                torch.testing.assert_close(
+                    m1.float().cpu().index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    m1_ref.float()
+                    .cpu()
+                    .index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    atol=tol,
+                    rtol=tol,
+                )
+                weights_ref = m1_ref.div(1.0)
+                torch.testing.assert_close(
+                    weights_new.index_select(dim=0, index=xs[t].view(-1)).cpu(),
+                    weights_ref.index_select(dim=0, index=xs[t].view(-1).cpu()),
+                    atol=tol,
+                    rtol=tol,
+                )
+                if get_optimizer_states is not None:
+                    optimizer_states_dict = get_optimizer_states[t]
+                    assert set(optimizer_states_dict.keys()) == {
+                        "sparse_ema",
+                        "sparse_sum",
+                        "sparse_counter",
                     }
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
@@ -956,6 +1023,76 @@ class BackwardOptimizersTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             weight_decay_mode,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=2, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        optimizer=st.just(OptimType.ENSEMBLE_ROWWISE_ADAGRAD),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=use_cpu_strategy(),
+        uvm_non_rowwise_momentum=st.booleans(),
+        optimizer_state_dtypes=st.sampled_from(
+            [
+                None,
+                {"momentum1": SparseType.BF16},
+                {"momentum2": SparseType.BF16},
+                {"momentum1": SparseType.BF16, "momentum2": SparseType.BF16},
+            ]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_optimizers_ensemble_rowwise_adagrad(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        use_cpu: bool,
+        uvm_non_rowwise_momentum: bool,
+        optimizer_state_dtypes: Dict[str, SparseType],
+    ) -> None:
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
+            optimizer_state_dtypes=optimizer_state_dtypes,
         )
 
     @given(
