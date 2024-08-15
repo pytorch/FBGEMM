@@ -159,6 +159,10 @@ __host__ DEVICE_INLINE int32_t div_round_up(int32_t a, int32_t b) {
   return (a + b - 1) / b;
 }
 
+static __host__ DEVICE_INLINE int32_t round_up(int32_t a, int32_t b) {
+  return ((a + b - 1) / b) * b;
+}
+
 __host__ DEVICE_INLINE int32_t round_down(int32_t a, int32_t b) {
   return a / b * b;
 }
