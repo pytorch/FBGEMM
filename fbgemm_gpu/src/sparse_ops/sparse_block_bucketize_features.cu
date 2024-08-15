@@ -157,7 +157,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
     const offset_t* const __restrict__ block_bucketize_pos_concat,
     const offset_t* const __restrict__ block_bucketize_pos_offsets,
     const offset_t* const __restrict__ indices_to_lb,
-    const bool maybe_keep_orig_idx) {
+    const bool keep_orig_idx) {
   using uindex_t = std::make_unsigned_t<index_t>;
   const auto bt_start = blockIdx.x * blockDim.y + threadIdx.y;
   const auto stride = gridDim.x * blockDim.y;
@@ -190,17 +190,26 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
       const uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = 0;
       uindex_t new_idx = 0;
-      if (!use_block_bucketize_pos) {
+      if (!use_block_bucketize_pos) { // uniform bucket sizes
         p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-        new_idx = idx < blk_size * my_size
-            ? idx % blk_size
-            : (maybe_keep_orig_idx ? idx : idx / my_size);
-      } else {
+        if (keep_orig_idx) {
+          new_idx = idx;
+        } else if (idx < blk_size * my_size) {
+          new_idx = idx % blk_size;
+        } else {
+          new_idx = idx / my_size;
+        }
+      } else { // variable bucket sizes
         uindex_t lb = indices_to_lb[i];
         p = lb < my_size ? lb : idx % my_size;
-        new_idx = lb < my_size ? idx -
-                block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]]
-                               : (maybe_keep_orig_idx ? idx : idx / my_size);
+        if (keep_orig_idx) {
+          new_idx = idx;
+        } else if (lb < my_size) {
+          new_idx = idx -
+              block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
+        } else {
+          new_idx = idx / my_size;
+        }
       }
       static_assert(
           sizeof(unsigned long long int) == sizeof(uint64_t),
@@ -254,7 +263,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
     const offset_t* const __restrict__ block_bucketize_pos_concat,
     const offset_t* const __restrict__ block_bucketize_pos_offsets,
     const offset_t* const __restrict__ indices_to_lb,
-    const bool maybe_keep_orig_idx) {
+    const bool keep_orig_idx) {
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
   CUDA_KERNEL_LOOP(b_t, lengths_size) {
@@ -276,15 +285,24 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
       uindex_t new_idx = 0;
       if (!use_block_bucketize_pos) {
         p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
-        new_idx = idx < blk_size * my_size
-            ? idx % blk_size
-            : (maybe_keep_orig_idx ? idx : idx / my_size);
+        if (keep_orig_idx) {
+          new_idx = idx;
+        } else if (idx < blk_size * my_size) {
+          new_idx = idx % blk_size;
+        } else {
+          new_idx = idx / my_size;
+        }
       } else {
         uindex_t lb = indices_to_lb[i];
         p = lb < my_size ? lb : idx % my_size;
-        new_idx = lb < my_size ? idx -
-                block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]]
-                               : (maybe_keep_orig_idx ? idx : idx / my_size);
+        if (keep_orig_idx) {
+          new_idx = idx;
+        } else if (lb < my_size) {
+          new_idx = idx -
+              block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
+        } else {
+          new_idx = idx / my_size;
+        }
       }
       uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
       new_indices_data[pos] = new_idx;
@@ -345,7 +363,7 @@ _block_bucketize_sparse_features_cuda(
     const int64_t max_B,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping,
-    const bool maybe_keep_orig_idx) {
+    const bool keep_orig_idx) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, indices);
 
   CUDA_DEVICE_GUARD(lengths);
@@ -530,7 +548,7 @@ _block_bucketize_sparse_features_cuda(
                             block_bucketize_pos.has_value()                      \
                                 ? indices_to_lb.data_ptr<offset_t>()             \
                                 : static_cast<offset_t*>(nullptr),               \
-                            maybe_keep_orig_idx);                                \
+                            keep_orig_idx);                                      \
                     C10_CUDA_KERNEL_LAUNCH_CHECK();                              \
                   });                                                            \
             });                                                                  \
@@ -586,7 +604,7 @@ _block_bucketize_sparse_features_cuda(
                       block_bucketize_pos.has_value()                               \
                           ? indices_to_lb.data_ptr<offset_t>()                      \
                           : static_cast<offset_t*>(nullptr),                        \
-                      maybe_keep_orig_idx);                                         \
+                      keep_orig_idx);                                               \
               C10_CUDA_KERNEL_LAUNCH_CHECK();                                       \
             });                                                                     \
       });
@@ -698,7 +716,7 @@ _block_bucketize_sparse_features_cuda(
                             block_bucketize_pos.has_value()
                                 ? indices_to_lb.data_ptr<offset_t>()
                                 : static_cast<offset_t*>(nullptr),
-                            maybe_keep_orig_idx);
+                            keep_orig_idx);
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
                 });
@@ -761,7 +779,7 @@ _block_bucketize_sparse_features_cuda(
                             block_bucketize_pos.has_value()
                                 ? indices_to_lb.data_ptr<offset_t>()
                                 : static_cast<offset_t*>(nullptr),
-                            maybe_keep_orig_idx);
+                            keep_orig_idx);
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
                       });
                 });
@@ -816,7 +834,7 @@ _block_bucketize_sparse_features_cuda(
                       block_bucketize_pos.has_value()
                           ? indices_to_lb.data_ptr<offset_t>()
                           : static_cast<offset_t*>(nullptr),
-                      maybe_keep_orig_idx);
+                      keep_orig_idx);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
           });
@@ -869,7 +887,7 @@ _block_bucketize_sparse_features_cuda(
                       block_bucketize_pos.has_value()
                           ? indices_to_lb.data_ptr<offset_t>()
                           : static_cast<offset_t*>(nullptr),
-                      maybe_keep_orig_idx);
+                      keep_orig_idx);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
           });
@@ -904,7 +922,7 @@ block_bucketize_sparse_features_cuda(
     const std::optional<Tensor>& batch_size_per_feature,
     const int64_t max_B,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool maybe_keep_orig_idx) {
+    const bool keep_orig_idx) {
   Tensor new_lengths;
   Tensor new_indices;
   std::optional<Tensor> new_weights;
@@ -929,7 +947,7 @@ block_bucketize_sparse_features_cuda(
           max_B,
           block_bucketize_pos,
           false,
-          maybe_keep_orig_idx);
+          keep_orig_idx);
   return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
 }
 
@@ -954,7 +972,7 @@ block_bucketize_sparse_features_inference_cuda(
     const int64_t max_B,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping,
-    const bool maybe_keep_orig_idx) {
+    const bool keep_orig_idx) {
   return _block_bucketize_sparse_features_cuda(
       lengths,
       indices,
@@ -967,7 +985,7 @@ block_bucketize_sparse_features_inference_cuda(
       max_B,
       block_bucketize_pos,
       return_bucket_mapping,
-      maybe_keep_orig_idx);
+      keep_orig_idx);
 }
 
 DLL_PUBLIC Tensor populate_bucketized_permute_cuda(
