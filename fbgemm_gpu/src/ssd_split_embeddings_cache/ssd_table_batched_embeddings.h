@@ -261,7 +261,6 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       rocksdb::DB* db;
 
 #ifdef FBGEMM_FBCODE
-      db_monitor_options.port = base_port + tbe_unqiue_id;
       auto s = facebook::fb_rocksdb::openRocksDB(
           options,
           shard_path,
