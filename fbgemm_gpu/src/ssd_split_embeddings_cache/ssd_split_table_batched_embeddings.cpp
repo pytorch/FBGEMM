@@ -50,11 +50,22 @@ ssd_cache_populate_actions_cuda(
 /// @param indices The 1D index tensor
 /// @param values The 2D input tensor
 /// @param count The tensor that contains the length of `indices` to
-/// process
+///            process
+/// @param use_pipeline A flag that indicates that this kernel will
+///            overlap with other kernels. If it is true, then use a
+///            fraction of SMs to reduce resource competition
+/// @param preferred_sms The number of preferred SMs for the kernel to
+///            use when use_pipeline=true. This value is ignored when
+///            use_pipeline=false.
 ///
 /// @return The `self` tensor
-Tensor
-masked_index_put_cuda(Tensor self, Tensor indices, Tensor values, Tensor count);
+Tensor masked_index_put_cuda(
+    Tensor self,
+    Tensor indices,
+    Tensor values,
+    Tensor count,
+    const bool use_pipeline,
+    const int64_t preferred_sms);
 
 /// @ingroup embedding-ssd
 ///
@@ -76,14 +87,22 @@ masked_index_put_cuda(Tensor self, Tensor indices, Tensor values, Tensor count);
 /// @param indices The 1D index tensor
 /// @param values The 2D input tensor (the tensor that is indexed)
 /// @param count The tensor that contains the length of `indices` to
-/// process
+///            process
+/// @param use_pipeline A flag that indicates that this kernel will
+///            overlap with other kernels. If it is true, then use a
+///            fraction of SMs to reduce resource competition
+///// @param preferred_sms The number of preferred SMs for the kernel to
+///            use when use_pipeline=true. This value is ignored when
+///            use_pipeline=false.
 ///
 /// @return The `self` tensor
 Tensor masked_index_select_cuda(
     Tensor self,
     Tensor indices,
     Tensor values,
-    Tensor count);
+    Tensor count,
+    const bool use_pipeline,
+    const int64_t preferred_sms);
 
 Tensor masked_index_put_byte_cuda(
     Tensor self,
@@ -330,7 +349,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor self, "
       "    Tensor indices, "
       "    Tensor values, "
-      "    Tensor count"
+      "    Tensor count, "
+      "    bool use_pipeline=False, "
+      "    int preferred_sms=-1"
       ") -> Tensor");
   DISPATCH_TO_CUDA("masked_index_put", masked_index_put_cuda);
   m.def(
@@ -338,7 +359,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor self, "
       "    Tensor indices, "
       "    Tensor values, "
-      "    Tensor count"
+      "    Tensor count, "
+      "    bool use_pipeline=False, "
+      "    int preferred_sms=-1"
       ") -> Tensor");
   DISPATCH_TO_CUDA("masked_index_select", masked_index_select_cuda);
   m.def(

@@ -41,9 +41,10 @@ class SSDUtilsTest(unittest.TestCase):
         num_output_rows: int,
         dtype: torch.dtype,
         test_fn: Callable[
-            [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor
+            [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, bool], torch.Tensor
         ],
         is_index_put: bool,
+        use_pipeline: bool,
     ) -> None:
         """
         A helper function that generates inputs/outputs, runs
@@ -83,7 +84,7 @@ class SSDUtilsTest(unittest.TestCase):
         output_ref = torch.zeros(num_output_rows, D, dtype=dtype, device=device)
 
         # Run test
-        output = test_fn(output, indices, values, count)
+        output = test_fn(output, indices, values, count, use_pipeline)
 
         # Run reference
         indices = indices[:count_val]
@@ -104,6 +105,7 @@ class SSDUtilsTest(unittest.TestCase):
         D=st.integers(min_value=2, max_value=256),
         num_output_rows=st.integers(min_value=10, max_value=100),
         dtype=st.sampled_from([torch.float, torch.half]),
+        use_pipeline=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_masked_index_put(
@@ -112,6 +114,7 @@ class SSDUtilsTest(unittest.TestCase):
         D: int,
         num_output_rows: int,
         dtype: torch.dtype,
+        use_pipeline: bool,
     ) -> None:
         """
         Test correctness of torch.ops.fbgemm.masked_index_put against PyTorch's
@@ -126,6 +129,7 @@ class SSDUtilsTest(unittest.TestCase):
             dtype=dtype,
             test_fn=torch.ops.fbgemm.masked_index_put,
             is_index_put=True,
+            use_pipeline=use_pipeline,
         )
 
     # pyre-ignore [56]
@@ -134,6 +138,7 @@ class SSDUtilsTest(unittest.TestCase):
         D=st.integers(min_value=2, max_value=256),
         num_value_rows=st.integers(min_value=10, max_value=100),
         dtype=st.sampled_from([torch.float, torch.half]),
+        use_pipeline=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_masked_index_select(
@@ -142,6 +147,7 @@ class SSDUtilsTest(unittest.TestCase):
         D: int,
         num_value_rows: int,
         dtype: torch.dtype,
+        use_pipeline: bool,
     ) -> None:
         """
         Test correctness of torch.ops.fbgemm.masked_index_select aginst
@@ -156,6 +162,7 @@ class SSDUtilsTest(unittest.TestCase):
             dtype=dtype,
             test_fn=torch.ops.fbgemm.masked_index_select,
             is_index_put=False,
+            use_pipeline=use_pipeline,
         )
 
     def expand_tensor(

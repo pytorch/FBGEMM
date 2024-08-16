@@ -22,6 +22,8 @@
 #include "fbgemm_gpu/utils/tensor_accessor.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
+constexpr int ALL_TO_PREFETCH_SM_RATIO = 8;
+
 using Tensor = at::Tensor;
 
 using namespace fbgemm_gpu;
@@ -59,23 +61,20 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         count) {
   const int32_t N = indices.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
-  if (n >= N) {
-    return;
-  }
   const auto count_ = count[0];
-  if (n >= count_) {
-    return;
+  CUDA_KERNEL_ASSERT(count_ <= N);
+  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < count_;
+       n += blockDim.y * gridDim.x) {
+    // idx == -1 if it is conflict miss
+    const auto idx = indices[n];
+    if (idx < 0) {
+      continue;
+    }
+    const auto D = self.size(1);
+    const auto self_idx = is_index_put ? idx : n;
+    const auto values_idx = is_index_put ? n : idx;
+    vec4_copy(&self[self_idx][0], &values[values_idx][0], D);
   }
-  // idx == -1 if it is conflict miss
-  const auto idx = indices[n];
-  if (idx < 0) {
-    return;
-  }
-  const auto D = self.size(1);
-  const auto self_idx = is_index_put ? idx : n;
-  const auto values_idx = is_index_put ? n : idx;
-  vec4_copy(&self[self_idx][0], &values[values_idx][0], D);
 }
 
 template <bool is_index_put>
@@ -83,7 +82,9 @@ Tensor masked_index_impl(
     const Tensor& self,
     const Tensor& indices,
     const Tensor& values,
-    const Tensor& count) {
+    const Tensor& count,
+    const bool use_pipeline,
+    const int preferred_sms) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(self, indices, values, count);
   TENSOR_CONTIGUOUS(self);
   TENSOR_CONTIGUOUS(indices);
@@ -98,12 +99,43 @@ Tensor masked_index_impl(
   const auto D = self.size(1);
   TORCH_CHECK_EQ(self.size(1), values.size(1));
 
+  const int32_t tx = std::min<int32_t>(D / 4, kMaxThreads);
+  const dim3 threads(tx, kMaxThreads / tx);
+
+  const auto full_grid_size = div_round_up(N, kMaxThreads / tx);
+
+  // The default number of SMs for use_pipeline=true is set based on an
+  // empirical study
+
+  cudaDeviceProp prop;
+  cudaGetDeviceProperties(&prop, at::cuda::current_device());
+
+  int DEFAULT_PIPELINE_SMS;
+  if (prop.major == 8) {
+    // Assume A100
+    DEFAULT_PIPELINE_SMS = 4;
+  } else if (prop.major == 9) {
+    // Assume H100
+    DEFAULT_PIPELINE_SMS = 16;
+  } else {
+    DEFAULT_PIPELINE_SMS =
+        div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO);
+  }
+
+  const int pipeline_grid_size =
+      preferred_sms == -1 ? DEFAULT_PIPELINE_SMS : preferred_sms;
+  TORCH_CHECK(
+      !use_pipeline || pipeline_grid_size >= 1, "preferred_sms must >= 1");
+
+  // Use a fraction of SMs if use_pipeline=true
+  const auto grid_size = use_pipeline
+      ? std::min(pipeline_grid_size, full_grid_size)
+      : full_grid_size;
+
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       self.scalar_type(),
       is_index_put ? "masked_index_put" : "masked_index_select",
       [&] {
-        const int32_t tx = std::min<int32_t>(D / 4, kMaxThreads);
-        const dim3 threads(tx, kMaxThreads / tx);
 #ifdef FBGEMM_GPU_MEMCHECK
         const auto func_name = is_index_put ? "masked_index_put_kernel"
                                             : "masked_index_select_kernel";
@@ -112,7 +144,7 @@ Tensor masked_index_impl(
           TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16")
         }
         masked_index_kernel<scalar_t, is_index_put>
-            <<<div_round_up(N, kMaxThreads / tx),
+            <<<grid_size,
                dim3(tx, kMaxThreads / tx),
                0,
                at::cuda::getCurrentCUDAStream()>>>(
@@ -131,17 +163,22 @@ Tensor masked_index_put_cuda(
     Tensor self,
     Tensor indices,
     Tensor values,
-    Tensor count) {
-  return masked_index_impl</*is_index_put=*/true>(self, indices, values, count);
+    Tensor count,
+    const bool use_pipeline,
+    const int64_t preferred_sms) {
+  return masked_index_impl</*is_index_put=*/true>(
+      self, indices, values, count, use_pipeline, preferred_sms);
 }
 
 Tensor masked_index_select_cuda(
     Tensor self,
     Tensor indices,
     Tensor values,
-    Tensor count) {
+    Tensor count,
+    const bool use_pipeline,
+    const int64_t preferred_sms) {
   return masked_index_impl</*is_index_put=*/false>(
-      self, indices, values, count);
+      self, indices, values, count, use_pipeline, preferred_sms);
 }
 
 __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
