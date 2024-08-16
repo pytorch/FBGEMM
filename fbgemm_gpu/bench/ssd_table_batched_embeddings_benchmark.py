@@ -238,6 +238,12 @@ def ssd_read_write(
     type=str,
     default="manifold://gpu_traces/tree/fbgemm_gpu/ssd_tbe/trace_{ospid}.json",
 )
+@click.option(
+    "--ssd-uvm-host-mapped",
+    is_flag=True,
+    default=False,
+    help="Use host mapped UVM buffers in SSD-TBE",
+)
 def ssd_training(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -264,6 +270,7 @@ def ssd_training(  # noqa C901
     block_cache_size_mb: int,
     export_trace: bool,
     trace_url: str,
+    ssd_uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -356,6 +363,7 @@ def ssd_training(  # noqa C901
             ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
             ssd_block_cache_size_per_tbe=block_cache_size_mb * (2**20),
+            uvm_host_mapped=ssd_uvm_host_mapped,
             **common_args,
         ),
     }
