@@ -64,7 +64,7 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         container-image: [ "ubuntu:20.04" ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         rocm-version: [ "6.0.2" ]
         compiler: [ "gcc", "clang" ]
 
