@@ -81,10 +81,10 @@ $(function() {
 Functions</h2></td></tr>
 <tr class="memitem:ga14b70f98db5378da5071b9049b7356db" id="r_ga14b70f98db5378da5071b9049b7356db"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga14b70f98db5378da5071b9049b7356db">cuda_callback_func</a> (cudaStream_t stream, cudaError_t status, void *functor)</td></tr>
 <tr class="separator:ga14b70f98db5378da5071b9049b7356db"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga8a561f5585f09252076650c0d34457d7" id="r_ga8a561f5585f09252076650c0d34457d7"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga8a561f5585f09252076650c0d34457d7">masked_index_put_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count)</td></tr>
-<tr class="separator:ga8a561f5585f09252076650c0d34457d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga1b0baea42aa4a092e32976f24c246465" id="r_ga1b0baea42aa4a092e32976f24c246465"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga1b0baea42aa4a092e32976f24c246465">masked_index_select_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count)</td></tr>
-<tr class="separator:ga1b0baea42aa4a092e32976f24c246465"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gaf16c3a72b210803c8ed97db57215ea49" id="r_gaf16c3a72b210803c8ed97db57215ea49"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gaf16c3a72b210803c8ed97db57215ea49">masked_index_put_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count, const bool use_pipeline, const int64_t preferred_sms)</td></tr>
+<tr class="separator:gaf16c3a72b210803c8ed97db57215ea49"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga8eda79bbff7e6020c078f6fb3b799cf6" id="r_ga8eda79bbff7e6020c078f6fb3b799cf6"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga8eda79bbff7e6020c078f6fb3b799cf6">masked_index_select_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count, const bool use_pipeline, const int64_t preferred_sms)</td></tr>
+<tr class="separator:ga8eda79bbff7e6020c078f6fb3b799cf6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6c17fd18abf27a7776661565e7f1e011" id="r_ga6c17fd18abf27a7776661565e7f1e011"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga6c17fd18abf27a7776661565e7f1e011">ssd_generate_row_addrs_cuda</a> (const Tensor &amp;lxu_cache_locations, const Tensor &amp;assigned_cache_slots, const Tensor &amp;linear_index_inverse_indices, const Tensor &amp;unique_indices_count_cumsum, const Tensor &amp;cache_set_inverse_indices, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights, const Tensor &amp;unique_indices_length, const Tensor &amp;cache_set_sorted_unique_indices)</td></tr>
 <tr class="separator:ga6c17fd18abf27a7776661565e7f1e011"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gabac3e6cc0bdc3bd2306604a7eeabc88c" id="r_gabac3e6cc0bdc3bd2306604a7eeabc88c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gabac3e6cc0bdc3bd2306604a7eeabc88c">ssd_update_row_addrs_cuda</a> (const Tensor &amp;ssd_row_addrs_curr, const Tensor &amp;inserted_ssd_weights_curr_next_map, const Tensor &amp;lxu_cache_locations_curr, const Tensor &amp;linear_index_inverse_indices_curr, const Tensor &amp;unique_indices_count_cumsum_curr, const Tensor &amp;cache_set_inverse_indices_curr, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights_next, const Tensor &amp;unique_indices_length_curr)</td></tr>
@@ -130,8 +130,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga8a561f5585f09252076650c0d34457d7" name="ga8a561f5585f09252076650c0d34457d7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga8a561f5585f09252076650c0d34457d7">&#9670;&#160;</a></span>masked_index_put_cuda()</h2>
+<a id="gaf16c3a72b210803c8ed97db57215ea49" name="gaf16c3a72b210803c8ed97db57215ea49"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gaf16c3a72b210803c8ed97db57215ea49">&#9670;&#160;</a></span>masked_index_put_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -154,7 +154,17 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>use_pipeline</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>preferred_sms</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -171,7 +181,9 @@ Functions</h2></td></tr>
     <tr><td class="paramname">self</td><td>The 2D output tensor (the tensor that is indexed) </td></tr>
     <tr><td class="paramname">indices</td><td>The 1D index tensor </td></tr>
     <tr><td class="paramname">values</td><td>The 2D input tensor </td></tr>
-    <tr><td class="paramname">count</td><td>The tensor that contains the length of <code>indices</code> to process</td></tr>
+    <tr><td class="paramname">count</td><td>The tensor that contains the length of <code>indices</code> to process </td></tr>
+    <tr><td class="paramname">use_pipeline</td><td>A flag that indicates that this kernel will overlap with other kernels. If it is true, then use a fraction of SMs to reduce resource competition </td></tr>
+    <tr><td class="paramname">preferred_sms</td><td>The number of preferred SMs for the kernel to use when use_pipeline=true. This value is ignored when use_pipeline=false.</td></tr>
   </table>
   </dd>
 </dl>
@@ -179,8 +191,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga1b0baea42aa4a092e32976f24c246465" name="ga1b0baea42aa4a092e32976f24c246465"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga1b0baea42aa4a092e32976f24c246465">&#9670;&#160;</a></span>masked_index_select_cuda()</h2>
+<a id="ga8eda79bbff7e6020c078f6fb3b799cf6" name="ga8eda79bbff7e6020c078f6fb3b799cf6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga8eda79bbff7e6020c078f6fb3b799cf6">&#9670;&#160;</a></span>masked_index_select_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -203,7 +215,17 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>use_pipeline</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>preferred_sms</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -220,7 +242,9 @@ Functions</h2></td></tr>
     <tr><td class="paramname">self</td><td>The 2D output tensor </td></tr>
     <tr><td class="paramname">indices</td><td>The 1D index tensor </td></tr>
     <tr><td class="paramname">values</td><td>The 2D input tensor (the tensor that is indexed) </td></tr>
-    <tr><td class="paramname">count</td><td>The tensor that contains the length of <code>indices</code> to process</td></tr>
+    <tr><td class="paramname">count</td><td>The tensor that contains the length of <code>indices</code> to process </td></tr>
+    <tr><td class="paramname">use_pipeline</td><td>A flag that indicates that this kernel will overlap with other kernels. If it is true, then use a fraction of SMs to reduce resource competition </td></tr>
+    <tr><td class="paramname">preferred_sms</td><td>The number of preferred SMs for the kernel to use when use_pipeline=true. This value is ignored when use_pipeline=false.</td></tr>
   </table>
   </dd>
 </dl>
