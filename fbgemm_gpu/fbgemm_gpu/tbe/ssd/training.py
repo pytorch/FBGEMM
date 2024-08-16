@@ -15,7 +15,6 @@ import os
 import tempfile
 from math import log2
 from typing import Any, Callable, List, Optional, Tuple, Type
-
 import torch  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
