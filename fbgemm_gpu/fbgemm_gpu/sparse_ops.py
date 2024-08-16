@@ -972,6 +972,10 @@ def float_to_hfp8_quantized(
     return torch.empty_like(input, dtype=torch.uint8)
 
 
+def hfp8_quantized_to_float(input: Tensor, ebits: int, exponent_bias: int) -> Tensor:
+    return torch.empty_like(input, dtype=torch.float32)
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1102,6 +1106,11 @@ def _setup() -> None:
             "fbgemm::FloatToHFP8Quantized",
             float_to_hfp8_quantized,
         )
+        impl_abstract(
+            "fbgemm::HFP8QuantizedToFloat",
+            hfp8_quantized_to_float,
+        )
+
         _setup.done = True
 
 
