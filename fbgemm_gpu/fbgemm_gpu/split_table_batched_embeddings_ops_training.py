@@ -25,7 +25,7 @@ from torch import nn, Tensor  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 
-# from fbgemm_gpu.config import FeatureGateName
+from fbgemm_gpu.config import FeatureGate, FeatureGateName
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
     TBEStatsReporter,
@@ -1331,6 +1331,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.current_device,
         )
 
+    @torch.jit.ignore
+    def _feature_is_enabled(self, feature: FeatureGateName) -> bool:
+        # Define proxy method so that it can be marked with @torch.jit.ignore
+        # This allows models using this class to compile correctly
+        return FeatureGate.is_enabled(feature)
+
     def forward(  # noqa: C901
         self,
         indices: Tensor,
@@ -1549,6 +1555,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets=self.row_counter_offsets,
             placements=self.row_counter_placements,
         )
+
+        if self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
+            if self._feature_is_enabled(FeatureGateName.TBE_ENSEMBLE_ROWWISE_ADAGRAD):
+                raise AssertionError(
+                    "ENSEMBLE_ROWWISE_ADAGRAD feature has not landed yet (see D60189486 stack)"
+                )
+            else:
+                raise AssertionError(
+                    "ENSEMBLE_ROWWISE_ADAGRAD is an inactive or deprecated feature!"
+                )
+
         if self._used_rowwise_adagrad_with_counter:
             if (
                 self._max_counter_update_freq > 0
