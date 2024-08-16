@@ -10,20 +10,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 
-lib = torch.library.Library("fbgemm", "FRAGMENT")
-lib.define(
-    """
-    get_unique_indices_v2(
-        Tensor linear_indices,
-        int max_indices,
-        bool compute_count=False,
-        bool compute_inverse_indices=False
-    ) -> (Tensor, Tensor, Tensor?, Tensor?)
-    """
-)
 
-
-@torch.library.impl(lib, "get_unique_indices_v2", "CUDA")
 def get_unique_indices_v2(
     linear_indices: torch.Tensor,
     max_indices: int,
