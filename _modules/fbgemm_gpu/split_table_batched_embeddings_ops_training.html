@@ -439,7 +439,7 @@
 
 <span class="kn">import</span> <span class="nn">fbgemm_gpu.split_embedding_codegen_lookup_invokers</span> <span class="k">as</span> <span class="nn">invokers</span>
 
-<span class="c1"># from fbgemm_gpu.config import FeatureGateName</span>
+<span class="kn">from</span> <span class="nn">fbgemm_gpu.config</span> <span class="kn">import</span> <span class="n">FeatureGate</span><span class="p">,</span> <span class="n">FeatureGateName</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.runtime_monitor</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">AsyncSeriesTimer</span><span class="p">,</span>
     <span class="n">TBEStatsReporter</span><span class="p">,</span>
@@ -1745,6 +1745,12 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
         <span class="p">)</span>
 
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="k">def</span> <span class="nf">_feature_is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">feature</span><span class="p">:</span> <span class="n">FeatureGateName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="c1"># Define proxy method so that it can be marked with @torch.jit.ignore</span>
+        <span class="c1"># This allows models using this class to compile correctly</span>
+        <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
+
     <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1963,6 +1969,17 @@
             <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_offsets</span><span class="p">,</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_placements</span><span class="p">,</span>
         <span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span><span class="n">FeatureGateName</span><span class="o">.</span><span class="n">TBE_ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
+                    <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD feature has not landed yet (see D60189486 stack)&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
+                    <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD is an inactive or deprecated feature!&quot;</span>
+                <span class="p">)</span>
+
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span><span class="p">:</span>
             <span class="k">if</span> <span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_max_counter_update_freq</span> <span class="o">&gt;</span> <span class="mi">0</span>
