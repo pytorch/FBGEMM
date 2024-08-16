@@ -6,13 +6,15 @@ FBGEMM FP8 rowwise quantization kernels have been officially adopted in the [Lla
 
 FBGEMM GenAI FP8 supports a variety of configurations:
 
-* GEMM Operators: {hipBLASLt, CK, Triton} x {BF16, FP8} x {tensor-wise, row-wise, block-wise} x {Nvidia H100, AMD MI300x}.
+* GEMM Operators: {CUTLASS, CK, Triton} x {BF16, FP8} x {tensor-wise, row-wise, block-wise} x {Nvidia H100, AMD MI300x}.
 * High/low Precision Conversion Kernels: (FP32 / BF16 <-> FP8) with scaling options {tensor-wise, row-wise, block-wise} across hardware platforms {Nvidia H100, AMD MI300x} and programming options of {Triton, CUDA/HIP}.
 
 Besides FP8 support, FBGEMM GenAI operators also support:
 
 * Customized AllReduce communications (reduce latency for small message sizes).
 * GQA: optimized specifically for decoding cases, as detailed in PyTorch's blog on [INT4 decoding](https://pytorch.org/blog/int4-decoding/).
+* KV cache quantizations.
+* Rotary Positional Embedding (RoPE).
 
 ## **1.1 FP8 core API functions**
 
