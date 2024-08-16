@@ -352,6 +352,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             (2 * (count_ + dbs_.size() - 1) / dbs_.size()) *
                             (sizeof(int64_t) + sizeof(scalar_t) * D));
                         for (auto i = 0; i < count_; ++i) {
+                          // TODO: Check whether this is OK
+                          if (indices_acc[i] == -1) {
+                            continue;
+                          }
                           if (db_shard(indices_acc[i], dbs_.size()) != shard) {
                             continue;
                           }

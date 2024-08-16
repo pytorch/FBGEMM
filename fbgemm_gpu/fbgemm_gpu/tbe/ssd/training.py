@@ -14,7 +14,7 @@ import logging
 import os
 import tempfile
 from math import log2
-from typing import Any, Callable, List, Optional, Tuple, Type
+from typing import Any, Callable, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
@@ -35,9 +35,23 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 )
 
 from torch import distributed as dist, nn, Tensor  # usort:skip
+from dataclasses import dataclass
+
 from torch.autograd.profiler import record_function
 
+from ..cache import get_unique_indices_v2
+
 from .common import ASSOC
+
+
+@dataclass
+class IterData:
+    indices: Tensor
+    offsets: Tensor
+    lxu_cache_locations: Tensor
+    lxu_cache_ptrs: Tensor
+    actions_count_gpu: Tensor
+    cache_set_inverse_indices: Tensor
 
 
 class SSDTableBatchedEmbeddingBags(nn.Module):
@@ -112,6 +126,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         gather_ssd_cache_stats: Optional[bool] = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
         l2_cache_size: int = 0,
+        # Set to True to enable pipeline prefetching
+        prefetch_pipeline: bool = False,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -182,13 +198,41 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         self.register_buffer(
             "lxu_cache_state",
-            torch.zeros(cache_sets, ASSOC, dtype=torch.int64).fill_(-1),
+            torch.zeros(
+                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+            ).fill_(-1),
         )
         self.register_buffer(
-            "lru_state", torch.zeros(cache_sets, ASSOC, dtype=torch.int64)
+            "lru_state",
+            torch.zeros(
+                cache_sets, ASSOC, device=self.current_device, dtype=torch.int64
+            ),
         )
 
         self.step = 0
+
+        # Set prefetch pipeline
+        self.prefetch_pipeline: bool = prefetch_pipeline
+        self.prefetch_stream: Optional[torch.cuda.Stream] = None
+
+        # Cache locking counter for pipeline prefetching
+        if self.prefetch_pipeline:
+            self.register_buffer(
+                "lxu_cache_locking_counter",
+                torch.zeros(
+                    cache_sets,
+                    ASSOC,
+                    device=self.current_device,
+                    dtype=torch.int32,
+                ),
+                persistent=True,
+            )
+        else:
+            self.register_buffer(
+                "lxu_cache_locking_counter",
+                torch.zeros([0, 0], dtype=torch.int32, device=self.current_device),
+                persistent=False,
+            )
 
         assert ssd_cache_location in (
             EmbeddingLocation.MANAGED,
@@ -342,8 +386,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_event_backward = torch.cuda.Event()
         # SSD get's input copy completion event
         self.ssd_event_get_inputs_cpy = torch.cuda.Event()
-        # SSD scratch pad index queue insert completion event
-        self.ssd_event_sp_idxq_insert = torch.cuda.Event()
+        if self.prefetch_pipeline:
+            # SSD scratch pad index queue insert completion event
+            self.ssd_event_sp_idxq_insert: torch.cuda.streams.Event = torch.cuda.Event()
+            # SSD scratch pad index queue lookup completion event
+            self.ssd_event_sp_idxq_lookup: torch.cuda.streams.Event = torch.cuda.Event()
 
         self.timesteps_prefetched: List[int] = []
         # TODO: add type annotation
@@ -351,10 +398,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_prefetch_data = []
 
         # Scratch pad value queue
-        self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor, bool]] = []
-        # pyre-ignore[4]
-        # Scratch pad index queue
-        self.scratch_pad_idx_queue = torch.classes.fbgemm.SSDScratchPadIndicesQueue(-1)
+        self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
+        # Scratch pad eviction data queue
+        self.ssd_scratch_pad_eviction_data: List[
+            Tuple[Tensor, Tensor, Tensor, bool]
+        ] = []
+        self.ssd_location_update_data: List[Tuple[Tensor, Tensor]] = []
+
+        if self.prefetch_pipeline:
+            # pyre-ignore[4]
+            # Scratch pad index queue
+            self.scratch_pad_idx_queue = torch.classes.fbgemm.SSDScratchPadIndicesQueue(
+                -1
+            )
 
         if weight_decay_mode == WeightDecayMode.COUNTER or counter_based_regularization:
             raise AssertionError(
@@ -425,11 +481,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             dtype=torch.float32,
         )
 
+        # For storing current iteration data
+        self.current_iter_data: Optional[IterData] = None
+
         # add placeholder require_grad param to enable autograd without nn.parameter
         # this is needed to enable int8 embedding weights for SplitTableBatchedEmbedding
         self.placeholder_autograd_tensor = nn.Parameter(
             torch.zeros(0, device=self.current_device, dtype=torch.float)
         )
+
+        # Register backward hook for evicting rows from a scratch pad to SSD
+        # post backward
+        self.placeholder_autograd_tensor.register_hook(self._evict_from_scratch_pad)
+
+        if self.prefetch_pipeline:
+            self.register_full_backward_pre_hook(
+                self._update_cache_counter_and_pointers
+            )
 
         assert optimizer in (
             OptimType.EXACT_ROWWISE_ADAGRAD,
@@ -542,28 +610,31 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         t_cpu.copy_(t, non_blocking=True)
         return t_cpu
 
-    def to_pinned_cpu_on_stream_wait_on_current_stream(
+    def to_pinned_cpu_on_stream_wait_on_another_stream(
         self,
         tensors: List[Tensor],
         stream: torch.cuda.Stream,
+        stream_to_wait_on: torch.cuda.Stream,
         post_event: Optional[torch.cuda.Event] = None,
     ) -> List[Tensor]:
         """
-        Transfer input tensors from GPU to CPU using a pinned host buffer.
-        The transfer is carried out on the given stream (`stream`) after all
-        the kernels in the default stream (`current_stream`) are complete.
+        Transfer input tensors from GPU to CPU using a pinned host
+        buffer.  The transfer is carried out on the given stream
+        (`stream`) after all the kernels in the other stream
+        (`stream_to_wait_on`) are complete.
 
         Args:
-            tensors (List[Tensor]): The list of tensors to be transferred
+            tensors (List[Tensor]): The list of tensors to be
+                                    transferred
             stream (Stream): The stream to run memory copy
+            stream_to_wait_on (Stream): The stream to wait on
             post_event (Event): The post completion event
 
         Returns:
             The list of pinned CPU tensors
         """
-        current_stream = torch.cuda.current_stream()
         with torch.cuda.stream(stream):
-            stream.wait_stream(current_stream)
+            stream.wait_stream(stream_to_wait_on)
             cpu_tensors = []
             for t in tensors:
                 t.record_stream(stream)
@@ -626,115 +697,202 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 if post_event is not None:
                     stream.record_event(post_event)
 
-    def _evict_from_scratch_pad(self, return_on_empty: bool) -> None:
-        scratch_pad_len = len(self.ssd_scratch_pads)
+    def _evict_from_scratch_pad(self, grad: Tensor) -> None:
+        """
+        Evict conflict missed rows from a scratch pad
+        (`inserted_rows`) on the `ssd_eviction_stream`. This is a hook
+        that is invoked right after TBE backward.
 
-        if not return_on_empty:
-            assert scratch_pad_len > 0, "There must be at least one scratch pad"
-        elif scratch_pad_len == 0:
-            return
+        Conflict missed indices are specified in
+        `post_bwd_evicted_indices_cpu`. Indices that are not -1 and
+        their positions < `actions_count_cpu` (i.e., rows
+        `post_bwd_evicted_indices_cpu[:actions_count_cpu] != -1` in
+        post_bwd_evicted_indices_cpu) will be evicted.
 
-        (inserted_rows, post_bwd_evicted_indices_cpu, actions_count_cpu, do_evict) = (
-            self.ssd_scratch_pads.pop(0)
-        )
-        if do_evict:
-            torch.cuda.current_stream().record_event(self.ssd_event_backward)
+        Args:
+            grad (Tensor): Unused gradient tensor
+
+        Returns:
+            None
+        """
+        with record_function("## ssd_evict_from_scratch_pad_pipeline ##"):
+            current_stream = torch.cuda.current_stream()
+            current_stream.record_event(self.ssd_event_backward)
+
+            assert (
+                len(self.ssd_scratch_pad_eviction_data) > 0
+            ), "There must be at least one scratch pad"
+
+            (
+                inserted_rows,
+                post_bwd_evicted_indices_cpu,
+                actions_count_cpu,
+                do_evict,
+            ) = self.ssd_scratch_pad_eviction_data.pop(0)
+
+            if not do_evict:
+                return
+
             self.evict(
                 rows=inserted_rows,
                 indices_cpu=post_bwd_evicted_indices_cpu,
                 actions_count_cpu=actions_count_cpu,
                 stream=self.ssd_eviction_stream,
                 pre_event=self.ssd_event_backward,
-                post_event=None,
+                post_event=self.ssd_event_evict,
                 is_rows_uvm=True,
                 name="scratch_pad",
             )
 
-    def _compute_cache_ptrs(
+            if self.prefetch_stream:
+                self.prefetch_stream.wait_stream(current_stream)
+
+    def _update_cache_counter_and_pointers(
         self,
-        linear_cache_indices: torch.Tensor,
-        assigned_cache_slots: torch.Tensor,
-        linear_index_inverse_indices: torch.Tensor,
-        unique_indices_count_cumsum: torch.Tensor,
-        cache_set_inverse_indices: torch.Tensor,
-        inserted_rows: torch.Tensor,
-        unique_indices_length: torch.Tensor,
-        inserted_indices: torch.Tensor,
-        actions_count_cpu: torch.Tensor,
-        lxu_cache_locations: torch.Tensor,
-    ) -> torch.Tensor:
-        with record_function("## ssd_generate_row_addrs ##"):
-            lxu_cache_ptrs, post_bwd_evicted_indices = (
-                torch.ops.fbgemm.ssd_generate_row_addrs(
-                    lxu_cache_locations,
-                    assigned_cache_slots,
-                    linear_index_inverse_indices,
-                    unique_indices_count_cumsum,
-                    cache_set_inverse_indices,
-                    self.lxu_cache_weights,
-                    inserted_rows,
-                    unique_indices_length,
-                    inserted_indices,
-                )
+        module: nn.Module,
+        grad_input: Union[Tuple[Tensor, ...], Tensor],
+    ) -> None:
+        """
+        Update cache line locking counter and pointers before backward
+        TBE. This is a hook that is called before the backward of TBE
+
+        Update cache line counter:
+
+        We ensure that cache prefetching does not execute concurrently
+        with the backward TBE. Therefore, it is safe to unlock the
+        cache lines used in current iteration before backward TBE.
+
+        Update pointers:
+
+        Now some rows that are used in both the current iteration and
+        the next iteration are moved (1) from the current iteration's
+        scratch pad into the next iteration's scratch pad or (2) from
+        the current iteration's scratch pad into the L1 cache
+
+        To ensure that the TBE backward kernel accesses valid data,
+        here we update the pointers of these rows in the current
+        iteration's `lxu_cache_ptrs` to point to either L1 cache or
+        the next iteration scratch pad
+
+        Args:
+            module (nn.Module): Unused
+            grad_input (Union[Tuple[Tensor, ...], Tensor]): Unused
+
+        Returns:
+            None
+        """
+        if self.prefetch_stream:
+            # Ensure that prefetch is done
+            torch.cuda.current_stream().wait_stream(self.prefetch_stream)
+
+        assert self.current_iter_data is not None, "current_iter_data must be set"
+
+        curr_data: IterData = self.current_iter_data
+
+        if curr_data.lxu_cache_locations.numel() == 0:
+            return
+
+        with record_function("## ssd_update_cache_counter_and_pointers ##"):
+            # Unlock the cache lines
+            torch.ops.fbgemm.lxu_cache_locking_counter_decrement(
+                self.lxu_cache_locking_counter,
+                curr_data.lxu_cache_locations,
             )
 
-        # Transfer post_bwd_evicted_indices from GPU to CPU right away to
-        # increase a chance of overlapping with compute in the default stream
-        (post_bwd_evicted_indices_cpu,) = (
-            self.to_pinned_cpu_on_stream_wait_on_current_stream(
-                tensors=[post_bwd_evicted_indices],
-                stream=self.ssd_eviction_stream,
-                post_event=None,
+            # Recompute linear_cache_indices to save memory
+            linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
+                self.hash_size_cumsum,
+                curr_data.indices,
+                curr_data.offsets,
             )
-        )
-
-        # Insert conflict miss indices in the index queue for future lookup
-        # post_bwd_evicted_indices_cpu is transferred on the ssd_eviction_stream stream
-        # actions_count_cpu is transferred on the ssd_memcpy_stream stream
-        with torch.cuda.stream(self.ssd_eviction_stream):
-            # Ensure that actions_count_cpu transfer is done
-            self.ssd_eviction_stream.wait_event(self.ssd_event_get_inputs_cpy)
-            self.record_function_via_dummy_profile(
-                "## ssd_scratch_pad_idx_queue_insert ##",
-                self.scratch_pad_idx_queue.insert_cuda,
-                post_bwd_evicted_indices_cpu,
-                actions_count_cpu,
+            (
+                linear_unique_indices,
+                linear_unique_indices_length,
+                unique_indices_count,
+                linear_index_inverse_indices,
+            ) = get_unique_indices_v2(
+                linear_cache_indices,
+                self.total_hash_size,
+                compute_count=True,
+                compute_inverse_indices=True,
             )
-            self.ssd_eviction_stream.record_event(self.ssd_event_sp_idxq_insert)
-
-        with record_function("## ssd_scratch_pads ##"):
-            # Store scratch pad info for post backward eviction
-            self.ssd_scratch_pads.append(
-                (
-                    inserted_rows,
-                    post_bwd_evicted_indices_cpu,
-                    actions_count_cpu,
-                    linear_cache_indices.numel() > 0,
-                )
+            unique_indices_count_cumsum = torch.ops.fbgemm.asynchronous_complete_cumsum(
+                unique_indices_count
             )
 
-        # pyre-fixme[7]: Expected `Tensor` but got `Tuple[typing.Any, Tensor,
-        #  typing.Any, Tensor]`.
-        return (
-            lxu_cache_ptrs,
-            inserted_rows,
-            post_bwd_evicted_indices_cpu,
-            actions_count_cpu,
-        )
+            # Look up the cache to check which indices in the scratch
+            # pad are moved to L1
+            torch.ops.fbgemm.lxu_cache_lookup(
+                linear_cache_indices,
+                self.lxu_cache_state,
+                self.total_hash_size,
+                gather_cache_stats=False,  # not collecting cache stats
+                lxu_cache_locations_output=curr_data.lxu_cache_locations,
+            )
 
-    def prefetch(self, indices: Tensor, offsets: Tensor) -> Optional[Tensor]:
-        with record_function("## ssd_prefetch ##"):
+            if len(self.ssd_location_update_data) == 0:
+                return
+
+            (sp_curr_next_map, inserted_rows_next) = self.ssd_location_update_data.pop(
+                0
+            )
+
+            # Update poitners
+            torch.ops.fbgemm.ssd_update_row_addrs(
+                ssd_row_addrs_curr=curr_data.lxu_cache_ptrs,
+                inserted_ssd_weights_curr_next_map=sp_curr_next_map,
+                lxu_cache_locations_curr=curr_data.lxu_cache_locations,
+                linear_index_inverse_indices_curr=linear_index_inverse_indices,
+                unique_indices_count_cumsum_curr=unique_indices_count_cumsum,
+                cache_set_inverse_indices_curr=curr_data.cache_set_inverse_indices,
+                lxu_cache_weights=self.lxu_cache_weights,
+                inserted_ssd_weights_next=inserted_rows_next,
+                unique_indices_length_curr=curr_data.actions_count_gpu,
+            )
+
+    def prefetch(  # noqa C901
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        forward_stream: Optional[torch.cuda.Stream] = None,
+    ) -> Optional[Tensor]:
+        if self.prefetch_stream is None and forward_stream is not None:
+            # Set the prefetch stream to the current stream
+            self.prefetch_stream = torch.cuda.current_stream()
+            assert (
+                self.prefetch_stream != forward_stream
+            ), "prefetch_stream and forward_stream should not be the same stream"
+
+        # TODO: Refactor prefetch
+        current_stream = torch.cuda.current_stream()
+
+        # If a prefetch stream is used, then record tensors on the stream
+        indices.record_stream(current_stream)
+        offsets.record_stream(current_stream)
+
+        with record_function("## ssd_prefetch {} ##".format(self.timestep)):
             if self.gather_ssd_cache_stats:
                 self.local_ssd_cache_stats.zero_()
             (indices, offsets) = indices.long(), offsets.long()
 
+            # Linearize indices
             linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
                 self.hash_size_cumsum,
                 indices,
                 offsets,
             )
+
             self.timestep += 1
             self.timesteps_prefetched.append(self.timestep)
+
+            # Lookup and virtually insert indices into L1. After this operator,
+            # we know:
+            # (1) which cache lines can be evicted
+            # (2) which rows are already in cache (hit)
+            # (3) which rows are missed and can be inserted later (missed, but
+            #     not conflict missed)
+            # (4) which rows are missed but CANNOT be inserted later (conflict
+            #     missed)
             (
                 inserted_indices,
                 evicted_indices,
@@ -753,33 +911,58 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.lru_state,
                 self.gather_ssd_cache_stats,
                 self.local_ssd_cache_stats,
+                lock_cache_line=self.prefetch_pipeline,
+                lxu_cache_locking_counter=self.lxu_cache_locking_counter,
             )
-            # Transfer evicted indices from GPU to CPU right away to increase a
-            # chance of overlapping with compute on the default stream
-            (evicted_indices_cpu,) = (
-                self.to_pinned_cpu_on_stream_wait_on_current_stream(
-                    tensors=[evicted_indices],
-                    stream=self.ssd_eviction_stream,
-                    post_event=None,
+
+            # Compute cache locations (rows that are hit are missed but can be
+            # inserted will have cache locations != -1)
+            with record_function("## ssd_tbe_lxu_cache_lookup ##"):
+                lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                    linear_cache_indices,
+                    self.lxu_cache_state,
+                    self.total_hash_size,
+                    self.gather_ssd_cache_stats,
+                    self.local_ssd_cache_stats,
                 )
-            )
 
-            actions_count_cpu, inserted_indices_cpu = (
-                self.to_pinned_cpu_on_stream_wait_on_current_stream(
-                    tensors=[
-                        actions_count_gpu,
-                        inserted_indices,
-                    ],
-                    stream=self.ssd_memcpy_stream,
-                    post_event=self.ssd_event_get_inputs_cpy,
+            with record_function("## ssd_d2h_inserted_indices ##"):
+                # Transfer actions_count and insert_indices right away to
+                # incrase an overlap opportunity
+                actions_count_cpu, inserted_indices_cpu = (
+                    self.to_pinned_cpu_on_stream_wait_on_another_stream(
+                        tensors=[
+                            actions_count_gpu,
+                            inserted_indices,
+                        ],
+                        stream=self.ssd_memcpy_stream,
+                        stream_to_wait_on=current_stream,
+                        post_event=self.ssd_event_get_inputs_cpy,
+                    )
                 )
-            )
 
-            assigned_cache_slots = assigned_cache_slots.long()
-            evicted_rows = self.lxu_cache_weights[
-                assigned_cache_slots.clamp(min=0).long(), :
-            ]
+            with record_function("## ssd_d2h_evicted_indices ##"):
+                # Transfer evicted indices from GPU to CPU right away to increase a
+                # chance of overlapping with compute on the default stream
+                (evicted_indices_cpu,) = (
+                    self.to_pinned_cpu_on_stream_wait_on_another_stream(
+                        tensors=[evicted_indices],
+                        stream=self.ssd_eviction_stream,
+                        stream_to_wait_on=current_stream,
+                        post_event=None,
+                    )
+                )
 
+            # Copy rows to be evicted into a separate buffer (will be evicted
+            # later in the prefetch step)
+            with record_function("## ssd_compute_evicted_rows ##"):
+                assigned_cache_slots = assigned_cache_slots.long()
+                evicted_rows = self.lxu_cache_weights[
+                    assigned_cache_slots.clamp(min=0).long(), :
+                ]
+
+            # Allocation a scratch pad for the current iteration. The scratch
+            # pad is a UVA tensor
             if linear_cache_indices.numel() > 0:
                 inserted_rows = torch.ops.fbgemm.new_managed_tensor(
                     torch.zeros(
@@ -796,26 +979,39 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     device=self.current_device,
                 )
 
-            current_stream = torch.cuda.current_stream()
-            if len(self.ssd_scratch_pads) > 0:
+            if self.prefetch_pipeline and len(self.ssd_scratch_pads) > 0:
+                # Look up all missed indices from the previous iteration's
+                # scratch pad (do this only if pipeline prefetching is being
+                # used)
                 with record_function("## ssd_lookup_scratch_pad ##"):
-                    current_stream.wait_event(self.ssd_event_sp_idxq_insert)
-                    current_stream.wait_event(self.ssd_event_get_inputs_cpy)
-
+                    # Get the previous scratch pad
                     (
                         inserted_rows_prev,
                         post_bwd_evicted_indices_cpu_prev,
                         actions_count_cpu_prev,
-                        do_evict_prev,
                     ) = self.ssd_scratch_pads.pop(0)
 
                     # Inserted indices that are found in the scratch pad
                     # from the previous iteration
-                    sp_locations_cpu = torch.empty(
+                    sp_prev_curr_map_cpu = torch.empty(
                         inserted_indices_cpu.shape,
                         dtype=inserted_indices_cpu.dtype,
                         pin_memory=True,
                     )
+
+                    # Conflict missed indices from the previous iteration that
+                    # overlap with the current iterations's inserted indices
+                    sp_curr_prev_map_cpu = torch.empty(
+                        post_bwd_evicted_indices_cpu_prev.shape,
+                        dtype=torch.int,
+                        pin_memory=True,
+                    ).fill_(-1)
+
+                    # Ensure that the necessary D2H transfers are done
+                    current_stream.wait_event(self.ssd_event_get_inputs_cpy)
+                    # Ensure that the previous iteration's scratch pad indices
+                    # insertion is complete
+                    current_stream.wait_event(self.ssd_event_sp_idxq_insert)
 
                     # Before entering this function: inserted_indices_cpu
                     # contains all linear indices that are missed from the
@@ -823,7 +1019,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     #
                     # After this function: inserted indices that are found
                     # in the scratch pad from the previous iteration are
-                    # stored in sp_locations_cpu, while the rests are
+                    # stored in sp_prev_curr_map_cpu, while the rests are
                     # stored in inserted_indices_cpu
                     #
                     # An invalid index is -1 or its position >
@@ -831,44 +1027,55 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     self.record_function_via_dummy_profile(
                         "## ssd_lookup_mask_and_pop_front ##",
                         self.scratch_pad_idx_queue.lookup_mask_and_pop_front_cuda,
-                        sp_locations_cpu,
-                        post_bwd_evicted_indices_cpu_prev,
-                        inserted_indices_cpu,
-                        actions_count_cpu,
+                        sp_prev_curr_map_cpu,  # scratch_pad_prev_curr_map
+                        sp_curr_prev_map_cpu,  # scratch_pad_curr_prev_map
+                        post_bwd_evicted_indices_cpu_prev,  # scratch_pad_indices_prev
+                        inserted_indices_cpu,  # inserted_indices_curr
+                        actions_count_cpu,  # count_curr
                     )
 
-                    # Transfer sp_locations_cpu to GPU
-                    sp_locations_gpu = sp_locations_cpu.cuda(non_blocking=True)
+                    # Mark scratch pad index queue lookup completion
+                    current_stream.record_event(self.ssd_event_sp_idxq_lookup)
+
+                    # Transfer sp_prev_curr_map_cpu to GPU
+                    sp_prev_curr_map_gpu = sp_prev_curr_map_cpu.cuda(non_blocking=True)
+                    # Transfer sp_curr_prev_map_cpu to GPU
+                    sp_curr_prev_map_gpu = sp_curr_prev_map_cpu.cuda(non_blocking=True)
+
+                    # Previously actions_count_gpu was recorded on another
+                    # stream. Thus, we need to record it on this stream
+                    actions_count_gpu.record_stream(current_stream)
 
                     # Copy data from the previous iteration's scratch pad to
                     # the current iteration's scratch pad
                     torch.ops.fbgemm.masked_index_select(
                         inserted_rows,
-                        sp_locations_gpu,
+                        sp_prev_curr_map_gpu,
                         inserted_rows_prev,
                         actions_count_gpu,
                     )
 
-                    # Evict from scratch pad
-                    if do_evict_prev:
-                        torch.cuda.current_stream().record_event(
-                            self.ssd_event_backward
-                        )
-                        self.evict(
-                            rows=inserted_rows_prev,
-                            indices_cpu=post_bwd_evicted_indices_cpu_prev,
-                            actions_count_cpu=actions_count_cpu_prev,
-                            stream=self.ssd_eviction_stream,
-                            pre_event=self.ssd_event_backward,
-                            post_event=None,
-                            is_rows_uvm=True,
-                            name="scratch_pad",
-                        )
+                    # Record the tensors that will be pushed into a queue
+                    # on the forward stream
+                    if forward_stream:
+                        sp_curr_prev_map_gpu.record_stream(forward_stream)
 
-            # Ensure the previous iterations l3_db.set(..) has completed.
+                    # Store info for evicting the previous iteration's
+                    # scratch pad after the corresponding backward pass is
+                    # done
+                    self.ssd_location_update_data.append(
+                        (
+                            sp_curr_prev_map_gpu,
+                            inserted_rows,
+                        )
+                    )
+
+            # Ensure the previous iterations eviction is complete
             current_stream.wait_event(self.ssd_event_evict)
+            # Ensure that D2H is done
             current_stream.wait_event(self.ssd_event_get_inputs_cpy)
 
+            # Fetch data from SSD
             if linear_cache_indices.numel() > 0:
                 self.record_function_via_dummy_profile(
                     "## ssd_get ##",
@@ -877,8 +1084,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     inserted_rows,
                     actions_count_cpu,
                 )
+
+            # Record an event to mark the completion of `get_cuda`
             current_stream.record_event(self.ssd_event_get)
 
+            # Copy rows from the current iteration's scratch pad to L1
             torch.ops.fbgemm.masked_index_put(
                 self.lxu_cache_weights,
                 assigned_cache_slots,
@@ -894,35 +1104,104 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     actions_count_cpu=actions_count_cpu,
                     stream=self.ssd_eviction_stream,
                     pre_event=self.ssd_event_get,
-                    post_event=self.ssd_event_evict,
+                    # Record completion event after scratch pad eviction
+                    # instead since that happens after L1 eviction
+                    post_event=None,
                     is_rows_uvm=False,
                     name="cache",
                 )
 
-            with record_function("## ssd_tbe_lxu_cache_lookup ##"):
-                lxu_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
-                    linear_cache_indices,
-                    self.lxu_cache_state,
-                    self.total_hash_size,
-                    self.gather_ssd_cache_stats,
-                    self.local_ssd_cache_stats,
+            # Generate row addresses (pointing to either L1 or the current
+            # iteration's scratch pad)
+            with record_function("## ssd_generate_row_addrs ##"):
+                lxu_cache_ptrs, post_bwd_evicted_indices = (
+                    torch.ops.fbgemm.ssd_generate_row_addrs(
+                        lxu_cache_locations,
+                        assigned_cache_slots,
+                        linear_index_inverse_indices,
+                        unique_indices_count_cumsum,
+                        cache_set_inverse_indices,
+                        self.lxu_cache_weights,
+                        inserted_rows,
+                        unique_indices_length,
+                        inserted_indices,
+                    )
                 )
 
-            # TODO: keep only necessary tensors
-            self.ssd_prefetch_data.append(
+            with record_function("## ssd_d2h_post_bwd_evicted_indices ##"):
+                # Transfer post_bwd_evicted_indices from GPU to CPU right away to
+                # increase a chance of overlapping with compute in the default stream
+                (post_bwd_evicted_indices_cpu,) = (
+                    self.to_pinned_cpu_on_stream_wait_on_another_stream(
+                        tensors=[post_bwd_evicted_indices],
+                        stream=self.ssd_eviction_stream,
+                        stream_to_wait_on=current_stream,
+                        post_event=None,
+                    )
+                )
+
+            if self.prefetch_pipeline:
+                # Insert the current iteration's conflict miss indices in the index
+                # queue for future lookup.
+                #
+                # post_bwd_evicted_indices_cpu is transferred on the
+                # ssd_eviction_stream stream so it does not need stream
+                # synchronization
+                #
+                # actions_count_cpu is transferred on the ssd_memcpy_stream stream.
+                # Thus, we have to explicitly sync the stream
+                with torch.cuda.stream(self.ssd_eviction_stream):
+                    # Ensure that actions_count_cpu transfer is done
+                    self.ssd_eviction_stream.wait_event(self.ssd_event_get_inputs_cpy)
+                    # Ensure that the scratch pad index queue look up is complete
+                    self.ssd_eviction_stream.wait_event(self.ssd_event_sp_idxq_lookup)
+                    self.record_function_via_dummy_profile(
+                        "## ssd_scratch_pad_idx_queue_insert ##",
+                        self.scratch_pad_idx_queue.insert_cuda,
+                        post_bwd_evicted_indices_cpu,
+                        actions_count_cpu,
+                    )
+                    # Mark the completion of scratch pad index insertion
+                    self.ssd_eviction_stream.record_event(self.ssd_event_sp_idxq_insert)
+
+            prefetch_data = (
+                lxu_cache_ptrs,
+                inserted_rows,
+                post_bwd_evicted_indices_cpu,
+                actions_count_cpu,
+                actions_count_gpu,
+                lxu_cache_locations,
+                cache_set_inverse_indices,
+            )
+
+            # Record tensors on the forward stream
+            if forward_stream is not None:
+                for t in prefetch_data:
+                    if t.is_cuda:
+                        t.record_stream(forward_stream)
+
+            # Store scratch pad info for the lookup in the next iteration
+            # prefetch
+            self.ssd_scratch_pads.append(
                 (
-                    linear_cache_indices,
-                    assigned_cache_slots,
-                    linear_index_inverse_indices,
-                    unique_indices_count_cumsum,
-                    cache_set_inverse_indices,
                     inserted_rows,
-                    unique_indices_length,
-                    inserted_indices,
+                    post_bwd_evicted_indices_cpu,
                     actions_count_cpu,
-                    lxu_cache_locations,
                 )
             )
+
+            # Store scratch pad info for post backward eviction
+            self.ssd_scratch_pad_eviction_data.append(
+                (
+                    inserted_rows,
+                    post_bwd_evicted_indices_cpu,
+                    actions_count_cpu,
+                    linear_cache_indices.numel() > 0,
+                )
+            )
+
+            # Store data for forward
+            self.ssd_prefetch_data.append(prefetch_data)
 
         if self.gather_ssd_cache_stats:
             self.ssd_cache_stats = torch.add(
@@ -945,13 +1224,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.prefetch(indices, offsets)
         assert len(self.ssd_prefetch_data) > 0
 
-        prefetch_data = self.ssd_prefetch_data.pop(0)
         (
             lxu_cache_ptrs,
             inserted_rows,
             post_bwd_evicted_indices_cpu,
             actions_count_cpu,
-        ) = self._compute_cache_ptrs(*prefetch_data)
+            actions_count_gpu,
+            lxu_cache_locations,
+            cache_set_inverse_indices,
+        ) = self.ssd_prefetch_data.pop(0)
+
+        # Storing current iteration data for future use
+        self.current_iter_data = IterData(
+            indices,
+            offsets,
+            lxu_cache_locations,
+            lxu_cache_ptrs,
+            actions_count_gpu,
+            cache_set_inverse_indices,
+        )
 
         common_args = invokers.lookup_args_ssd.CommonArgs(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
@@ -1112,9 +1403,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         active_ids = lxu_cache_state_cpu.view(-1).masked_select(
             active_slots_mask_cpu.view(-1)
         )
-
-        # Evict data from scratch pad if there is scratch pad in the queue
-        self._evict_from_scratch_pad(return_on_empty=True)
 
         torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
 

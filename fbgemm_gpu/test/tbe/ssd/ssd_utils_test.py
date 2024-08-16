@@ -259,7 +259,8 @@ class SSDUtilsTest(unittest.TestCase):
 
             # Run reference
             # Prepare inputs for the reference run
-            sp_locations_ref = torch.zeros_like(lookup_indices)
+            sp_prev_curr_map_ref = torch.zeros_like(lookup_indices)
+            sp_curr_prev_map_ref = torch.empty_like(indices, dtype=torch.int).fill_(-1)
             sp_indices = indices.clone().tolist()
             ssd_indices = lookup_indices.clone().tolist()
 
@@ -273,30 +274,33 @@ class SSDUtilsTest(unittest.TestCase):
                 ssd_idx = ssd_indices[i]
                 if ssd_idx in sp_map:
                     loc = sp_map[ssd_idx]
-                    sp_locations_ref[i] = loc
+                    sp_prev_curr_map_ref[i] = loc
+                    sp_curr_prev_map_ref[loc] = i
                     sp_indices[loc] = sentinel_value
                     ssd_indices[i] = sentinel_value
                 else:
-                    sp_locations_ref[i] = sentinel_value
+                    sp_prev_curr_map_ref[i] = sentinel_value
 
             all_lookup_outputs_ref.append(
                 (
-                    sp_locations_ref,
+                    sp_prev_curr_map_ref,
                     torch.as_tensor(sp_indices),
                     torch.as_tensor(ssd_indices),
                 )
             )
 
             # Run test
-            sp_locations = torch.zeros_like(lookup_indices)
+            sp_prev_curr_map = torch.zeros_like(lookup_indices)
+            sp_curr_prev_map = torch.empty_like(indices, dtype=torch.int).fill_(-1)
             sp_idx_queue.lookup_mask_and_pop_front_cuda(
-                sp_locations,
+                sp_prev_curr_map,
+                sp_curr_prev_map,
                 indices,
                 lookup_indices,
                 lookup_count,
             )
 
-            all_lookup_outputs.append((sp_locations, indices, lookup_indices))
+            all_lookup_outputs.append((sp_prev_curr_map, indices, lookup_indices))
 
         # Ensure that the lookups are done
         torch.cuda.synchronize()
@@ -304,7 +308,12 @@ class SSDUtilsTest(unittest.TestCase):
         # Compare results
         for test, ref in zip(all_lookup_outputs, all_lookup_outputs_ref):
             for name, test_, ref_ in zip(
-                ["scratch_pad_locations", "scratch_pad_indices", "ssd_indices"],
+                [
+                    "scratch_pad_prev_curr_map",
+                    "scratch_pad_curr_prev_map",
+                    "scratch_pad_indices",
+                    "ssd_indices",
+                ],
                 test,
                 ref,
             ):
