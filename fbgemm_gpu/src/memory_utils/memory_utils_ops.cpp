@@ -22,8 +22,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "new_unified_tensor(Tensor self, int[] sizes, bool is_host_mapped) -> Tensor");
 
-  DISPATCH_TO_META("new_managed_tensor", new_managed_tensor_meta);
   DISPATCH_TO_CPU("new_unified_tensor", new_unified_tensor_cpu);
+  DISPATCH_TO_META("new_managed_tensor", new_managed_tensor_meta);
+  DISPATCH_TO_META("new_unified_tensor", new_unified_tensor_meta);
 }
 
 } // namespace fbgemm_gpu
