@@ -353,7 +353,7 @@ def ssd_training(  # noqa C901
             embedding_specs=[(E, d) for d in Ds],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            ssd_cache_location=EmbeddingLocation.MANAGED,
+            ssd_cache_location=EmbeddingLocation.DEVICE,
             ssd_rocksdb_shards=8,
             ssd_block_cache_size_per_tbe=block_cache_size_mb * (2**20),
             **common_args,
