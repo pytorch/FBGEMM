@@ -87,6 +87,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga5663643a8ac5de83063d0ff51bb9af17"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6f8847537ea9ed13fc7e2e378bc79b1f" id="r_ga6f8847537ea9ed13fc7e2e378bc79b1f"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga6f8847537ea9ed13fc7e2e378bc79b1f">new_unified_tensor</a> (const Tensor &amp;self, const std::vector&lt; std::int64_t &gt; &amp;sizes, bool is_host_mapped)</td></tr>
 <tr class="separator:ga6f8847537ea9ed13fc7e2e378bc79b1f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga8cd15c298228b5cd628ee588761dc67d" id="r_ga8cd15c298228b5cd628ee588761dc67d"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga8cd15c298228b5cd628ee588761dc67d">new_unified_tensor_meta</a> (const Tensor &amp;self, const std::vector&lt; std::int64_t &gt; &amp;sizes, bool is_host_mapped)</td></tr>
+<tr class="separator:ga8cd15c298228b5cd628ee588761dc67d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gad5e0d2307667c3db5e73f0c0eec15df5" id="r_gad5e0d2307667c3db5e73f0c0eec15df5"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gad5e0d2307667c3db5e73f0c0eec15df5">new_vanilla_managed_tensor</a> (const Tensor &amp;self, const std::vector&lt; std::int64_t &gt; &amp;sizes)</td></tr>
 <tr class="separator:gad5e0d2307667c3db5e73f0c0eec15df5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga05bf2c435c434904ca454c6992861cb6" id="r_ga05bf2c435c434904ca454c6992861cb6"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga05bf2c435c434904ca454c6992861cb6">uvm_storage</a> (const Tensor &amp;self)</td></tr>
@@ -247,6 +249,42 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <p>Allocate the <code>at::Tensor</code> with either unified managed memory (UVM) or host-mapped memory.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">self</td><td>The input tensor </td></tr>
+    <tr><td class="paramname">sizes</td><td>The target tensor dimensions </td></tr>
+    <tr><td class="paramname">is_host_mapped</td><td>Whether to allocate UVM or host-mapped memory</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>A new tensor backed by UVM or host-mapped memory, depending on the value of <code>is_host_mapped</code> </dd></dl>
+
+</div>
+</div>
+<a id="ga8cd15c298228b5cd628ee588761dc67d" name="ga8cd15c298228b5cd628ee588761dc67d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga8cd15c298228b5cd628ee588761dc67d">&#9670;&#160;</a></span>new_unified_tensor_meta()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor new_unified_tensor_meta </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>self</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::vector&lt; std::int64_t &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>sizes</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_host_mapped</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Placeholder operator for the <code>Meta</code> dispatch key for new_unified_tensor</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">self</td><td>The input tensor </td></tr>

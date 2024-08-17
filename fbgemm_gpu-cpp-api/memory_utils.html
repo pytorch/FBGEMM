@@ -488,6 +488,24 @@
 </dd></dl>
 
 <dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv423new_unified_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEEb">
+<span id="_CPPv323new_unified_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEEb"></span><span id="_CPPv223new_unified_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEEb"></span><span id="new_unified_tensor_meta__TensorCR.std::vector:std::int64_t:CR.b"></span><span class="target" id="group__cumem-utils_1ga8cd15c298228b5cd628ee588761dc67d"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">new_unified_tensor_meta</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">sizes</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">is_host_mapped</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv423new_unified_tensor_metaRK6TensorRKNSt6vectorINSt7int64_tEEEb" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Placeholder operator for the <code class="docutils literal notranslate"><span class="pre">Meta</span></code> dispatch key for new_unified_tensor</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>self</strong> – The input tensor </p></li>
+<li><p><strong>sizes</strong> – The target tensor dimensions </p></li>
+<li><p><strong>is_host_mapped</strong> – Whether to allocate UVM or host-mapped memory</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new tensor backed by UVM or host-mapped memory, depending on the value of <code class="docutils literal notranslate"><span class="pre">is_host_mapped</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv426new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE">
 <span id="_CPPv326new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="_CPPv226new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE"></span><span id="new_vanilla_managed_tensor__TensorCR.std::vector:std::int64_t:CR"></span><span class="target" id="group__cumem-utils_1gad5e0d2307667c3db5e73f0c0eec15df5"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">new_vanilla_managed_tensor</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">vector</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">sizes</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv426new_vanilla_managed_tensorRK6TensorRKNSt6vectorINSt7int64_tEEE" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>Allocate an <code class="docutils literal notranslate"><span class="pre">at::Tensor</span></code> with unified managed memory (UVM), but allow for its preferred storage location to be automatically managed.</p>
