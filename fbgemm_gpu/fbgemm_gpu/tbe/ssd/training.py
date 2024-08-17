@@ -128,6 +128,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         l2_cache_size: int = 0,
         # Set to True to enable pipeline prefetching
         prefetch_pipeline: bool = False,
+        # Set to True to alloc a UVM tensor using malloc+cudaHostRegister.
+        # Set to False to use cudaMallocManaged
+        uvm_host_mapped: bool = False,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -177,6 +180,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.tensor(
                 hash_size_cumsum, device=self.current_device, dtype=torch.int64
             ),
+        )
+
+        self.uvm_host_mapped = uvm_host_mapped
+        logging.info(
+            f"TBE will allocate a UVM buffer with is_host_mapped={uvm_host_mapped}"
         )
 
         assert cache_sets > 0
@@ -248,13 +256,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if ssd_cache_location == EmbeddingLocation.MANAGED:
             self.register_buffer(
                 "lxu_cache_weights",
-                torch.ops.fbgemm.new_managed_tensor(
+                torch.ops.fbgemm.new_unified_tensor(
                     torch.zeros(
                         1,
                         device=self.current_device,
                         dtype=cache_dtype,
                     ),
                     [cache_sets * ASSOC, self.max_D],
+                    is_host_mapped=self.uvm_host_mapped,
                 ),
             )
         else:
@@ -964,13 +973,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Allocation a scratch pad for the current iteration. The scratch
             # pad is a UVA tensor
             if linear_cache_indices.numel() > 0:
-                inserted_rows = torch.ops.fbgemm.new_managed_tensor(
+                inserted_rows = torch.ops.fbgemm.new_unified_tensor(
                     torch.zeros(
                         1,
                         device=self.current_device,
                         dtype=self.lxu_cache_weights.dtype,
                     ),
                     evicted_rows.shape,
+                    is_host_mapped=self.uvm_host_mapped,
                 )
             else:
                 inserted_rows = torch.empty(
