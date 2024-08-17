@@ -19,6 +19,13 @@ Tensor new_managed_tensor_meta(
   return at::empty(sizes, self.options());
 }
 
+Tensor new_unified_tensor_meta(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes,
+    bool /*is_host_mapped*/) {
+  return at::empty(sizes, self.options());
+}
+
 Tensor new_unified_tensor_cpu(
     const Tensor& self,
     const std::vector<std::int64_t>& sizes,
