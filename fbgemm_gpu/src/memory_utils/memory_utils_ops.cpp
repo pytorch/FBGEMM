@@ -9,7 +9,7 @@
 #include <torch/library.h>
 #include "common.h"
 #include "fbgemm_gpu/cumem_utils.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 

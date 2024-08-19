@@ -14,7 +14,6 @@
 #include <cstdint>
 
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 

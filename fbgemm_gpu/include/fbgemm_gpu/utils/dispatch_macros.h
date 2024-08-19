@@ -223,7 +223,7 @@
   FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__)
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Dispatch Macros
+/// Type Dispatch Macros
 ///
 /// These macros are similar to AT_DISPATCH_*, but do not support
 /// at::ScalarType::Double

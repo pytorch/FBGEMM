@@ -13,6 +13,8 @@
 #include <optional>
 #include <string>
 
+#include "fbgemm_gpu/utils/ops_utils.h"
+
 inline bool torch_tensor_on_cpu_check(const at::Tensor& ten) {
   return ten.is_cpu();
 }
@@ -95,36 +97,6 @@ inline bool torch_tensor_empty_or_on_cpu_check(
     const std::optional<at::Tensor>& ten) {
   return !ten.has_value() || torch_tensor_empty_or_on_cpu_check(ten.value());
 }
-
-#define DISPATCH_TO_CUDA(name, function) \
-  m.impl(name, torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(function)))
-
-#define DISPATCH_TO_CPU(name, function) \
-  m.impl(name, torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(function)))
-
-#define DISPATCH_TO_META(name, function) \
-  m.impl(name, torch::dispatch(c10::DispatchKey::Meta, TORCH_FN(function)))
-
-#define DISPATCH_TO_ALL(name, function) \
-  m.impl(name, torch::dispatch(c10::DispatchKey::CatchAll, TORCH_FN(function)))
-
-#define DISPATCH_TO_AUTOGRAD(name, function) \
-  m.impl(name, torch::dispatch(c10::DispatchKey::Autograd, TORCH_FN(function)))
-
-#define DISPATCH_TO_AUTOGRAD_CPU(name, function) \
-  m.impl(                                        \
-      name,                                      \
-      torch::dispatch(c10::DispatchKey::AutogradCPU, TORCH_FN(function)))
-
-#define DISPATCH_TO_AUTOGRAD_CUDA(name, function) \
-  m.impl(                                         \
-      name,                                       \
-      torch::dispatch(c10::DispatchKey::AutogradCUDA, TORCH_FN(function)))
-
-#define DISPATCH_TO_AUTOGRAD_META(name, function) \
-  m.impl(                                         \
-      name,                                       \
-      torch::dispatch(c10::DispatchKey::AutogradMETA, TORCH_FN(function)))
 
 #define TENSOR_ON_CPU(x)                                      \
   TORCH_CHECK(                                                \

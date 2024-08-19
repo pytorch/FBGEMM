@@ -14,7 +14,6 @@
 #include "c10/core/SymIntArrayRef.h"
 #include "c10/util/DimVector.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 

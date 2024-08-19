@@ -26,11 +26,11 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "fbgemm_gpu/utils/ops_utils.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
-#include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/split_embeddings_utils.cuh"
 ////////////////////////////////////////////////////////////////////////////////
+#include <torch/library.h>
+#include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;

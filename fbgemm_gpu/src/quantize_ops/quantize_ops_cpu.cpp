@@ -9,12 +9,13 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <fbgemm_gpu/sparse_ops.h>
-#include <fbgemm_gpu/sparse_ops_utils.h>
 #include <torch/library.h>
 #include "fbgemm/QuantUtils.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/quantize_ops_utils.h"
+#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 
