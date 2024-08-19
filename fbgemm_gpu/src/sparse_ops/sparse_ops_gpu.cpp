@@ -11,6 +11,7 @@
 #include "c10/core/TensorOptions.h"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
