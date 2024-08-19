@@ -14,6 +14,7 @@
 #include <torch/library.h>
 
 #include "fbgemm_gpu/embedding_inplace_update.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 

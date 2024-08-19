@@ -16,8 +16,8 @@
 #include "common/stats/Stats.h"
 #endif
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 #include <algorithm>
 

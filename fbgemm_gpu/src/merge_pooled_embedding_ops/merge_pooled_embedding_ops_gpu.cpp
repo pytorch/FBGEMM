@@ -22,6 +22,7 @@
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
 
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/topology_utils.h"
 
 using Tensor = at::Tensor;

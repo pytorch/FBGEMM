@@ -9,7 +9,7 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
 
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include "metric_ops.h"
 
 namespace fbgemm_gpu {
