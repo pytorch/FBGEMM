@@ -9,9 +9,6 @@
 #include "./ps_table_batched_embeddings.h"
 
 #include <torch/custom_class.h>
-#include "fbgemm_gpu/sparse_ops_utils.h"
-
-#include <folly/logging/xlog.h>
 
 using namespace at;
 using namespace ps;

@@ -14,7 +14,7 @@
 
 #include "fbgemm_gpu/permute_pooled_embedding_ops_split.h"
 #include "fbgemm_gpu/permute_pooled_embs_function_split.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 

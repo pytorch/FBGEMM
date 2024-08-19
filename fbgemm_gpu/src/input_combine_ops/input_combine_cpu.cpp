@@ -20,6 +20,7 @@
 #include "fbgemm_gpu/input_combine.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 

@@ -16,8 +16,8 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "fbgemm_gpu/utils/ops_utils.h"
 ////////////////////////////////////////////////////////////////////////////////
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 

@@ -13,7 +13,6 @@
 #include "c10/core/ScalarType.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 

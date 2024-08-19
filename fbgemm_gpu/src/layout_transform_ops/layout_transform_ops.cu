@@ -23,6 +23,7 @@
 #include "fbgemm_gpu/layout_transform_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 

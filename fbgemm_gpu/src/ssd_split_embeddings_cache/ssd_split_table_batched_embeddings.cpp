@@ -13,7 +13,7 @@
 #include <torch/custom_class.h>
 
 #include "./ssd_table_batched_embeddings.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using namespace at;
 

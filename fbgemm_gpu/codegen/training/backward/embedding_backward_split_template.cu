@@ -20,17 +20,11 @@
 {%- set locs_or_addrs_tensor = "ssd_row_addrs" if ssd else "lxu_cache_locations" %}
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
-{%- if not is_index_select %}
-////////////////////////////////////////////////////////////////////////////////
-// Required for op registrations
-#include "fbgemm_gpu/utils/ops_utils.h"
-////////////////////////////////////////////////////////////////////////////////
-{%- endif %}
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
