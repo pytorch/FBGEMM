@@ -15,7 +15,10 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    BoundsCheckMode,
+    PoolingMode,
+)
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import b_indices, get_table_batched_offsets_from_dense
 from hypothesis import assume, given, settings, Verbosity
@@ -49,6 +52,7 @@ default_st: Dict["str", Any] = {
     "weights_precision": st.sampled_from([SparseType.FP32, SparseType.FP16]),
     "output_dtype": st.sampled_from([SparseType.FP32, SparseType.FP16]),
     "share_table": st.booleans(),
+    "trigger_bounds_check": st.booleans(),
 }
 
 
@@ -130,6 +134,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         Es: List[int],
         feature_table_map: List[int],
         weights_precision: SparseType = SparseType.FP32,
+        trigger_bounds_check: bool = False,
     ) -> Tuple[
         List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor
     ]:
@@ -140,7 +145,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # Generate random indices and per sample weights
         indices_list = [
-            torch.randint(low=0, high=Es[t], size=(B, L)).cuda()
+            torch.randint(
+                low=0, high=Es[t] * (2 if trigger_bounds_check else 1), size=(B, L)
+            ).cuda()
             for t in feature_table_map
         ]
         per_sample_weights_list = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
@@ -155,6 +162,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             dim=0,
         )
         (indices, offsets) = get_table_batched_offsets_from_dense(indices)
+
+        if trigger_bounds_check:
+            # Manual bounds check
+            for f, (t, indices_ref) in enumerate(zip(feature_table_map, indices_list)):
+                indices_ref[indices_ref >= Es[t]] = 0
+                indices_list[f] = indices_ref
 
         return (
             indices_list,
@@ -258,6 +271,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             stochastic_rounding=stochastic_rounding,
             prefetch_pipeline=prefetch_pipeline,
+            bounds_check_mode=BoundsCheckMode.WARNING,
         ).cuda()
 
         # A list to keep the CPU tensor alive until `set` (called inside
@@ -398,6 +412,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision: SparseType,
         output_dtype: SparseType,
         share_table: bool,
+        trigger_bounds_check: bool,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
 
@@ -428,7 +443,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             offsets,
             per_sample_weights,
         ) = self.generate_inputs_(
-            B, L, Es, emb.feature_table_map, weights_precision=weights_precision
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
         )
 
         # Execute forward
@@ -460,6 +480,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision: SparseType,
         output_dtype: SparseType,
         share_table: bool,
+        trigger_bounds_check: bool,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
 
@@ -502,6 +523,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es,
             emb.feature_table_map,
             weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
         )
 
         # Execute forward
@@ -600,6 +622,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         prefetch_location: Optional[PrefetchLocation],
         use_prefetch_stream: bool,
         flush_location: Optional[FlushLocation],
+        trigger_bounds_check: bool,
     ) -> None:
         # If using pipeline prefetching, explicit prefetching must be True
         assert not prefetch_pipeline or explicit_prefetch
@@ -656,6 +679,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     Es,
                     emb.feature_table_map,
                     weights_precision=weights_precision,
+                    trigger_bounds_check=trigger_bounds_check,
                 )
             )
 
