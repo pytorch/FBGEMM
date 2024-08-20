@@ -21,6 +21,7 @@ import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    BoundsCheckMode,
     CacheAlgorithm,
     EmbeddingLocation,
     PoolingMode,
@@ -114,6 +115,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             CowClipDefinition
         ] = None,  # used by Rowwise Adagrad
         pooling_mode: PoolingMode = PoolingMode.SUM,
+        bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         # Parameter Server Configs
         ps_hosts: Optional[Tuple[Tuple[str, int]]] = None,
         ps_max_key_per_request: Optional[int] = None,
@@ -135,6 +137,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
         self.pooling_mode = pooling_mode
+        self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
         (rows, dims) = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
@@ -185,6 +188,20 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.uvm_host_mapped = uvm_host_mapped
         logging.info(
             f"TBE will allocate a UVM buffer with is_host_mapped={uvm_host_mapped}"
+        )
+
+        # Buffers for bounds check
+        self.register_buffer(
+            "rows_per_table",
+            torch.tensor(
+                [rows[t] for t in self.feature_table_map],
+                device=self.current_device,
+                dtype=torch.int64,
+            ),
+        )
+        self.register_buffer(
+            "bounds_check_warning",
+            torch.tensor([0], device=self.current_device, dtype=torch.int64),
         )
 
         assert cache_sets > 0
@@ -864,6 +881,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         forward_stream: Optional[torch.cuda.Stream] = None,
+        prepare_inputs: bool = True,
     ) -> Optional[Tensor]:
         if self.prefetch_stream is None and forward_stream is not None:
             # Set the prefetch stream to the current stream
@@ -882,7 +900,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         with record_function("## ssd_prefetch {} ##".format(self.timestep)):
             if self.gather_ssd_cache_stats:
                 self.local_ssd_cache_stats.zero_()
-            (indices, offsets) = indices.long(), offsets.long()
+
+            if prepare_inputs:
+                indices, offsets, _ = self.prepare_inputs(indices, offsets)
 
             # Linearize indices
             linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
@@ -1228,12 +1248,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
     ) -> Tensor:
-        (indices, offsets) = indices.long(), offsets.long()
-        # Force casting per_sample_weights to float
-        if per_sample_weights is not None:
-            per_sample_weights = per_sample_weights.float()
+        indices, offsets, per_sample_weights = self.prepare_inputs(
+            indices, offsets, per_sample_weights
+        )
+
         if len(self.timesteps_prefetched) == 0:
-            self.prefetch(indices, offsets)
+            # Skip preparing inputs because they are already preprocessed
+            # above
+            self.prefetch(indices, offsets, prepare_inputs=False)
+
         assert len(self.ssd_prefetch_data) > 0
 
         (
@@ -1471,3 +1494,33 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 event_name=f"ssd_tbe.prefetch.cache_stats.{stat_index.name.lower()}",
                 data_bytes=int(ssd_cache_stats_delta[stat_index.value] / passed_steps),
             )
+
+    def prepare_inputs(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+    ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+        """
+        Prepare TBE inputs
+        """
+        # Force casting indices and offsets to long
+        (indices, offsets) = indices.long(), offsets.long()
+
+        # Force casting per_sample_weights to float
+        if per_sample_weights is not None:
+            per_sample_weights = per_sample_weights.float()
+
+        if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            torch.ops.fbgemm.bounds_check_indices(
+                self.rows_per_table,
+                indices,
+                offsets,
+                self.bounds_check_mode_int,
+                self.bounds_check_warning,
+                per_sample_weights,
+                B_offsets=None,
+                max_B=-1,
+            )
+
+        return indices, offsets, per_sample_weights
