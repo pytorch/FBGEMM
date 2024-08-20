@@ -9,6 +9,7 @@
 #include "fbgemm_gpu/sparse_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
 #include <ATen/ATen.h>
