@@ -16,7 +16,7 @@
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
 
-#include <fbgemm_gpu/sparse_ops_utils.h>
+#include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 
