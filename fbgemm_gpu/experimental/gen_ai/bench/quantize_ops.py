@@ -24,6 +24,16 @@ from tinygemm.utils import group_quantize_tensor
 if torch.cuda.is_available() and torch.version.cuda:
     torch.ops.load_library("//tinygemm:tinygemm")
 
+# Marlin currently only is supported only internally at Meta.
+try:
+    from marlin.quantize import marlin_quantize
+
+    torch.ops.load_library("//ai_codesign/gen_ai/marlin:marlin_ops")
+    MARLIN_ENABLED = True
+except ImportError:
+    MARLIN_ENABLED = False
+
+
 quantize_op_registry = []
 
 
@@ -670,3 +680,36 @@ class TinyGemmBF16I4(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+@register_quantize_op
+class MarlinBF16I4(QuantizeOpBase):
+    """
+    Mixed Precision BF16 Activations with Int4 Weights using Marlin.
+    """
+
+    def quantize(self, x, w):
+        # Marlin quantize expects weights in [K, N] layout.
+        _, wq, scale = marlin_quantize(w.t().contiguous(), 128)
+        return x, wq, scale
+
+    def compute(self, x, wq, scale):
+        return torch.ops.marlin.marlin_gemm(x, wq, scale)
+
+    def quantize_and_compute(self, x, w):
+        x, wq, scale = self.quantize(x, w)
+        return self.compute(x, wq, scale)
+
+    @property
+    def name(self) -> str:
+        return "marlin_bf16i4"
+
+    @property
+    def hip(self) -> bool:
+        # Marlin only supported for cuda.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        # This op is not always supported.
+        return MARLIN_ENABLED
