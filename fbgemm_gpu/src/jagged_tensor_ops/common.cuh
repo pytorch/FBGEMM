@@ -27,6 +27,7 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
+#include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
@@ -38,6 +39,16 @@
 namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
+
+// A wrapper class for passing dynamically sized dimension information (e.g.
+// tensor.dims()) from the host to device.
+constexpr size_t kStackArrayMaxDims = 5;
+
+template <typename T>
+struct StackArray {
+  T vals[kStackArrayMaxDims];
+  size_t ndim;
+};
 
 namespace {
 
