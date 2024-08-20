@@ -1348,27 +1348,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
         total_unique_indices: Optional[int] = None,
     ) -> Tensor:
-        # Generate VBE metadata
-        vbe_metadata = self._generate_vbe_metadata(
-            offsets, batch_size_per_feature_per_rank
+        (
+            indices,
+            offsets,
+            per_sample_weights,
+            vbe_metadata,
+        ) = self.prepare_inputs(
+            indices,
+            offsets,
+            per_sample_weights,
+            batch_size_per_feature_per_rank,
+            force_cast_input_types=True,
         )
-
-        (indices, offsets) = indices.long(), offsets.long()
-        # Force casting per_sample_weights to float
-        if per_sample_weights is not None:
-            per_sample_weights = per_sample_weights.float()
-
-        if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
-            torch.ops.fbgemm.bounds_check_indices(
-                self.rows_per_table,
-                indices,
-                offsets,
-                self.bounds_check_mode_int,
-                self.bounds_check_warning,
-                per_sample_weights,
-                B_offsets=vbe_metadata.B_offsets,
-                max_B=vbe_metadata.max_B,
-            )
 
         if not is_torchdynamo_compiling():
             # Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time
@@ -1732,9 +1723,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert (
                 self.prefetch_stream != forward_stream
             ), "prefetch_stream and forward_stream should not be the same stream"
-        vbe_metadata = self._generate_vbe_metadata(
-            offsets, batch_size_per_feature_per_rank
+
+        indices, offsets, _, vbe_metadata = self.prepare_inputs(
+            indices,
+            offsets,
+            per_sample_weights=None,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+            force_cast_input_types=False,
         )
+
         self._prefetch(
             indices,
             offsets,
@@ -2594,6 +2591,70 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 lxu_cache_state=self.lxu_cache_state,
                 total_cache_hash_size=total_cache_hash_size,
             )
+
+    def prepare_inputs(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+        force_cast_input_types: bool = True,
+    ) -> Tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
+        """
+        Prepare TBE inputs as follows:
+
+        (1) Create VBE metadata
+        (2) Convert input types if `force_cast_input_types=True`
+        (3) Run `bounds_check_indices` if `bounds_check_mode` is not
+            BoundsCheckMode.NONE
+
+        Args:
+            indices (Tensor): Input indices
+            offsets (Tensor): Input offsets
+            per_sample_weights (Optional[Tensor]): Input per sample
+                weights
+            batch_size_per_feature_per_rank
+                (Optional[List[List[int]]]): A 2D tensor of batch size
+                for each rank and feature. Shape = (number of
+                features, number of ranks)
+            force_cast_input_types (bool): A flag to force convert
+                input types if set to True
+
+        Returns:
+            A tuple of indices, offsets, per_sample_weights, and VBE
+            metadata
+        """
+
+        # Generate VBE metadata
+        vbe_metadata = self._generate_vbe_metadata(
+            offsets, batch_size_per_feature_per_rank
+        )
+
+        if force_cast_input_types:
+            # Force casting indices and offsets to long
+            (indices, offsets) = indices.long(), offsets.long()
+
+            # Force casting per_sample_weights to float
+            if per_sample_weights is not None:
+                per_sample_weights = per_sample_weights.float()
+
+        assert (
+            indices.dtype == offsets.dtype
+        ), "Indices and offsets must have the same type"
+
+        if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            torch.ops.fbgemm.bounds_check_indices(
+                self.rows_per_table,
+                indices,
+                offsets,
+                self.bounds_check_mode_int,
+                self.bounds_check_warning,
+                per_sample_weights,
+                B_offsets=vbe_metadata.B_offsets,
+                max_B=vbe_metadata.max_B,
+            )
+
+        return indices, offsets, per_sample_weights, vbe_metadata
 
 
 class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
