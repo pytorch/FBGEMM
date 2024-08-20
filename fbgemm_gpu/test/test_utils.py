@@ -44,6 +44,11 @@ running_on_github: Tuple[bool, str] = (
     "Test is currently known to fail or hang when run in the GitHub runners",
 )
 
+running_on_rocm: Tuple[bool, str] = (
+    TEST_WITH_ROCM,
+    "Test currently doesn't work on the ROCm stack",
+)
+
 # Tests with this marker generally fails with `free(): corrupted unsorted chunks`
 # errors when fbgemm_gpu is compiled under Clang
 on_oss_clang: Tuple[bool, str] = (
