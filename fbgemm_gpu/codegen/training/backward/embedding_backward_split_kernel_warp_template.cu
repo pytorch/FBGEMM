@@ -542,7 +542,7 @@ template <
     int32_t kThreadGroupSize,
     bool kUseVecBlocking,
     int32_t embedding_dim,
-    int32_t weight_decay_mode>
+    int32_t weight_decay_mode_v>
 //__global__ __launch_bounds__(kBackwardMaxThreads) void
 __global__ void
 // {%- if is_index_select %}
@@ -599,11 +599,12 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- endif %}
     const int32_t max_D,
     const int32_t max_vecs_per_thread,
-    magic_div_u32_t batch_mdiv, // PR23 extra
-    const int32_t batch, // PR23 extra
-    const int32_t num_rows, // PR23 extra
-    const int32_t num_tables, // PR23 extra (Not needed)
-    {{optimizer}}_kernel_arg_t opt_karg
+    {%- if is_index_select %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const bool permute_output_dim_0_1
+    {%- else %}
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
+    {%- endif %}
 ) {
     {%- if not nobag %}
     int32_t T = D_offsets.size(0) - 1;
@@ -627,14 +628,38 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     constexpr int32_t segment_unroll = 8;   // always 8 in split_bwd.hip
     constexpr int32_t segment_split = 0;    // always 0 in split_bwd.hip
     // avbokovoy: num_rows and num_tables should come from outside
-    // num_rows = dev_weights.numel() / T / max_D;
+    auto batch = grad_output.size(0);
+    auto num_rows = dev_weights.size(0) / T / max_D;
     {%- if weighted %}
     constexpr bool is_weighted = true;
     {%- else %}
     constexpr bool is_weighted = false;
     {%- endif %}
+    {{optimizer}}_kernel_arg_t opt_karg;
+    opt_karg.p_momentum = momentum1_dev.data();
+    opt_karg.eps = eps;
+    opt_karg.learning_rate = learning_rate;
+    // weight_decay(_mode) is supplied as args.split_function_args_no_defaults
+    opt_karg.weight_decay_mode = weight_decay_mode_v;
+    opt_karg.weight_decay = weight_decay;
+    auto batch_mdiv = [](uint32_t d) -> magic_div_u32_t {
+        assert(d >= 1 && d <= INT32_MAX);
+        uint8_t shift;
+        for(shift = 0; shift < 32; shift++)
+            if((1U << shift) >= d)
+                break;
+
+        uint64_t one   = 1;
+        uint64_t magic = ((one << 32) * ((one << shift) - d)) / d + 1;
+        assert(magic <= 0xffffffffUL);
+
+        magic_div_u32_t result;
+        result.magic = magic;
+        result.shift = shift;
+        return result;
+    }(batch);
     split_tbe_backward_hip_kernel_{{kdesc}}<
-        {{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, weight_decay_mode>,
+        {{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, weight_decay_mode_v>,
         {{optimizer}}_kernel_arg_t,
         emb_t,
         cache_t, // cache_t
@@ -738,11 +763,12 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- endif %}
     const int32_t max_D,
     const int32_t max_vecs_per_thread,
-    magic_div_u32_t batch_mdiv, // PR23 extra
-    const int32_t batch, // PR23 extra
-    const int32_t num_rows, // PR23 extra
-    const int32_t num_tables, // PR23 extra
-    {{optimizer}}_kernel_arg_t opt_karg
+    {%- if is_index_select %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const bool permute_output_dim_0_1
+    {%- else %}
+    {{ args.split_kernel_args_no_defaults | replace_pta_namespace() | join(",\n    ") | replace("cache_t", cache_type) }}
+    {%- endif %}
 );
 {%- endmacro %}
 
