@@ -12,8 +12,8 @@
 #include <torch/csrc/api/include/torch/types.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include "fbgemm_gpu/permute_pooled_embedding_function.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 /// @defgroup permute-pooled-embs-gpu Permute Pooled Embeddings Operators (CUDA)
 /// @defgroup permute-pooled-embs-cpu Permute Pooled Embeddings Operators (CPU)

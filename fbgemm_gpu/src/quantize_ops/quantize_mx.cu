@@ -15,8 +15,8 @@
 #include <torch/types.h>
 
 #include "c10/core/ScalarType.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 #include <ATen/core/TensorAccessor.h>
 #include "fbgemm_gpu/utils/tensor_accessor.h"
