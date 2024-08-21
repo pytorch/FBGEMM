@@ -335,6 +335,7 @@ class BackwardSplitGenerator:
             lars_sgd(),
             partial_rowwise_adam(),
             partial_rowwise_lamb(),
+            ensemble_rowwise_adagrad(),
             rowwise_adagrad(),
             approx_rowwise_adagrad(),
             rowwise_adagrad_with_weight_decay(),
