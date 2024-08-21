@@ -24,9 +24,9 @@
 #include <cub/device/device_run_length_encode.cuh>
 
 #include "fbgemm_gpu/intraining_embedding_pruning.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 using namespace torch::indexing;

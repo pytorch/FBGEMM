@@ -34,6 +34,7 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/shared_memory.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
 namespace fbgemm_gpu {
