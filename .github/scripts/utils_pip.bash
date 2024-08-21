@@ -204,11 +204,11 @@ install_from_pytorch_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Install the CPU variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0rc0 cuda/12.1.0   # Install the CUDA 12.1 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/5.3            # Install the ROCM 5.3 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.1.0      # Install the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Install the ROCM 6.1 variant, latest version from nightly channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton 1.11.0                  # Install specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton release                 # Install latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env pytorch_triton test/0.8.0rc0           # Install specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env pytorch_triton test/0.8.0              # Install specific version from test channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton_rocm nightly            # Install latest version from nightly channel"
     return 1
   else
@@ -249,8 +249,8 @@ download_from_pytorch_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Download the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Download the CPU variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0rc0 cuda/12.1.0   # Download the CUDA 12.1 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/5.3            # Download the ROCM 5.3 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.1.0      # Download the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Download the ROCM 6.1 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"
