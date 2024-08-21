@@ -65,7 +65,7 @@ jobs:
         ]
         container-image: [ "ubuntu:20.04" ]
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
-        rocm-version: [ "6.0.2" ]
+        rocm-version: [ "6.1" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -145,7 +145,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.12" ]
-        rocm-version: [ "6.0.2" ]
+        rocm-version: [ "6.1" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
