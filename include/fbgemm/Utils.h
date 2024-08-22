@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <string>
 #include <type_traits>
@@ -415,5 +416,39 @@ FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
 FBGEMM_API bool is_autovec_disabled();
 FBGEMM_API bool is_autovec_forced();
 FBGEMM_API bool is_asmjit_disabled();
+
+/**
+ * @brief A function to check if the input parameter in the nbit CPU TBE kernel
+ * is valid.
+ */
+template <typename OutType>
+void nbit_embedding_sanity_check(
+    // assertions are ignored in release mode, in which case these parameters
+    // will be unused
+    [[maybe_unused]] const int input_bit_rate,
+    [[maybe_unused]] const int output_bit_rate,
+    [[maybe_unused]] const bool no_bag) {
+  assert(
+      (input_bit_rate == 2 || input_bit_rate == 4) &&
+      "input_bit_rate must be 2 or 4");
+  if (std::is_same<OutType, uint8_t>::value) {
+    assert(
+        (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
+        "we currently only support int4 to int4 for sequential TBE");
+  } else {
+    assert(
+        (output_bit_rate == 8 * sizeof(OutType)) &&
+        "output_bit_rate should be equal to 8 * sizeof(OutType)");
+  }
+}
+
+#define WARN_ONCE(...)              \
+  do {                              \
+    static bool _warned = false;    \
+    if (!_warned) {                 \
+      _warned = true;               \
+      fprintf(stderr, __VA_ARGS__); \
+    }                               \
+  } while (0)
 
 } // namespace fbgemm
