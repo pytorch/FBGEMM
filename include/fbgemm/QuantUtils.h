@@ -366,7 +366,8 @@ FBGEMM_API void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
     const uint8_t* input,
     size_t input_rows,
     int input_columns,
-    OutputType* output);
+    OutputType* output,
+    bool scale_bias_last = true);
 
 /**
  * Same as Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf but unoptimized.
