@@ -24,8 +24,8 @@
 #include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
 
+#include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
