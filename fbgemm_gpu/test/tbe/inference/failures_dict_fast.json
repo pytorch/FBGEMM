@@ -247,14 +247,6 @@
     },
     "fbgemm::new_managed_tensor": {},
     "fbgemm::new_unified_tensor": {
-      "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitCacheTest.test_faketensor__test_nbit_cache_update_function": {
-        "comment": "",
-        "status": "xfail"
-      },
       "NBitForwardTest.test_faketensor__test_nbit_forward_gpu_no_cache": {
         "comment": "",
         "status": "xfail"
@@ -264,10 +256,6 @@
         "status": "xfail"
       },
       "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitSplitEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
         "comment": "",
         "status": "xfail"
       }
