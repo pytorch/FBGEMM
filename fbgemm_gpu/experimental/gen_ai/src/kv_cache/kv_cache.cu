@@ -22,8 +22,8 @@
 #endif
 #include <cub/cub.cuh>
 
-#include <fbgemm_gpu/sparse_ops_utils.h>
-#include <fbgemm_gpu/utils/vec_quant.cuh>
+#include "fbgemm_gpu/utils/cuda_block_count.h"
+#include "fbgemm_gpu/utils/vec_quant.cuh"
 
 #include <torch/torch.h>
 
