@@ -15,4 +15,8 @@ using fint32 = union fint32 {
   float F;
 };
 
+inline int64_t div_up(int64_t val, int64_t unit) {
+  return (val + unit - 1) / unit;
+}
+
 } // namespace fbgemm_gpu
