@@ -199,9 +199,9 @@ Functions</h2></td></tr>
 <tr class="memitem:aa4e2948ec5f9097f552de8a0458d49e1" id="r_aa4e2948ec5f9097f552de8a0458d49e1"><td class="memTemplParams" colspan="2">template&lt;typename IndexType , typename OffsetType  = std::int32_t, typename OutType  = float&gt; </td></tr>
 <tr class="memitem:aa4e2948ec5f9097f552de8a0458d49e1"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa4e2948ec5f9097f552de8a0458d49e1">GenerateEmbeddingSpMDMNBit</a> (int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="separator:aa4e2948ec5f9097f552de8a0458d49e1"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abb137866f8726f5c6cbf150ccc7e5b08" id="r_abb137866f8726f5c6cbf150ccc7e5b08"><td class="memTemplParams" colspan="2">template&lt;typename IndexType , typename OffsetType  = std::int32_t, typename OutType  = float, bool THREAD_LOCAL = false&gt; </td></tr>
-<tr class="memitem:abb137866f8726f5c6cbf150ccc7e5b08"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#abb137866f8726f5c6cbf150ccc7e5b08">GenerateEmbeddingSpMDMNBitWithStrides</a> (int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, bool scale_bias_last=true, bool is_bf16_out=false)</td></tr>
-<tr class="separator:abb137866f8726f5c6cbf150ccc7e5b08"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abb324e7decfac14ae817e7200e1a4779" id="r_abb324e7decfac14ae817e7200e1a4779"><td class="memTemplParams" colspan="2">template&lt;typename IndexType , typename OffsetType  = std::int32_t, typename OutType  = float, bool THREAD_LOCAL = false&gt; </td></tr>
+<tr class="memitem:abb324e7decfac14ae817e7200e1a4779"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#abb324e7decfac14ae817e7200e1a4779">GenerateEmbeddingSpMDMNBitWithStrides</a> (const int input_bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, bool scale_bias_last=true, const bool is_bf16_out=false, const bool no_bag=false, int output_bit_rate=-1)</td></tr>
+<tr class="separator:abb324e7decfac14ae817e7200e1a4779"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a57534e5ede9766d50e536437b499894d" id="r_a57534e5ede9766d50e536437b499894d"><td class="memTemplParams" colspan="2">template&lt;typename IndexType , typename OffsetType  = std::int32_t, typename OutType  = float&gt; </td></tr>
 <tr class="memitem:a57534e5ede9766d50e536437b499894d"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a57534e5ede9766d50e536437b499894d">GenerateEmbeddingSpMDMFP8WithStrides</a> (const std::int64_t block_size, bool normalize_by_lengths, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, int exponent_bits=4, int exponent_bias=7, bool is_bf16_out=false)</td></tr>
 <tr class="separator:a57534e5ede9766d50e536437b499894d"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -251,9 +251,9 @@ Functions</h2></td></tr>
 <tr class="memitem:a7cba6dad217715349653862b3e691057" id="r_a7cba6dad217715349653862b3e691057"><td class="memTemplParams" colspan="2">template&lt;typename InputType &gt; </td></tr>
 <tr class="memitem:a7cba6dad217715349653862b3e691057"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a7cba6dad217715349653862b3e691057">FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef</a> (const InputType *input, size_t input_rows, int input_columns, std::uint8_t *output)</td></tr>
 <tr class="separator:a7cba6dad217715349653862b3e691057"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:adee65a9c68614b76ffdf2b3bc11b4618" id="r_adee65a9c68614b76ffdf2b3bc11b4618"><td class="memTemplParams" colspan="2">template&lt;typename OutputType &gt; </td></tr>
-<tr class="memitem:adee65a9c68614b76ffdf2b3bc11b4618"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#adee65a9c68614b76ffdf2b3bc11b4618">FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef</a> (int bit_rate, const uint8_t *input, size_t input_rows, int input_columns, OutputType *output)</td></tr>
-<tr class="separator:adee65a9c68614b76ffdf2b3bc11b4618"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a514c18488451bcb6633be67c36a924d7" id="r_a514c18488451bcb6633be67c36a924d7"><td class="memTemplParams" colspan="2">template&lt;typename OutputType &gt; </td></tr>
+<tr class="memitem:a514c18488451bcb6633be67c36a924d7"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a514c18488451bcb6633be67c36a924d7">FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef</a> (int bit_rate, const uint8_t *input, size_t input_rows, int input_columns, OutputType *output, bool scale_bias_last=true)</td></tr>
+<tr class="separator:a514c18488451bcb6633be67c36a924d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a19217d3a8551a7b251ecb1eba79669bc" id="r_a19217d3a8551a7b251ecb1eba79669bc"><td class="memTemplParams" colspan="2">template&lt;typename OutputType &gt; </td></tr>
 <tr class="memitem:a19217d3a8551a7b251ecb1eba79669bc"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a19217d3a8551a7b251ecb1eba79669bc">Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef</a> (const uint8_t *input, size_t input_rows, int input_columns, OutputType *output)</td></tr>
 <tr class="separator:a19217d3a8551a7b251ecb1eba79669bc"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -1688,8 +1688,8 @@ template&lt;typename OutputType &gt; </div>
 
 </div>
 </div>
-<a id="adee65a9c68614b76ffdf2b3bc11b4618" name="adee65a9c68614b76ffdf2b3bc11b4618"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#adee65a9c68614b76ffdf2b3bc11b4618">&#9670;&#160;</a></span>FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef()</h2>
+<a id="a514c18488451bcb6633be67c36a924d7" name="a514c18488451bcb6633be67c36a924d7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a514c18488451bcb6633be67c36a924d7">&#9670;&#160;</a></span>FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1719,7 +1719,12 @@ template&lt;typename OutputType &gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">OutputType *</td>          <td class="paramname"><span class="paramname"><em>output</em></span>&#160;)</td>
+          <td class="paramtype">OutputType *</td>          <td class="paramname"><span class="paramname"><em>output</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>scale_bias_last</em><span class="paramdefsep"> = </span><span class="paramdefval">true</span></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -2057,8 +2062,8 @@ template&lt;typename IndexType , typename OffsetType  = std::int32_t&gt; </div>
 
 </div>
 </div>
-<a id="abb137866f8726f5c6cbf150ccc7e5b08" name="abb137866f8726f5c6cbf150ccc7e5b08"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abb137866f8726f5c6cbf150ccc7e5b08">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMNBitWithStrides()</h2>
+<a id="abb324e7decfac14ae817e7200e1a4779" name="abb324e7decfac14ae817e7200e1a4779"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abb324e7decfac14ae817e7200e1a4779">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMNBitWithStrides()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -2068,7 +2073,7 @@ template&lt;typename IndexType , typename OffsetType  = std::int32_t, typename O
         <tr>
           <td class="memname">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type GenerateEmbeddingSpMDMNBitWithStrides </td>
           <td>(</td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em>, </span></td>
+          <td class="paramtype">const int</td>          <td class="paramname"><span class="paramname"><em>input_bit_rate</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -2118,7 +2123,17 @@ template&lt;typename IndexType , typename OffsetType  = std::int32_t, typename O
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_out</em><span class="paramdefsep"> = </span><span class="paramdefval">false</span></span>&#160;)</td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_out</em><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>no_bag</em><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>output_bit_rate</em><span class="paramdefsep"> = </span><span class="paramdefval">-1</span></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

@@ -893,6 +893,25 @@ accuracy.</p>
 <dd></dd></dl>
 
 <dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv437fusednbitrowwise_sbfront_to_float_cpuRK6TensorK7int64_t">
+<span id="_CPPv337fusednbitrowwise_sbfront_to_float_cpuRK6TensorK7int64_t"></span><span id="_CPPv237fusednbitrowwise_sbfront_to_float_cpuRK6TensorK7int64_t"></span><span id="fusednbitrowwise_sbfront_to_float_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga211b61807b27bbdc041036557246c0ce"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fusednbitrowwise_sbfront_to_float_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv437fusednbitrowwise_sbfront_to_float_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Dequantize int4/int2 rows with scale and bias stored in the front into float32. </p>
+<p>
+Dequantize int4/int2 rows with scale and bias stored in the front into float32. The input tensor should have torch.quint4x2 or torch.quint2x4 dtype and QuantizedCPU backend. This operator is only recommended for testing purpose because its kernel is reference implementation and not optimized. </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>input</strong> – Tensor of int4/int2 rows with scale and bias stored in the front. </p></li>
+<li><p><strong>bit_rate</strong> – Bit rate of each element. Should be 4 or 2. </p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Tensor of float32, holding dequantized numbers.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t">
 <span id="_CPPv328fusednbitrowwise_to_half_cpuRK6TensorK7int64_t"></span><span id="_CPPv228fusednbitrowwise_to_half_cpuRK6TensorK7int64_t"></span><span id="fusednbitrowwise_to_half_cpu__TensorCR.int64_tC"></span><span class="target" id="group__quantize-data-cpu_1ga1c32bf52a02928dbc573b4ac67065788"></span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">fusednbitrowwise_to_half_cpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">bit_rate</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv428fusednbitrowwise_to_half_cpuRK6TensorK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>

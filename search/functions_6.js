@@ -41,7 +41,8 @@ var searchData=
   ['floattofloat8_5fref_38',['FloatToFloat8_ref',['../namespacefbgemm.html#a32a45639603e1584965b471846fd067f',1,'fbgemm']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalf_39',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a42aefaaf238d065625a64a757f998eef',1,'fbgemm']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalfref_40',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a19217d3a8551a7b251ecb1eba79669bc',1,'fbgemm']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalf_41',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a2b2ca55a7d2d5c2dbba337ee2e585f6a',1,'fbgemm']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_42',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#adee65a9c68614b76ffdf2b3bc11b4618',1,'fbgemm']]],
-  ['fusedquantizedequantize_43',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
+  ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_41',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga211b61807b27bbdc041036557246c0ce',1,'fbgemm_gpu']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalf_42',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a2b2ca55a7d2d5c2dbba337ee2e585f6a',1,'fbgemm']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_43',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a514c18488451bcb6633be67c36a924d7',1,'fbgemm']]],
+  ['fusedquantizedequantize_44',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
 ];

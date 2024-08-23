@@ -71,11 +71,52 @@ $(function() {
 </div>
 
 <div class="header">
+  <div class="summary">
+<a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">Quantize Data CPU Operators</div></div>
 </div><!--header-->
 <div class="contents">
+<table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
+Functions</h2></td></tr>
+<tr class="memitem:ga211b61807b27bbdc041036557246c0ce" id="r_ga211b61807b27bbdc041036557246c0ce"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga211b61807b27bbdc041036557246c0ce">fusednbitrowwise_sbfront_to_float_cpu</a> (const Tensor &amp;input, const int64_t bit_rate)</td></tr>
+<tr class="separator:ga211b61807b27bbdc041036557246c0ce"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <p>The following are CPU Operators </p>
+<h2 class="groupheader">Function Documentation</h2>
+<a id="ga211b61807b27bbdc041036557246c0ce" name="ga211b61807b27bbdc041036557246c0ce"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga211b61807b27bbdc041036557246c0ce">&#9670;&#160;</a></span>fusednbitrowwise_sbfront_to_float_cpu()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor fusednbitrowwise_sbfront_to_float_cpu </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Dequantize int4/int2 rows with scale and bias stored in the front into float32. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">input</td><td>Tensor of int4/int2 rows with scale and bias stored in the front. </td></tr>
+    <tr><td class="paramname">bit_rate</td><td>Bit rate of each element. Should be 4 or 2. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>Tensor of float32, holding dequantized numbers.</dd></dl>
+<p>Dequantize int4/int2 rows with scale and bias stored in the front into float32. The input tensor should have torch.quint4x2 or torch.quint2x4 dtype and QuantizedCPU backend. This operator is only recommended for testing purpose because its kernel is reference implementation and not optimized. </p>
+
+</div>
+</div>
 </div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
