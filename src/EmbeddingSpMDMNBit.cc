@@ -1022,7 +1022,7 @@ template <
 typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDMNBitWithStrides(
-        int bit_rate,
+        const int input_bit_rate,
         const int64_t block_size,
         bool has_weight,
         bool normalize_by_lengths,
@@ -1032,8 +1032,20 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         int64_t output_stride /*=-1*/,
         int64_t input_stride /*=-1*/,
         bool scale_bias_last /*=true*/,
-        bool is_bf16_out) {
-  assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
+        const bool is_bf16_out /*=false*/,
+        const bool no_bag /*=false*/,
+        int output_bit_rate /*=-1*/) {
+  if (output_bit_rate == -1) {
+    output_bit_rate = input_bit_rate;
+  }
+  assert(
+      (input_bit_rate == 2 || input_bit_rate == 4) &&
+      "input_bit_rate must be 2 or 4");
+  if (std::is_same<outType, uint8_t>::value) {
+    assert(
+        (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
+        "we currently only support int4 to int4 when using sequential TBE");
+  }
 
   if (!cpuinfo_initialize()) {
     throw runtime_error("Failed to initialize cpuinfo!");
@@ -1042,10 +1054,74 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     output_stride = block_size;
   }
   if (input_stride == -1) {
-    int64_t num_elem_per_byte = 8 / bit_rate;
+    int64_t num_elem_per_byte = 8 / input_bit_rate;
     input_stride =
         ceil_div(block_size, num_elem_per_byte) + 2 * sizeof(uint16_t);
   }
+  if (no_bag) {
+    if (!is_autovec_disabled()) {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const uint8_t* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return EmbeddingSpMDMNBit_autovec(
+            input_bit_rate,
+            block_size,
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            normalize_by_lengths,
+            out,
+            is_weight_positional,
+            use_offsets,
+            output_stride,
+            input_stride,
+            scale_bias_last,
+            is_bf16_out,
+            no_bag,
+            output_bit_rate);
+      };
+    } else {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const uint8_t* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return EmbeddingSpMDMNBit_ref(
+            input_bit_rate,
+            block_size,
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            normalize_by_lengths,
+            out,
+            is_weight_positional,
+            use_offsets,
+            output_stride,
+            input_stride,
+            scale_bias_last,
+            is_bf16_out,
+            no_bag,
+            output_bit_rate);
+      };
+    }
+  }
+
   if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
     static GenEmbeddingSpMDMNBitLookup<
         indxType,
@@ -1056,7 +1132,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         THREAD_LOCAL>
         kernel_generator;
     const auto original_func = kernel_generator.getOrCreate(
-        bit_rate,
+        input_bit_rate,
         block_size,
         has_weight,
         is_weight_positional,
@@ -1096,7 +1172,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         THREAD_LOCAL>
         kernel_generator;
     const auto original_func = kernel_generator.getOrCreate(
-        bit_rate,
+        input_bit_rate,
         block_size,
         has_weight,
         is_weight_positional,
@@ -1139,7 +1215,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
                const float* weights,
                outType* out) {
       return EmbeddingSpMDMNBit_autovec(
-          bit_rate,
+          input_bit_rate,
           block_size,
           output_size,
           index_size,
@@ -1171,7 +1247,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
                const float* weights,
                outType* out) {
       return EmbeddingSpMDMNBit_ref(
-          bit_rate,
+          input_bit_rate,
           block_size,
           output_size,
           index_size,
@@ -1364,7 +1440,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       OFFSET_TYPE,                                            \
       OUT_TYPE,                                               \
       THREAD_LOCAL>(                                          \
-      int bit_rate,                                           \
+      const int input_bit_rate,                               \
       const int64_t block_size,                               \
       bool has_weight,                                        \
       bool normalize_by_lengths,                              \
@@ -1374,7 +1450,9 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       int64_t output_stride,                                  \
       int64_t input_stride,                                   \
       bool scale_bias_last,                                   \
-      bool is_bf16_out);
+      const bool is_bf16_out,                                 \
+      const bool no_bag,                                      \
+      int output_bit_rate);
 
 #define INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)        \
@@ -1396,6 +1474,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                   \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)           \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint16_t)        \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)         \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
       uint8_t,                                                             \
       INDEX_TYPE,                                                          \
